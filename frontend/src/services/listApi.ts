@@ -102,3 +102,51 @@ export async function createMasterData(type: string, payload: Record<string, str
     };
   }
 }
+
+export async function updateMasterData(type: string, code: string, payload: Record<string, string>): Promise<ListFetchResult> {
+  return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}`, "PUT", payload);
+}
+
+export async function setMasterDataStatus(type: string, code: string, enabled: boolean): Promise<ListFetchResult> {
+  return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}/status`, "PATCH", {
+    status: enabled ? "启用" : "禁用"
+  });
+}
+
+export async function deleteMasterData(type: string, code: string): Promise<ListFetchResult> {
+  return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}`, "DELETE", {});
+}
+
+async function writeMasterData(url: string, method: string, payload: Record<string, string>): Promise<ListFetchResult> {
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: method === "DELETE" ? undefined : JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        forbidden: response.status === 403,
+        message: response.status === 409 ? "编码已存在，请更换编码。" : "资料保存失败，请检查必填项和状态。",
+        data: null
+      };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      forbidden: false,
+      message: "",
+      data: { page: 1, pageSize: 1, total: 1, rows: [await response.json() as Record<string, unknown>] }
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      forbidden: false,
+      message: "网络异常，资料保存失败。",
+      data: null
+    };
+  }
+}

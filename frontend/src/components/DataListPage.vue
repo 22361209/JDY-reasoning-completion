@@ -48,8 +48,11 @@
 
     <div class="list-toolbar">
       <button class="primary-action" type="button" :disabled="locked" data-testid="list-create" @click="openCreateDialog">新增</button>
+      <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
       <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
-      <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-delete" @click="confirmAction('删除')">删除</button>
+      <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
+      <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
+      <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
       <button type="button">引出</button>
       <button type="button">打印</button>
@@ -166,9 +169,9 @@
       </div>
     </div>
 
-    <div v-if="createDialogOpen" class="modal-mask" data-testid="master-create-dialog">
+    <div v-if="createDialogOpen || editDialogOpen" class="modal-mask" data-testid="master-create-dialog">
       <div class="dialog master-create-dialog">
-        <h3>新增{{ definition.title }}</h3>
+        <h3>{{ editDialogOpen ? "编辑" : "新增" }}{{ definition.title }}</h3>
         <div class="master-create-fields">
           <label v-for="field in createFields" :key="field.name">
             {{ field.label }}
@@ -180,8 +183,8 @@
         </div>
         <p v-if="createError" class="form-error" data-testid="master-create-error">{{ createError }}</p>
         <div class="dialog-actions">
-          <button type="button" @click="createDialogOpen = false">取消</button>
-          <button class="primary-action" type="button" data-testid="master-create-save" @click="submitCreate">保存</button>
+          <button type="button" @click="closeMasterDialog">取消</button>
+          <button class="primary-action" type="button" data-testid="master-create-save" @click="editDialogOpen ? submitEdit() : submitCreate()">保存</button>
         </div>
       </div>
     </div>
@@ -232,7 +235,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { createMasterData, fetchListRows } from "../services/listApi";
+import { createMasterData, deleteMasterData, fetchListRows, setMasterDataStatus, updateMasterData } from "../services/listApi";
 
 interface ListColumn {
   field: string;
@@ -277,6 +280,7 @@ const stateMessage = ref("");
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
 const createDialogOpen = ref(false);
+const editDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
 const pendingAction = ref("");
 const rows = ref<Record<string, unknown>[]>([]);
@@ -284,6 +288,7 @@ const total = ref(0);
 const selectedRows = ref<Record<string, unknown>[]>([]);
 const createForm = reactive<Record<string, string>>({});
 const createError = ref("");
+const editOriginalCode = ref("");
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
@@ -410,6 +415,7 @@ const fallbackDefinition: ListDefinition = {
 };
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
+const isMasterList = computed(() => Boolean(masterDataTypeByListKey[props.listKey]));
 const createFields = computed<CreateField[]>(() => {
   switch (props.listKey) {
     case "product-master-list":
@@ -505,6 +511,7 @@ async function reload() {
     rows.value = response.data.rows;
     total.value = response.data.total;
     listState.value = response.data.rows.length ? "ready" : "empty";
+    tableVersion.value += 1;
   } else {
     rows.value = [];
     total.value = 0;
@@ -526,8 +533,8 @@ function goPage(page: number) {
   reload();
 }
 
-function syncSelected() {
-  selectedRows.value = tableRef.value?.getCheckboxRecords?.() ?? [];
+function syncSelected(event?: { records?: Record<string, unknown>[] }) {
+  selectedRows.value = event?.records ?? tableRef.value?.getCheckboxRecords?.() ?? [];
 }
 
 function checkboxCheckMethod() {
@@ -549,7 +556,29 @@ function openCreateDialog() {
   createFields.value.forEach((field) => {
     createForm[field.name] = field.options?.[0] ?? "";
   });
+  editDialogOpen.value = false;
   createDialogOpen.value = true;
+}
+
+function openEditDialog() {
+  const row = getActionRows()[0];
+  if (!row || !isMasterList.value) {
+    return;
+  }
+  createError.value = "";
+  Object.keys(createForm).forEach((key) => delete createForm[key]);
+  createFields.value.forEach((field) => {
+    createForm[field.name] = String(row[field.name] ?? "");
+  });
+  createForm.status = String(row.status ?? "启用");
+  editOriginalCode.value = String(row.code ?? "");
+  createDialogOpen.value = false;
+  editDialogOpen.value = true;
+}
+
+function closeMasterDialog() {
+  createDialogOpen.value = false;
+  editDialogOpen.value = false;
 }
 
 async function submitCreate() {
@@ -568,6 +597,58 @@ async function submitCreate() {
   }
   createDialogOpen.value = false;
   await reload();
+}
+
+async function submitEdit() {
+  const masterDataType = masterDataTypeByListKey[props.listKey];
+  if (!masterDataType) {
+    return;
+  }
+  if (!createForm.code?.trim() || !createForm.name?.trim()) {
+    createError.value = "编码和名称不能为空。";
+    return;
+  }
+  const result = await updateMasterData(masterDataType, editOriginalCode.value, { ...createForm });
+  if (!result.ok) {
+    createError.value = result.message;
+    return;
+  }
+  editDialogOpen.value = false;
+  await reload();
+}
+
+async function submitMasterStatus(enabled: boolean) {
+  const masterDataType = masterDataTypeByListKey[props.listKey];
+  if (!masterDataType) {
+    return;
+  }
+  for (const row of getActionRows()) {
+    await setMasterDataStatus(masterDataType, String(row.code), enabled);
+  }
+  await reload();
+}
+
+async function submitMasterDelete() {
+  const masterDataType = masterDataTypeByListKey[props.listKey];
+  if (!masterDataType) {
+    return;
+  }
+  for (const row of getActionRows()) {
+    await deleteMasterData(masterDataType, String(row.code));
+  }
+  await reload();
+}
+
+function getActionRows() {
+  const visibleCodes = new Set(rows.value.map((row) => String(row.code ?? "")));
+  const currentSelections = selectedRows.value.filter((row) => visibleCodes.has(String(row.code ?? "")));
+  if (currentSelections.length) {
+    return currentSelections;
+  }
+  if (rows.value.length === 1 && selectedRows.value.length === 1) {
+    return rows.value;
+  }
+  return currentSelections;
 }
 
 function openColumnFilter(column: ListColumn, event: MouseEvent) {
