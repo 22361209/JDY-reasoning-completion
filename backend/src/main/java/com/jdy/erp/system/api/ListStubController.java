@@ -132,10 +132,9 @@ public class ListStubController {
             case "customer-master-list" -> realCustomerRows();
             case "supplier-master-list" -> realSupplierRows();
             case "warehouse-master-list" -> realWarehouseRows();
-            case "purchase-in-list" -> List.of(
-                Map.of("id", "pin1", "billNo", "CGRK-00001", "supplier", "广州钢材供应商", "billDate", "2026-06-23", "status", "已审核", "amount", "12,600.00", "warehouse", "原料仓"),
-                Map.of("id", "pin2", "billNo", "CGRK-00002", "supplier", "佛山电泳加工厂", "billDate", "2026-06-22", "status", "草稿", "amount", "3,200.00", "warehouse", "半成品仓")
-            );
+            case "purchase-order-form-list" -> purchaseOrderRows();
+            case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
+            case "sales-out-list", "sales-out-form-list" -> salesOutRows();
             case "inventory-query-list" -> realInventoryRows();
             default -> salesRows();
         };
@@ -219,6 +218,7 @@ public class ListStubController {
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    CASE WHEN so.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   CASE WHEN so.out_status = 'ALL_OUT' THEN '全部出库' ELSE '未出库' END AS "outStatus",
                    trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(so.owner_name, '') AS owner
             FROM sales_order so
@@ -231,5 +231,55 @@ public class ListStubController {
             Map.of("id", "so3", "billNo", "XSDD-00003", "customer", "东莞备用客户", "billDate", "2026-06-21", "status", "草稿", "amount", "2,460.00", "owner", "销售部")
         ).toList());
         return realRows;
+    }
+
+    private List<Map<String, ?>> purchaseOrderRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT po.id::text AS id,
+                   po.bill_no AS "billNo",
+                   s.name AS supplier,
+                   to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   CASE WHEN po.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   CASE WHEN po.in_status = 'ALL_IN' THEN '全部入库' ELSE '未入库' END AS "inStatus",
+                   trim(to_char(po.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(po.owner_name, '') AS owner
+            FROM purchase_order po
+            JOIN md_supplier s ON s.id = po.supplier_id
+            ORDER BY po.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> purchaseInRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT pi.id::text AS id,
+                   pi.bill_no AS "billNo",
+                   s.name AS supplier,
+                   to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   CASE WHEN pi.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   trim(to_char(pi.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(w.name, '') AS warehouse
+            FROM purchase_in pi
+            JOIN md_supplier s ON s.id = pi.supplier_id
+            LEFT JOIN purchase_in_line l ON l.bill_id = pi.id AND l.line_no = 1
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            ORDER BY pi.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> salesOutRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT so.id::text AS id,
+                   so.bill_no AS "billNo",
+                   c.name AS customer,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   CASE WHEN so.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(w.name, '') AS warehouse
+            FROM sales_out so
+            JOIN md_customer c ON c.id = so.customer_id
+            LEFT JOIN sales_out_line l ON l.bill_id = so.id AND l.line_no = 1
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            ORDER BY so.updated_at DESC
+            """));
     }
 }

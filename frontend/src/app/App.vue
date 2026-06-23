@@ -195,8 +195,8 @@
 
           <div class="action-bar">
             <button class="primary-action" type="button" :disabled="isLockedList">新增</button>
-            <button type="button" :disabled="!isSalesOrderForm" data-testid="save-sales-order" @click="saveCurrentSalesOrder">保存</button>
-            <button type="button" :disabled="!isSalesOrderForm" data-testid="audit-sales-order" @click="auditCurrentSalesOrder">审核</button>
+            <button type="button" :disabled="!isDocumentForm" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
+            <button type="button" :disabled="!isDocumentForm" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
             <button type="button" :disabled="!isSalesOrderForm" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
             <button type="button" :disabled="!isSalesOrderForm" data-testid="export-sales-order" @click="exportCurrentSalesOrder">引出</button>
             <button type="button" :disabled="!isSalesOrderForm" data-testid="print-sales-order" @click="printCurrentSalesOrder">打印</button>
@@ -204,8 +204,9 @@
             <span v-if="formMessage" class="form-message" data-testid="form-message">{{ formMessage }}</span>
           </div>
 
-          <div v-if="isOrderForm" class="form-layout">
+          <div v-if="isDocumentForm" class="form-layout">
             <section class="form-head-fields">
+              <label v-if="isStockDocumentForm">源订单号<input v-model="currentOrderForm.sourceOrderNo" :data-testid="`${formTestPrefix}-source-order-no`" @input="markActiveDirty" /></label>
               <label>
                 {{ partyLabel }}编码
                 <span class="master-selector">
@@ -339,6 +340,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
+import { auditDocument, saveDocumentDraft, type DocumentType } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, exportSalesOrder, printSalesOrder, saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
@@ -383,6 +385,7 @@ interface OrderLineForm {
 
 interface OrderForm {
   billNo: string;
+  sourceOrderNo?: string;
   partyCode: string;
   billDate: string;
   department: string;
@@ -418,6 +421,28 @@ const purchaseOrderForm = reactive<OrderForm>({
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72 }
   ]
 });
+const purchaseInForm = reactive<OrderForm>({
+  billNo: "CGRK-00001",
+  sourceOrderNo: "CGDD-00001",
+  partyCode: "GYS-001",
+  billDate: "2026-06-23",
+  department: "采购部",
+  ownerName: "本地管理员",
+  lines: [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72 }
+  ]
+});
+const salesOutForm = reactive<OrderForm>({
+  billNo: "XSCK-00001",
+  sourceOrderNo: "XSDD-00001",
+  partyCode: "KH-001",
+  billDate: "2026-06-23",
+  department: "销售部",
+  ownerName: "本地管理员",
+  lines: [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86 }
+  ]
+});
 const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 let selectorRequestSeq = 0;
@@ -429,7 +454,7 @@ const moduleCatalog: ShellModule[] = [
     groups: [
       { title: "销售业务", entries: [
         { id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true },
-        { id: "sales-out-list", label: "销售出库单", module: "销售管理", mode: "list", queryable: true },
+        { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true },
         { id: "sales-return-form", label: "销售退货申请", module: "销售管理", mode: "form" }
       ] },
       { title: "报表查询", entries: [
@@ -444,7 +469,7 @@ const moduleCatalog: ShellModule[] = [
     groups: [
       { title: "采购业务", entries: [
         { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true, dirty: true },
-        { id: "purchase-in-list", label: "采购入库单", module: "采购管理", mode: "list", queryable: true },
+        { id: "purchase-in-form", label: "采购入库单", module: "采购管理", mode: "form", queryable: true, dirty: true },
         { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form" }
       ] },
       { title: "报表查询", entries: [
@@ -568,11 +593,36 @@ const isLockedList = computed(() => {
 });
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
 const isPurchaseOrderForm = computed(() => tabs.activeTab.value.id === "purchase-order-form");
-const isOrderForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value);
-const currentOrderForm = computed(() => isPurchaseOrderForm.value ? purchaseOrderForm : salesOrderForm);
-const formTestPrefix = computed(() => isPurchaseOrderForm.value ? "purchase" : "sales");
-const partyLabel = computed(() => isPurchaseOrderForm.value ? "供应商" : "客户");
-const partyType = computed(() => isPurchaseOrderForm.value ? "supplier" : "customer");
+const isPurchaseInForm = computed(() => tabs.activeTab.value.id === "purchase-in-form");
+const isSalesOutForm = computed(() => tabs.activeTab.value.id === "sales-out-form");
+const isStockDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
+const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value);
+const currentOrderForm = computed(() => {
+  if (isPurchaseOrderForm.value) {
+    return purchaseOrderForm;
+  }
+  if (isPurchaseInForm.value) {
+    return purchaseInForm;
+  }
+  if (isSalesOutForm.value) {
+    return salesOutForm;
+  }
+  return salesOrderForm;
+});
+const formTestPrefix = computed(() => {
+  if (isPurchaseOrderForm.value) {
+    return "purchase";
+  }
+  if (isPurchaseInForm.value) {
+    return "purchase-in";
+  }
+  if (isSalesOutForm.value) {
+    return "sales-out";
+  }
+  return "sales";
+});
+const partyLabel = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "供应商" : "客户");
+const partyType = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "supplier" : "customer");
 const currentOrderAmount = computed(() => (currentOrderForm.value.lines[0].qty * currentOrderForm.value.lines[0].unitPrice).toFixed(2));
 const selectedProduct = computed(() => {
   const product = selectorOptions.value.find((option) => option.code === currentOrderForm.value.lines[0].productCode);
@@ -644,8 +694,46 @@ async function saveCurrentSalesOrder() {
   }
 }
 
+async function saveCurrentDocument() {
+  if (isSalesOrderForm.value) {
+    await saveCurrentSalesOrder();
+    return;
+  }
+  const type = currentDocumentType();
+  if (!type) {
+    return;
+  }
+  formMessage.value = "";
+  const result = await saveDocumentDraft(type, {
+    billNo: currentOrderForm.value.billNo,
+    sourceOrderNo: currentOrderForm.value.sourceOrderNo,
+    partyCode: currentOrderForm.value.partyCode,
+    billDate: currentOrderForm.value.billDate,
+    department: currentOrderForm.value.department,
+    ownerName: currentOrderForm.value.ownerName,
+    lines: currentOrderForm.value.lines.map((line) => ({ ...line }))
+  });
+  formMessage.value = result.ok ? "草稿已保存" : result.message;
+  if (result.ok) {
+    clearActiveDirty();
+  }
+}
+
 async function auditCurrentSalesOrder() {
   const result = await auditSalesOrder(salesOrderForm.billNo);
+  formMessage.value = result.ok ? "审核成功" : result.message;
+}
+
+async function auditCurrentDocument() {
+  if (isSalesOrderForm.value) {
+    await auditCurrentSalesOrder();
+    return;
+  }
+  const type = currentDocumentType();
+  if (!type) {
+    return;
+  }
+  const result = await auditDocument(type, currentOrderForm.value.billNo);
   formMessage.value = result.ok ? "审核成功" : result.message;
 }
 
@@ -675,6 +763,26 @@ function markActiveDirty() {
   if (activeTab && activeTab.kind === "form") {
     activeTab.dirty = true;
   }
+}
+
+function clearActiveDirty() {
+  const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
+  if (activeTab) {
+    activeTab.dirty = false;
+  }
+}
+
+function currentDocumentType(): DocumentType | null {
+  if (isPurchaseOrderForm.value) {
+    return "purchaseOrder";
+  }
+  if (isPurchaseInForm.value) {
+    return "purchaseIn";
+  }
+  if (isSalesOutForm.value) {
+    return "salesOut";
+  }
+  return null;
 }
 
 function handleMasterInput(type: string, keywordValue: string, selectorId: string) {

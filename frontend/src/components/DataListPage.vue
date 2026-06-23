@@ -359,6 +359,22 @@ const definitions: Record<string, ListDefinition> = {
       { field: "customer", title: "客户/对象", width: 220, visible: true },
       { field: "billDate", title: "日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
+      { field: "outStatus", title: "出库状态", width: 110, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "owner", title: "经办人", width: 120, visible: true }
+    ]
+  },
+  "purchase-order-form-list": {
+    title: "采购订单列表",
+    subtitle: "采购订单列表承载供应商、审核状态、入库状态和金额查询。",
+    keywordPlaceholder: "单据编号、供应商、商品",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "inStatus", title: "入库状态", width: 110, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "owner", title: "经办人", width: 120, visible: true }
     ]
@@ -371,6 +387,48 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "purchase-in-form-list": {
+    title: "采购入库单",
+    subtitle: "采购入库单读取真实单据，审核后增加库存。",
+    keywordPlaceholder: "单据编号、供应商、仓库",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "sales-out-list": {
+    title: "销售出库单",
+    subtitle: "销售出库单读取真实单据，审核后减少库存。",
+    keywordPlaceholder: "单据编号、客户、仓库",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "customer", title: "客户", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "sales-out-form-list": {
+    title: "销售出库单",
+    subtitle: "销售出库单读取真实单据，审核后减少库存。",
+    keywordPlaceholder: "单据编号、客户、仓库",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "customer", title: "客户", width: 220, visible: true },
       { field: "billDate", title: "日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
