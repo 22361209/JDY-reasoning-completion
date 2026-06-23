@@ -1,0 +1,11 @@
+{
+  "source": "Manual implementation interpretation after architecture review",
+  "overrides": {
+    "F063": {
+      "decision": "later",
+      "targetVersion": "第二版",
+      "approval": "要（实施后置）",
+      "note": "用户审批为要；但第一版不做出库成本核算、生产成本核算，库存流水金额字段留空，无可信成本口径，先不做可计算版本。"
+    }
+  }
+}

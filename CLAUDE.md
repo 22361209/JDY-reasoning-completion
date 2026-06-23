@@ -1,0 +1,47 @@
+# CLAUDE.md — JDY 推理补完（实现层）
+
+本仓库是 `JDY-复刻-local`（/Users/linzhenyue/Projects/JDY-复刻-local）的**落地实现**。
+规格（做什么/长什么样/怎么交互/95%验收）以 `复刻-local/02_复刻规划` + `01_金蝶调研/截图` 为准，本仓库不复述，只指向。
+
+## 铁律（不可违反）
+
+1. **规格不复述**：页面/组件/交互/文案/像素以 复刻-local 为准；本仓库只管实现层。
+2. **只缓存登录态**：库存/可用量/单据列表/审核状态/应收应付/资金/报表一律不缓存，直查数据库。
+3. **库存双写**：`inv_stock_txn` 流水 + `inv_stock_balance` 余额，同一事务写入；扣减用行级约束（`qty_available >= :qty`）+ 乐观锁 `version`，不靠前端提示。
+4. **审核才动账**：单据保存只产生草稿；审核才扣/补库存、生成应收应付。第一版**单人单级直接审核**，状态机 `草稿→已审核→已反审核`，不耦合审批流引擎。反审核必须查下游单据。
+5. **不跨模块改表**：模块间走应用服务或领域事件；业务规则放 application/domain，不写在 Controller 或前端。
+6. **前台95%/后台可桩**：成本核算、期末关账、网络控制、打印落地等深水区，第一版先做界面/交互/状态/扩展点，真实写入后置。
+7. **第一版不上微服务、不上 MQ**：模块化单体 + outbox 本地事件；前端必须产品化，不用后台管理页冒充。
+
+详见 `docs/06`（数据一致性）、`docs/04`（ADR）、`docs/07`（模块契约）。
+
+## 开工协议（廉价起步，省 token）
+
+每个任务自包含，**只读这几样，不要重读全部 docs**：
+
+1. `docs/09-交接清单.md`（当前快照）
+2. 目标入口的 复刻-local 截图 + 对应 B 批次组件规格（`复刻-local/02_复刻规划/首版页面实现批次与组件复用矩阵-1880收口版.md`）
+3. 本任务相关代码文件
+
+- 范围以 `config/approved-feature-scope.json` + `config/implementation-overrides.json` 为准，别擅自扩范围。
+- 验收 = 业务逻辑门禁（`docs/11`）+ 对照截图的视觉相似度。
+- 收尾覆盖更新 `docs/09` 快照。
+
+## 注意（生成产物会回滚，别手改）
+
+生成链：`xlsx → export-approved-scope.mjs → config + docs/01/02/03 → build-app-data.mjs / generate-frontend-scope.mjs`
+
+| 文件 | 由谁生成 | 规则 |
+| --- | --- | --- |
+| `outputs/.../JDY复刻功能审批表.xlsx` | `build-jdy-feature-approval.mjs` | ⚠️ **绝不要重跑此脚本**。它只生成「空白审批模板」，会抹掉用户手填的「你的审批」列并静默改范围。脚本已加防覆盖闸（FORCE_REGEN=1 才覆盖）。该脚本视为退役。 |
+| `config/approved-feature-scope.json` | `export-approved-scope.mjs`（只读 xlsx 原始审批） | 生成物，别手改；它是原始审批快照，不应用 overrides |
+| `docs/01 / 02 / 03` | `export-approved-scope.mjs`（读 xlsx + implementation-overrides） | 生成物，改要改脚本模板/overrides 再 `node export-approved-scope.mjs` |
+| `app/feature-data.js` | `build-app-data.mjs` | 生成物，别手改 |
+| `frontend/src/app/featureScope.ts` | `generate-frontend-scope.mjs` | ⚠️ 在 frontend 源码树里但是**生成物**，开工后别手改，改 overrides 再重跑 |
+
+- 范围的实施例外（如某功能后置）走 `config/implementation-overrides.json`，然后按顺序重跑：
+  1. `node export-approved-scope.mjs`（更新 `docs/01/02/03`）
+  2. `node generate-frontend-scope.mjs`（更新正式前端 `frontend/src/app/featureScope.ts`）
+  3. 可选：`node build-app-data.mjs`（更新退役中的静态范围工作台 `app/feature-data.js`）
+- 绝不重跑 `build-jdy-feature-approval.mjs`，除非明确要用 `FORCE_REGEN=1` 重建空白审批模板。
+- 手维护安全文件：`docs/00/04/05/06/07/08/09/10/11`、`README.md`、`CLAUDE.md`、`config/implementation-overrides.json`、四个 `.mjs` 脚本本身。

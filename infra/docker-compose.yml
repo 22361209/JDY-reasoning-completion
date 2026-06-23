@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: jdy-erp-postgres
+    environment:
+      POSTGRES_DB: jdy_erp
+      POSTGRES_USER: jdy
+      POSTGRES_PASSWORD: jdy_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - jdy_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jdy -d jdy_erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: jdy-erp-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jdy_postgres_data:

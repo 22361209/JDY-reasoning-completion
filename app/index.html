@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JDY 推理补完 ERP</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%2310243a'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-family='Arial' font-size='34' font-weight='700' fill='white'%3EJ%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">J</div>
+          <div>
+            <div class="brand-title">JDY 推理补完</div>
+            <div class="brand-subtitle">ERP 复刻工作台</div>
+          </div>
+        </div>
+        <nav id="moduleNav" class="module-nav" aria-label="模块导航"></nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input id="globalSearch" type="search" placeholder="搜索功能、模块、单据" />
+          </div>
+          <div class="top-actions">
+            <button id="showBuildQueue" class="ghost-button" type="button">实施队列</button>
+            <button id="showScope" class="primary-button" type="button">审批范围</button>
+          </div>
+        </header>
+
+        <section class="tabs" id="tabs" aria-label="打开页签"></section>
+
+        <section class="content">
+          <div class="module-head">
+            <div>
+              <h1 id="pageTitle">审批范围</h1>
+              <p id="pageSubtitle">按你填好的 Excel 审批结果生成，不再追求金蝶全量功能。</p>
+            </div>
+            <div class="status-strip">
+              <span><strong id="buildCount">0</strong> 要做</span>
+              <span><strong id="simpleCount">0</strong> 简单版</span>
+              <span><strong id="laterCount">0</strong> 后置</span>
+            </div>
+          </div>
+
+          <div id="contentArea"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./feature-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
