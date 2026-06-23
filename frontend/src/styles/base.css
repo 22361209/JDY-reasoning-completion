@@ -966,6 +966,55 @@ input:disabled {
   padding: 0 8px;
 }
 
+.master-selector {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.master-selector__menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 2px);
+  left: 0;
+  width: min(320px, 42vw);
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #c7d2df;
+  box-shadow: 0 8px 18px rgba(35, 48, 63, 0.14);
+  background: #ffffff;
+}
+
+.master-selector__menu button {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid #edf1f6;
+  background: #ffffff;
+  color: #293846;
+  text-align: left;
+  padding: 5px 8px;
+}
+
+.master-selector__menu button:hover {
+  background: #edf4ff;
+}
+
+.master-selector__menu strong,
+.master-selector__menu span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-selector.in-cell .master-selector__menu {
+  width: 300px;
+}
+
 .entry-table {
   overflow: auto;
   background: #ffffff;

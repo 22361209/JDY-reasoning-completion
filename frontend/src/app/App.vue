@@ -204,12 +204,33 @@
             <span v-if="formMessage" class="form-message" data-testid="form-message">{{ formMessage }}</span>
           </div>
 
-          <div v-if="tabs.activeTab.value.kind === 'form'" class="form-layout">
+          <div v-if="isOrderForm" class="form-layout">
             <section class="form-head-fields">
-              <label>客户编码<input v-model="salesOrderForm.customerCode" data-testid="sales-customer-code" /></label>
-              <label>业务日期<input v-model="salesOrderForm.billDate" data-testid="sales-bill-date" /></label>
-              <label>单据编号<input v-model="salesOrderForm.billNo" data-testid="sales-bill-no" /></label>
-              <label>部门<input v-model="salesOrderForm.department" data-testid="sales-department" /></label>
+              <label>
+                {{ partyLabel }}编码
+                <span class="master-selector">
+                  <input
+                    v-model="currentOrderForm.partyCode"
+                    :data-testid="`${formTestPrefix}-party-code`"
+                    @focus="searchMasterOptions(partyType, currentOrderForm.partyCode, `${formTestPrefix}-party`)"
+                    @input="handleMasterInput(partyType, currentOrderForm.partyCode, `${formTestPrefix}-party`)"
+                  />
+                  <span v-if="activeSelector === `${formTestPrefix}-party`" class="master-selector__menu">
+                    <button
+                      v-for="option in selectorOptions"
+                      :key="option.code"
+                      type="button"
+                      @mousedown.prevent="selectPartyOption(option)"
+                    >
+                      <strong>{{ option.code }}</strong>
+                      <span>{{ option.name }}</span>
+                    </button>
+                  </span>
+                </span>
+              </label>
+              <label>业务日期<input v-model="currentOrderForm.billDate" :data-testid="`${formTestPrefix}-bill-date`" @input="markActiveDirty" /></label>
+              <label>单据编号<input v-model="currentOrderForm.billNo" :data-testid="`${formTestPrefix}-bill-no`" @input="markActiveDirty" /></label>
+              <label>部门<input v-model="currentOrderForm.department" :data-testid="`${formTestPrefix}-department`" @input="markActiveDirty" /></label>
             </section>
             <div class="entry-table">
               <table>
@@ -226,13 +247,53 @@
                 </thead>
                 <tbody>
                   <tr>
-                    <td><input v-model="salesOrderForm.lines[0].productCode" data-testid="sales-line-product" /></td>
-                    <td>控制臂总成</td>
-                    <td>左前 / 黑色</td>
-                    <td><input v-model="salesOrderForm.lines[0].warehouseCode" data-testid="sales-line-warehouse" /></td>
-                    <td><input v-model.number="salesOrderForm.lines[0].qty" data-testid="sales-line-qty" /></td>
-                    <td><input v-model.number="salesOrderForm.lines[0].unitPrice" data-testid="sales-line-price" /></td>
-                    <td>{{ salesOrderAmount }}</td>
+                    <td>
+                      <span class="master-selector in-cell">
+                        <input
+                          v-model="currentOrderForm.lines[0].productCode"
+                          :data-testid="`${formTestPrefix}-line-product`"
+                          @focus="searchMasterOptions('product', currentOrderForm.lines[0].productCode, `${formTestPrefix}-product`)"
+                          @input="handleMasterInput('product', currentOrderForm.lines[0].productCode, `${formTestPrefix}-product`)"
+                        />
+                        <span v-if="activeSelector === `${formTestPrefix}-product`" class="master-selector__menu">
+                          <button
+                            v-for="option in selectorOptions"
+                            :key="option.code"
+                            type="button"
+                            @mousedown.prevent="selectLineProduct(option)"
+                          >
+                            <strong>{{ option.code }}</strong>
+                            <span>{{ option.name }}</span>
+                          </button>
+                        </span>
+                      </span>
+                    </td>
+                    <td>{{ selectedProduct.name }}</td>
+                    <td>{{ selectedProduct.spec }}</td>
+                    <td>
+                      <span class="master-selector in-cell">
+                        <input
+                          v-model="currentOrderForm.lines[0].warehouseCode"
+                          :data-testid="`${formTestPrefix}-line-warehouse`"
+                          @focus="searchMasterOptions('warehouse', currentOrderForm.lines[0].warehouseCode, `${formTestPrefix}-warehouse`)"
+                          @input="handleMasterInput('warehouse', currentOrderForm.lines[0].warehouseCode, `${formTestPrefix}-warehouse`)"
+                        />
+                        <span v-if="activeSelector === `${formTestPrefix}-warehouse`" class="master-selector__menu">
+                          <button
+                            v-for="option in selectorOptions"
+                            :key="option.code"
+                            type="button"
+                            @mousedown.prevent="selectWarehouseOption(option)"
+                          >
+                            <strong>{{ option.code }}</strong>
+                            <span>{{ option.name }}</span>
+                          </button>
+                        </span>
+                      </span>
+                    </td>
+                    <td><input v-model.number="currentOrderForm.lines[0].qty" :data-testid="`${formTestPrefix}-line-qty`" @input="markActiveDirty" /></td>
+                    <td><input v-model.number="currentOrderForm.lines[0].unitPrice" :data-testid="`${formTestPrefix}-line-price`" @input="markActiveDirty" /></td>
+                    <td>{{ currentOrderAmount }}</td>
                   </tr>
                   <tr>
                     <td colspan="7" class="add-line">+ 增加明细行</td>
@@ -241,6 +302,7 @@
               </table>
             </div>
           </div>
+          <div v-else class="empty-shell">该表单正在等待本批次接入，先保留统一工作区和页签行为。</div>
 
         </div>
       </section>
@@ -277,6 +339,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
+import { fetchListRows } from "../services/listApi";
 import { saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
@@ -304,6 +367,29 @@ interface ShellModule {
   groups: EntryGroup[];
 }
 
+interface MasterOption {
+  code: string;
+  name: string;
+  spec?: string;
+  unit?: string;
+}
+
+interface OrderLineForm {
+  productCode: string;
+  warehouseCode: string;
+  qty: number;
+  unitPrice: number;
+}
+
+interface OrderForm {
+  billNo: string;
+  partyCode: string;
+  billDate: string;
+  department: string;
+  ownerName: string;
+  lines: OrderLineForm[];
+}
+
 const session = useSessionStore();
 const tabs = useTabStore();
 const preferences = usePreferenceStore();
@@ -312,9 +398,9 @@ const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
 const formMessage = ref("");
-const salesOrderForm = reactive({
+const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
-  customerCode: "KH-001",
+  partyCode: "KH-001",
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
@@ -322,6 +408,19 @@ const salesOrderForm = reactive({
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86 }
   ]
 });
+const purchaseOrderForm = reactive<OrderForm>({
+  billNo: "CGDD-00001",
+  partyCode: "GYS-001",
+  billDate: "2026-06-23",
+  department: "采购部",
+  ownerName: "本地管理员",
+  lines: [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72 }
+  ]
+});
+const activeSelector = ref("");
+const selectorOptions = ref<MasterOption[]>([]);
+let selectorRequestSeq = 0;
 
 const moduleCatalog: ShellModule[] = [
   {
@@ -344,7 +443,7 @@ const moduleCatalog: ShellModule[] = [
     short: "采",
     groups: [
       { title: "采购业务", entries: [
-        { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true },
+        { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true, dirty: true },
         { id: "purchase-in-list", label: "采购入库单", module: "采购管理", mode: "list", queryable: true },
         { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form" }
       ] },
@@ -468,7 +567,23 @@ const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
-const salesOrderAmount = computed(() => (salesOrderForm.lines[0].qty * salesOrderForm.lines[0].unitPrice).toFixed(2));
+const isPurchaseOrderForm = computed(() => tabs.activeTab.value.id === "purchase-order-form");
+const isOrderForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value);
+const currentOrderForm = computed(() => isPurchaseOrderForm.value ? purchaseOrderForm : salesOrderForm);
+const formTestPrefix = computed(() => isPurchaseOrderForm.value ? "purchase" : "sales");
+const partyLabel = computed(() => isPurchaseOrderForm.value ? "供应商" : "客户");
+const partyType = computed(() => isPurchaseOrderForm.value ? "supplier" : "customer");
+const currentOrderAmount = computed(() => (currentOrderForm.value.lines[0].qty * currentOrderForm.value.lines[0].unitPrice).toFixed(2));
+const selectedProduct = computed(() => {
+  const product = selectorOptions.value.find((option) => option.code === currentOrderForm.value.lines[0].productCode);
+  if (product) {
+    return { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "" };
+  }
+  if (currentOrderForm.value.lines[0].productCode === "CP-001") {
+    return { name: "控制臂总成", spec: "左前 / 黑色", unit: "只" };
+  }
+  return { name: "", spec: "", unit: "" };
+});
 
 onMounted(async () => {
   const remoteSession = await fetchSystemSession();
@@ -513,7 +628,11 @@ function closeNavigation() {
 async function saveCurrentSalesOrder() {
   formMessage.value = "";
   const result = await saveSalesOrderDraft({
-    ...salesOrderForm,
+    billNo: salesOrderForm.billNo,
+    customerCode: salesOrderForm.partyCode,
+    billDate: salesOrderForm.billDate,
+    department: salesOrderForm.department,
+    ownerName: salesOrderForm.ownerName,
     lines: salesOrderForm.lines.map((line) => ({ ...line }))
   });
   formMessage.value = result.ok ? "草稿已保存" : result.message;
@@ -523,5 +642,67 @@ async function saveCurrentSalesOrder() {
       activeTab.dirty = false;
     }
   }
+}
+
+function markActiveDirty() {
+  const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
+  if (activeTab && activeTab.kind === "form") {
+    activeTab.dirty = true;
+  }
+}
+
+function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
+  markActiveDirty();
+  void searchMasterOptions(type, keywordValue, selectorId);
+}
+
+async function searchMasterOptions(type: string, keywordValue: string, selectorId: string) {
+  activeSelector.value = selectorId;
+  selectorOptions.value = [];
+  const requestSeq = selectorRequestSeq + 1;
+  selectorRequestSeq = requestSeq;
+  const listKeyByType: Record<string, string> = {
+    customer: "customer-master-list",
+    supplier: "supplier-master-list",
+    product: "product-master-list",
+    warehouse: "warehouse-master-list"
+  };
+  const result = await fetchListRows(listKeyByType[type], {
+    keyword: keywordValue,
+    status: "",
+    page: 1,
+    pageSize: 20
+  });
+  if (requestSeq !== selectorRequestSeq || activeSelector.value !== selectorId) {
+    return;
+  }
+  if (!result.ok || !result.data) {
+    selectorOptions.value = [];
+    return;
+  }
+  selectorOptions.value = result.data.rows.map((row) => ({
+    code: String(row.code ?? ""),
+    name: String(row.name ?? ""),
+    spec: row.spec ? String(row.spec) : "",
+    unit: row.unit ? String(row.unit) : ""
+  }));
+}
+
+function selectPartyOption(option: MasterOption) {
+  currentOrderForm.value.partyCode = option.code;
+  activeSelector.value = "";
+  markActiveDirty();
+}
+
+function selectWarehouseOption(option: MasterOption) {
+  currentOrderForm.value.lines[0].warehouseCode = option.code;
+  activeSelector.value = "";
+  markActiveDirty();
+}
+
+function selectLineProduct(option: MasterOption) {
+  currentOrderForm.value.lines[0].productCode = option.code;
+  activeSelector.value = "";
+  markActiveDirty();
 }
 </script>
