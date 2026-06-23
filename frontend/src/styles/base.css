@@ -661,6 +661,7 @@ input:disabled {
 }
 
 .vxe-wrap {
+  position: relative;
   background: #ffffff;
   border: 1px solid #d4dde8;
   border-top: 0;
@@ -859,6 +860,32 @@ input:disabled {
   background: #2f7cf6;
   border-color: #2f7cf6;
   color: #ffffff;
+}
+
+.list-state-panel {
+  min-height: 138px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border-top: 1px solid #e1e7ee;
+  color: #607082;
+  background: #ffffff;
+  text-align: center;
+}
+
+.list-state-panel strong {
+  color: #293846;
+  font-size: 15px;
+}
+
+.list-state-panel button {
+  height: 28px;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #293846;
+  padding: 0 12px;
 }
 
 .dirty-tip {

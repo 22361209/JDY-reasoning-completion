@@ -1,18 +1,29 @@
 package com.jdy.erp.system.api;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/lists")
 public class ListStubController {
+    private final ObjectMapper objectMapper;
+
+    public ListStubController(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @GetMapping("/{listKey}")
     public Map<String, Object> rows(
@@ -20,18 +31,96 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String keyword,
         @RequestParam(defaultValue = "") String status,
         @RequestParam(defaultValue = "1") int page,
-        @RequestParam(defaultValue = "20") int pageSize
+        @RequestParam(defaultValue = "200") int pageSize,
+        @RequestParam(defaultValue = "") String sortField,
+        @RequestParam(defaultValue = "asc") String sortOrder,
+        @RequestParam(defaultValue = "") String columnFilters
     ) {
-        var rows = seedRows(listKey).stream()
+        if ("permission-denied-list".equals(listKey)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No permission for this list");
+        }
+        if ("error-list".equals(listKey)) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Stub error for list state");
+        }
+
+        var filters = parseColumnFilters(columnFilters);
+        var rows = expandRowsForLargePage(seedRows(listKey), pageSize).stream()
             .filter(row -> keyword.isBlank() || row.values().stream().anyMatch(value -> String.valueOf(value).contains(keyword)))
             .filter(row -> status.isBlank() || status.equals(row.get("status")))
+            .filter(row -> matchesColumnFilters(row, filters))
             .toList();
+        if (!sortField.isBlank()) {
+            rows = rows.stream()
+                .sorted(comparator(sortField, sortOrder))
+                .toList();
+        }
         return Map.of(
             "page", page,
             "pageSize", pageSize,
+            "sortField", sortField,
+            "sortOrder", sortOrder,
             "total", rows.size(),
             "rows", rows.stream().skip((long) (page - 1) * pageSize).limit(pageSize).toList()
         );
+    }
+
+    private Map<String, Map<String, String>> parseColumnFilters(String columnFilters) {
+        if (columnFilters == null || columnFilters.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(columnFilters, new TypeReference<>() {});
+        } catch (Exception ignored) {
+            return Map.of();
+        }
+    }
+
+    private boolean matchesColumnFilters(Map<String, ?> row, Map<String, Map<String, String>> filters) {
+        return filters.entrySet().stream().allMatch(entry -> {
+            var filter = entry.getValue();
+            var operator = filter.getOrDefault("operator", "包含");
+            var value = filter.getOrDefault("value", "");
+            var rawValue = row.get(entry.getKey());
+            var cellValue = String.valueOf(rawValue == null ? "" : rawValue);
+            return switch (operator) {
+                case "不包含" -> !cellValue.contains(value);
+                case "等于" -> cellValue.equals(value);
+                case "不等于" -> !cellValue.equals(value);
+                case "以……开始" -> cellValue.startsWith(value);
+                case "以……结束" -> cellValue.endsWith(value);
+                case "为空" -> cellValue.isBlank();
+                case "不为空" -> !cellValue.isBlank();
+                default -> cellValue.contains(value);
+            };
+        });
+    }
+
+    private Comparator<Map<String, ?>> comparator(String sortField, String sortOrder) {
+        var comparator = Comparator.comparing((Map<String, ?> row) -> {
+            var rawValue = row.get(sortField);
+            return String.valueOf(rawValue == null ? "" : rawValue);
+        });
+        return "desc".equalsIgnoreCase(sortOrder) ? comparator.reversed() : comparator;
+    }
+
+    private List<Map<String, ?>> expandRowsForLargePage(List<Map<String, ?>> seedRows, int pageSize) {
+        if (pageSize < 1000 || seedRows.isEmpty()) {
+            return seedRows;
+        }
+        var rows = new ArrayList<Map<String, ?>>();
+        for (int index = 0; index < 1200; index += 1) {
+            var source = seedRows.get(index % seedRows.size());
+            var row = new java.util.LinkedHashMap<String, Object>(source);
+            row.put("id", source.get("id") + "-" + index);
+            if (row.containsKey("billNo")) {
+                row.put("billNo", String.format("XSDD-%05d", index + 1));
+            }
+            if (row.containsKey("code")) {
+                row.put("code", String.format("%s-%04d", source.get("code"), index + 1));
+            }
+            rows.add(row);
+        }
+        return rows;
     }
 
     private List<Map<String, ?>> seedRows(String listKey) {

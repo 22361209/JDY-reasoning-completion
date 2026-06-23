@@ -74,6 +74,7 @@
         :checkbox-config="{ checkMethod: checkboxCheckMethod }"
         @checkbox-change="syncSelected"
         @checkbox-all="syncSelected"
+        @resizable-change="handleColumnResize"
       >
         <vxe-column type="checkbox" width="42" fixed="left" />
         <vxe-column
@@ -118,6 +119,19 @@
           </template>
         </vxe-column>
       </vxe-table>
+      <div v-if="!loading && listState === 'empty'" class="list-state-panel" data-testid="list-empty-state">
+        <strong>暂无数据</strong>
+        <span>当前查询条件下没有匹配记录。</span>
+      </div>
+      <div v-if="!loading && listState === 'forbidden'" class="list-state-panel" data-testid="list-forbidden-state">
+        <strong>无权查看</strong>
+        <span>{{ stateMessage }}</span>
+      </div>
+      <div v-if="!loading && listState === 'error'" class="list-state-panel" data-testid="list-error-state">
+        <strong>加载失败</strong>
+        <span>{{ stateMessage }}</span>
+        <button type="button" @click="reload">重试</button>
+      </div>
     </div>
 
     <footer class="list-pagination">
@@ -146,8 +160,8 @@
           </div>
         </div>
         <div class="dialog-actions">
-          <button type="button" @click="resetColumns">恢复默认</button>
-          <button class="primary-action" type="button" data-testid="column-settings-ok" @click="columnDialogOpen = false">确定</button>
+          <button type="button" @click="resetColumnsToDefault">恢复默认</button>
+          <button class="primary-action" type="button" data-testid="column-settings-ok" @click="closeColumnSettings">确定</button>
         </div>
       </div>
     </div>
@@ -231,6 +245,8 @@ const props = defineProps<{
 const tableRef = ref();
 const tableVersion = ref(0);
 const loading = ref(false);
+const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
+const stateMessage = ref("");
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
@@ -348,35 +364,7 @@ const fallbackDefinition: ListDefinition = {
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
 const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
-const displayedRows = computed(() => {
-  return rows.value.filter((row) => {
-    return Object.entries(columnFilters).every(([field, filter]) => {
-      if (!filter.value && !["为空", "不为空"].includes(filter.operator)) {
-        return true;
-      }
-      const cellValue = String(row[field] ?? "");
-      const filterValue = filter.value;
-      switch (filter.operator) {
-        case "不包含":
-          return !cellValue.includes(filterValue);
-        case "等于":
-          return cellValue === filterValue;
-        case "不等于":
-          return cellValue !== filterValue;
-        case "以……开始":
-          return cellValue.startsWith(filterValue);
-        case "以……结束":
-          return cellValue.endsWith(filterValue);
-        case "为空":
-          return cellValue === "";
-        case "不为空":
-          return cellValue !== "";
-        default:
-          return cellValue.includes(filterValue);
-      }
-    });
-  });
-});
+const displayedRows = computed(() => rows.value);
 
 watch(() => props.listKey, () => {
   resetColumns();
@@ -393,20 +381,48 @@ onBeforeUnmount(() => {
 });
 
 function resetColumns() {
-  columns.value = definition.value.columns.map((column) => ({ ...column }));
+  const defaults = definition.value.columns.map((column) => ({ ...column }));
+  const saved = loadColumnPreferences();
+  if (!saved.length) {
+    columns.value = defaults;
+    return;
+  }
+  const defaultByField = new Map(defaults.map((column) => [column.field, column]));
+  const restored: ListColumn[] = [];
+  saved.forEach((savedColumn) => {
+    const current = defaultByField.get(savedColumn.field);
+    if (!current) {
+      return;
+    }
+    restored.push({
+      ...current,
+      width: savedColumn.width ?? current.width,
+      fixed: savedColumn.fixed ?? "",
+      visible: savedColumn.visible
+    });
+  });
+  const restoredFields = new Set(restored.map((column) => column.field));
+  columns.value = [
+    ...restored,
+    ...defaults.filter((column) => !restoredFields.has(column.field))
+  ];
 }
 
 async function reload() {
   loading.value = true;
+  listState.value = "ready";
+  stateMessage.value = "";
   selectedRows.value = [];
-  Object.keys(columnFilters).forEach((field) => delete columnFilters[field]);
-  const response = await fetchListRows(props.listKey, query);
-  if (response) {
-    rows.value = response.rows;
-    total.value = response.total;
+  const response = await fetchListRows(props.listKey, { ...query, columnFilters });
+  if (response.ok && response.data) {
+    rows.value = response.data.rows;
+    total.value = response.data.total;
+    listState.value = response.data.rows.length ? "ready" : "empty";
   } else {
     rows.value = [];
     total.value = 0;
+    listState.value = response.forbidden ? "forbidden" : "error";
+    stateMessage.value = response.message;
   }
   loading.value = false;
 }
@@ -459,6 +475,8 @@ function applyColumnFilter() {
     delete columnFilters[activeFilterColumn.value.field];
   }
   filterDialogOpen.value = false;
+  query.page = 1;
+  reload();
 }
 
 function clearColumnFilter() {
@@ -467,6 +485,8 @@ function clearColumnFilter() {
   }
   activeFilterValue.value = "";
   filterDialogOpen.value = false;
+  query.page = 1;
+  reload();
 }
 
 function startColumnMouseDrag(column: ListColumn, event: MouseEvent) {
@@ -512,6 +532,7 @@ function finishColumnMouseDrag() {
   nextColumns.splice(targetIndex, 0, sourceColumn);
   columns.value = nextColumns;
   tableVersion.value += 1;
+  saveColumnPreferences();
   finishColumnDrag();
 }
 
@@ -519,5 +540,51 @@ function finishColumnDrag() {
   window.removeEventListener("mousemove", trackColumnMouseDrag);
   draggingColumnField.value = "";
   dragOverColumnField.value = "";
+}
+
+function handleColumnResize(event: { column?: { field?: string }, resizeWidth?: number }) {
+  const field = event.column?.field;
+  if (!field || !event.resizeWidth) {
+    return;
+  }
+  const target = columns.value.find((column) => column.field === field);
+  if (target) {
+    target.width = event.resizeWidth;
+    saveColumnPreferences();
+  }
+}
+
+function closeColumnSettings() {
+  saveColumnPreferences();
+  columnDialogOpen.value = false;
+}
+
+function resetColumnsToDefault() {
+  localStorage.removeItem(columnPreferenceKey());
+  columns.value = definition.value.columns.map((column) => ({ ...column }));
+  tableVersion.value += 1;
+}
+
+function columnPreferenceKey() {
+  return `jdy:list-columns:${props.listKey}`;
+}
+
+function loadColumnPreferences(): ListColumn[] {
+  try {
+    const raw = localStorage.getItem(columnPreferenceKey());
+    return raw ? JSON.parse(raw) as ListColumn[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveColumnPreferences() {
+  const preference = columns.value.map((column) => ({
+    field: column.field,
+    width: column.width,
+    fixed: column.fixed ?? "",
+    visible: column.visible
+  }));
+  localStorage.setItem(columnPreferenceKey(), JSON.stringify(preference));
 }
 </script>
