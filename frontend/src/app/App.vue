@@ -19,7 +19,7 @@
         </button>
       </aside>
 
-      <section class="module-panel" data-testid="module-panel" :aria-hidden="!modulePanelOpen">
+      <section v-show="modulePanelOpen" class="module-panel" data-testid="module-panel" :aria-hidden="!modulePanelOpen">
         <div class="module-panel__header">
           <div>
             <div class="panel-kicker">功能导航</div>
