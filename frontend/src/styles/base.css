@@ -713,11 +713,14 @@ input:disabled {
 
 .column-header-cell {
   width: 100%;
+  min-height: 32px;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
   cursor: move;
+  margin: -6px -8px;
+  padding: 6px 8px;
 }
 
 .column-header-title {
