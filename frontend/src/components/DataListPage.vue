@@ -47,7 +47,7 @@
     </div>
 
     <div class="list-toolbar">
-      <button class="primary-action" type="button" :disabled="locked">新增</button>
+      <button class="primary-action" type="button" :disabled="locked" data-testid="list-create" @click="openCreateDialog">新增</button>
       <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-delete" @click="confirmAction('删除')">删除</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
@@ -166,6 +166,26 @@
       </div>
     </div>
 
+    <div v-if="createDialogOpen" class="modal-mask" data-testid="master-create-dialog">
+      <div class="dialog master-create-dialog">
+        <h3>新增{{ definition.title }}</h3>
+        <div class="master-create-fields">
+          <label v-for="field in createFields" :key="field.name">
+            {{ field.label }}
+            <select v-if="field.options" v-model="createForm[field.name]">
+              <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+            </select>
+            <input v-else v-model="createForm[field.name]" :placeholder="field.placeholder" />
+          </label>
+        </div>
+        <p v-if="createError" class="form-error" data-testid="master-create-error">{{ createError }}</p>
+        <div class="dialog-actions">
+          <button type="button" @click="createDialogOpen = false">取消</button>
+          <button class="primary-action" type="button" data-testid="master-create-save" @click="submitCreate">保存</button>
+        </div>
+      </div>
+    </div>
+
     <div
       v-if="filterDialogOpen && activeFilterColumn"
       class="column-filter-popover"
@@ -212,7 +232,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { fetchListRows } from "../services/listApi";
+import { createMasterData, fetchListRows } from "../services/listApi";
 
 interface ListColumn {
   field: string;
@@ -237,6 +257,13 @@ interface ColumnFilter {
   value: string;
 }
 
+interface CreateField {
+  name: string;
+  label: string;
+  placeholder?: string;
+  options?: string[];
+}
+
 const props = defineProps<{
   listKey: string;
   locked?: boolean;
@@ -249,11 +276,14 @@ const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
 const stateMessage = ref("");
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
+const createDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
 const pendingAction = ref("");
 const rows = ref<Record<string, unknown>[]>([]);
 const total = ref(0);
 const selectedRows = ref<Record<string, unknown>[]>([]);
+const createForm = reactive<Record<string, string>>({});
+const createError = ref("");
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
@@ -264,6 +294,12 @@ const draggingColumnField = ref("");
 const dragOverColumnField = ref("");
 const query = reactive({ keyword: "", status: "", page: 1, pageSize: 200 });
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
+const masterDataTypeByListKey: Record<string, string> = {
+  "product-master-list": "product",
+  "customer-master-list": "customer",
+  "supplier-master-list": "supplier",
+  "warehouse-master-list": "warehouse"
+};
 
 const definitions: Record<string, ListDefinition> = {
   "product-master-list": {
@@ -350,6 +386,18 @@ const definitions: Record<string, ListDefinition> = {
       { field: "available", title: "可用量", width: 110, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
+  },
+  "warehouse-master-list": {
+    title: "仓库",
+    subtitle: "仓库资料展示编码、名称、库存策略和启用状态。",
+    keywordPlaceholder: "仓库编码、仓库名称",
+    statuses: ["启用", "禁用"],
+    columns: [
+      { field: "code", title: "仓库编码", width: 140, fixed: "left", visible: true },
+      { field: "name", title: "仓库名称", width: 220, visible: true },
+      { field: "stockPolicy", title: "库存策略", width: 150, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
   }
 };
 
@@ -362,6 +410,45 @@ const fallbackDefinition: ListDefinition = {
 };
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
+const createFields = computed<CreateField[]>(() => {
+  switch (props.listKey) {
+    case "product-master-list":
+      return [
+        { name: "code", label: "商品编码", placeholder: "如 CP-200" },
+        { name: "name", label: "商品名称", placeholder: "如 前摆臂总成" },
+        { name: "spec", label: "规格型号", placeholder: "规格/颜色/位置" },
+        { name: "category", label: "商品类别", placeholder: "成品总成/零配件" },
+        { name: "unit", label: "单位", placeholder: "只/件" },
+        { name: "status", label: "状态", options: ["启用", "禁用"] }
+      ];
+    case "customer-master-list":
+      return [
+        { name: "code", label: "客户编码", placeholder: "如 KH-010" },
+        { name: "name", label: "客户名称", placeholder: "客户名称" },
+        { name: "contact", label: "联系人", placeholder: "联系人" },
+        { name: "phone", label: "电话", placeholder: "联系电话" },
+        { name: "region", label: "地区", placeholder: "省市" },
+        { name: "status", label: "状态", options: ["启用", "禁用"] }
+      ];
+    case "supplier-master-list":
+      return [
+        { name: "code", label: "供应商编码", placeholder: "如 GYS-010" },
+        { name: "name", label: "供应商名称", placeholder: "供应商名称" },
+        { name: "contact", label: "联系人", placeholder: "联系人" },
+        { name: "phone", label: "电话", placeholder: "联系电话" },
+        { name: "status", label: "状态", options: ["启用", "禁用"] }
+      ];
+    case "warehouse-master-list":
+      return [
+        { name: "code", label: "仓库编码", placeholder: "如 CK-010" },
+        { name: "name", label: "仓库名称", placeholder: "仓库名称" },
+        { name: "stockPolicy", label: "库存策略", options: ["不允许负库存", "允许负库存"] },
+        { name: "status", label: "状态", options: ["启用", "禁用"] }
+      ];
+    default:
+      return [];
+  }
+});
 const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
 const displayedRows = computed(() => rows.value);
@@ -449,6 +536,38 @@ function checkboxCheckMethod() {
 
 function confirmAction(action: string) {
   pendingAction.value = action;
+}
+
+function openCreateDialog() {
+  const masterDataType = masterDataTypeByListKey[props.listKey];
+  if (!masterDataType) {
+    pendingAction.value = "新增";
+    return;
+  }
+  createError.value = "";
+  Object.keys(createForm).forEach((key) => delete createForm[key]);
+  createFields.value.forEach((field) => {
+    createForm[field.name] = field.options?.[0] ?? "";
+  });
+  createDialogOpen.value = true;
+}
+
+async function submitCreate() {
+  const masterDataType = masterDataTypeByListKey[props.listKey];
+  if (!masterDataType) {
+    return;
+  }
+  if (!createForm.code?.trim() || !createForm.name?.trim()) {
+    createError.value = "编码和名称不能为空。";
+    return;
+  }
+  const result = await createMasterData(masterDataType, { ...createForm });
+  if (!result.ok) {
+    createError.value = result.message;
+    return;
+  }
+  createDialogOpen.value = false;
+  await reload();
 }
 
 function openColumnFilter(column: ListColumn, event: MouseEvent) {

@@ -770,6 +770,41 @@ input:disabled {
   width: 460px;
 }
 
+.master-create-dialog {
+  width: 560px;
+}
+
+.master-create-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+
+.master-create-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: #5b6b7a;
+  font-size: 12px;
+}
+
+.master-create-fields input,
+.master-create-fields select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 0 8px;
+}
+
+.form-error {
+  margin: 0 0 10px;
+  color: #b44b37;
+  font-size: 13px;
+}
+
 .column-setting-list {
   max-height: 320px;
   overflow: auto;

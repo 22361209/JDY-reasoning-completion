@@ -8,21 +8,24 @@ import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/lists")
 public class ListStubController {
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbcTemplate;
 
-    public ListStubController(ObjectMapper objectMapper) {
+    public ListStubController(ObjectMapper objectMapper, JdbcTemplate jdbcTemplate) {
         this.objectMapper = objectMapper;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping("/{listKey}")
@@ -125,31 +128,88 @@ public class ListStubController {
 
     private List<Map<String, ?>> seedRows(String listKey) {
         return switch (listKey) {
-            case "product-master-list" -> List.of(
-                Map.of("id", "p1", "code", "CP-001", "name", "控制臂总成", "spec", "左前 / 黑色", "category", "成品总成", "unit", "只", "status", "启用", "updatedAt", "2026-06-23 10:20"),
-                Map.of("id", "p2", "code", "PJ-014", "name", "衬套", "spec", "65mm / 加强", "category", "零配件", "unit", "件", "status", "启用", "updatedAt", "2026-06-22 15:40"),
-                Map.of("id", "p3", "code", "CP-118", "name", "后摆臂总成", "spec", "右后 / 银色", "category", "成品总成", "unit", "只", "status", "禁用", "updatedAt", "2026-06-20 09:12")
-            );
-            case "customer-master-list" -> List.of(
-                Map.of("id", "c1", "code", "KH-001", "name", "广州测试客户", "contact", "陈经理", "phone", "13800000001", "region", "广东广州", "status", "启用"),
-                Map.of("id", "c2", "code", "KH-002", "name", "佛山测试客户", "contact", "李主管", "phone", "13800000002", "region", "广东佛山", "status", "启用"),
-                Map.of("id", "c3", "code", "KH-009", "name", "东莞备用客户", "contact", "周工", "phone", "13800000009", "region", "广东东莞", "status", "禁用")
-            );
-            case "supplier-master-list" -> List.of(
-                Map.of("id", "s1", "code", "GYS-001", "name", "广州钢材供应商", "contact", "王经理", "phone", "13900000001", "status", "启用"),
-                Map.of("id", "s2", "code", "GYS-002", "name", "佛山电泳加工厂", "contact", "赵主管", "phone", "13900000002", "status", "启用")
-            );
+            case "product-master-list" -> realProductRows();
+            case "customer-master-list" -> realCustomerRows();
+            case "supplier-master-list" -> realSupplierRows();
+            case "warehouse-master-list" -> realWarehouseRows();
             case "purchase-in-list" -> List.of(
                 Map.of("id", "pin1", "billNo", "CGRK-00001", "supplier", "广州钢材供应商", "billDate", "2026-06-23", "status", "已审核", "amount", "12,600.00", "warehouse", "原料仓"),
                 Map.of("id", "pin2", "billNo", "CGRK-00002", "supplier", "佛山电泳加工厂", "billDate", "2026-06-22", "status", "草稿", "amount", "3,200.00", "warehouse", "半成品仓")
             );
-            case "inventory-query-list" -> List.of(
-                Map.of("id", "inv1", "code", "CP-001", "name", "控制臂总成", "spec", "左前 / 黑色", "warehouse", "成品仓", "onHand", "1,280", "available", "1,120", "status", "正常"),
-                Map.of("id", "inv2", "code", "PJ-014", "name", "衬套", "spec", "65mm / 加强", "warehouse", "原料仓", "onHand", "320", "available", "280", "status", "正常"),
-                Map.of("id", "inv3", "code", "CP-118", "name", "后摆臂总成", "spec", "右后 / 银色", "warehouse", "成品仓", "onHand", "18", "available", "12", "status", "低库存")
-            );
+            case "inventory-query-list" -> realInventoryRows();
             default -> salesRows();
         };
+    }
+
+    private List<Map<String, ?>> realProductRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   COALESCE(spec, '') AS spec,
+                   category,
+                   unit,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_product
+            ORDER BY code
+            """));
+    }
+
+    private List<Map<String, ?>> realCustomerRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   COALESCE(contact, '') AS contact,
+                   COALESCE(phone, '') AS phone,
+                   COALESCE(region, '') AS region,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
+            FROM md_customer
+            ORDER BY code
+            """));
+    }
+
+    private List<Map<String, ?>> realSupplierRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   COALESCE(contact, '') AS contact,
+                   COALESCE(phone, '') AS phone,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
+            FROM md_supplier
+            ORDER BY code
+            """));
+    }
+
+    private List<Map<String, ?>> realWarehouseRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   CASE WHEN allow_negative_stock THEN '允许负库存' ELSE '不允许负库存' END AS stockPolicy,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
+            FROM md_warehouse
+            ORDER BY code
+            """));
+    }
+
+    private List<Map<String, ?>> realInventoryRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT b.id::text AS id,
+                   p.code,
+                   p.name,
+                   COALESCE(p.spec, '') AS spec,
+                   w.name AS warehouse,
+                   trim(to_char(b.qty_on_hand, 'FM9999999990.####')) AS "onHand",
+                   trim(to_char(b.qty_available, 'FM9999999990.####')) AS available,
+                   CASE WHEN b.qty_available <= 20 THEN '低库存' ELSE '正常' END AS status
+            FROM inv_stock_balance b
+            JOIN md_product p ON p.id = b.product_id
+            JOIN md_warehouse w ON w.id = b.warehouse_id
+            ORDER BY p.code, w.code
+            """));
     }
 
     private List<Map<String, ?>> salesRows() {

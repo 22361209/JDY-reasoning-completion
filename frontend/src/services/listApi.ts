@@ -68,3 +68,37 @@ export async function fetchListRows(listKey: string, query: ListQuery): Promise<
     };
   }
 }
+
+export async function createMasterData(type: string, payload: Record<string, string>): Promise<ListFetchResult> {
+  try {
+    const response = await fetch(`/api/master-data/${encodeURIComponent(type)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        forbidden: response.status === 403,
+        message: response.status === 409 ? "编码已存在，请更换编码。" : "新增资料失败，请检查必填项。",
+        data: null
+      };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      forbidden: false,
+      message: "",
+      data: { page: 1, pageSize: 1, total: 1, rows: [await response.json() as Record<string, unknown>] }
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      forbidden: false,
+      message: "网络异常，新增资料失败。",
+      data: null
+    };
+  }
+}
