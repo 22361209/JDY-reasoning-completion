@@ -7,6 +7,9 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -77,6 +80,34 @@ public class SalesOrderController {
         return order;
     }
 
+    @PostMapping("/{billNo}/audit")
+    public Map<String, Object> audit(@PathVariable String billNo) {
+        return updateStatus(billNo, "AUDITED");
+    }
+
+    @DeleteMapping("/{billNo}")
+    public Map<String, Object> delete(@PathVariable String billNo) {
+        var deleted = jdbcTemplate.queryForList("""
+            DELETE FROM sales_order
+            WHERE bill_no = ?
+            RETURNING id::text AS id, bill_no AS "billNo"
+            """, billNo);
+        if (deleted.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售订单不存在");
+        }
+        return deleted.get(0);
+    }
+
+    @GetMapping("/{billNo}/export")
+    public Map<String, Object> export(@PathVariable String billNo) {
+        return orderPayload(billNo, "EXPORT");
+    }
+
+    @GetMapping("/{billNo}/print")
+    public Map<String, Object> print(@PathVariable String billNo) {
+        return orderPayload(billNo, "PRINT");
+    }
+
     private String lookupId(String table, String code, String label) {
         var value = required(code, label + "编码");
         var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ? AND enabled = TRUE", value);
@@ -84,6 +115,55 @@ public class SalesOrderController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在或已禁用");
         }
         return String.valueOf(rows.get(0).get("id"));
+    }
+
+    private Map<String, Object> updateStatus(String billNo, String status) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE sales_order
+            SET status = ?, updated_at = now(), version = version + 1
+            WHERE bill_no = ?
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """, status, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售订单不存在");
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> orderPayload(String billNo, String action) {
+        var orderRows = jdbcTemplate.queryForList("""
+            SELECT so.id::text AS id,
+                   so.bill_no AS "billNo",
+                   c.name AS customer,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   so.department,
+                   so.status,
+                   so.total_amount AS "totalAmount",
+                   so.owner_name AS "ownerName"
+            FROM sales_order so
+            JOIN md_customer c ON c.id = so.customer_id
+            WHERE so.bill_no = ?
+            """, billNo);
+        if (orderRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售订单不存在");
+        }
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.code AS "warehouseCode",
+                   l.qty,
+                   l.unit_price AS "unitPrice",
+                   l.amount
+            FROM sales_order_line l
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN sales_order so ON so.id = l.order_id
+            WHERE so.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        return Map.of("action", action, "order", orderRows.get(0), "lines", lines);
     }
 
     private String required(String value, String label) {

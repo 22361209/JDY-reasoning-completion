@@ -196,10 +196,10 @@
           <div class="action-bar">
             <button class="primary-action" type="button" :disabled="isLockedList">新增</button>
             <button type="button" :disabled="!isSalesOrderForm" data-testid="save-sales-order" @click="saveCurrentSalesOrder">保存</button>
-            <button type="button" :disabled="isLockedList">审核</button>
-            <button type="button" :disabled="isLockedList">删除</button>
-            <button type="button">引出</button>
-            <button type="button">打印</button>
+            <button type="button" :disabled="!isSalesOrderForm" data-testid="audit-sales-order" @click="auditCurrentSalesOrder">审核</button>
+            <button type="button" :disabled="!isSalesOrderForm" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
+            <button type="button" :disabled="!isSalesOrderForm" data-testid="export-sales-order" @click="exportCurrentSalesOrder">引出</button>
+            <button type="button" :disabled="!isSalesOrderForm" data-testid="print-sales-order" @click="printCurrentSalesOrder">打印</button>
             <span v-if="tabs.activeTab.value.dirty" class="dirty-tip">有未保存改动</span>
             <span v-if="formMessage" class="form-message" data-testid="form-message">{{ formMessage }}</span>
           </div>
@@ -340,7 +340,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
 import { fetchListRows } from "../services/listApi";
-import { saveSalesOrderDraft } from "../services/salesOrderApi";
+import { auditSalesOrder, deleteSalesOrder, exportSalesOrder, printSalesOrder, saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -642,6 +642,32 @@ async function saveCurrentSalesOrder() {
       activeTab.dirty = false;
     }
   }
+}
+
+async function auditCurrentSalesOrder() {
+  const result = await auditSalesOrder(salesOrderForm.billNo);
+  formMessage.value = result.ok ? "审核成功" : result.message;
+}
+
+async function deleteCurrentSalesOrder() {
+  const result = await deleteSalesOrder(salesOrderForm.billNo);
+  formMessage.value = result.ok ? "删除成功" : result.message;
+  if (result.ok) {
+    const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
+    if (activeTab) {
+      activeTab.dirty = false;
+    }
+  }
+}
+
+async function exportCurrentSalesOrder() {
+  const result = await exportSalesOrder(salesOrderForm.billNo);
+  formMessage.value = result.ok ? "引出数据已生成" : result.message;
+}
+
+async function printCurrentSalesOrder() {
+  const result = await printSalesOrder(salesOrderForm.billNo);
+  formMessage.value = result.ok ? "打印数据已生成" : result.message;
 }
 
 function markActiveDirty() {
