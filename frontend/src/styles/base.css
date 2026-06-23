@@ -689,6 +689,7 @@ input:disabled {
 .vxe-wrap .vxe-header--column {
   background: #f3f6f9;
   color: #405064;
+  padding-right: 0;
 }
 
 .vxe-wrap .vxe-header--column .vxe-cell {
@@ -697,6 +698,15 @@ input:disabled {
   gap: 4px;
   min-width: 0;
   width: 100%;
+  padding-right: 0 !important;
+}
+
+.vxe-wrap .vxe-header--column .vxe-cell--wrapper,
+.vxe-wrap .vxe-header--column .vxe-cell--title,
+.vxe-wrap .vxe-header--column .vxe-cell--title > span {
+  width: 100%;
+  min-width: 0;
+  display: block;
 }
 
 .vxe-wrap .vxe-resizable {
