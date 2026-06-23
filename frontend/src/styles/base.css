@@ -69,30 +69,24 @@ input:disabled {
 }
 
 .primary-nav__item {
-  height: 54px;
+  min-height: 44px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: inherit;
-  display: grid;
-  grid-template-rows: 22px 18px;
-  justify-items: center;
+  display: flex;
   align-items: center;
-  padding: 6px 2px;
+  justify-content: center;
+  padding: 7px 4px;
 }
 
-.primary-nav__item span:last-child {
+.primary-nav__item span {
   width: 100%;
   overflow: hidden;
-  white-space: nowrap;
+  white-space: normal;
   text-overflow: ellipsis;
   font-size: 12px;
-}
-
-.primary-nav__icon {
-  color: #e9eef4;
-  font-size: 15px;
-  font-weight: 700;
+  line-height: 16px;
 }
 
 .primary-nav__item:hover,
@@ -150,15 +144,6 @@ input:disabled {
   margin-top: 4px;
   font-size: 18px;
   letter-spacing: 0;
-}
-
-.panel-refresh {
-  width: 34px;
-  height: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 4px;
-  background: #303d4c;
-  color: #dce6ee;
 }
 
 .panel-tools {

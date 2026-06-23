@@ -15,7 +15,6 @@
           @focus="selectModule(module.name)"
           @click="selectModule(module.name)"
         >
-          <span class="primary-nav__icon">{{ module.short }}</span>
           <span>{{ module.name }}</span>
         </button>
       </aside>
@@ -27,7 +26,6 @@
             <h1>{{ activeModuleName }}</h1>
           </div>
           <div class="panel-tools">
-            <button class="panel-refresh" type="button" title="刷新">刷</button>
             <button class="panel-close" type="button" title="收起功能导航" @click="modulePanelOpen = false">x</button>
           </div>
         </div>
@@ -199,7 +197,6 @@
             <button class="primary-action" type="button" :disabled="isLockedList">新增</button>
             <button type="button" :disabled="isLockedList">审核</button>
             <button type="button" :disabled="isLockedList">删除</button>
-            <button type="button">刷新</button>
             <button type="button">引出</button>
             <button type="button">打印</button>
             <span v-if="tabs.activeTab.value.dirty" class="dirty-tip">有未保存改动</span>

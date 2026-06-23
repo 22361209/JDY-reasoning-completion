@@ -123,9 +123,9 @@
     <footer class="list-pagination">
       <span>共 {{ total }} 条</span>
       <select v-model.number="query.pageSize" @change="reload">
-        <option :value="20">20条/页</option>
-        <option :value="50">50条/页</option>
-        <option :value="100">100条/页</option>
+        <option :value="200">200条/页</option>
+        <option :value="500">500条/页</option>
+        <option :value="1000">1000条/页</option>
       </select>
       <button type="button" :disabled="query.page === 1" @click="goPage(query.page - 1)">上一页</button>
       <span>第 {{ query.page }} 页</span>
@@ -246,7 +246,7 @@ const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
 const draggingColumnField = ref("");
 const dragOverColumnField = ref("");
-const query = reactive({ keyword: "", status: "", page: 1, pageSize: 20 });
+const query = reactive({ keyword: "", status: "", page: 1, pageSize: 200 });
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 
 const definitions: Record<string, ListDefinition> = {
