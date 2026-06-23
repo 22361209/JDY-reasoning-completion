@@ -195,19 +195,21 @@
 
           <div class="action-bar">
             <button class="primary-action" type="button" :disabled="isLockedList">新增</button>
+            <button type="button" :disabled="!isSalesOrderForm" data-testid="save-sales-order" @click="saveCurrentSalesOrder">保存</button>
             <button type="button" :disabled="isLockedList">审核</button>
             <button type="button" :disabled="isLockedList">删除</button>
             <button type="button">引出</button>
             <button type="button">打印</button>
             <span v-if="tabs.activeTab.value.dirty" class="dirty-tip">有未保存改动</span>
+            <span v-if="formMessage" class="form-message" data-testid="form-message">{{ formMessage }}</span>
           </div>
 
           <div v-if="tabs.activeTab.value.kind === 'form'" class="form-layout">
             <section class="form-head-fields">
-              <label>客户<input value="广州测试客户" /></label>
-              <label>业务日期<input value="2026-06-23" /></label>
-              <label>单据编号<input value="XSDD-00001" /></label>
-              <label>部门<input value="销售部" /></label>
+              <label>客户编码<input v-model="salesOrderForm.customerCode" data-testid="sales-customer-code" /></label>
+              <label>业务日期<input v-model="salesOrderForm.billDate" data-testid="sales-bill-date" /></label>
+              <label>单据编号<input v-model="salesOrderForm.billNo" data-testid="sales-bill-no" /></label>
+              <label>部门<input v-model="salesOrderForm.department" data-testid="sales-department" /></label>
             </section>
             <div class="entry-table">
               <table>
@@ -224,13 +226,13 @@
                 </thead>
                 <tbody>
                   <tr>
-                    <td>CP-001</td>
+                    <td><input v-model="salesOrderForm.lines[0].productCode" data-testid="sales-line-product" /></td>
                     <td>控制臂总成</td>
                     <td>左前 / 黑色</td>
-                    <td>成品仓</td>
-                    <td>20</td>
-                    <td>86.00</td>
-                    <td>1,720.00</td>
+                    <td><input v-model="salesOrderForm.lines[0].warehouseCode" data-testid="sales-line-warehouse" /></td>
+                    <td><input v-model.number="salesOrderForm.lines[0].qty" data-testid="sales-line-qty" /></td>
+                    <td><input v-model.number="salesOrderForm.lines[0].unitPrice" data-testid="sales-line-price" /></td>
+                    <td>{{ salesOrderAmount }}</td>
                   </tr>
                   <tr>
                     <td colspan="7" class="add-line">+ 增加明细行</td>
@@ -272,9 +274,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
+import { saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -308,6 +311,17 @@ const keyword = ref("");
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
+const formMessage = ref("");
+const salesOrderForm = reactive({
+  billNo: "XSDD-00001",
+  customerCode: "KH-001",
+  billDate: "2026-06-23",
+  department: "销售部",
+  ownerName: "本地管理员",
+  lines: [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86 }
+  ]
+});
 
 const moduleCatalog: ShellModule[] = [
   {
@@ -453,6 +467,8 @@ const pageSubtitle = computed(() => {
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
+const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
+const salesOrderAmount = computed(() => (salesOrderForm.lines[0].qty * salesOrderForm.lines[0].unitPrice).toFixed(2));
 
 onMounted(async () => {
   const remoteSession = await fetchSystemSession();
@@ -492,5 +508,20 @@ function openEntry(entry: ShellEntry) {
 function closeNavigation() {
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = 0;
+}
+
+async function saveCurrentSalesOrder() {
+  formMessage.value = "";
+  const result = await saveSalesOrderDraft({
+    ...salesOrderForm,
+    lines: salesOrderForm.lines.map((line) => ({ ...line }))
+  });
+  formMessage.value = result.ok ? "草稿已保存" : result.message;
+  if (result.ok) {
+    const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
+    if (activeTab) {
+      activeTab.dirty = false;
+    }
+  }
 }
 </script>

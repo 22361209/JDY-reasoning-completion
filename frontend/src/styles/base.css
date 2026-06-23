@@ -929,6 +929,12 @@ input:disabled {
   font-size: 12px;
 }
 
+.form-message {
+  margin-left: auto;
+  color: #28734f;
+  font-size: 12px;
+}
+
 .form-layout {
   display: grid;
   gap: 8px;
@@ -980,6 +986,15 @@ td {
   padding: 6px 8px;
   text-align: left;
   white-space: nowrap;
+}
+
+td input {
+  width: 100%;
+  min-width: 72px;
+  height: 26px;
+  border: 1px solid #c7d2df;
+  border-radius: 3px;
+  padding: 0 6px;
 }
 
 th {

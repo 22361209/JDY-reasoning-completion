@@ -213,10 +213,23 @@ public class ListStubController {
     }
 
     private List<Map<String, ?>> salesRows() {
-        return Stream.<Map<String, ?>>of(
+        var realRows = new ArrayList<Map<String, ?>>(jdbcTemplate.queryForList("""
+            SELECT so.id::text AS id,
+                   so.bill_no AS "billNo",
+                   c.name AS customer,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   CASE WHEN so.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(so.owner_name, '') AS owner
+            FROM sales_order so
+            JOIN md_customer c ON c.id = so.customer_id
+            ORDER BY so.updated_at DESC
+            """));
+        realRows.addAll(Stream.<Map<String, ?>>of(
             Map.of("id", "so1", "billNo", "XSDD-00001", "customer", "广州测试客户", "billDate", "2026-06-23", "status", "已审核", "amount", "1,720.00", "owner", "本地管理员"),
             Map.of("id", "so2", "billNo", "XSDD-00002", "customer", "佛山测试客户", "billDate", "2026-06-22", "status", "草稿", "amount", "980.00", "owner", "本地管理员"),
             Map.of("id", "so3", "billNo", "XSDD-00003", "customer", "东莞备用客户", "billDate", "2026-06-21", "status", "草稿", "amount", "2,460.00", "owner", "销售部")
-        ).toList();
+        ).toList());
+        return realRows;
     }
 }
