@@ -8,4 +8,4 @@ backend/target/
 .playwright-cli/
 *.log
 outputs/**/*.inspect.ndjson
-output/playwright/debug-*.png
+verification/playwright/debug-*.png
