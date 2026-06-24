@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +76,7 @@ public class RolePermissionController {
     }
 
     @PutMapping("/roles/{roleCode}/permissions")
+    @RequirePermission("system.role_permission.manage")
     @Transactional
     public Map<String, Object> saveRolePermissions(@PathVariable String roleCode, @RequestBody RolePermissionRequest request) {
         var normalizedRoleCode = roleCode == null ? "" : roleCode.trim();

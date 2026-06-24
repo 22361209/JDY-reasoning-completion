@@ -2,6 +2,7 @@ package com.jdy.erp.masterdata.api;
 
 import java.util.Map;
 
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,6 +28,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/{type}")
+    @RequirePermission("master.data.manage")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> create(@PathVariable String type, @RequestBody Map<String, String> payload) {
         var code = required(payload, "code");
@@ -42,6 +44,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/{type}/{code}")
+    @RequirePermission("master.data.manage")
     public Map<String, Object> update(@PathVariable String type, @PathVariable String code, @RequestBody Map<String, String> payload) {
         var name = required(payload, "name");
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
@@ -55,12 +58,14 @@ public class MasterDataController {
     }
 
     @PatchMapping("/{type}/{code}/status")
+    @RequirePermission("master.data.manage")
     public Map<String, Object> updateStatus(@PathVariable String type, @PathVariable String code, @RequestBody Map<String, String> payload) {
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
         return setEnabled(tableName(type), code, enabled);
     }
 
     @DeleteMapping("/{type}/{code}")
+    @RequirePermission("master.data.manage")
     public Map<String, Object> delete(@PathVariable String type, @PathVariable String code) {
         return setEnabled(tableName(type), code, false);
     }

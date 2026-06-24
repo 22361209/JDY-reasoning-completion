@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
 
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class FinanceSettlementController {
     }
 
     @PostMapping("/receivables/from-sales-order/{billNo}")
+    @RequirePermission("finance.settle")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> createReceivable(@PathVariable String billNo) {
@@ -59,6 +61,7 @@ public class FinanceSettlementController {
     }
 
     @PostMapping("/receivables/{billNo}/receipt")
+    @RequirePermission("finance.settle")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> receive(@PathVariable String billNo, @RequestBody SettlementRequest request) {
@@ -101,6 +104,7 @@ public class FinanceSettlementController {
     }
 
     @PostMapping("/payables/from-purchase-order/{billNo}")
+    @RequirePermission("finance.settle")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> createPayable(@PathVariable String billNo) {
@@ -135,6 +139,7 @@ public class FinanceSettlementController {
     }
 
     @PostMapping("/payables/{billNo}/payment")
+    @RequirePermission("finance.settle")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> pay(@PathVariable String billNo, @RequestBody SettlementRequest request) {

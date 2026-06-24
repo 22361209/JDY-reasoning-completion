@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -160,6 +161,7 @@ public class PurchaseOrderController {
     }
 
     @PostMapping("/{billNo}/audit")
+    @RequirePermission("purchase.order.audit")
     public Map<String, Object> audit(@PathVariable String billNo) {
         var rows = jdbcTemplate.queryForList("""
             UPDATE purchase_order

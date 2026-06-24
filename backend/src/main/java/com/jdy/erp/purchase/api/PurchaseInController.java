@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.inventory.application.InventoryPostingService;
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -124,6 +125,7 @@ public class PurchaseInController {
     }
 
     @PostMapping("/{billNo}/audit")
+    @RequirePermission("purchase.in.audit")
     @Transactional
     public Map<String, Object> audit(@PathVariable String billNo) {
         var rows = jdbcTemplate.queryForList("""
@@ -175,6 +177,7 @@ public class PurchaseInController {
     }
 
     @PostMapping("/{billNo}/reverse")
+    @RequirePermission("purchase.in.audit")
     @Transactional
     public Map<String, Object> reverse(@PathVariable String billNo) {
         var rows = jdbcTemplate.queryForList("""
@@ -221,6 +224,7 @@ public class PurchaseInController {
     }
 
     @PostMapping("/{billNo}/void")
+    @RequirePermission("purchase.in.audit")
     @Transactional
     public Map<String, Object> voidBill(@PathVariable String billNo) {
         var rows = jdbcTemplate.queryForList("""
@@ -237,6 +241,7 @@ public class PurchaseInController {
     }
 
     @PostMapping("/{billNo}/red-reverse")
+    @RequirePermission("purchase.in.audit")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> redReverse(@PathVariable String billNo, @RequestBody RedReverseRequest request) {

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -88,11 +89,13 @@ public class SalesOrderController {
     }
 
     @PostMapping("/{billNo}/audit")
+    @RequirePermission("sales.order.audit")
     public Map<String, Object> audit(@PathVariable String billNo) {
         return updateStatus(billNo, "AUDITED", "DRAFT");
     }
 
     @DeleteMapping("/{billNo}")
+    @RequirePermission("sales.order.audit")
     public Map<String, Object> delete(@PathVariable String billNo) {
         var deleted = jdbcTemplate.queryForList("""
             DELETE FROM sales_order

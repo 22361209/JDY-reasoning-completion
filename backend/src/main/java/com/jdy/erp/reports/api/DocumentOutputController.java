@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -171,6 +172,7 @@ public class DocumentOutputController {
 
     @Transactional
     @PutMapping("/{documentType}/print-template")
+    @RequirePermission("system.print_template.manage")
     public Map<String, Object> savePrintTemplate(@PathVariable String documentType, @RequestBody PrintTemplateRequest request) {
         if (!supportedDocumentTypes().contains(documentType)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据模板");

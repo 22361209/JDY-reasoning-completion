@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.inventory.application.InventoryPostingService;
+import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -121,6 +122,7 @@ public class ProductionController {
     }
 
     @PostMapping("/boms")
+    @RequirePermission("master.data.manage")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> saveBom(@RequestBody BomRequest request) {
@@ -154,6 +156,7 @@ public class ProductionController {
     }
 
     @PostMapping("/tasks")
+    @RequirePermission("production.task.audit")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> createTask(@RequestBody TaskRequest request) {
@@ -190,6 +193,7 @@ public class ProductionController {
     }
 
     @PostMapping("/tasks/{billNo}/issue")
+    @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> issue(@PathVariable String billNo, @RequestBody IssueRequest request) {
@@ -244,6 +248,7 @@ public class ProductionController {
     }
 
     @PostMapping("/material-issues/{billNo}/reverse")
+    @RequirePermission("production.document.audit")
     @Transactional
     public Map<String, Object> reverseIssue(@PathVariable String billNo) {
         var rows = jdbcTemplate.queryForList("""
@@ -261,6 +266,7 @@ public class ProductionController {
     }
 
     @PostMapping("/material-issues/{billNo}/red-reverse")
+    @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> redReverseIssue(@PathVariable String billNo, @RequestBody RedReverseRequest request) {
@@ -285,6 +291,7 @@ public class ProductionController {
     }
 
     @PostMapping("/tasks/{billNo}/complete")
+    @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> complete(@PathVariable String billNo, @RequestBody CompleteRequest request) {
@@ -338,6 +345,7 @@ public class ProductionController {
     }
 
     @PostMapping("/product-ins/{billNo}/reverse")
+    @RequirePermission("production.document.audit")
     @Transactional
     public Map<String, Object> reverseCompletion(@PathVariable String billNo) {
         var rows = jdbcTemplate.queryForList("""
@@ -355,6 +363,7 @@ public class ProductionController {
     }
 
     @PostMapping("/product-ins/{billNo}/red-reverse")
+    @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> redReverseCompletion(@PathVariable String billNo, @RequestBody RedReverseRequest request) {
