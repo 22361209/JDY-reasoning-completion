@@ -60,6 +60,7 @@ public class DocumentOutputController {
     @GetMapping("/{documentType}/{billNo}/print.html")
     public ResponseEntity<String> printHtml(@PathVariable String documentType, @PathVariable String billNo) {
         var payload = payload(documentType, billNo);
+        var template = printTemplate(documentType);
         var html = new StringBuilder("""
             <!doctype html>
             <html lang="zh-CN">
@@ -68,6 +69,8 @@ public class DocumentOutputController {
               <title>PRINT_TITLE</title>
               <style>
                 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; margin: 28px; }
+                .template-head { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 8px; font-size: 12px; color: #4b5563; }
+                .template-head strong { display: block; color: #111827; font-size: 15px; }
                 h1 { font-size: 20px; margin: 0 0 18px; text-align: center; }
                 .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 18px; font-size: 12px; margin-bottom: 16px; }
                 table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -75,10 +78,19 @@ public class DocumentOutputController {
                 th { background: #f3f7fb; }
                 .amount { text-align: right; }
                 .remark { min-width: 150px; white-space: normal; line-height: 1.5; }
+                .signature { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 28px; font-size: 12px; }
+                .signature div { border-top: 1px solid #9ca3af; padding-top: 8px; }
+                .seal { width: 116px; height: 72px; border: 1px dashed #9ca3af; display: grid; place-items: center; color: #6b7280; justify-self: end; }
+                .footer-note { margin-top: 14px; font-size: 11px; color: #6b7280; }
               </style>
             </head>
             <body>
             """.replace("PRINT_TITLE", escapeHtml(title(documentType))));
+        html.append("<section class=\"template-head\">")
+            .append("<div><strong>").append(escapeHtml(template.companyName())).append("</strong>")
+            .append("<span>").append(escapeHtml(template.headerNote())).append("</span></div>")
+            .append("<div>").append(escapeHtml(template.templateName())).append("</div>")
+            .append("</section>");
         html.append("<h1>").append(escapeHtml(title(documentType))).append("</h1>");
         html.append("<section class=\"meta\">")
             .append("<div>单据编号：").append(escapeHtml(String.valueOf(payload.header().get("billNo")))).append("</div>")
@@ -100,20 +112,44 @@ public class DocumentOutputController {
                 .append("<td class=\"remark\">").append(escapeHtml(String.valueOf(line.get("lineRemark")))).append("</td>")
                 .append("</tr>");
         }
-        html.append("</tbody></table></body></html>");
+        html.append("</tbody></table>");
+        if (template.showSignature()) {
+            html.append("<section class=\"signature\"><div>制单：本地管理员</div><div>审核：</div><div>财务：</div><div>仓管：</div></section>");
+        }
+        if (template.showSeal()) {
+            html.append("<section class=\"seal\">公司章</section>");
+        }
+        html.append("<p class=\"footer-note\">").append(escapeHtml(template.footerNote())).append("</p>");
+        html.append("</body></html>");
         return ResponseEntity.ok()
             .contentType(new MediaType("text", "html", StandardCharsets.UTF_8))
             .body(html.toString());
     }
 
+    @GetMapping("/{documentType}/print-template")
+    public Map<String, Object> printTemplateConfig(@PathVariable String documentType) {
+        var template = printTemplate(documentType);
+        return Map.of(
+            "documentType", documentType,
+            "templateCode", template.templateCode(),
+            "templateName", template.templateName(),
+            "companyName", template.companyName(),
+            "headerNote", template.headerNote(),
+            "footerNote", template.footerNote(),
+            "showSignature", template.showSignature(),
+            "showSeal", template.showSeal()
+        );
+    }
+
     @GetMapping("/{documentType}/{billNo}/print.pdf")
     public ResponseEntity<byte[]> printPdf(@PathVariable String documentType, @PathVariable String billNo) {
         var payload = payload(documentType, billNo);
+        var template = printTemplate(documentType);
         var fileName = documentType + "-" + billNo + ".pdf";
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename(fileName, StandardCharsets.UTF_8).build().toString())
             .contentType(MediaType.APPLICATION_PDF)
-            .body(renderPdf(title(documentType), payload));
+            .body(renderPdf(title(documentType), payload, template));
     }
 
     private DocumentPayload payload(String documentType, String billNo) {
@@ -266,29 +302,81 @@ public class DocumentOutputController {
             .replace("\"", "&quot;");
     }
 
-    private byte[] renderPdf(String title, DocumentPayload payload) {
+    private PrintTemplate printTemplate(String documentType) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT template_code AS "templateCode",
+                   template_name AS "templateName",
+                   company_name AS "companyName",
+                   header_note AS "headerNote",
+                   footer_note AS "footerNote",
+                   show_signature AS "showSignature",
+                   show_seal AS "showSeal"
+            FROM sys_print_template
+            WHERE document_type = ?
+              AND enabled = TRUE
+            ORDER BY is_default DESC, updated_at DESC
+            LIMIT 1
+            """, documentType);
+        if (rows.isEmpty()) {
+            return new PrintTemplate(
+                "STANDARD",
+                "标准套打模板",
+                "博莱德机械测试账套",
+                "会计期间 2026-06 / 业务期间 2026-06",
+                "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
+                true,
+                true
+            );
+        }
+        var row = rows.get(0);
+        return new PrintTemplate(
+            String.valueOf(row.get("templateCode")),
+            String.valueOf(row.get("templateName")),
+            String.valueOf(row.get("companyName")),
+            String.valueOf(row.get("headerNote")),
+            String.valueOf(row.get("footerNote")),
+            Boolean.TRUE.equals(row.get("showSignature")),
+            Boolean.TRUE.equals(row.get("showSeal"))
+        );
+    }
+
+    private byte[] renderPdf(String title, DocumentPayload payload, PrintTemplate template) {
         var lines = new ArrayList<String>();
+        lines.add(template.companyName());
+        lines.add(template.headerNote() + "    模板：" + template.templateName());
         lines.add(title);
-        lines.add("单据编号：" + payload.header().get("billNo") + "    往来单位：" + payload.header().get("counterparty"));
+        lines.add("单据编号：" + payload.header().get("billNo"));
+        lines.add("往来单位：" + payload.header().get("counterparty"));
         lines.add("业务日期：" + payload.header().get("billDate") + "    状态：" + payload.header().get("status") + "    合计：" + payload.header().get("totalAmount"));
-        lines.add("行号  商品编码  商品名称 / 规格型号  仓库  数量  单价  金额  备注");
+        lines.add("行号  商品编码  商品名称 / 规格型号");
         for (var line : payload.lines()) {
-            lines.add(line.get("lineNo") + "  " + line.get("productCode") + "  " + line.get("productName") + " / " + line.get("spec")
-                + "  " + line.get("warehouse") + "  " + line.get("qty") + "  " + line.get("unitPrice") + "  " + line.get("amount")
-                + "  " + line.get("lineRemark"));
+            lines.add(line.get("lineNo") + "  " + line.get("productCode") + "  " + line.get("productName") + " / " + line.get("spec"));
+            lines.add("    仓库：" + line.get("warehouse") + "    数量：" + line.get("qty") + "    单价：" + line.get("unitPrice") + "    金额：" + line.get("amount"));
+            var remark = String.valueOf(line.get("lineRemark"));
+            if (!remark.isBlank()) {
+                lines.add("    备注：" + remark);
+            }
         }
         lines.add("");
-        lines.add("制单：本地管理员    审核：____________    打印日期：" + LocalDate.now());
+        if (template.showSignature()) {
+            lines.add("制单：本地管理员    审核：____________");
+            lines.add("财务：____________    仓管：____________");
+        }
+        if (template.showSeal()) {
+            lines.add("公司章：________________");
+        }
+        lines.add("打印日期：" + LocalDate.now());
+        lines.add("归档提示：" + template.footerNote());
 
         var content = new StringBuilder();
         var y = 800;
         for (var index = 0; index < lines.size(); index += 1) {
-            var fontSize = index == 0 ? 16 : 10;
-            var x = index == 0 ? 260 : 42;
+            var fontSize = index == 2 ? 16 : index == 0 ? 12 : 10;
+            var x = index == 2 ? 260 : 42;
             content.append("BT /F1 ").append(fontSize).append(" Tf 1 0 0 1 ").append(x).append(' ').append(y).append(" Tm <")
                 .append(utf16Hex(lines.get(index)))
                 .append("> Tj ET\n");
-            y -= index == 0 ? 30 : 20;
+            y -= index == 2 ? 30 : 20;
         }
 
         var contentBytes = content.toString().getBytes(StandardCharsets.US_ASCII);
@@ -337,5 +425,16 @@ public class DocumentOutputController {
     }
 
     private record DocumentPayload(Map<String, Object> header, List<Map<String, Object>> lines) {
+    }
+
+    private record PrintTemplate(
+        String templateCode,
+        String templateName,
+        String companyName,
+        String headerNote,
+        String footerNote,
+        boolean showSignature,
+        boolean showSeal
+    ) {
     }
 }
