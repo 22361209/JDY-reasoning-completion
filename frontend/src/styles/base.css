@@ -1026,6 +1026,41 @@ input:disabled {
   border-top: 0;
 }
 
+.entry-tools {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #d4dde8;
+  border-bottom: 0;
+  background: #f8fafc;
+}
+
+.entry-tools label {
+  display: grid;
+  gap: 4px;
+  width: 180px;
+  color: #405064;
+  font-weight: 700;
+}
+
+.entry-tools input {
+  height: 28px;
+  border: 1px solid #c7d2df;
+  border-radius: 3px;
+  padding: 0 7px;
+}
+
+.entry-tools button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid #b8c7d8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #284057;
+}
+
 table {
   width: 100%;
   min-width: 900px;
@@ -1093,6 +1128,10 @@ th {
 
 .add-line {
   color: #1f72b8;
+}
+
+.line-action + .line-action {
+  margin-left: 6px;
 }
 
 .assist-rail {

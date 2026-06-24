@@ -241,6 +241,18 @@
               <label>单据编号<input v-model="currentOrderForm.billNo" :data-testid="`${formTestPrefix}-bill-no`" @input="markActiveDirty" /></label>
               <label>部门<input v-model="currentOrderForm.department" :data-testid="`${formTestPrefix}-department`" @input="markActiveDirty" /></label>
             </section>
+            <div class="entry-tools">
+              <label>
+                批量仓库
+                <input
+                  v-model="batchWarehouseCode"
+                  :disabled="!isDraftDocument"
+                  data-testid="batch-warehouse-code"
+                  @keydown.enter="applyBatchWarehouse"
+                />
+              </label>
+              <button type="button" :disabled="!isDraftDocument" data-testid="apply-batch-warehouse" @click="applyBatchWarehouse">应用</button>
+            </div>
             <div class="entry-table">
               <table>
                 <thead>
@@ -269,7 +281,7 @@
                           :data-testid="lineProductTestId(lineIndex)"
                           @focus="searchMasterOptions('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
                           @input="handleMasterInput('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
-                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-line-${lineIndex}-product`)"
+                          @keydown="handleLineCellKeydown($event, lineIndex, 'product', `${formTestPrefix}-line-${lineIndex}-product`)"
                         />
                         <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-product`" class="master-selector__menu">
                           <button
@@ -295,7 +307,7 @@
                           :data-testid="lineWarehouseTestId(lineIndex)"
                           @focus="searchMasterOptions('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
                           @input="handleMasterInput('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
-                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
+                          @keydown="handleLineCellKeydown($event, lineIndex, 'warehouse', `${formTestPrefix}-line-${lineIndex}-warehouse`)"
                         />
                         <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-warehouse`" class="master-selector__menu">
                           <button
@@ -311,8 +323,8 @@
                         </span>
                       </span>
                     </td>
-                    <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" /></td>
-                    <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" /></td>
+                    <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" /></td>
+                    <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" /></td>
                     <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
                     <td>
                       <button
@@ -323,6 +335,15 @@
                         @click="removeLine(lineIndex)"
                       >
                         删除
+                      </button>
+                      <button
+                        class="line-action"
+                        type="button"
+                        :disabled="!isDraftDocument"
+                        :data-testid="lineCopyTestId(lineIndex)"
+                        @click="copyLine(lineIndex)"
+                      >
+                        复制
                       </button>
                     </td>
                   </tr>
@@ -373,7 +394,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentDetail, type DocumentType, type OpenableDocumentType, type OutputDocumentType } from "../services/documentApi";
@@ -440,6 +461,7 @@ const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
 const formMessage = ref("");
+const batchWarehouseCode = ref("CK-001");
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -782,6 +804,10 @@ function lineDeleteTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-delete` : `${formTestPrefix.value}-line-delete-${index + 1}`;
 }
 
+function lineCopyTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-copy` : `${formTestPrefix.value}-line-copy-${index + 1}`;
+}
+
 onMounted(async () => {
   const remoteSession = await fetchSystemSession();
   if (remoteSession) {
@@ -1056,12 +1082,81 @@ function addLine() {
   markActiveDirty();
 }
 
+function copyLine(index: number) {
+  if (!isDraftDocument.value) {
+    return;
+  }
+  const source = currentOrderForm.value.lines[index];
+  if (!source) {
+    return;
+  }
+  currentOrderForm.value.lines.splice(index + 1, 0, { ...source });
+  markActiveDirty();
+  void focusLineCell(index + 1, "product");
+}
+
 function removeLine(index: number) {
   if (!isDraftDocument.value || currentOrderForm.value.lines.length <= 1) {
     return;
   }
   currentOrderForm.value.lines.splice(index, 1);
   markActiveDirty();
+}
+
+function applyBatchWarehouse() {
+  if (!isDraftDocument.value) {
+    return;
+  }
+  const warehouseCode = batchWarehouseCode.value.trim();
+  if (!warehouseCode) {
+    return;
+  }
+  currentOrderForm.value.lines.forEach((line) => {
+    line.warehouseCode = warehouseCode;
+  });
+  activeSelector.value = "";
+  markActiveDirty();
+}
+
+function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {
+  const selectorWasOpen = Boolean(selectorId && activeSelector.value === selectorId && selectorOptions.value.length > 0);
+  if (selectorId) {
+    handleSelectorKeydown(event, selectorId);
+  }
+  if (!isDraftDocument.value || selectorWasOpen || event.defaultPrevented) {
+    return;
+  }
+  if (event.key === "Enter" || event.key === "ArrowDown") {
+    event.preventDefault();
+    void focusLineCell(Math.min(lineIndex + 1, currentOrderForm.value.lines.length - 1), cell);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    void focusLineCell(Math.max(lineIndex - 1, 0), cell);
+  }
+}
+
+async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
+  await nextTick();
+  const testId = lineCellTestId(lineIndex, cell);
+  const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+  input?.focus();
+  input?.select();
+}
+
+function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
+  switch (cell) {
+    case "warehouse":
+      return lineWarehouseTestId(lineIndex);
+    case "qty":
+      return lineQtyTestId(lineIndex);
+    case "price":
+      return linePriceTestId(lineIndex);
+    case "product":
+    default:
+      return lineProductTestId(lineIndex);
+  }
 }
 
 function nextBillNo() {
