@@ -275,6 +275,38 @@
                   @change="updateSecuritySessionTimeout"
                 />
               </label>
+              <label>
+                <span>密码最小长度</span>
+                <input
+                  ref="securityPasswordMinLengthInput"
+                  :value="securitySettingsForm.passwordMinLength"
+                  data-testid="security-password-min-length"
+                  type="number"
+                  min="6"
+                  max="64"
+                  step="1"
+                  @input="updateSecurityPasswordMinLength"
+                  @change="updateSecurityPasswordMinLength"
+                />
+              </label>
+              <div class="security-toggle-grid" data-testid="security-password-policy-toggles">
+                <label>
+                  <input v-model="securitySettingsForm.passwordRequireUppercase" type="checkbox" data-testid="security-password-require-uppercase" />
+                  <span>大写字母</span>
+                </label>
+                <label>
+                  <input v-model="securitySettingsForm.passwordRequireLowercase" type="checkbox" data-testid="security-password-require-lowercase" />
+                  <span>小写字母</span>
+                </label>
+                <label>
+                  <input v-model="securitySettingsForm.passwordRequireDigit" type="checkbox" data-testid="security-password-require-digit" />
+                  <span>数字</span>
+                </label>
+                <label>
+                  <input v-model="securitySettingsForm.passwordRequireSymbol" type="checkbox" data-testid="security-password-require-symbol" />
+                  <span>符号</span>
+                </label>
+              </div>
               <dl class="user-security-summary">
                 <div>
                   <dt>当前生效</dt>
@@ -283,6 +315,10 @@
                 <div>
                   <dt>会话超时</dt>
                   <dd data-testid="security-current-timeout">{{ securitySettings ? `${securitySettings.sessionTimeoutMinutes} 分钟` : "-" }}</dd>
+                </div>
+                <div>
+                  <dt>密码策略</dt>
+                  <dd data-testid="security-current-password-policy">{{ securitySettings ? passwordPolicySummary(securitySettings.passwordPolicy) : "-" }}</dd>
                 </div>
                 <div>
                   <dt>改密处理</dt>
@@ -1141,7 +1177,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1313,9 +1349,30 @@ const rolePermissionMessage = ref("");
 const securitySettings = ref<SecuritySettings | null>(null);
 const securitySettingsMessage = ref("");
 const securitySessionTimeoutInput = ref<HTMLInputElement | null>(null);
-const securitySettingsForm = reactive<{ repeatedLoginPolicy: RepeatedLoginPolicy; sessionTimeoutMinutes: number }>({
+const securityPasswordMinLengthInput = ref<HTMLInputElement | null>(null);
+const activePasswordPolicy = ref<PasswordPolicySettings>({
+  minLength: 8,
+  requireUppercase: true,
+  requireLowercase: true,
+  requireDigit: true,
+  requireSymbol: true
+});
+const securitySettingsForm = reactive<{
+  repeatedLoginPolicy: RepeatedLoginPolicy;
+  sessionTimeoutMinutes: number;
+  passwordMinLength: number;
+  passwordRequireUppercase: boolean;
+  passwordRequireLowercase: boolean;
+  passwordRequireDigit: boolean;
+  passwordRequireSymbol: boolean;
+}>({
   repeatedLoginPolicy: "SINGLE_ACTIVE",
-  sessionTimeoutMinutes: 30
+  sessionTimeoutMinutes: 30,
+  passwordMinLength: 8,
+  passwordRequireUppercase: true,
+  passwordRequireLowercase: true,
+  passwordRequireDigit: true,
+  passwordRequireSymbol: true
 });
 const managedUsers = ref<ManagedUser[]>([]);
 const managedRoles = ref<ManagedRole[]>([]);
@@ -1627,13 +1684,7 @@ const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find(
 const canManagePrintTemplates = computed(() => session.hasPermission("system.print_template.manage"));
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
 const canManageSecuritySettings = computed(() => session.hasPermission("system.security.manage"));
-const passwordStrengthRules = computed(() => [
-  { label: "至少 8 位", ok: passwordForm.newPassword.length >= 8 },
-  { label: "大写字母", ok: /[A-Z]/.test(passwordForm.newPassword) },
-  { label: "小写字母", ok: /[a-z]/.test(passwordForm.newPassword) },
-  { label: "数字", ok: /\d/.test(passwordForm.newPassword) },
-  { label: "符号", ok: /[^A-Za-z0-9]/.test(passwordForm.newPassword) }
-]);
+const passwordStrengthRules = computed(() => passwordPolicyRules(activePasswordPolicy.value, passwordForm.newPassword));
 const passwordStrengthOk = computed(() => passwordStrengthRules.value.every((rule) => rule.ok));
 const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
 const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
@@ -1985,6 +2036,9 @@ function applySystemSession(remoteSession: SystemSession) {
   session.tenantName.value = remoteSession.tenant.name;
   session.accountingPeriod.value = remoteSession.period.accounting;
   session.businessPeriod.value = remoteSession.period.business;
+  if (remoteSession.security?.passwordPolicy) {
+    activePasswordPolicy.value = remoteSession.security.passwordPolicy;
+  }
   loginForm.username = remoteSession.user.username || loginForm.username;
   isAuthenticated.value = true;
   loginMessage.value = "";
@@ -2427,6 +2481,8 @@ async function loadSecuritySettings() {
   securitySettings.value = result.data;
   securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
   securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
+  applyPasswordPolicyToSecurityForm(result.data.passwordPolicy);
+  activePasswordPolicy.value = result.data.passwordPolicy;
   securitySettingsMessage.value = "";
 }
 
@@ -2436,9 +2492,15 @@ async function saveSecuritySettingsAction() {
     return;
   }
   syncSecuritySessionTimeoutInput();
+  syncSecurityPasswordMinLengthInput();
   const result = await saveSecuritySettings({
     repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy,
-    sessionTimeoutMinutes: securitySettingsForm.sessionTimeoutMinutes
+    sessionTimeoutMinutes: securitySettingsForm.sessionTimeoutMinutes,
+    passwordMinLength: securitySettingsForm.passwordMinLength,
+    passwordRequireUppercase: securitySettingsForm.passwordRequireUppercase,
+    passwordRequireLowercase: securitySettingsForm.passwordRequireLowercase,
+    passwordRequireDigit: securitySettingsForm.passwordRequireDigit,
+    passwordRequireSymbol: securitySettingsForm.passwordRequireSymbol
   });
   if (!result.ok || !result.data) {
     securitySettingsMessage.value = result.message || "安全设置保存失败。";
@@ -2447,6 +2509,8 @@ async function saveSecuritySettingsAction() {
   securitySettings.value = result.data;
   securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
   securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
+  applyPasswordPolicyToSecurityForm(result.data.passwordPolicy);
+  activePasswordPolicy.value = result.data.passwordPolicy;
   securitySettingsMessage.value = "安全设置已保存";
 }
 
@@ -2460,13 +2524,74 @@ function updateSecuritySessionTimeout(event: Event) {
 
 function syncSecuritySessionTimeoutInput() {
   securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout(
-    securitySessionTimeoutInput.value?.value ?? securitySettingsForm.sessionTimeoutMinutes
+    document.querySelector<HTMLInputElement>("[data-testid='security-session-timeout-minutes']")?.value
+      ?? securitySessionTimeoutInput.value?.value
+      ?? securitySettingsForm.sessionTimeoutMinutes
   );
 }
 
 function normalizeSecuritySessionTimeout(rawValue: string | number) {
   const value = Number(rawValue);
   return Number.isFinite(value) ? value : 30;
+}
+
+function updateSecurityPasswordMinLength(event: Event) {
+  securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength((event.target as HTMLInputElement).value);
+}
+
+function syncSecurityPasswordMinLengthInput() {
+  securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength(
+    document.querySelector<HTMLInputElement>("[data-testid='security-password-min-length']")?.value
+      ?? securityPasswordMinLengthInput.value?.value
+      ?? securitySettingsForm.passwordMinLength
+  );
+}
+
+function normalizeSecurityPasswordMinLength(rawValue: string | number) {
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : 8;
+}
+
+function applyPasswordPolicyToSecurityForm(policy: PasswordPolicySettings) {
+  securitySettingsForm.passwordMinLength = policy.minLength;
+  securitySettingsForm.passwordRequireUppercase = policy.requireUppercase;
+  securitySettingsForm.passwordRequireLowercase = policy.requireLowercase;
+  securitySettingsForm.passwordRequireDigit = policy.requireDigit;
+  securitySettingsForm.passwordRequireSymbol = policy.requireSymbol;
+}
+
+function passwordPolicyRules(policy: PasswordPolicySettings, password: string) {
+  const rules = [{ label: `至少 ${policy.minLength} 位`, ok: password.length >= policy.minLength }];
+  if (policy.requireUppercase) {
+    rules.push({ label: "大写字母", ok: /[A-Z]/.test(password) });
+  }
+  if (policy.requireLowercase) {
+    rules.push({ label: "小写字母", ok: /[a-z]/.test(password) });
+  }
+  if (policy.requireDigit) {
+    rules.push({ label: "数字", ok: /\d/.test(password) });
+  }
+  if (policy.requireSymbol) {
+    rules.push({ label: "符号", ok: /[^A-Za-z0-9]/.test(password) });
+  }
+  return rules;
+}
+
+function passwordPolicySummary(policy: PasswordPolicySettings) {
+  const parts = [`至少 ${policy.minLength} 位`];
+  if (policy.requireUppercase) {
+    parts.push("大写");
+  }
+  if (policy.requireLowercase) {
+    parts.push("小写");
+  }
+  if (policy.requireDigit) {
+    parts.push("数字");
+  }
+  if (policy.requireSymbol) {
+    parts.push("符号");
+  }
+  return parts.join(" / ");
 }
 
 async function loadPrintTemplates() {

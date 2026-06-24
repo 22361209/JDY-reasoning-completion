@@ -818,6 +818,27 @@ input:disabled {
   color: #677888;
 }
 
+.security-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 150px));
+  gap: 8px 12px;
+}
+
+.security-toggle-grid label {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  gap: 7px;
+  max-width: none;
+  min-height: 30px;
+}
+
+.security-toggle-grid input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
 .user-management-check {
   grid-template-columns: auto 1fr;
   align-items: center;

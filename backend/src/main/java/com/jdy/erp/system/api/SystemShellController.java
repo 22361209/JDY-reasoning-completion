@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.security.PasswordPolicy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,10 +17,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class SystemShellController {
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
+    private final PasswordPolicy passwordPolicy;
 
-    public SystemShellController(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
+    public SystemShellController(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService, PasswordPolicy passwordPolicy) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
+        this.passwordPolicy = passwordPolicy;
     }
 
     @GetMapping("/session")
@@ -44,7 +47,8 @@ public class SystemShellController {
     private Map<String, Object> sessionSecurity() {
         return Map.of(
             "sessionTimeoutMinutes", currentSessionService.sessionTimeoutMinutes(),
-            "sessionMaxInactiveSeconds", currentSessionService.currentSessionMaxInactiveIntervalSeconds()
+            "sessionMaxInactiveSeconds", currentSessionService.currentSessionMaxInactiveIntervalSeconds(),
+            "passwordPolicy", passwordPolicy.currentPolicyMap()
         );
     }
 
