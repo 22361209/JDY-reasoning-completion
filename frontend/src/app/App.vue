@@ -2222,7 +2222,12 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "p
     insertLineAfter(lineIndex);
     return;
   }
-  if (event.key === "Enter" || event.key === "ArrowDown") {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    advanceLineCellOnEnter(lineIndex, cell);
+    return;
+  }
+  if (event.key === "ArrowDown") {
     event.preventDefault();
     void focusLineCell(Math.min(lineIndex + 1, currentOrderForm.value.lines.length - 1), cell);
     return;
@@ -2231,6 +2236,18 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "p
     event.preventDefault();
     void focusLineCell(Math.max(lineIndex - 1, 0), cell);
   }
+}
+
+function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
+  if (cell === "qty") {
+    void focusLineCell(lineIndex, "price");
+    return;
+  }
+  if (cell === "price") {
+    insertLineAfter(lineIndex);
+    return;
+  }
+  void focusLineCell(Math.min(lineIndex + 1, currentOrderForm.value.lines.length - 1), cell);
 }
 
 async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
