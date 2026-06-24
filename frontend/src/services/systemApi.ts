@@ -11,6 +11,29 @@ export interface SystemUser {
   roleName: string;
 }
 
+export interface ManagedUser extends SystemUser {
+  id: string;
+  enabled: boolean;
+}
+
+export interface ManagedRole {
+  code: string;
+  name: string;
+  enabled: boolean;
+}
+
+export interface ManagedUsersPayload {
+  users: ManagedUser[];
+  roles: ManagedRole[];
+}
+
+export interface ManagedUsersResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  data: ManagedUsersPayload | null;
+}
+
 export interface PermissionCatalogItem {
   permissionCode: string;
   moduleName: string;
@@ -76,6 +99,60 @@ export async function loginSystemUser(username: string, password: string): Promi
     return await response.json() as SystemSession;
   } catch {
     return null;
+  }
+}
+
+export async function fetchManagedUsers(): Promise<ManagedUsersResult> {
+  try {
+    const response = await fetch("/api/system/managed-users");
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: response.status === 403 ? "当前角色无权维护用户。" : "用户列表加载失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as ManagedUsersPayload };
+  } catch {
+    return { ok: false, status: 0, message: "用户列表加载失败。", data: null };
+  }
+}
+
+export async function createManagedUser(payload: { username: string; displayName: string; roleCode: string; password: string; enabled: boolean }): Promise<ManagedUsersResult> {
+  return writeManagedUser("/api/system/managed-users", "POST", payload);
+}
+
+export async function updateManagedUser(username: string, payload: { displayName: string; roleCode: string; enabled: boolean }): Promise<ManagedUsersResult> {
+  return writeManagedUser(`/api/system/managed-users/${encodeURIComponent(username)}`, "PUT", payload);
+}
+
+export async function resetManagedUserPassword(username: string, password: string): Promise<{ ok: boolean; status: number; message: string }> {
+  try {
+    const response = await fetch(`/api/system/managed-users/${encodeURIComponent(username)}/password`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "密码重置失败。" };
+    }
+    return { ok: true, status: response.status, message: "" };
+  } catch {
+    return { ok: false, status: 0, message: "密码重置失败。" };
+  }
+}
+
+async function writeManagedUser(pathname: string, method: "POST" | "PUT", payload: Record<string, unknown>): Promise<ManagedUsersResult> {
+  try {
+    const response = await fetch(pathname, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "用户保存失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as ManagedUsersPayload };
+  } catch {
+    return { ok: false, status: 0, message: "用户保存失败。", data: null };
   }
 }
 

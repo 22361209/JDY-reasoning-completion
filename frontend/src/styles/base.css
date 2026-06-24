@@ -721,6 +721,46 @@ input:disabled {
   padding: 14px;
 }
 
+.user-management-form {
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.user-management-form label {
+  display: grid;
+  gap: 6px;
+  max-width: 420px;
+  color: #405366;
+  font-size: 12px;
+}
+
+.user-management-form input,
+.user-management-form select {
+  height: 32px;
+  border: 1px solid #c7d4e2;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2d3b;
+  padding: 0 9px;
+}
+
+.user-management-form input[readonly] {
+  background: #f4f7fa;
+  color: #677888;
+}
+
+.user-management-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.user-management-check input {
+  width: 16px;
+  height: 16px;
+}
+
 .role-permission-summary {
   min-height: 42px;
   display: flex;

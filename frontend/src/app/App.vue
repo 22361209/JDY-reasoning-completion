@@ -178,9 +178,71 @@
           <div class="empty-shell">请选择功能名称、查询小按钮或直达新增入口继续。</div>
         </div>
 
-        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
+        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings', 'user-role-list'].includes(tabs.activeTab.value.id)" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
+        </div>
+
+        <div v-else-if="tabs.activeTab.value.id === 'user-role-list'" class="role-permission-page">
+          <section class="role-permission-head">
+            <div>
+              <h2>用户角色</h2>
+              <p>维护员工账号、启停状态和角色归属，角色权限细项在权限矩阵中维护。</p>
+            </div>
+            <div class="role-permission-head__actions">
+              <button type="button" data-testid="user-management-refresh" @click="loadManagedUsers">刷新</button>
+              <button class="primary-action" type="button" :disabled="!canManageRolePermissions" data-testid="user-management-new" @click="startCreateManagedUser">新增</button>
+              <button class="primary-action" type="button" :disabled="!canManageRolePermissions" data-testid="user-management-save" @click="saveManagedUser">保存</button>
+            </div>
+          </section>
+          <section class="role-permission-body">
+            <aside class="role-permission-list" aria-label="用户">
+              <button
+                v-for="user in managedUsers"
+                :key="user.username"
+                type="button"
+                :class="{ active: user.username === selectedManagedUsername }"
+                :data-testid="`managed-user-${user.username}`"
+                @click="selectManagedUser(user.username)"
+              >
+                <strong>{{ user.displayName }}</strong>
+                <span>{{ user.username }} / {{ user.roleName }} / {{ user.enabled ? "启用" : "禁用" }}</span>
+              </button>
+            </aside>
+            <div class="user-management-form">
+              <div class="role-permission-summary" data-testid="user-management-summary">
+                <strong>{{ userManagementMode === "create" ? "新增用户" : selectedManagedUser?.displayName || "未选择用户" }}</strong>
+                <span>{{ userManagementMode === "create" ? "CREATE" : selectedManagedUser?.username || "" }}</span>
+                <em>{{ selectedManagedUser?.roleName || "选择角色后保存" }}</em>
+              </div>
+              <label>
+                <span>用户名</span>
+                <input v-model="managedUserForm.username" :readonly="userManagementMode === 'edit'" data-testid="managed-user-username" />
+              </label>
+              <label>
+                <span>姓名</span>
+                <input v-model="managedUserForm.displayName" data-testid="managed-user-display-name" />
+              </label>
+              <label>
+                <span>角色</span>
+                <select v-model="managedUserForm.roleCode" data-testid="managed-user-role">
+                  <option v-for="role in managedRoles" :key="role.code" :value="role.code">{{ role.name }} / {{ role.code }}</option>
+                </select>
+              </label>
+              <label class="user-management-check">
+                <input v-model="managedUserForm.enabled" type="checkbox" data-testid="managed-user-enabled" />
+                <span>启用</span>
+              </label>
+              <label>
+                <span>{{ userManagementMode === "create" ? "初始密码" : "重置密码" }}</span>
+                <input v-model="managedUserPassword" type="password" data-testid="managed-user-password" />
+              </label>
+              <div class="role-permission-head__actions">
+                <button type="button" :disabled="userManagementMode === 'create' || !canManageRolePermissions" data-testid="managed-user-reset-password" @click="resetManagedUserPasswordAction">重置密码</button>
+              </div>
+              <p v-if="userManagementMessage" class="form-message" data-testid="user-management-message">{{ userManagementMessage }}</p>
+            </div>
+          </section>
         </div>
 
         <div v-else-if="tabs.activeTab.value.id === 'role-permission-settings'" class="role-permission-page">
@@ -843,7 +905,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, saveRolePermissions, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, resetManagedUserPassword, saveRolePermissions, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1012,6 +1074,18 @@ const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
 const selectedRoleCode = ref("ADMIN");
 const rolePermissionDraft = ref<string[]>([]);
 const rolePermissionMessage = ref("");
+const managedUsers = ref<ManagedUser[]>([]);
+const managedRoles = ref<ManagedRole[]>([]);
+const selectedManagedUsername = ref("");
+const userManagementMode = ref<"edit" | "create">("edit");
+const userManagementMessage = ref("");
+const managedUserPassword = ref("");
+const managedUserForm = reactive({
+  username: "",
+  displayName: "",
+  roleCode: "WAREHOUSE",
+  enabled: true
+});
 const systemUsers = ref<SystemUser[]>([]);
 const loginForm = reactive({
   username: "admin",
@@ -1228,7 +1302,7 @@ const moduleCatalog: ShellModule[] = [
     groups: [
       { title: "系统基础", entries: [
         { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
-        { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "list", queryable: true, permission: "system.role_permission.manage" },
+        { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
         { id: "role-permission-settings", label: "权限矩阵", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
         { id: "operation-log-list", label: "操作日志", module: "系统设置", mode: "list", queryable: true, permission: "system.audit_log.view" },
         { id: "print-template-settings", label: "打印模板", module: "系统设置", mode: "shell", permission: "system.print_template.manage" }
@@ -1293,6 +1367,7 @@ const currentDocumentTemplates = computed(() => printTemplates.value.filter((tem
 const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
 const canManagePrintTemplates = computed(() => session.hasPermission("system.print_template.manage"));
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
+const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
 const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
 const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
 const permissionGroups = computed(() => {
@@ -1674,12 +1749,100 @@ function openEntry(entry: ShellEntry) {
   if (opened && entry.id === "role-permission-settings") {
     void loadRolePermissions();
   }
+  if (opened && entry.id === "user-role-list") {
+    void loadManagedUsers();
+  }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
 }
 
 function canOpenEntry(entry: ShellEntry) {
   return session.hasPermission(entry.permission);
+}
+
+async function loadManagedUsers() {
+  const result = await fetchManagedUsers();
+  if (!result.ok || !result.data) {
+    userManagementMessage.value = result.message;
+    return;
+  }
+  managedUsers.value = result.data.users;
+  managedRoles.value = result.data.roles;
+  if (userManagementMode.value !== "create" && !managedUsers.value.some((user) => user.username === selectedManagedUsername.value)) {
+    selectedManagedUsername.value = managedUsers.value[0]?.username ?? "";
+  }
+  if (selectedManagedUsername.value) {
+    applySelectedManagedUser();
+  }
+  userManagementMessage.value = "";
+}
+
+function selectManagedUser(username: string) {
+  selectedManagedUsername.value = username;
+  userManagementMode.value = "edit";
+  applySelectedManagedUser();
+  userManagementMessage.value = "";
+}
+
+function applySelectedManagedUser() {
+  const user = selectedManagedUser.value;
+  if (!user) {
+    return;
+  }
+  managedUserForm.username = user.username;
+  managedUserForm.displayName = user.displayName;
+  managedUserForm.roleCode = user.roleCode;
+  managedUserForm.enabled = user.enabled;
+  managedUserPassword.value = "";
+}
+
+function startCreateManagedUser() {
+  userManagementMode.value = "create";
+  selectedManagedUsername.value = "";
+  managedUserForm.username = "";
+  managedUserForm.displayName = "";
+  managedUserForm.roleCode = managedRoles.value.find((role) => role.code === "WAREHOUSE")?.code ?? managedRoles.value[0]?.code ?? "";
+  managedUserForm.enabled = true;
+  managedUserPassword.value = "";
+  userManagementMessage.value = "";
+}
+
+async function saveManagedUser() {
+  if (!canManageRolePermissions.value) {
+    userManagementMessage.value = "当前角色无权维护用户。";
+    return;
+  }
+  const result = userManagementMode.value === "create"
+    ? await createManagedUser({ ...managedUserForm, password: managedUserPassword.value })
+    : await updateManagedUser(managedUserForm.username, {
+      displayName: managedUserForm.displayName,
+      roleCode: managedUserForm.roleCode,
+      enabled: managedUserForm.enabled
+    });
+  if (!result.ok || !result.data) {
+    userManagementMessage.value = result.message || "用户保存失败。";
+    return;
+  }
+  managedUsers.value = result.data.users;
+  managedRoles.value = result.data.roles;
+  selectedManagedUsername.value = managedUserForm.username;
+  userManagementMode.value = "edit";
+  applySelectedManagedUser();
+  systemUsers.value = await fetchSystemUsers();
+  userManagementMessage.value = "用户已保存";
+}
+
+async function resetManagedUserPasswordAction() {
+  if (!canManageRolePermissions.value || userManagementMode.value === "create") {
+    return;
+  }
+  const result = await resetManagedUserPassword(managedUserForm.username, managedUserPassword.value);
+  if (!result.ok) {
+    userManagementMessage.value = result.message || "密码重置失败。";
+    return;
+  }
+  managedUserPassword.value = "";
+  userManagementMessage.value = "密码已重置";
 }
 
 async function loadRolePermissions() {
