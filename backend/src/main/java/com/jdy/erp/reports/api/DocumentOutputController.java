@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -135,11 +137,29 @@ public class DocumentOutputController {
 
     @GetMapping("/print-templates")
     public List<Map<String, Object>> printTemplates() {
-        return supportedDocumentTypes().stream()
-            .map(documentType -> templateResponse(documentType, printTemplate(documentType)))
+        var documentTypes = supportedDocumentTypes();
+        var rows = jdbcTemplate.queryForList("""
+            SELECT document_type AS "documentType",
+                   template_code AS "templateCode",
+                   template_name AS "templateName",
+                   company_name AS "companyName",
+                   header_note AS "headerNote",
+                   footer_note AS "footerNote",
+                   show_signature AS "showSignature",
+                   show_seal AS "showSeal",
+                   is_default AS "isDefault",
+                   enabled
+            FROM sys_print_template
+            WHERE enabled = TRUE
+            ORDER BY document_type, is_default DESC, template_name
+            """);
+        return rows.stream()
+            .filter(row -> documentTypes.contains(String.valueOf(row.get("documentType"))))
+            .map(row -> templateResponse(String.valueOf(row.get("documentType")), templateFromRow(row)))
             .toList();
     }
 
+    @Transactional
     @PutMapping("/{documentType}/print-template")
     public Map<String, Object> savePrintTemplate(@PathVariable String documentType, @RequestBody PrintTemplateRequest request) {
         if (!supportedDocumentTypes().contains(documentType)) {
@@ -152,12 +172,21 @@ public class DocumentOutputController {
         var footerNote = request.footerNote == null ? "" : request.footerNote.trim();
         var showSignature = request.showSignature == null || request.showSignature;
         var showSeal = request.showSeal == null || request.showSeal;
+        var isDefault = request.isDefault == null || request.isDefault;
+        if (isDefault) {
+            jdbcTemplate.update("""
+                UPDATE sys_print_template
+                SET is_default = FALSE,
+                    updated_at = now()
+                WHERE document_type = ?
+                """, documentType);
+        }
         jdbcTemplate.update("""
             INSERT INTO sys_print_template (
                 document_type, template_code, template_name, company_name, header_note, footer_note,
                 show_signature, show_seal, is_default, enabled, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, now())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now())
             ON CONFLICT (document_type, template_code) DO UPDATE
             SET template_name = EXCLUDED.template_name,
                 company_name = EXCLUDED.company_name,
@@ -165,11 +194,11 @@ public class DocumentOutputController {
                 footer_note = EXCLUDED.footer_note,
                 show_signature = EXCLUDED.show_signature,
                 show_seal = EXCLUDED.show_seal,
-                is_default = TRUE,
+                is_default = EXCLUDED.is_default,
                 enabled = TRUE,
                 updated_at = now()
-            """, documentType, templateCode, templateName, companyName, headerNote, footerNote, showSignature, showSeal);
-        return templateResponse(documentType, printTemplate(documentType));
+            """, documentType, templateCode, templateName, companyName, headerNote, footerNote, showSignature, showSeal, isDefault);
+        return templateResponse(documentType, findPrintTemplate(documentType, templateCode));
     }
 
     @GetMapping("/{documentType}/{billNo}/print.pdf")
@@ -325,17 +354,19 @@ public class DocumentOutputController {
     }
 
     private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {
-        return Map.of(
-            "documentType", documentType,
-            "documentTitle", title(documentType),
-            "templateCode", template.templateCode(),
-            "templateName", template.templateName(),
-            "companyName", template.companyName(),
-            "headerNote", template.headerNote(),
-            "footerNote", template.footerNote(),
-            "showSignature", template.showSignature(),
-            "showSeal", template.showSeal()
-        );
+        var response = new LinkedHashMap<String, Object>();
+        response.put("documentType", documentType);
+        response.put("documentTitle", title(documentType));
+        response.put("templateCode", template.templateCode());
+        response.put("templateName", template.templateName());
+        response.put("companyName", template.companyName());
+        response.put("headerNote", template.headerNote());
+        response.put("footerNote", template.footerNote());
+        response.put("showSignature", template.showSignature());
+        response.put("showSeal", template.showSeal());
+        response.put("isDefault", template.isDefault());
+        response.put("enabled", template.enabled());
+        return response;
     }
 
     private String escapeCsv(String value) {
@@ -359,7 +390,9 @@ public class DocumentOutputController {
                    header_note AS "headerNote",
                    footer_note AS "footerNote",
                    show_signature AS "showSignature",
-                   show_seal AS "showSeal"
+                   show_seal AS "showSeal",
+                   is_default AS "isDefault",
+                   enabled
             FROM sys_print_template
             WHERE document_type = ?
               AND enabled = TRUE
@@ -374,10 +407,38 @@ public class DocumentOutputController {
                 "会计期间 2026-06 / 业务期间 2026-06",
                 "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
                 true,
+                true,
+                true,
                 true
             );
         }
-        var row = rows.get(0);
+        return templateFromRow(rows.get(0));
+    }
+
+    private PrintTemplate findPrintTemplate(String documentType, String templateCode) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT template_code AS "templateCode",
+                   template_name AS "templateName",
+                   company_name AS "companyName",
+                   header_note AS "headerNote",
+                   footer_note AS "footerNote",
+                   show_signature AS "showSignature",
+                   show_seal AS "showSeal",
+                   is_default AS "isDefault",
+                   enabled
+            FROM sys_print_template
+            WHERE document_type = ?
+              AND template_code = ?
+              AND enabled = TRUE
+            LIMIT 1
+            """, documentType, templateCode);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "打印模板不存在");
+        }
+        return templateFromRow(rows.get(0));
+    }
+
+    private PrintTemplate templateFromRow(Map<String, Object> row) {
         return new PrintTemplate(
             String.valueOf(row.get("templateCode")),
             String.valueOf(row.get("templateName")),
@@ -385,7 +446,9 @@ public class DocumentOutputController {
             String.valueOf(row.get("headerNote")),
             String.valueOf(row.get("footerNote")),
             Boolean.TRUE.equals(row.get("showSignature")),
-            Boolean.TRUE.equals(row.get("showSeal"))
+            Boolean.TRUE.equals(row.get("showSeal")),
+            Boolean.TRUE.equals(row.get("isDefault")),
+            Boolean.TRUE.equals(row.get("enabled"))
         );
     }
 
@@ -483,7 +546,9 @@ public class DocumentOutputController {
         String headerNote,
         String footerNote,
         boolean showSignature,
-        boolean showSeal
+        boolean showSeal,
+        boolean isDefault,
+        boolean enabled
     ) {
     }
 
@@ -494,7 +559,8 @@ public class DocumentOutputController {
         String headerNote,
         String footerNote,
         Boolean showSignature,
-        Boolean showSeal
+        Boolean showSeal,
+        Boolean isDefault
     ) {
     }
 }

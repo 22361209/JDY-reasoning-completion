@@ -53,6 +53,8 @@ export interface PrintTemplateConfig {
   footerNote: string;
   showSignature: boolean;
   showSeal: boolean;
+  isDefault: boolean;
+  enabled: boolean;
 }
 
 export interface DownstreamDocumentRef {
@@ -146,7 +148,7 @@ export async function fetchPrintTemplates(): Promise<{ ok: boolean; message: str
   return { ok: true, message: "", data: result.data as PrintTemplateConfig[] };
 }
 
-export async function savePrintTemplate(documentType: string, payload: Omit<PrintTemplateConfig, "documentType" | "documentTitle">): Promise<{ ok: boolean; message: string; data?: PrintTemplateConfig }> {
+export async function savePrintTemplate(documentType: string, payload: Omit<PrintTemplateConfig, "documentType" | "documentTitle" | "enabled">): Promise<{ ok: boolean; message: string; data?: PrintTemplateConfig }> {
   const result = await callDocument(`/api/documents/${encodeURIComponent(documentType)}/print-template`, "PUT", payload);
   if (!result.ok || !result.data) {
     return { ok: false, message: result.message || "打印模板保存失败。" };

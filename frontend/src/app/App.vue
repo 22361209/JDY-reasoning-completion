@@ -177,14 +177,17 @@
           <section class="print-template-head">
             <div>
               <h2>打印模板</h2>
-              <p>维护单据 PDF/HTML 输出的公司抬头、模板名、页脚、签字栏和公司章区域。</p>
+              <p>维护单据 PDF/HTML 输出的公司抬头、模板名、页脚、签字栏、公司章和默认模板。</p>
             </div>
-            <button class="primary-action" type="button" data-testid="print-template-save" @click="saveActivePrintTemplate">保存</button>
+            <div class="print-template-head__actions">
+              <button type="button" data-testid="print-template-copy" @click="copyActivePrintTemplate">另存为副本</button>
+              <button class="primary-action" type="button" data-testid="print-template-save" @click="saveActivePrintTemplate">保存</button>
+            </div>
           </section>
           <section class="print-template-body">
             <aside class="print-template-list" aria-label="单据类型">
               <button
-                v-for="template in printTemplates"
+                v-for="template in printDocumentOptions"
                 :key="template.documentType"
                 type="button"
                 :class="{ active: template.documentType === printTemplateForm.documentType }"
@@ -199,7 +202,15 @@
               <label>
                 单据类型
                 <select v-model="printTemplateForm.documentType" data-testid="print-template-document-type" @change="selectPrintTemplate(printTemplateForm.documentType)">
-                  <option v-for="template in printTemplates" :key="template.documentType" :value="template.documentType">{{ template.documentTitle }}</option>
+                  <option v-for="template in printDocumentOptions" :key="template.documentType" :value="template.documentType">{{ template.documentTitle }}</option>
+                </select>
+              </label>
+              <label>
+                当前模板
+                <select v-model="printTemplateForm.templateCode" data-testid="print-template-code" @change="selectPrintTemplate(printTemplateForm.documentType, printTemplateForm.templateCode)">
+                  <option v-for="template in currentDocumentTemplates" :key="template.templateCode" :value="template.templateCode">
+                    {{ template.templateName }}{{ template.isDefault ? "（默认）" : "" }}
+                  </option>
                 </select>
               </label>
               <label>
@@ -226,6 +237,10 @@
                 <label>
                   <input v-model="printTemplateForm.showSeal" type="checkbox" data-testid="print-template-show-seal" />
                   公司章区域
+                </label>
+                <label>
+                  <input v-model="printTemplateForm.isDefault" type="checkbox" data-testid="print-template-is-default" />
+                  默认模板
                 </label>
               </div>
               <div class="print-template-preview" data-testid="print-template-preview">
@@ -908,6 +923,14 @@ const pushConfirmWarehouseCode = ref("CK-001");
 const pushConfirmError = ref("");
 const entryPasteDialogRef = ref<HTMLElement | null>(null);
 const zeroReasonOptions = ["赠品", "样品", "补录", "其他已确认"];
+const printTemplateDocumentTypes = [
+  { documentType: "sales-order", documentTitle: "销售订单" },
+  { documentType: "purchase-order", documentTitle: "采购订单" },
+  { documentType: "sales-out", documentTitle: "销售出库单" },
+  { documentType: "purchase-in", documentTitle: "采购入库单" },
+  { documentType: "material-issue", documentTitle: "生产领料单" },
+  { documentType: "product-in", documentTitle: "产品入库单" }
+];
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
@@ -925,7 +948,9 @@ const printTemplateForm = reactive<PrintTemplateConfig>({
   headerNote: "会计期间 2026-06 / 业务期间 2026-06",
   footerNote: "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
   showSignature: true,
-  showSeal: true
+  showSeal: true,
+  isDefault: true,
+  enabled: true
 });
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
@@ -1154,7 +1179,24 @@ const pageSubtitle = computed(() => {
   }
   return "列表工具栏、批量动作、选中态、锁定态和分页预留在同一范式内。";
 });
-const activePrintTemplateTitle = computed(() => printTemplates.value.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
+const printDocumentOptions = computed(() => printTemplateDocumentTypes.map((document) => {
+  const templates = printTemplates.value.filter((template) => template.documentType === document.documentType);
+  const defaultTemplate = templates.find((template) => template.isDefault) ?? templates[0];
+  return defaultTemplate ?? {
+    ...document,
+    templateCode: "STANDARD",
+    templateName: "标准套打模板",
+    companyName: "博莱德机械测试账套",
+    headerNote: "会计期间 2026-06 / 业务期间 2026-06",
+    footerNote: "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
+    showSignature: true,
+    showSeal: true,
+    isDefault: true,
+    enabled: true
+  };
+}));
+const currentDocumentTemplates = computed(() => printTemplates.value.filter((template) => template.documentType === printTemplateForm.documentType));
+const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
 
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
@@ -1500,15 +1542,19 @@ async function loadPrintTemplates() {
     return;
   }
   printTemplates.value = result.data;
-  const current = result.data.find((template) => template.documentType === printTemplateForm.documentType) ?? result.data[0];
+  const current = result.data.find((template) => template.documentType === printTemplateForm.documentType && template.isDefault)
+    ?? result.data.find((template) => template.documentType === printTemplateForm.documentType)
+    ?? result.data[0];
   if (current) {
     applyPrintTemplateToForm(current);
   }
   printTemplateMessage.value = "";
 }
 
-function selectPrintTemplate(documentType: string) {
-  const template = printTemplates.value.find((item) => item.documentType === documentType);
+function selectPrintTemplate(documentType: string, templateCode?: string) {
+  const template = printTemplates.value.find((item) => item.documentType === documentType && item.templateCode === templateCode)
+    ?? printTemplates.value.find((item) => item.documentType === documentType && item.isDefault)
+    ?? printTemplates.value.find((item) => item.documentType === documentType);
   if (template) {
     applyPrintTemplateToForm(template);
     printTemplateMessage.value = "";
@@ -1525,6 +1571,8 @@ function applyPrintTemplateToForm(template: PrintTemplateConfig) {
   printTemplateForm.footerNote = template.footerNote;
   printTemplateForm.showSignature = template.showSignature;
   printTemplateForm.showSeal = template.showSeal;
+  printTemplateForm.isDefault = template.isDefault;
+  printTemplateForm.enabled = template.enabled;
 }
 
 async function saveActivePrintTemplate() {
@@ -1535,15 +1583,44 @@ async function saveActivePrintTemplate() {
     headerNote: printTemplateForm.headerNote,
     footerNote: printTemplateForm.footerNote,
     showSignature: printTemplateForm.showSignature,
-    showSeal: printTemplateForm.showSeal
+    showSeal: printTemplateForm.showSeal,
+    isDefault: printTemplateForm.isDefault
   });
   if (!result.ok || !result.data) {
     printTemplateMessage.value = result.message || "打印模板保存失败。";
     return;
   }
   applyPrintTemplateToForm(result.data);
-  printTemplates.value = printTemplates.value.map((template) => template.documentType === result.data?.documentType ? result.data : template);
+  upsertPrintTemplate(result.data);
   printTemplateMessage.value = "打印模板已保存";
+}
+
+async function copyActivePrintTemplate() {
+  const suffix = Date.now().toString().slice(-8);
+  const result = await savePrintTemplate(printTemplateForm.documentType, {
+    templateCode: `COPY-${suffix}`,
+    templateName: `${printTemplateForm.templateName} 副本`,
+    companyName: printTemplateForm.companyName,
+    headerNote: printTemplateForm.headerNote,
+    footerNote: printTemplateForm.footerNote,
+    showSignature: printTemplateForm.showSignature,
+    showSeal: printTemplateForm.showSeal,
+    isDefault: false
+  });
+  if (!result.ok || !result.data) {
+    printTemplateMessage.value = result.message || "模板副本保存失败。";
+    return;
+  }
+  applyPrintTemplateToForm(result.data);
+  upsertPrintTemplate(result.data);
+  printTemplateMessage.value = "模板副本已保存";
+}
+
+function upsertPrintTemplate(saved: PrintTemplateConfig) {
+  const others = printTemplates.value
+    .filter((template) => !(template.documentType === saved.documentType && template.templateCode === saved.templateCode))
+    .map((template) => saved.isDefault && template.documentType === saved.documentType ? { ...template, isDefault: false } : template);
+  printTemplates.value = [...others, saved];
 }
 
 function closeNavigation() {

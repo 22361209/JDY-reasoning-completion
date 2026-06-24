@@ -468,6 +468,27 @@ input:disabled {
   font-size: 13px;
 }
 
+.print-template-head__actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.print-template-head__actions button {
+  height: 30px;
+  border: 1px solid #c7d4e2;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #2b3e52;
+  padding: 0 12px;
+}
+
+.print-template-head__actions .primary-action {
+  border-color: #2f7cf6;
+  background: #2f7cf6;
+  color: #ffffff;
+}
+
 .print-template-body {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
