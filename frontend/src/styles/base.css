@@ -1304,6 +1304,12 @@ th {
   background: #eaf4ff;
 }
 
+.entry-paste-candidate.active {
+  border-color: #1f5fbf;
+  background: #f1f7ff;
+  box-shadow: inset 3px 0 0 #2f80ed;
+}
+
 .push-confirm-tools {
   display: flex;
   align-items: center;

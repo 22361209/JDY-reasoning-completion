@@ -495,18 +495,18 @@
     </div>
 
     <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
-      <div class="dialog entry-paste-conflict-dialog">
+      <div ref="entryPasteDialogRef" class="dialog entry-paste-conflict-dialog" tabindex="-1" @keydown="handleEntryPasteConflictKeydown">
         <h3>选择商品</h3>
         <p>粘贴内容里有商品名称对应多个资料，请选定后再写入分录。</p>
         <div v-for="conflict in pendingEntryPaste.conflicts" :key="conflict.lineIndex" class="entry-paste-conflict">
           <div class="entry-paste-conflict-title">第 {{ conflict.lineIndex + 1 }} 行：{{ conflict.productText }}</div>
           <div class="entry-paste-candidates">
             <button
-              v-for="candidate in conflict.candidates"
+              v-for="(candidate, candidateIndex) in conflict.candidates"
               :key="candidate.code"
               type="button"
               class="entry-paste-candidate"
-              :class="{ selected: conflict.selectedCode === candidate.code }"
+              :class="{ selected: conflict.selectedCode === candidate.code, active: isEntryPasteCandidateActive(conflict, candidateIndex) }"
               :data-testid="entryPasteCandidateTestId(conflict.lineIndex, candidate.code)"
               @click="selectEntryPasteCandidate(conflict.lineIndex, candidate.code)"
             >
@@ -657,6 +657,7 @@ interface EntryPasteConflict {
   productText: string;
   candidates: MasterOption[];
   selectedCode?: string;
+  activeIndex?: number;
 }
 
 interface PendingEntryPaste {
@@ -733,6 +734,7 @@ const pendingPushDown = ref<PendingPushDown | null>(null);
 const pushConfirmRatio = ref(50);
 const pushConfirmWarehouseCode = ref("CK-001");
 const pushConfirmError = ref("");
+const entryPasteDialogRef = ref<HTMLElement | null>(null);
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
@@ -1867,9 +1869,15 @@ async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
       conflicts: pasteResult.conflicts
     };
     formMessage.value = `有 ${pasteResult.conflicts.length} 行商品需要选择。`;
+    void focusEntryPasteDialog();
     return;
   }
   applyPastedEntryLines(startIndex, pasteResult.lines);
+}
+
+async function focusEntryPasteDialog() {
+  await nextTick();
+  entryPasteDialogRef.value?.focus();
 }
 
 async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
@@ -1965,7 +1973,8 @@ function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Recor
       conflict: {
         lineIndex,
         productText: [productName || productToken, productSpec].filter(Boolean).join(" / "),
-        candidates: productMatch.candidates
+        candidates: productMatch.candidates,
+        activeIndex: 0
       }
     };
   }
@@ -2118,9 +2127,72 @@ function selectEntryPasteCandidate(lineIndex: number, code: string) {
     return;
   }
   conflict.selectedCode = code;
+  conflict.activeIndex = Math.max(0, conflict.candidates.findIndex((item) => item.code === code));
   line.productCode = candidate.code;
   line.productName = candidate.name;
   line.spec = candidate.spec ?? "";
+}
+
+function isEntryPasteCandidateActive(conflict: EntryPasteConflict, candidateIndex: number) {
+  return (conflict.activeIndex ?? 0) === candidateIndex;
+}
+
+function activeEntryPasteConflict() {
+  const pending = pendingEntryPaste.value;
+  if (!pending) {
+    return undefined;
+  }
+  return pending.conflicts.find((conflict) => !conflict.selectedCode) ?? pending.conflicts[0];
+}
+
+function moveEntryPasteCandidate(delta: number) {
+  const conflict = activeEntryPasteConflict();
+  if (!conflict || conflict.candidates.length === 0) {
+    return;
+  }
+  const maxIndex = conflict.candidates.length - 1;
+  const currentIndex = Math.min(Math.max(conflict.activeIndex ?? 0, 0), maxIndex);
+  conflict.activeIndex = Math.min(Math.max(currentIndex + delta, 0), maxIndex);
+}
+
+function chooseActiveEntryPasteCandidate() {
+  const conflict = activeEntryPasteConflict();
+  if (!conflict || conflict.candidates.length === 0) {
+    return;
+  }
+  const candidate = conflict.candidates[Math.min(Math.max(conflict.activeIndex ?? 0, 0), conflict.candidates.length - 1)];
+  if (!candidate) {
+    return;
+  }
+  selectEntryPasteCandidate(conflict.lineIndex, candidate.code);
+  if (entryPasteConflictsResolved.value) {
+    confirmPendingEntryPaste();
+  }
+}
+
+function handleEntryPasteConflictKeydown(event: KeyboardEvent) {
+  if (!pendingEntryPaste.value) {
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelPendingEntryPaste();
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveEntryPasteCandidate(1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveEntryPasteCandidate(-1);
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    chooseActiveEntryPasteCandidate();
+  }
 }
 
 function cancelPendingEntryPaste() {
