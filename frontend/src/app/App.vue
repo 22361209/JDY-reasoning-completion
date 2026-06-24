@@ -1864,6 +1864,8 @@ function lineDragHandleTestId(index: number) {
 onMounted(async () => {
   installSessionExpiryInterceptor();
   window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+  window.addEventListener("storage", handleSessionStorageEvent);
+  window.addEventListener("focus", verifyActiveSession);
   systemUsers.value = await fetchSystemUsers();
   const remoteSession = await fetchSystemSession();
   if (remoteSession?.authenticated && remoteSession.user) {
@@ -1873,6 +1875,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+  window.removeEventListener("storage", handleSessionStorageEvent);
+  window.removeEventListener("focus", verifyActiveSession);
 });
 
 function applySystemSession(remoteSession: SystemSession) {
@@ -1933,10 +1937,10 @@ async function submitPasswordResetRequest() {
 
 async function logoutCurrentUser() {
   await logoutSystemUser();
-  clearLocalSession("");
+  clearLocalSession("已退出登录。", "logout");
 }
 
-function clearLocalSession(message: string) {
+function clearLocalSession(message: string, reason: SessionInvalidationReason = "session-expired", broadcast = true) {
   isAuthenticated.value = false;
   session.userName.value = "";
   session.userRole.value = "";
@@ -1947,6 +1951,9 @@ function clearLocalSession(message: string) {
   passwordDialogOpen.value = false;
   resetPasswordForm();
   tabs.activeTabId.value = "home";
+  if (broadcast) {
+    broadcastSessionInvalidation(reason, message);
+  }
 }
 
 function openPasswordDialog() {
@@ -1986,15 +1993,64 @@ async function submitPasswordChange() {
   }
   closePasswordDialog();
   await logoutSystemUser();
-  clearLocalSession("密码已修改，请使用新密码重新登录。");
+  clearLocalSession("密码已修改，请使用新密码重新登录。", "password-changed");
 }
 
 function handleSessionExpired() {
-  clearLocalSession("登录已过期，请重新登录。");
+  clearLocalSession("登录已过期，请重新登录。", "session-expired");
 }
 
 const SESSION_EXPIRED_EVENT = "jdy:session-expired";
+const SESSION_INVALIDATION_STORAGE_KEY = "jdy:session-invalidation";
+type SessionInvalidationReason = "logout" | "password-changed" | "session-expired";
 const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/users", "/api/system/login", "/api/system/logout", "/api/system/password-reset-requests"]);
+
+function broadcastSessionInvalidation(reason: SessionInvalidationReason, message: string) {
+  try {
+    localStorage.setItem(SESSION_INVALIDATION_STORAGE_KEY, JSON.stringify({
+      reason,
+      message,
+      timestamp: Date.now()
+    }));
+  } catch {
+    // localStorage can be unavailable in private contexts; local page cleanup still succeeded.
+  }
+}
+
+function handleSessionStorageEvent(event: StorageEvent) {
+  if (event.key !== SESSION_INVALIDATION_STORAGE_KEY || !event.newValue) {
+    return;
+  }
+  try {
+    const payload = JSON.parse(event.newValue) as { reason?: SessionInvalidationReason; message?: string };
+    const message = payload.message || sessionInvalidationMessage(payload.reason);
+    clearLocalSession(message, payload.reason ?? "session-expired", false);
+  } catch {
+    clearLocalSession("登录状态已变化，请重新登录。", "session-expired", false);
+  }
+}
+
+async function verifyActiveSession() {
+  if (!isAuthenticated.value) {
+    return;
+  }
+  const remoteSession = await fetchSystemSession();
+  if (!remoteSession?.authenticated || !remoteSession.user) {
+    clearLocalSession("登录状态已失效，请重新登录。", "session-expired", false);
+    return;
+  }
+  applySystemSession(remoteSession);
+}
+
+function sessionInvalidationMessage(reason?: SessionInvalidationReason) {
+  if (reason === "logout") {
+    return "其他标签页已退出登录。";
+  }
+  if (reason === "password-changed") {
+    return "密码已在其他标签页修改，请重新登录。";
+  }
+  return "登录状态已变化，请重新登录。";
+}
 
 function installSessionExpiryInterceptor() {
   const runtimeWindow = window as Window & { __jdyFetchWrapped?: boolean; __jdyOriginalFetch?: typeof window.fetch };
