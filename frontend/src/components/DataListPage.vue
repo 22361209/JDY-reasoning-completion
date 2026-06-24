@@ -586,11 +586,13 @@ const definitions: Record<string, ListDefinition> = {
     keywordPlaceholder: "模块、动作、对象、时间",
     statuses: ["成功", "失败"],
     columns: [
-      { field: "operatedAt", title: "操作时间", width: 170, fixed: "left", visible: true },
+      { field: "operatedAt", title: "操作时间", width: 170, visible: true },
       { field: "module", title: "模块", width: 120, visible: true },
       { field: "action", title: "动作", width: 160, visible: true },
       { field: "targetType", title: "对象类型", width: 160, visible: true },
-      { field: "targetId", title: "对象ID", width: 250, visible: true },
+      { field: "targetNo", title: "业务单号", width: 210, visible: true },
+      { field: "operator", title: "操作人", width: 120, visible: true },
+      { field: "targetId", title: "对象ID", width: 250, visible: false },
       { field: "status", title: "状态", width: 90, visible: true },
       { field: "reason", title: "失败原因", width: 180, visible: true }
     ]

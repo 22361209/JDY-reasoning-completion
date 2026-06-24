@@ -475,13 +475,25 @@ public class ListStubController {
                    l.module_code AS module,
                    l.action_code AS action,
                    l.target_type AS "targetType",
+                   COALESCE(so.bill_no, pi.bill_no, sor.bill_no, po.bill_no, pt.bill_no, pmi.bill_no, pc.bill_no, ar.bill_no, ap.bill_no, b.code, '') AS "targetNo",
                    COALESCE(l.target_id::text, '') AS "targetId",
+                   COALESCE(u.display_name, '本地管理员') AS operator,
                    CASE WHEN l.success THEN '成功' ELSE '失败' END AS status,
                    COALESCE(l.failure_reason, '') AS reason,
                    to_char(l.operated_at, 'YYYY-MM-DD HH24:MI:SS') AS "operatedAt"
             FROM sys_operation_log l
+            LEFT JOIN sales_out so ON l.target_type = 'sales_out' AND so.id = l.target_id
+            LEFT JOIN purchase_in pi ON l.target_type = 'purchase_in' AND pi.id = l.target_id
+            LEFT JOIN sales_order sor ON l.target_type = 'sales_order' AND sor.id = l.target_id
+            LEFT JOIN purchase_order po ON l.target_type = 'purchase_order' AND po.id = l.target_id
+            LEFT JOIN production_task pt ON l.target_type = 'production_task' AND pt.id = l.target_id
+            LEFT JOIN production_material_issue pmi ON l.target_type = 'production_material_issue' AND pmi.id = l.target_id
+            LEFT JOIN production_completion pc ON l.target_type = 'production_completion' AND pc.id = l.target_id
+            LEFT JOIN ar_receivable ar ON l.target_type = 'ar_receivable' AND ar.id = l.target_id
+            LEFT JOIN ap_payable ap ON l.target_type = 'ap_payable' AND ap.id = l.target_id
+            LEFT JOIN prod_bom b ON l.target_type = 'prod_bom' AND b.id = l.target_id
+            LEFT JOIN sys_user u ON u.id = l.operated_by
             ORDER BY l.operated_at DESC
-            LIMIT 500
             """));
     }
 }
