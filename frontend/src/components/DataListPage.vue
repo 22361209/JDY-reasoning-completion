@@ -111,14 +111,14 @@
     </div>
 
     <div class="list-toolbar">
-      <button class="primary-action" type="button" :disabled="locked" data-testid="list-create" @click="openCreateDialog">新增</button>
-      <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
-      <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
+      <button class="primary-action" type="button" :disabled="locked || !canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
+      <button v-if="isMasterList" type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
+      <button type="button" :disabled="locked || !canAuditCurrentList || selectedRows.length === 0" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
-      <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
-      <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
-      <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
+      <button v-if="isMasterList" type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
+      <button v-if="isMasterList" type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
+      <button type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length === 0" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
       <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
       <button type="button">打印</button>
@@ -323,6 +323,7 @@ import {
   updateMasterData,
   type ListFilterPreset
 } from "../services/listApi";
+import { useSessionStore } from "../stores/session";
 
 interface ListColumn {
   field: string;
@@ -728,10 +729,37 @@ const fallbackDefinition: ListDefinition = {
 };
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
+const session = useSessionStore();
 const isMasterList = computed(() => Boolean(masterDataTypeByListKey[props.listKey]));
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
+const auditPermissionByListKey: Partial<Record<string, string>> = {
+  "sales-order-form-list": "sales.order.audit",
+  "sales-out-list": "sales.out.audit",
+  "sales-out-form-list": "sales.out.audit",
+  "purchase-order-form-list": "purchase.order.audit",
+  "purchase-in-list": "purchase.in.audit",
+  "purchase-in-form-list": "purchase.in.audit",
+  "material-issue-form-list": "production.document.audit",
+  "product-in-form-list": "production.document.audit"
+};
+const maintainPermissionByListKey: Partial<Record<string, string>> = {
+  "product-master-list": "master.data.manage",
+  "customer-master-list": "master.data.manage",
+  "supplier-master-list": "master.data.manage",
+  "warehouse-master-list": "master.data.manage",
+  "sales-order-form-list": "sales.order.audit",
+  "sales-out-list": "sales.out.audit",
+  "sales-out-form-list": "sales.out.audit",
+  "purchase-order-form-list": "purchase.order.audit",
+  "purchase-in-list": "purchase.in.audit",
+  "purchase-in-form-list": "purchase.in.audit",
+  "material-issue-form-list": "production.document.audit",
+  "product-in-form-list": "production.document.audit"
+};
+const canAuditCurrentList = computed(() => session.hasPermission(auditPermissionByListKey[props.listKey]));
+const canMaintainCurrentList = computed(() => session.hasPermission(maintainPermissionByListKey[props.listKey]));
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
   "sales-order-form-list": "salesOrder",
   "sales-out-list": "salesOut",
@@ -749,6 +777,7 @@ const canPushDownSalesOut = computed(() => {
   return Boolean(
     isSalesOrderList.value &&
     !props.locked &&
+    session.hasPermission("sales.out.audit") &&
     selectedRows.value.length === 1 &&
     row?.status === "已审核" &&
     row?.outStatus !== "全部出库"
@@ -759,6 +788,7 @@ const canPushDownPurchaseIn = computed(() => {
   return Boolean(
     isPurchaseOrderList.value &&
     !props.locked &&
+    session.hasPermission("purchase.in.audit") &&
     selectedRows.value.length === 1 &&
     row?.status === "已审核" &&
     row?.inStatus !== "全部入库"

@@ -31,13 +31,30 @@ public class SystemShellController {
             ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 ELSE 1 END
             LIMIT 1
             """);
+        var roleCode = userRows.isEmpty() ? "ADMIN" : String.valueOf(userRows.get(0).get("roleCode"));
+        var permissionCodes = jdbcTemplate.queryForList("""
+            SELECT p.permission_code
+            FROM sys_permission p
+            JOIN sys_role r ON r.id = p.role_id
+            LEFT JOIN sys_permission_catalog c ON c.permission_code = p.permission_code
+            WHERE r.code = ?
+              AND p.enabled = TRUE
+            ORDER BY c.sort_no, p.permission_code
+            """, String.class, roleCode);
         var user = userRows.isEmpty()
-            ? Map.of("name", "本地管理员", "username", "admin", "role", "系统管理员", "roleCode", "ADMIN")
+            ? Map.of(
+                "name", "本地管理员",
+                "username", "admin",
+                "role", "系统管理员",
+                "roleCode", "ADMIN",
+                "permissionCodes", permissionCodes
+            )
             : Map.of(
                 "name", String.valueOf(userRows.get(0).get("displayName")),
                 "username", String.valueOf(userRows.get(0).get("username")),
                 "role", String.valueOf(userRows.get(0).get("roleName")),
-                "roleCode", String.valueOf(userRows.get(0).get("roleCode"))
+                "roleCode", roleCode,
+                "permissionCodes", permissionCodes
             );
         return Map.of(
             "user", user,

@@ -36,7 +36,7 @@
         </div>
 
         <div v-else class="entry-groups">
-          <section v-for="group in activeModule.groups" :key="group.title" class="entry-group">
+          <section v-for="group in activeEntryGroups" :key="group.title" class="entry-group">
             <div class="entry-group__title">{{ group.title }}</div>
             <div class="entry-list">
               <div v-for="entry in group.entries" :key="entry.id" class="entry-row">
@@ -125,7 +125,7 @@
               <h2>首页工作台</h2>
               <p>统一外壳已承载左侧模块、顶部账套期间、内部页签和高密度主内容区。</p>
             </div>
-            <button class="primary-action" type="button" @click="openEntry(demoDirtyEntry)">打开未保存样例</button>
+            <button class="primary-action" type="button" :disabled="!canOpenEntry(demoDirtyEntry)" @click="openEntry(demoDirtyEntry)">打开未保存样例</button>
           </section>
 
           <div class="metric-row">
@@ -181,7 +181,7 @@
             </div>
             <div class="role-permission-head__actions">
               <button type="button" data-testid="role-permission-refresh" @click="loadRolePermissions">刷新</button>
-              <button class="primary-action" type="button" data-testid="role-permission-save" @click="saveSelectedRolePermissions">保存</button>
+              <button class="primary-action" type="button" :disabled="!canManageRolePermissions" data-testid="role-permission-save" @click="saveSelectedRolePermissions">保存</button>
             </div>
           </section>
           <section class="role-permission-body">
@@ -231,8 +231,8 @@
               <p>维护单据 PDF/HTML 输出的公司抬头、模板名、页脚、签字栏、公司章和默认模板。</p>
             </div>
             <div class="print-template-head__actions">
-              <button type="button" data-testid="print-template-copy" @click="copyActivePrintTemplate">另存为副本</button>
-              <button class="primary-action" type="button" data-testid="print-template-save" @click="saveActivePrintTemplate">保存</button>
+              <button type="button" :disabled="!canManagePrintTemplates" data-testid="print-template-copy" @click="copyActivePrintTemplate">另存为副本</button>
+              <button class="primary-action" type="button" :disabled="!canManagePrintTemplates" data-testid="print-template-save" @click="saveActivePrintTemplate">保存</button>
             </div>
           </section>
           <section class="print-template-body">
@@ -338,7 +338,7 @@
           <div class="action-bar">
             <button class="primary-action" type="button" :disabled="isLockedList" data-testid="new-document" @click="startNewCurrentDocument">新增</button>
             <button type="button" :disabled="!isDraftDocument" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
-            <button type="button" :disabled="!isDraftDocument" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
+            <button type="button" :disabled="!canAuditCurrentDocument" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
             <button type="button" :disabled="!canReverseDocument" data-testid="reverse-document" @click="openRiskyDocumentAction('reverse')">反审核</button>
             <button type="button" :disabled="!canReverseDocument" data-testid="red-reverse-document" @click="openRiskyDocumentAction('redReverse')">红冲</button>
             <button type="button" :disabled="!canVoidDocument" data-testid="void-document" @click="voidCurrentDocument">作废</button>
@@ -845,6 +845,7 @@ interface ShellEntry {
   mode: WorkTabKind;
   queryable?: boolean;
   dirty?: boolean;
+  permission?: string;
 }
 
 interface EntryGroup {
@@ -1107,8 +1108,8 @@ const moduleCatalog: ShellModule[] = [
     short: "销",
     groups: [
       { title: "销售业务", entries: [
-        { id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true },
-        { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true },
+        { id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" },
+        { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-return-form", label: "销售退货申请", module: "销售管理", mode: "form" }
       ] },
       { title: "报表查询", entries: [
@@ -1122,8 +1123,8 @@ const moduleCatalog: ShellModule[] = [
     short: "采",
     groups: [
       { title: "采购业务", entries: [
-        { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true, dirty: true },
-        { id: "purchase-in-form", label: "采购入库单", module: "采购管理", mode: "form", queryable: true, dirty: true },
+        { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.order.audit" },
+        { id: "purchase-in-form", label: "采购入库单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.in.audit" },
         { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form" }
       ] },
       { title: "报表查询", entries: [
@@ -1136,7 +1137,7 @@ const moduleCatalog: ShellModule[] = [
     short: "库",
     groups: [
       { title: "库存业务", entries: [
-        { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true },
+        { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" },
         { id: "stock-transfer-form", label: "调拨单", module: "库存管理", mode: "form", queryable: true },
         { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form" }
       ] },
@@ -1151,11 +1152,11 @@ const moduleCatalog: ShellModule[] = [
     short: "款",
     groups: [
       { title: "往来单据", entries: [
-        { id: "receivable-list", label: "应收单", module: "应收应付", mode: "list", queryable: true },
-        { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true }
+        { id: "receivable-list", label: "应收单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
+        { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" }
       ] },
       { title: "往来报表", entries: [
-        { id: "ar-summary-report", label: "应收汇总表", module: "应收应付", mode: "report", queryable: true }
+        { id: "ar-summary-report", label: "应收汇总表", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" }
       ] }
     ]
   },
@@ -1164,9 +1165,9 @@ const moduleCatalog: ShellModule[] = [
     short: "产",
     groups: [
       { title: "生产执行", entries: [
-        { id: "production-task-form", label: "生产任务单", module: "生产管理", mode: "form", queryable: true },
-        { id: "material-issue-form", label: "生产领料单", module: "生产管理", mode: "form", queryable: true },
-        { id: "product-in-form", label: "产品入库单", module: "生产管理", mode: "form", queryable: true }
+        { id: "production-task-form", label: "生产任务单", module: "生产管理", mode: "form", queryable: true, permission: "production.task.audit" },
+        { id: "material-issue-form", label: "生产领料单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" },
+        { id: "product-in-form", label: "产品入库单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" }
       ] },
       { title: "BOM 与报表", entries: [
         { id: "bom-list", label: "BOM维护", module: "生产管理", mode: "list", queryable: true },
@@ -1189,10 +1190,10 @@ const moduleCatalog: ShellModule[] = [
     short: "资",
     groups: [
       { title: "资料维护", entries: [
-        { id: "product-master-list", label: "商品资料", module: "基础资料", mode: "list", queryable: true },
-        { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true },
-        { id: "supplier-master-list", label: "供应商", module: "基础资料", mode: "list", queryable: true },
-        { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true }
+        { id: "product-master-list", label: "商品资料", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "supplier-master-list", label: "供应商", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" }
       ] }
     ]
   },
@@ -1202,10 +1203,10 @@ const moduleCatalog: ShellModule[] = [
     groups: [
       { title: "系统基础", entries: [
         { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
-        { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "list", queryable: true },
-        { id: "role-permission-settings", label: "权限矩阵", module: "系统设置", mode: "shell" },
-        { id: "operation-log-list", label: "操作日志", module: "系统设置", mode: "list", queryable: true },
-        { id: "print-template-settings", label: "打印模板", module: "系统设置", mode: "shell" }
+        { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "list", queryable: true, permission: "system.role_permission.manage" },
+        { id: "role-permission-settings", label: "权限矩阵", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
+        { id: "operation-log-list", label: "操作日志", module: "系统设置", mode: "list", queryable: true, permission: "system.audit_log.view" },
+        { id: "print-template-settings", label: "打印模板", module: "系统设置", mode: "shell", permission: "system.print_template.manage" }
       ] }
     ]
   },
@@ -1230,9 +1231,12 @@ const excludedModules = ["老板参谋", "客户经营", "协同助手", "自定
 
 const visibleModules = [...moduleCatalog, ...excludedModules];
 const activeModule = computed(() => visibleModules.find((module) => module.name === activeModuleName.value) ?? moduleCatalog[0]);
+const activeEntryGroups = computed(() => activeModule.value.groups
+  .map((group) => ({ ...group, entries: group.entries.filter((entry) => canOpenEntry(entry)) }))
+  .filter((group) => group.entries.length > 0));
 const approvedCount = computed(() => featureScope.filter((feature) => feature.decision === "build" || feature.decision === "simple").length);
-const quickEntries = computed(() => moduleCatalog.flatMap((module) => module.groups.flatMap((group) => group.entries)).slice(0, 8));
-const demoDirtyEntry = computed<ShellEntry>(() => ({ id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true })).value;
+const quickEntries = computed(() => moduleCatalog.flatMap((module) => module.groups.flatMap((group) => group.entries)).filter((entry) => canOpenEntry(entry)).slice(0, 8));
+const demoDirtyEntry = computed<ShellEntry>(() => ({ id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" })).value;
 
 const pageSubtitle = computed(() => {
   if (tabs.activeTab.value.kind === "report") {
@@ -1262,6 +1266,8 @@ const printDocumentOptions = computed(() => printTemplateDocumentTypes.map((docu
 }));
 const currentDocumentTemplates = computed(() => printTemplates.value.filter((template) => template.documentType === printTemplateForm.documentType));
 const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
+const canManagePrintTemplates = computed(() => session.hasPermission("system.print_template.manage"));
+const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
 const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
 const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
 const permissionGroups = computed(() => {
@@ -1287,6 +1293,14 @@ const isStockDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutF
 const isReversibleDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
 const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isProductInForm.value);
 const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value || isProductionDocumentForm.value);
+const currentAuditPermission = computed(() => {
+  if (isSalesOrderForm.value) return "sales.order.audit";
+  if (isSalesOutForm.value) return "sales.out.audit";
+  if (isPurchaseOrderForm.value) return "purchase.order.audit";
+  if (isPurchaseInForm.value) return "purchase.in.audit";
+  if (isProductionDocumentForm.value) return "production.document.audit";
+  return "";
+});
 const showExecutionColumns = computed(() => (isSalesOrderForm.value || isPurchaseOrderForm.value) && currentOrderForm.value.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
 const showSourceLineColumn = computed(() => isStockDocumentForm.value && Boolean(currentOrderForm.value.sourceOrderNo));
 const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0));
@@ -1335,6 +1349,7 @@ const partyLabel = computed(() => {
 });
 const partyType = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "supplier" : "customer");
 const isDraftDocument = computed(() => isDocumentForm.value && currentOrderForm.value.status === "DRAFT");
+const canAuditCurrentDocument = computed(() => isDraftDocument.value && session.hasPermission(currentAuditPermission.value));
 const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 const canReverseDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "AUDITED");
 const canVoidDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "DRAFT");
@@ -1576,6 +1591,8 @@ onMounted(async () => {
   if (remoteSession) {
     session.userName.value = remoteSession.user.name;
     session.userRole.value = remoteSession.user.role;
+    session.userRoleCode.value = remoteSession.user.roleCode || "";
+    session.permissionCodes.value = remoteSession.user.permissionCodes ?? [];
     session.tenantName.value = remoteSession.tenant.name;
     session.accountingPeriod.value = remoteSession.period.accounting;
     session.businessPeriod.value = remoteSession.period.business;
@@ -1591,6 +1608,9 @@ function selectModule(name: string) {
 }
 
 function openEntry(entry: ShellEntry) {
+  if (!canOpenEntry(entry)) {
+    return;
+  }
   activeModuleName.value = entry.module;
   const isQuery = entry.mode === "list" || entry.mode === "report";
   const id = entry.mode === "list" && !entry.id.endsWith("-list") ? `${entry.id}-list` : entry.id;
@@ -1612,6 +1632,10 @@ function openEntry(entry: ShellEntry) {
   }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
+}
+
+function canOpenEntry(entry: ShellEntry) {
+  return session.hasPermission(entry.permission);
 }
 
 async function loadRolePermissions() {
@@ -1653,6 +1677,10 @@ function toggleRolePermission(permissionCode: string, checked: boolean) {
 }
 
 async function saveSelectedRolePermissions() {
+  if (!canManageRolePermissions.value) {
+    rolePermissionMessage.value = "当前角色无权维护权限矩阵。";
+    return;
+  }
   if (!selectedRoleCode.value) {
     rolePermissionMessage.value = "请先选择角色。";
     return;
@@ -1707,6 +1735,10 @@ function applyPrintTemplateToForm(template: PrintTemplateConfig) {
 }
 
 async function saveActivePrintTemplate() {
+  if (!canManagePrintTemplates.value) {
+    printTemplateMessage.value = "当前角色无权维护打印模板。";
+    return;
+  }
   const result = await savePrintTemplate(printTemplateForm.documentType, {
     templateCode: printTemplateForm.templateCode,
     templateName: printTemplateForm.templateName,
@@ -1728,6 +1760,10 @@ async function saveActivePrintTemplate() {
 }
 
 async function copyActivePrintTemplate() {
+  if (!canManagePrintTemplates.value) {
+    printTemplateMessage.value = "当前角色无权维护打印模板。";
+    return;
+  }
   const suffix = Date.now().toString().slice(-8);
   const result = await savePrintTemplate(printTemplateForm.documentType, {
     templateCode: `COPY-${suffix}`,
@@ -2964,6 +3000,10 @@ async function auditCurrentSalesOrder() {
 }
 
 async function auditCurrentDocument() {
+  if (!session.hasPermission(currentAuditPermission.value)) {
+    formMessage.value = "当前角色无权审核该单据。";
+    return;
+  }
   if (isSalesOrderForm.value) {
     await auditCurrentSalesOrder();
     return;
