@@ -496,6 +496,10 @@
                 <button v-if="currentOrderForm.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="openRedReverseBill">红字单 {{ currentOrderForm.redReverseBillNo }}</button>
                 <button v-if="currentOrderForm.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="openRedSourceBill">来源原单 {{ currentOrderForm.redSourceBillNo }}</button>
               </div>
+              <div v-else-if="currentOrderForm.redReverseBillNo || currentOrderForm.redSourceBillNo" class="source-order-field source-order-field--links">
+                <button v-if="currentOrderForm.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="openRedReverseBill">红字单 {{ currentOrderForm.redReverseBillNo }}</button>
+                <button v-if="currentOrderForm.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="openRedSourceBill">来源原单 {{ currentOrderForm.redSourceBillNo }}</button>
+              </div>
               <label>
                 {{ partyLabel }}编码
                 <span class="master-selector">
@@ -2393,7 +2397,7 @@ async function openDownstreamDocument(doc: DownstreamDocumentRef) {
 }
 
 async function openRedReverseBill() {
-  const type = currentDocumentType();
+  const type = currentOpenableDocumentType();
   const billNo = currentOrderForm.value.redReverseBillNo?.trim();
   if (!type || !billNo) {
     return;
@@ -2409,7 +2413,7 @@ async function openRedReverseBill() {
 }
 
 async function openRedSourceBill() {
-  const type = currentDocumentType();
+  const type = currentOpenableDocumentType();
   const billNo = currentOrderForm.value.redSourceBillNo?.trim();
   if (!type || !billNo) {
     return;
@@ -3607,6 +3611,28 @@ function currentDocumentType(): DocumentType | null {
   }
   if (isSalesOutForm.value) {
     return "salesOut";
+  }
+  return null;
+}
+
+function currentOpenableDocumentType(): OpenableDocumentType | null {
+  if (isSalesOrderForm.value) {
+    return "salesOrder";
+  }
+  if (isPurchaseOrderForm.value) {
+    return "purchaseOrder";
+  }
+  if (isPurchaseInForm.value) {
+    return "purchaseIn";
+  }
+  if (isSalesOutForm.value) {
+    return "salesOut";
+  }
+  if (isMaterialIssueForm.value) {
+    return "materialIssue";
+  }
+  if (isProductInForm.value) {
+    return "productIn";
   }
   return null;
 }
