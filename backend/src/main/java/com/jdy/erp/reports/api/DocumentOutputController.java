@@ -26,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RestController
 @RequestMapping("/api/documents")
 public class DocumentOutputController {
+    private static final String CURRENT_ROLE_CODE = "ADMIN";
+
     private final JdbcTemplate jdbcTemplate;
 
     public DocumentOutputController(JdbcTemplate jdbcTemplate) {
@@ -142,6 +144,7 @@ public class DocumentOutputController {
             SELECT document_type AS "documentType",
                    template_code AS "templateCode",
                    template_name AS "templateName",
+                   role_code AS "roleCode",
                    company_name AS "companyName",
                    header_note AS "headerNote",
                    footer_note AS "footerNote",
@@ -151,8 +154,11 @@ public class DocumentOutputController {
                    enabled
             FROM sys_print_template
             WHERE enabled = TRUE
-            ORDER BY document_type, is_default DESC, template_name
-            """);
+            ORDER BY document_type,
+                     CASE WHEN role_code = ? THEN 0 WHEN role_code IS NULL THEN 1 ELSE 2 END,
+                     is_default DESC,
+                     template_name
+            """, CURRENT_ROLE_CODE);
         return rows.stream()
             .filter(row -> documentTypes.contains(String.valueOf(row.get("documentType"))))
             .map(row -> templateResponse(String.valueOf(row.get("documentType")), templateFromRow(row)))
@@ -167,6 +173,7 @@ public class DocumentOutputController {
         }
         var templateCode = request.templateCode == null || request.templateCode.isBlank() ? "STANDARD" : request.templateCode.trim();
         var templateName = request.templateName == null || request.templateName.isBlank() ? "标准套打模板" : request.templateName.trim();
+        var roleCode = request.roleCode == null || request.roleCode.isBlank() ? null : request.roleCode.trim();
         var companyName = request.companyName == null || request.companyName.isBlank() ? "博莱德机械测试账套" : request.companyName.trim();
         var headerNote = request.headerNote == null ? "" : request.headerNote.trim();
         var footerNote = request.footerNote == null ? "" : request.footerNote.trim();
@@ -179,16 +186,18 @@ public class DocumentOutputController {
                 SET is_default = FALSE,
                     updated_at = now()
                 WHERE document_type = ?
-                """, documentType);
+                  AND role_code IS NOT DISTINCT FROM ?
+                """, documentType, roleCode);
         }
         jdbcTemplate.update("""
             INSERT INTO sys_print_template (
-                document_type, template_code, template_name, company_name, header_note, footer_note,
+                document_type, template_code, template_name, role_code, company_name, header_note, footer_note,
                 show_signature, show_seal, is_default, enabled, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now())
             ON CONFLICT (document_type, template_code) DO UPDATE
             SET template_name = EXCLUDED.template_name,
+                role_code = EXCLUDED.role_code,
                 company_name = EXCLUDED.company_name,
                 header_note = EXCLUDED.header_note,
                 footer_note = EXCLUDED.footer_note,
@@ -197,7 +206,7 @@ public class DocumentOutputController {
                 is_default = EXCLUDED.is_default,
                 enabled = TRUE,
                 updated_at = now()
-            """, documentType, templateCode, templateName, companyName, headerNote, footerNote, showSignature, showSeal, isDefault);
+            """, documentType, templateCode, templateName, roleCode, companyName, headerNote, footerNote, showSignature, showSeal, isDefault);
         return templateResponse(documentType, findPrintTemplate(documentType, templateCode));
     }
 
@@ -359,6 +368,7 @@ public class DocumentOutputController {
         response.put("documentTitle", title(documentType));
         response.put("templateCode", template.templateCode());
         response.put("templateName", template.templateName());
+        response.put("roleCode", template.roleCode() == null ? "" : template.roleCode());
         response.put("companyName", template.companyName());
         response.put("headerNote", template.headerNote());
         response.put("footerNote", template.footerNote());
@@ -386,6 +396,7 @@ public class DocumentOutputController {
         var rows = jdbcTemplate.queryForList("""
             SELECT template_code AS "templateCode",
                    template_name AS "templateName",
+                   role_code AS "roleCode",
                    company_name AS "companyName",
                    header_note AS "headerNote",
                    footer_note AS "footerNote",
@@ -396,13 +407,21 @@ public class DocumentOutputController {
             FROM sys_print_template
             WHERE document_type = ?
               AND enabled = TRUE
-            ORDER BY is_default DESC, updated_at DESC
+            ORDER BY
+              CASE
+                WHEN role_code = ? AND is_default THEN 0
+                WHEN role_code IS NULL AND is_default THEN 1
+                WHEN role_code = ? THEN 2
+                ELSE 3
+              END,
+              updated_at DESC
             LIMIT 1
-            """, documentType);
+            """, documentType, CURRENT_ROLE_CODE, CURRENT_ROLE_CODE);
         if (rows.isEmpty()) {
             return new PrintTemplate(
                 "STANDARD",
                 "标准套打模板",
+                null,
                 "博莱德机械测试账套",
                 "会计期间 2026-06 / 业务期间 2026-06",
                 "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
@@ -419,6 +438,7 @@ public class DocumentOutputController {
         var rows = jdbcTemplate.queryForList("""
             SELECT template_code AS "templateCode",
                    template_name AS "templateName",
+                   role_code AS "roleCode",
                    company_name AS "companyName",
                    header_note AS "headerNote",
                    footer_note AS "footerNote",
@@ -442,6 +462,7 @@ public class DocumentOutputController {
         return new PrintTemplate(
             String.valueOf(row.get("templateCode")),
             String.valueOf(row.get("templateName")),
+            row.get("roleCode") == null ? null : String.valueOf(row.get("roleCode")),
             String.valueOf(row.get("companyName")),
             String.valueOf(row.get("headerNote")),
             String.valueOf(row.get("footerNote")),
@@ -542,6 +563,7 @@ public class DocumentOutputController {
     private record PrintTemplate(
         String templateCode,
         String templateName,
+        String roleCode,
         String companyName,
         String headerNote,
         String footerNote,
@@ -555,6 +577,7 @@ public class DocumentOutputController {
     public record PrintTemplateRequest(
         String templateCode,
         String templateName,
+        String roleCode,
         String companyName,
         String headerNote,
         String footerNote,

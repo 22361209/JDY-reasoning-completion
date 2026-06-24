@@ -195,7 +195,7 @@
                 @click="selectPrintTemplate(template.documentType)"
               >
                 <strong>{{ template.documentTitle }}</strong>
-                <span>{{ template.templateName }}</span>
+                <span>{{ template.templateName }}{{ template.roleCode ? ` / ${template.roleCode}` : "" }}</span>
               </button>
             </aside>
             <form class="print-template-form" @submit.prevent="saveActivePrintTemplate">
@@ -209,8 +209,15 @@
                 当前模板
                 <select v-model="printTemplateForm.templateCode" data-testid="print-template-code" @change="selectPrintTemplate(printTemplateForm.documentType, printTemplateForm.templateCode)">
                   <option v-for="template in currentDocumentTemplates" :key="template.templateCode" :value="template.templateCode">
-                    {{ template.templateName }}{{ template.isDefault ? "（默认）" : "" }}
+                    {{ template.templateName }}（{{ template.roleCode || "通用" }}）{{ template.isDefault ? "（默认）" : "" }}
                   </option>
+                </select>
+              </label>
+              <label>
+                作用范围
+                <select v-model="printTemplateForm.roleCode" data-testid="print-template-role-code">
+                  <option value="">通用</option>
+                  <option value="ADMIN">ADMIN</option>
                 </select>
               </label>
               <label>
@@ -944,6 +951,7 @@ const printTemplateForm = reactive<PrintTemplateConfig>({
   documentTitle: "销售订单",
   templateCode: "STANDARD",
   templateName: "标准套打模板",
+  roleCode: "",
   companyName: "博莱德机械测试账套",
   headerNote: "会计期间 2026-06 / 业务期间 2026-06",
   footerNote: "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
@@ -1181,11 +1189,12 @@ const pageSubtitle = computed(() => {
 });
 const printDocumentOptions = computed(() => printTemplateDocumentTypes.map((document) => {
   const templates = printTemplates.value.filter((template) => template.documentType === document.documentType);
-  const defaultTemplate = templates.find((template) => template.isDefault) ?? templates[0];
+  const defaultTemplate = preferredPrintTemplate(templates);
   return defaultTemplate ?? {
     ...document,
     templateCode: "STANDARD",
     templateName: "标准套打模板",
+    roleCode: "",
     companyName: "博莱德机械测试账套",
     headerNote: "会计期间 2026-06 / 业务期间 2026-06",
     footerNote: "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
@@ -1542,9 +1551,7 @@ async function loadPrintTemplates() {
     return;
   }
   printTemplates.value = result.data;
-  const current = result.data.find((template) => template.documentType === printTemplateForm.documentType && template.isDefault)
-    ?? result.data.find((template) => template.documentType === printTemplateForm.documentType)
-    ?? result.data[0];
+  const current = preferredPrintTemplate(result.data.filter((template) => template.documentType === printTemplateForm.documentType)) ?? result.data[0];
   if (current) {
     applyPrintTemplateToForm(current);
   }
@@ -1553,7 +1560,7 @@ async function loadPrintTemplates() {
 
 function selectPrintTemplate(documentType: string, templateCode?: string) {
   const template = printTemplates.value.find((item) => item.documentType === documentType && item.templateCode === templateCode)
-    ?? printTemplates.value.find((item) => item.documentType === documentType && item.isDefault)
+    ?? preferredPrintTemplate(printTemplates.value.filter((item) => item.documentType === documentType))
     ?? printTemplates.value.find((item) => item.documentType === documentType);
   if (template) {
     applyPrintTemplateToForm(template);
@@ -1566,6 +1573,7 @@ function applyPrintTemplateToForm(template: PrintTemplateConfig) {
   printTemplateForm.documentTitle = template.documentTitle;
   printTemplateForm.templateCode = template.templateCode;
   printTemplateForm.templateName = template.templateName;
+  printTemplateForm.roleCode = template.roleCode || "";
   printTemplateForm.companyName = template.companyName;
   printTemplateForm.headerNote = template.headerNote;
   printTemplateForm.footerNote = template.footerNote;
@@ -1579,6 +1587,7 @@ async function saveActivePrintTemplate() {
   const result = await savePrintTemplate(printTemplateForm.documentType, {
     templateCode: printTemplateForm.templateCode,
     templateName: printTemplateForm.templateName,
+    roleCode: printTemplateForm.roleCode,
     companyName: printTemplateForm.companyName,
     headerNote: printTemplateForm.headerNote,
     footerNote: printTemplateForm.footerNote,
@@ -1600,6 +1609,7 @@ async function copyActivePrintTemplate() {
   const result = await savePrintTemplate(printTemplateForm.documentType, {
     templateCode: `COPY-${suffix}`,
     templateName: `${printTemplateForm.templateName} 副本`,
+    roleCode: printTemplateForm.roleCode,
     companyName: printTemplateForm.companyName,
     headerNote: printTemplateForm.headerNote,
     footerNote: printTemplateForm.footerNote,
@@ -1619,8 +1629,15 @@ async function copyActivePrintTemplate() {
 function upsertPrintTemplate(saved: PrintTemplateConfig) {
   const others = printTemplates.value
     .filter((template) => !(template.documentType === saved.documentType && template.templateCode === saved.templateCode))
-    .map((template) => saved.isDefault && template.documentType === saved.documentType ? { ...template, isDefault: false } : template);
+    .map((template) => saved.isDefault && template.documentType === saved.documentType && (template.roleCode || "") === (saved.roleCode || "") ? { ...template, isDefault: false } : template);
   printTemplates.value = [...others, saved];
+}
+
+function preferredPrintTemplate(templates: PrintTemplateConfig[]) {
+  return templates.find((template) => template.isDefault && template.roleCode === "ADMIN")
+    ?? templates.find((template) => template.isDefault && !template.roleCode)
+    ?? templates.find((template) => template.roleCode === "ADMIN")
+    ?? templates[0];
 }
 
 function closeNavigation() {

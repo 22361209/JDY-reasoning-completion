@@ -48,6 +48,7 @@ export interface PrintTemplateConfig {
   documentTitle: string;
   templateCode: string;
   templateName: string;
+  roleCode?: string;
   companyName: string;
   headerNote: string;
   footerNote: string;
