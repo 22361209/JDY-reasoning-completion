@@ -556,6 +556,11 @@ interface MasterOption {
   unit?: string;
 }
 
+interface EntryPasteRefs {
+  products: MasterOption[];
+  warehouses: MasterOption[];
+}
+
 interface OrderLineForm {
   lineNo?: number;
   productCode: string;
@@ -691,6 +696,17 @@ const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
 let selectorRequestSeq = 0;
+
+const knownProductOptions: MasterOption[] = [
+  { code: "CP-001", name: "控制臂总成", spec: "左前 / 黑色", unit: "只" },
+  { code: "CP-T413874", name: "验收商品总成", spec: "左前 / 蓝色", unit: "只" },
+  { code: "PJ-014", name: "衬套", spec: "65mm / 加强", unit: "件" }
+];
+const knownWarehouseOptions: MasterOption[] = [
+  { code: "CK-001", name: "成品仓" },
+  { code: "CK-002", name: "原材料仓" },
+  { code: "CK-T413874", name: "验收仓" }
+];
 
 const moduleCatalog: ShellModule[] = [
   {
@@ -996,13 +1012,9 @@ function productInfo(line: OrderLineForm) {
   if (product) {
     return { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "" };
   }
-  const knownProducts: Record<string, { name: string; spec: string; unit: string }> = {
-    "CP-001": { name: "控制臂总成", spec: "左前 / 黑色", unit: "只" },
-    "CP-T413874": { name: "验收商品总成", spec: "左前 / 蓝色", unit: "只" },
-    "PJ-014": { name: "衬套", spec: "65mm / 加强", unit: "件" }
-  };
-  if (knownProducts[line.productCode]) {
-    return knownProducts[line.productCode];
+  const knownProduct = knownProductOptions.find((option) => option.code === line.productCode);
+  if (knownProduct) {
+    return { name: knownProduct.name, spec: knownProduct.spec ?? "", unit: knownProduct.unit ?? "" };
   }
   return { name: "", spec: "", unit: "" };
 }
@@ -1605,38 +1617,188 @@ function applyBatchWarehouse() {
   markActiveDirty();
 }
 
-function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
+async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
   if (!isDraftDocument.value) {
     return;
   }
   const text = event.clipboardData?.getData("text/plain") ?? "";
-  const pastedLines = parseEntryClipboard(text);
-  if (pastedLines.length === 0) {
+  if (!text.trim()) {
     return;
   }
   event.preventDefault();
+  const refs = await loadEntryPasteRefs();
+  const pastedLines = parseEntryClipboard(text, refs);
+  if (pastedLines.length === 0) {
+    formMessage.value = "未识别到可粘贴的分录。";
+    return;
+  }
   applyPastedEntryLines(startIndex, pastedLines);
 }
 
-function parseEntryClipboard(text: string): OrderLineForm[] {
-  return text
+async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
+  const [productResult, warehouseResult] = await Promise.all([
+    fetchListRows("product-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 }),
+    fetchListRows("warehouse-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 })
+  ]);
+  return {
+    products: mergeMasterOptions(
+      productResult.ok && productResult.data ? productResult.data.rows.map(masterRowToOption) : [],
+      knownProductOptions
+    ),
+    warehouses: mergeMasterOptions(
+      warehouseResult.ok && warehouseResult.data ? warehouseResult.data.rows.map(masterRowToOption) : [],
+      knownWarehouseOptions
+    )
+  };
+}
+
+function masterRowToOption(row: Record<string, unknown>): MasterOption {
+  return {
+    code: String(row.code ?? ""),
+    name: String(row.name ?? ""),
+    spec: row.spec ? String(row.spec) : "",
+    unit: row.unit ? String(row.unit) : ""
+  };
+}
+
+function mergeMasterOptions(primary: MasterOption[], fallback: MasterOption[]) {
+  const byCode = new Map<string, MasterOption>();
+  [...fallback, ...primary].forEach((option) => {
+    if (option.code) {
+      byCode.set(option.code, option);
+    }
+  });
+  return Array.from(byCode.values());
+}
+
+function parseEntryClipboard(text: string, refs: EntryPasteRefs): OrderLineForm[] {
+  const rows = text
     .split(/\r?\n/)
     .map((row) => row.trim())
     .filter(Boolean)
     .map((row) => row.split(/\t|,|;/).map((cell) => cell.trim()))
-    .filter((cells) => Boolean(cells[0]))
-    .map((cells) => {
-      const productCode = cells[0] || "CP-001";
-      const warehouseCode = cells[1] || batchWarehouseCode.value.trim() || "CK-001";
-      const qty = normalizedPositiveNumber(cells[2], 1);
-      const unitPrice = normalizedPositiveNumber(cells[3], isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86);
-      return {
-        productCode,
-        warehouseCode,
-        qty,
-        unitPrice
-      };
-    });
+    .filter((cells) => cells.some(Boolean));
+  if (rows.length === 0) {
+    return [];
+  }
+  const header = detectEntryPasteHeader(rows[0]);
+  const dataRows = header ? rows.slice(1) : rows;
+  return dataRows
+    .map((cells) => parseEntryPasteRow(cells, refs, header))
+    .filter((line): line is OrderLineForm => Boolean(line));
+}
+
+function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Record<string, number> | null): OrderLineForm | null {
+  const productToken = cellByHeader(cells, header, "productCode", header ? -1 : 0);
+  const productName = cellByHeader(cells, header, "productName", header ? -1 : 0);
+  const productSpec = cellByHeader(cells, header, "spec", -1);
+  const warehouseToken = cellByHeader(cells, header, "warehouseCode", header ? -1 : 1);
+  const warehouseName = cellByHeader(cells, header, "warehouseName", -1);
+  const qtyText = cellByHeader(cells, header, "qty", header ? -1 : 2);
+  const priceText = cellByHeader(cells, header, "unitPrice", header ? -1 : 3);
+  const matchedProduct = matchProduct(productToken, productName, productSpec, refs.products);
+  if (!matchedProduct && !productToken) {
+    return null;
+  }
+  const matchedWarehouse = matchMasterOption(warehouseToken || warehouseName, refs.warehouses);
+  const fallbackWarehouseCode = warehouseToken || batchWarehouseCode.value.trim() || "CK-001";
+  const qty = normalizedPositiveNumber(qtyText, 1);
+  const unitPrice = normalizedPositiveNumber(priceText, isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86);
+  return {
+    productCode: matchedProduct?.code ?? productToken,
+    productName: matchedProduct?.name,
+    spec: matchedProduct?.spec ?? productSpec,
+    warehouseCode: matchedWarehouse?.code ?? fallbackWarehouseCode,
+    qty,
+    unitPrice
+  };
+}
+
+function detectEntryPasteHeader(cells: string[]) {
+  const header: Record<string, number> = {};
+  cells.forEach((cell, index) => {
+    const field = headerFieldName(cell);
+    if (field && header[field] === undefined) {
+      header[field] = index;
+    }
+  });
+  return Object.keys(header).length >= 2 && (header.productCode !== undefined || header.productName !== undefined) ? header : null;
+}
+
+function headerFieldName(cell: string) {
+  const key = normalizePasteText(cell);
+  const aliases: Record<string, string> = {
+    productcode: "productCode",
+    productno: "productCode",
+    product: "productCode",
+    code: "productCode",
+    商品编码: "productCode",
+    商品代码: "productCode",
+    商品编号: "productCode",
+    物料编码: "productCode",
+    编码: "productCode",
+    商品名称: "productName",
+    商品名: "productName",
+    名称: "productName",
+    物料名称: "productName",
+    规格型号: "spec",
+    规格: "spec",
+    型号: "spec",
+    spec: "spec",
+    仓库编码: "warehouseCode",
+    仓库代码: "warehouseCode",
+    仓库编号: "warehouseCode",
+    warehousecode: "warehouseCode",
+    仓库: "warehouseName",
+    仓库名称: "warehouseName",
+    数量: "qty",
+    qty: "qty",
+    quantity: "qty",
+    单价: "unitPrice",
+    价格: "unitPrice",
+    unitprice: "unitPrice",
+    price: "unitPrice"
+  };
+  return aliases[key] ?? "";
+}
+
+function cellByHeader(cells: string[], header: Record<string, number> | null, field: string, fallbackIndex: number) {
+  if (header && header[field] !== undefined) {
+    return cells[header[field]]?.trim() ?? "";
+  }
+  return fallbackIndex >= 0 ? cells[fallbackIndex]?.trim() ?? "" : "";
+}
+
+function matchProduct(productToken: string, productName: string, productSpec: string, products: MasterOption[]) {
+  const exactByToken = matchMasterOption(productToken, products);
+  if (exactByToken) {
+    return exactByToken;
+  }
+  const normalizedName = normalizePasteText(productName || productToken);
+  const normalizedSpec = normalizePasteText(productSpec);
+  if (!normalizedName) {
+    return undefined;
+  }
+  return products.find((option) => normalizePasteText(option.name) === normalizedName && (!normalizedSpec || normalizePasteText(option.spec ?? "") === normalizedSpec))
+    ?? products.find((option) => normalizePasteText(`${option.name}${option.spec ?? ""}`) === normalizePasteText(`${productName || productToken}${productSpec}`))
+    ?? products.find((option) => normalizePasteText(option.name) === normalizedName);
+}
+
+function matchMasterOption(token: string, options: MasterOption[]) {
+  const normalized = normalizePasteText(token);
+  if (!normalized) {
+    return undefined;
+  }
+  return options.find((option) => normalizePasteText(option.code) === normalized)
+    ?? options.find((option) => normalizePasteText(option.name) === normalized);
+}
+
+function normalizePasteText(value: string | undefined) {
+  return String(value ?? "")
+    .replace(/\s+/g, "")
+    .replace(/[（）()【】\[\]]/g, "")
+    .replace(/[\/_.-]/g, "")
+    .toLowerCase();
 }
 
 function normalizedPositiveNumber(value: string | undefined, fallback: number) {
