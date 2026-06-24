@@ -122,6 +122,8 @@ public class DocumentOutputController {
             case "purchase-order" -> purchaseOrderPayload(billNo);
             case "purchase-in" -> stockBillPayload("purchase_in", "purchase_in_line", "md_supplier", "供应商", billNo);
             case "sales-out" -> stockBillPayload("sales_out", "sales_out_line", "md_customer", "客户", billNo);
+            case "material-issue" -> productionBillPayload("production_material_issue", "production_material_issue_line", "issue_id", "生产领料单", billNo);
+            case "product-in" -> productionBillPayload("production_completion", "production_completion_line", "completion_id", "产品入库单", billNo);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据输出");
         };
     }
@@ -203,12 +205,50 @@ public class DocumentOutputController {
         return new DocumentPayload(header.get(0), lines);
     }
 
+    private DocumentPayload productionBillPayload(String table, String lineTable, String billColumn, String documentLabel, String billNo) {
+        var header = jdbcTemplate.queryForList("""
+            SELECT b.bill_no AS "billNo",
+                   '生产车间 / ' || t.bill_no AS counterparty,
+                   to_char(b.created_at, 'YYYY-MM-DD') AS "billDate",
+                   b.status,
+                   COALESCE(SUM(l.amount), 0) AS "totalAmount"
+            FROM %s b
+            JOIN production_task t ON t.id = b.task_id
+            LEFT JOIN %s l ON l.%s = b.id
+            WHERE b.bill_no = ?
+            GROUP BY b.id, t.bill_no
+            """.formatted(table, lineTable, billColumn), billNo);
+        if (header.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, documentLabel + "不存在");
+        }
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.name AS warehouse,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   '' AS "lineRemark"
+            FROM %s l
+            JOIN %s b ON b.id = l.%s
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            WHERE b.bill_no = ?
+            ORDER BY l.line_no
+            """.formatted(lineTable, table, billColumn), billNo);
+        return new DocumentPayload(header.get(0), lines);
+    }
+
     private String title(String documentType) {
         return switch (documentType) {
             case "sales-order" -> "销售订单";
             case "purchase-order" -> "采购订单";
             case "purchase-in" -> "采购入库单";
             case "sales-out" -> "销售出库单";
+            case "material-issue" -> "生产领料单";
+            case "product-in" -> "产品入库单";
             default -> "业务单据";
         };
     }

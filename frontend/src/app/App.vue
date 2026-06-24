@@ -2863,6 +2863,12 @@ function currentOutputDocumentType(): OutputDocumentType | null {
   if (isSalesOutForm.value) {
     return "salesOut";
   }
+  if (isMaterialIssueForm.value) {
+    return "materialIssue";
+  }
+  if (isProductInForm.value) {
+    return "productIn";
+  }
   return null;
 }
 

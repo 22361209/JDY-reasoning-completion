@@ -34,7 +34,9 @@ const outputTypeByDocumentType = {
   salesOrder: "sales-order",
   purchaseOrder: "purchase-order",
   purchaseIn: "purchase-in",
-  salesOut: "sales-out"
+  salesOut: "sales-out",
+  materialIssue: "material-issue",
+  productIn: "product-in"
 } as const;
 
 export type DocumentType = keyof typeof endpointByType;
