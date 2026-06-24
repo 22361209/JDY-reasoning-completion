@@ -73,10 +73,53 @@ public class UserManagementController {
                 last_attempt_at = now(),
                 sent_at = now(),
                 failure_reason = NULL,
+                provider_receipt_status = NULL,
+                provider_receipt_at = NULL,
                 provider_message_id = 'LOCAL-' || replace(id::text, '-', '')
             WHERE id = ?::uuid
             """, normalizedNotificationId);
         log("SYSTEM", "RESEND_NOTIFICATION", "sys_notification_outbox", normalizedNotificationId, true, "重发给 " + rows.get(0).get("recipientUsername"));
+        return Map.of("notificationOutbox", notificationRows(""));
+    }
+
+    @PutMapping("/notification-outbox/{notificationId}/receipt")
+    @RequirePermission("system.role_permission.manage")
+    @Transactional
+    public Map<String, Object> syncNotificationReceipt(@PathVariable String notificationId, @RequestBody NotificationReceiptRequest request) {
+        var normalizedNotificationId = required(notificationId, "通知ID");
+        var receiptStatus = required(request.providerReceiptStatus(), "回执状态").toUpperCase();
+        if (!List.of("DELIVERED", "FAILED", "BOUNCED").contains(receiptStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "回执状态只能是 DELIVERED、FAILED 或 BOUNCED");
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   recipient_username AS "recipientUsername"
+            FROM sys_notification_outbox
+            WHERE id = ?::uuid
+            """, normalizedNotificationId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "通知不存在");
+        }
+        var nextStatus = "DELIVERED".equals(receiptStatus) ? "SENT" : "FAILED";
+        var providerMessageId = optionalLimited(request.providerMessageId(), 160);
+        var failureReason = "DELIVERED".equals(receiptStatus)
+            ? null
+            : optionalLimited(request.failureReason(), 240);
+        if (!"DELIVERED".equals(receiptStatus) && (failureReason == null || failureReason.isBlank())) {
+            failureReason = "供应商回执：" + receiptStatus;
+        }
+        jdbcTemplate.update("""
+            UPDATE sys_notification_outbox
+            SET status = ?,
+                provider = 'LOCAL',
+                provider_message_id = COALESCE(NULLIF(?, ''), provider_message_id, 'LOCAL-' || replace(id::text, '-', '')),
+                provider_receipt_status = ?,
+                provider_receipt_at = now(),
+                failure_reason = ?,
+                sent_at = CASE WHEN ? = 'SENT' THEN COALESCE(sent_at, now()) ELSE sent_at END
+            WHERE id = ?::uuid
+            """, nextStatus, providerMessageId, receiptStatus, failureReason, nextStatus, normalizedNotificationId);
+        log("SYSTEM", "SYNC_NOTIFICATION_RECEIPT", "sys_notification_outbox", normalizedNotificationId, true, receiptStatus + "：" + rows.get(0).get("recipientUsername"));
         return Map.of("notificationOutbox", notificationRows(""));
     }
 
@@ -363,6 +406,8 @@ public class UserManagementController {
                    retry_count AS "retryCount",
                    COALESCE(to_char(last_attempt_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastAttemptAt",
                    COALESCE(failure_reason, '') AS "failureReason",
+                   COALESCE(provider_receipt_status, '') AS "providerReceiptStatus",
+                   COALESCE(to_char(provider_receipt_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "providerReceiptAt",
                    COALESCE(to_char(created_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "createdAt",
                    COALESCE(to_char(sent_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "sentAt"
             FROM sys_notification_outbox
@@ -484,5 +529,8 @@ public class UserManagementController {
     }
 
     public record PasswordResetHandleRequest(String status, String note) {
+    }
+
+    public record NotificationReceiptRequest(String providerReceiptStatus, String providerMessageId, String failureReason) {
     }
 }

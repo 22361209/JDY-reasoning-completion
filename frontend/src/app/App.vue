@@ -448,10 +448,14 @@
                   :data-testid="`password-reset-notice-${notice.recipientUsername}-${notice.templateCode}`"
                 >
                   <strong>{{ notice.title }}</strong>
-                  <span>{{ notice.recipientUsername }} / {{ notificationStatusLabel(notice) }} / 重试 {{ notice.retryCount ?? 0 }} 次 / {{ notice.sentAt || notice.lastAttemptAt || notice.createdAt }}</span>
+                  <span>{{ notice.recipientUsername }} / {{ notificationStatusLabel(notice) }} / {{ notificationReceiptLabel(notice) }} / 重试 {{ notice.retryCount ?? 0 }} 次 / {{ notice.sentAt || notice.lastAttemptAt || notice.createdAt }}</span>
                   <em>{{ notice.body }}</em>
                   <em v-if="notice.failureReason">失败原因：{{ notice.failureReason }}</em>
-                  <button type="button" :data-testid="`notification-resend-${notice.recipientUsername}`" @click="resendNotificationAction(notice.id)">重发</button>
+                  <div class="password-reset-notice-row__actions">
+                    <button type="button" :data-testid="`notification-resend-${notice.recipientUsername}`" @click="resendNotificationAction(notice.id)">重发</button>
+                    <button type="button" :data-testid="`notification-receipt-delivered-${notice.recipientUsername}`" @click="syncNotificationReceiptAction(notice.id, 'DELIVERED')">回执成功</button>
+                    <button type="button" :data-testid="`notification-receipt-failed-${notice.recipientUsername}`" @click="syncNotificationReceiptAction(notice.id, 'FAILED')">回执失败</button>
+                  </div>
                 </div>
               </section>
               <label>
@@ -1213,7 +1217,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resendNotification, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resendNotification, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -2466,6 +2470,24 @@ async function resendNotificationAction(notificationId: string) {
   userManagementMessage.value = "通知已重发";
 }
 
+async function syncNotificationReceiptAction(notificationId: string, providerReceiptStatus: "DELIVERED" | "FAILED") {
+  if (!canManageRolePermissions.value) {
+    userManagementMessage.value = "当前角色无权维护通知。";
+    return;
+  }
+  const result = await syncNotificationReceipt(notificationId, {
+    providerReceiptStatus,
+    failureReason: providerReceiptStatus === "FAILED" ? "本地供应商回执失败" : ""
+  });
+  if (!result.ok) {
+    userManagementMessage.value = result.message || "通知回执同步失败。";
+    return;
+  }
+  notificationStatusFilter.value = "";
+  notificationOutbox.value = result.data;
+  userManagementMessage.value = "通知回执已同步";
+}
+
 function notificationStatusLabel(notice: NotificationOutboxItem) {
   if (notice.status === "SENT") {
     return "已发送";
@@ -2474,6 +2496,19 @@ function notificationStatusLabel(notice: NotificationOutboxItem) {
     return "失败";
   }
   return "待发送";
+}
+
+function notificationReceiptLabel(notice: NotificationOutboxItem) {
+  if (notice.providerReceiptStatus === "DELIVERED") {
+    return `回执成功${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
+  }
+  if (notice.providerReceiptStatus === "FAILED") {
+    return `回执失败${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
+  }
+  if (notice.providerReceiptStatus === "BOUNCED") {
+    return `回执退回${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
+  }
+  return "未回执";
 }
 
 async function unlockManagedUserAction() {

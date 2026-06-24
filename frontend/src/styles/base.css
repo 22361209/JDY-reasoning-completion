@@ -969,6 +969,12 @@ input:disabled {
   justify-self: start;
 }
 
+.password-reset-notice-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .password-reset-request-row:hover,
 .password-reset-request-row.active {
   border-color: #9bc5ef;

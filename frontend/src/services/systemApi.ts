@@ -59,6 +59,8 @@ export interface NotificationOutboxItem {
   retryCount?: number;
   lastAttemptAt?: string;
   failureReason?: string;
+  providerReceiptStatus?: string;
+  providerReceiptAt?: string;
   createdAt: string;
   sentAt: string;
 }
@@ -302,6 +304,24 @@ export async function resendNotification(notificationId: string): Promise<{ ok: 
     return { ok: true, status: response.status, message: "", data: payload.notificationOutbox ?? [] };
   } catch {
     return { ok: false, status: 0, message: "通知重发失败。", data: [] };
+  }
+}
+
+export async function syncNotificationReceipt(notificationId: string, payload: { providerReceiptStatus: "DELIVERED" | "FAILED" | "BOUNCED"; providerMessageId?: string; failureReason?: string }): Promise<{ ok: boolean; status: number; message: string; data: NotificationOutboxItem[] }> {
+  try {
+    const response = await fetch(`/api/system/notification-outbox/${encodeURIComponent(notificationId)}/receipt`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "通知回执同步失败。", data: [] };
+    }
+    const result = await response.json() as { notificationOutbox?: NotificationOutboxItem[] };
+    return { ok: true, status: response.status, message: "", data: result.notificationOutbox ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "通知回执同步失败。", data: [] };
   }
 }
 

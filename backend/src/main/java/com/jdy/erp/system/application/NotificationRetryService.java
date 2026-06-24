@@ -32,9 +32,12 @@ public class NotificationRetryService {
                     last_attempt_at = now(),
                     sent_at = now(),
                     failure_reason = NULL,
+                    provider_receipt_status = NULL,
+                    provider_receipt_at = NULL,
                     provider_message_id = 'LOCAL-' || replace(id::text, '-', '')
                 WHERE id = ?::uuid
                   AND status IN ('FAILED', 'PENDING')
+                  AND provider_receipt_status IS NULL
                   AND retry_count < ?
                 """, notificationId, MAX_RETRY_COUNT);
             if (updated > 0) {
@@ -50,6 +53,7 @@ public class NotificationRetryService {
             FROM sys_notification_outbox
             WHERE template_code LIKE 'PASSWORD_RESET_%'
               AND status IN ('FAILED', 'PENDING')
+              AND provider_receipt_status IS NULL
               AND retry_count < ?
               AND (last_attempt_at IS NULL OR last_attempt_at <= now() - interval '2 seconds')
             ORDER BY COALESCE(last_attempt_at, created_at), created_at
