@@ -7,7 +7,6 @@ const verificationDir = path.join(rootDir, "verification");
 const screenshotDir = path.join(verificationDir, "playwright");
 const resultPath = path.join(verificationDir, "a57-session-user-switch-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
-const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billNo = `A57-XSDD-${batch}`;
 
@@ -17,19 +16,6 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-async function request(pathname, options = {}) {
-  const response = await fetch(`${apiBase}${pathname}`, {
-    method: options.method ?? "GET",
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`${options.method ?? "GET"} ${pathname} failed ${response.status}: ${text}`);
-  }
-  return text ? JSON.parse(text) : {};
 }
 
 async function browserFetch(page, pathname, options = {}) {
@@ -47,28 +33,43 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-await request("/api/sales-orders/draft", {
-  method: "POST",
-  body: {
-    billNo,
-    customerCode: "KH-001",
-    billDate: "2026-06-24",
-    department: "销售部",
-    ownerName: "A57 会话权限回归",
-    lines: [
-      { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 12, lineRemark: "会话切换草稿" }
-    ]
-  }
-});
+async function loginAs(page, username, password, expectedRole) {
+  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await page.getByTestId("login-username").selectOption(username);
+  await page.getByTestId("login-password").fill(password);
+  await page.getByTestId("login-submit").click();
+  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+}
+
+async function logout(page) {
+  await page.getByTestId("session-logout").click();
+  await page.getByTestId("login-page").waitFor({ state: "visible" });
+}
 
 const browser = await chromium.launch({ headless: true });
 let screenshot = "";
 try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
-  await page.getByTestId("session-user-select").selectOption("warehouse");
-  await page.getByTestId("session-switch").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "仓库员" }).waitFor({ state: "visible" });
+  await loginAs(page, "admin", "admin123", "系统管理员");
+
+  const draftResponse = await browserFetch(page, "/api/sales-orders/draft", {
+    method: "POST",
+    body: {
+      billNo,
+      customerCode: "KH-001",
+      billDate: "2026-06-24",
+      department: "销售部",
+      ownerName: "A57 正式登录权限回归",
+      lines: [
+        { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 12, lineRemark: "正式登录草稿" }
+      ]
+    }
+  });
+  assert(draftResponse.status >= 200 && draftResponse.status < 300, `admin should create sales order draft, got ${draftResponse.status}`);
+
+  await logout(page);
+  await loginAs(page, "warehouse", "warehouse123", "仓库员");
 
   const warehouseSession = await browserFetch(page, "/api/system/session");
   assert(warehouseSession.status === 200, "warehouse session should load");
@@ -84,9 +85,8 @@ try {
   const blockedAudit = await browserFetch(page, `/api/sales-orders/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
   assert(blockedAudit.status === 403, `warehouse direct sales order audit should be 403, got ${blockedAudit.status}`);
 
-  await page.getByTestId("session-user-select").selectOption("admin");
-  await page.getByTestId("session-switch").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
+  await logout(page);
+  await loginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").waitFor({ state: "visible" });
 
@@ -102,6 +102,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     billNo,
+    loginFlow: "formal-login",
     warehouse: {
       username: warehousePayload.user.username,
       roleCode: warehousePayload.user.roleCode,

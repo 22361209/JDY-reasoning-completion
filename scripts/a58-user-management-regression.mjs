@@ -35,11 +35,25 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
+async function loginAs(page, usernameValue, passwordValue, expectedRole) {
+  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await page.getByTestId("login-username").selectOption(usernameValue);
+  await page.getByTestId("login-password").fill(passwordValue);
+  await page.getByTestId("login-submit").click();
+  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+}
+
+async function logout(page) {
+  await page.getByTestId("session-logout").click();
+  await page.getByTestId("login-page").waitFor({ state: "visible" });
+}
+
 const browser = await chromium.launch({ headless: true });
 let screenshot = "";
 try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").click();
   await page.getByTestId("user-management-new").click();
@@ -51,19 +65,17 @@ try {
   await page.getByText("用户已保存").waitFor({ state: "visible" });
   await page.getByTestId(`managed-user-${username}`).waitFor({ state: "visible" });
 
-  await page.getByTestId("session-user-select").selectOption(username);
-  await page.getByTestId("session-password").fill(initialPassword);
-  await page.getByTestId("session-switch").click();
+  await logout(page);
+  await page.reload({ waitUntil: "networkidle" });
+  await loginAs(page, username, initialPassword, "仓库员");
   await page.getByTestId("session-user-name").filter({ hasText: "A58 回归员工" }).waitFor({ state: "visible" });
   const warehouseManagedUsers = await browserFetch(page, "/api/system/managed-users");
   assert(warehouseManagedUsers.status === 403, `managed user should not manage users, got ${warehouseManagedUsers.status}`);
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").waitFor({ state: "detached" });
 
-  await page.getByTestId("session-user-select").selectOption("admin");
-  await page.getByTestId("session-password").fill("admin123");
-  await page.getByTestId("session-switch").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
+  await logout(page);
+  await loginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").click();
   await page.getByTestId(`managed-user-${username}`).click();
@@ -71,9 +83,9 @@ try {
   await page.getByTestId("managed-user-reset-password").click();
   await page.getByText("密码已重置").waitFor({ state: "visible" });
 
-  await page.getByTestId("session-user-select").selectOption(username);
-  await page.getByTestId("session-password").fill(resetPassword);
-  await page.getByTestId("session-switch").click();
+  await logout(page);
+  await page.reload({ waitUntil: "networkidle" });
+  await loginAs(page, username, resetPassword, "仓库员");
   await page.getByTestId("session-user-name").filter({ hasText: "A58 回归员工" }).waitFor({ state: "visible" });
   const switchedSession = await browserFetch(page, "/api/system/session");
   const sessionPayload = JSON.parse(switchedSession.text);
@@ -87,6 +99,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     username,
+    loginFlow: "formal-login",
     roleCode: sessionPayload.user.roleCode,
     warehouseManagedUsersStatus: warehouseManagedUsers.status,
     resetLoginUsername: sessionPayload.user.username,
