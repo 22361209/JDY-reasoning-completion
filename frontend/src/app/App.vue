@@ -200,8 +200,8 @@
             <button class="primary-action" type="button" :disabled="isLockedList" data-testid="new-document" @click="startNewCurrentDocument">新增</button>
             <button type="button" :disabled="!isDraftDocument" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
             <button type="button" :disabled="!isDraftDocument" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
-            <button type="button" :disabled="!canReverseDocument" data-testid="reverse-document" @click="reverseCurrentDocument">反审核</button>
-            <button type="button" :disabled="!canReverseDocument" data-testid="red-reverse-document" @click="redReverseCurrentDocument">红冲</button>
+            <button type="button" :disabled="!canReverseDocument" data-testid="reverse-document" @click="openRiskyDocumentAction('reverse')">反审核</button>
+            <button type="button" :disabled="!canReverseDocument" data-testid="red-reverse-document" @click="openRiskyDocumentAction('redReverse')">红冲</button>
             <button type="button" :disabled="!canVoidDocument" data-testid="void-document" @click="voidCurrentDocument">作废</button>
             <button type="button" :disabled="!canDeleteSalesOrder" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
             <button type="button" :disabled="!isDocumentForm" data-testid="export-sales-order" @click="exportCurrentDocument">引出</button>
@@ -543,6 +543,35 @@
       </div>
     </div>
 
+    <div v-if="pendingRiskyDocumentAction" class="modal-mask" data-testid="risky-action-dialog">
+      <div class="dialog risky-action-dialog">
+        <h3>{{ riskyActionTitle }}</h3>
+        <p>{{ riskyActionSummary }}</p>
+        <div class="downstream-impact-note">
+          <strong>影响提示</strong>
+          <span>{{ riskyActionImpact }}</span>
+        </div>
+        <dl class="risky-action-fields">
+          <div>
+            <dt>单据编号</dt>
+            <dd>{{ currentOrderForm.billNo }}</dd>
+          </div>
+          <div>
+            <dt>当前状态</dt>
+            <dd>{{ currentOrderStatusLabel }}</dd>
+          </div>
+          <div v-if="pendingRiskyDocumentAction === 'redReverse'">
+            <dt>红冲单号</dt>
+            <dd>{{ redReverseBillNo }}</dd>
+          </div>
+        </dl>
+        <div class="dialog-actions">
+          <button type="button" data-testid="risky-action-cancel" @click="cancelRiskyDocumentAction">取消</button>
+          <button class="primary-action" type="button" data-testid="risky-action-confirm" @click="confirmRiskyDocumentAction">确认{{ riskyActionVerb }}</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
       <div ref="entryPasteDialogRef" class="dialog entry-paste-conflict-dialog" tabindex="-1" @keydown="handleEntryPasteConflictKeydown">
         <h3>选择商品</h3>
@@ -736,6 +765,8 @@ interface PendingZeroEntrySave {
   warnings: ZeroEntryWarning[];
 }
 
+type RiskyDocumentAction = "reverse" | "redReverse";
+
 interface OrderLineForm {
   lineNo?: number;
   productCode: string;
@@ -812,6 +843,7 @@ const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
 const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
 const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
+const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -1104,6 +1136,23 @@ const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.val
 const canReverseDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "AUDITED");
 const canVoidDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "DRAFT");
 const canDeleteSalesOrder = computed(() => isSalesOrderForm.value && currentOrderForm.value.status === "DRAFT");
+const redReverseBillNo = computed(() => `HC-${currentOrderForm.value.billNo}`);
+const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
+const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
+const riskyActionSummary = computed(() => {
+  const typeLabel = isPurchaseInForm.value ? "采购入库单" : "销售出库单";
+  return `即将${riskyActionVerb.value}${typeLabel} ${currentOrderForm.value.billNo}。`;
+});
+const riskyActionImpact = computed(() => {
+  if (pendingRiskyDocumentAction.value === "redReverse") {
+    return isPurchaseInForm.value
+      ? "红冲将生成负数采购入库单，原单标记已红冲，并回退采购订单已入库数量、重算入库状态。"
+      : "红冲将生成负数销售出库单，原单标记已红冲，并回退销售订单已出库数量、重算出库状态。";
+  }
+  return isPurchaseInForm.value
+    ? "反审核将冲销采购入库库存流水，回退采购订单已入库数量，并重算入库状态。"
+    : "反审核将冲销销售出库库存流水，回退销售订单已出库数量，并重算出库状态。";
+});
 const currentOrderStatusLabel = computed(() => {
   if (!isDocumentForm.value) {
     return "";
@@ -2535,6 +2584,32 @@ async function auditCurrentDocument() {
   }
 }
 
+function openRiskyDocumentAction(action: RiskyDocumentAction) {
+  if (!canReverseDocument.value) {
+    return;
+  }
+  pendingRiskyDocumentAction.value = action;
+}
+
+function cancelRiskyDocumentAction() {
+  const verb = riskyActionVerb.value;
+  pendingRiskyDocumentAction.value = null;
+  formMessage.value = `已取消${verb}。`;
+}
+
+async function confirmRiskyDocumentAction() {
+  const action = pendingRiskyDocumentAction.value;
+  if (!action) {
+    return;
+  }
+  pendingRiskyDocumentAction.value = null;
+  if (action === "redReverse") {
+    await redReverseCurrentDocument();
+    return;
+  }
+  await reverseCurrentDocument();
+}
+
 async function reverseCurrentDocument() {
   const type = currentDocumentType();
   if (!type || !isReversibleDocumentForm.value) {
@@ -2565,7 +2640,7 @@ async function redReverseCurrentDocument() {
   if (!type || !isReversibleDocumentForm.value) {
     return;
   }
-  const redBillNo = `HC-${currentOrderForm.value.billNo}`;
+  const redBillNo = redReverseBillNo.value;
   const result = await redReverseDocument(type, currentOrderForm.value.billNo, {
     redBillNo,
     billDate: currentOrderForm.value.billDate,
@@ -2573,7 +2648,14 @@ async function redReverseCurrentDocument() {
   });
   formMessage.value = result.ok ? `红冲成功：${redBillNo}` : result.message;
   if (result.ok) {
-    currentOrderForm.value.status = "RED_REVERSED";
+    const detail = await fetchDocumentDetail(type, redBillNo);
+    if (detail.ok && detail.data) {
+      fillDocumentForm(currentOrderForm.value, detail.data, partyType.value);
+    } else {
+      currentOrderForm.value.billNo = redBillNo;
+      currentOrderForm.value.status = "RED_REVERSED";
+    }
+    clearActiveDirty();
   }
 }
 
