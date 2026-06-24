@@ -189,7 +189,7 @@ public class SalesOrderController {
     }
 
     private List<Map<String, Object>> downstreamSalesOutDocs(String sourceOrderId, Object sourceLineNo) {
-        return jdbcTemplate.queryForList("""
+        var docs = jdbcTemplate.queryForList("""
             SELECT so.bill_no AS "billNo",
                    'salesOut' AS type,
                    '销售出库单' AS "typeLabel",
@@ -206,6 +206,15 @@ public class SalesOrderController {
               AND so.status = 'AUDITED'
             ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
             """, sourceOrderId, sourceLineNo);
+        return docs.stream().<Map<String, Object>>map(doc -> {
+            var copy = new HashMap<String, Object>(doc);
+            copy.put("riskLevel", "HIGH");
+            copy.put("reverseImpact", "反审核将冲销销售出库库存流水，并把源销售订单第 "
+                + doc.get("sourceLineNo") + " 行已出库数量减少 " + doc.get("qty") + "，随后重算出库状态。");
+            copy.put("redReverseImpact", "红冲将生成负数销售出库单，原单标记已红冲，并同样回退源销售订单第 "
+                + doc.get("sourceLineNo") + " 行已出库数量。");
+            return copy;
+        }).toList();
     }
 
     private String required(String value, String label) {

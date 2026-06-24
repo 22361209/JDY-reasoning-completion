@@ -1258,13 +1258,30 @@ th {
 }
 
 .downstream-trace-dialog {
-  width: min(760px, calc(100vw - 48px));
+  width: min(1040px, calc(100vw - 48px));
   max-height: calc(100vh - 80px);
   overflow: auto;
 }
 
+.downstream-impact-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #f1d2a1;
+  border-radius: 4px;
+  background: #fff8e8;
+  color: #6b4f18;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.downstream-impact-note strong {
+  color: #8a5f08;
+}
+
 .downstream-trace-table {
-  min-width: 720px;
+  min-width: 980px;
   margin-top: 12px;
 }
 
@@ -1272,6 +1289,12 @@ th {
 .downstream-trace-table td {
   height: 32px;
   font-size: 12px;
+}
+
+.downstream-trace-table .impact-cell {
+  min-width: 190px;
+  line-height: 1.45;
+  white-space: normal;
 }
 
 .entry-paste-conflict-dialog {

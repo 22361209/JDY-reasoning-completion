@@ -494,6 +494,10 @@
       <div class="dialog downstream-trace-dialog">
         <h3>{{ downstreamTrace.title }}</h3>
         <p>源单第 {{ downstreamTrace.lineNo }} 行已执行 {{ downstreamTrace.executedQty }}，以下单据参与了该行执行。</p>
+        <div class="downstream-impact-note" data-testid="downstream-impact-note">
+          <strong>影响提示</strong>
+          <span>反审核或红冲下游执行单据会回退源单行已执行数量，并重新计算源单执行状态；操作前请确认库存与后续单据链。</span>
+        </div>
         <table class="downstream-trace-table">
           <thead>
             <tr>
@@ -505,6 +509,8 @@
               <th>下游行</th>
               <th>数量</th>
               <th>金额</th>
+              <th>反审核影响</th>
+              <th>红冲影响</th>
             </tr>
           </thead>
           <tbody>
@@ -526,6 +532,8 @@
               <td>#{{ doc.downstreamLineNo }}</td>
               <td>{{ formatQty(doc.qty) }}</td>
               <td>{{ formatAmount(doc.amount) }}</td>
+              <td class="impact-cell">{{ doc.reverseImpact || downstreamReverseImpact(doc) }}</td>
+              <td class="impact-cell">{{ doc.redReverseImpact || downstreamRedReverseImpact(doc) }}</td>
             </tr>
           </tbody>
         </table>
@@ -1159,6 +1167,22 @@ function lineSourceLineNo(line: OrderLineForm) {
   return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
 }
 
+function downstreamReverseImpact(doc: DownstreamDocumentRef) {
+  const qty = formatQty(doc.qty);
+  if (doc.type === "purchaseIn") {
+    return `反审核将冲销采购入库库存流水，并回退源采购订单已入库数量 ${qty}。`;
+  }
+  return `反审核将冲销销售出库库存流水，并回退源销售订单已出库数量 ${qty}。`;
+}
+
+function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
+  const qty = formatQty(doc.qty);
+  if (doc.type === "purchaseIn") {
+    return `红冲将生成负数采购入库单，并回退源采购订单已入库数量 ${qty}。`;
+  }
+  return `红冲将生成负数销售出库单，并回退源销售订单已出库数量 ${qty}。`;
+}
+
 function lineLineNo(line: OrderLineForm, index: number) {
   return line.lineNo ?? index + 1;
 }
@@ -1531,7 +1555,10 @@ function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
       sourceLineNo: doc.sourceLineNo,
       downstreamLineNo: doc.downstreamLineNo,
       qty: doc.qty,
-      amount: doc.amount
+      amount: doc.amount,
+      riskLevel: doc.riskLevel ? String(doc.riskLevel) : undefined,
+      reverseImpact: doc.reverseImpact ? String(doc.reverseImpact) : undefined,
+      redReverseImpact: doc.redReverseImpact ? String(doc.redReverseImpact) : undefined
     }))
     .filter((doc) => doc.billNo && doc.type);
 }

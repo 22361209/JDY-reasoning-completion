@@ -76,7 +76,7 @@ public class PurchaseOrderController {
     }
 
     private List<Map<String, Object>> downstreamPurchaseInDocs(String sourceOrderId, Object sourceLineNo) {
-        return jdbcTemplate.queryForList("""
+        var docs = jdbcTemplate.queryForList("""
             SELECT pi.bill_no AS "billNo",
                    'purchaseIn' AS type,
                    '采购入库单' AS "typeLabel",
@@ -93,6 +93,15 @@ public class PurchaseOrderController {
               AND pi.status = 'AUDITED'
             ORDER BY pi.bill_date DESC, pi.bill_no DESC, l.line_no
             """, sourceOrderId, sourceLineNo);
+        return docs.stream().<Map<String, Object>>map(doc -> {
+            var copy = new HashMap<String, Object>(doc);
+            copy.put("riskLevel", "HIGH");
+            copy.put("reverseImpact", "反审核将冲销采购入库库存流水，并把源采购订单第 "
+                + doc.get("sourceLineNo") + " 行已入库数量减少 " + doc.get("qty") + "，随后重算入库状态。");
+            copy.put("redReverseImpact", "红冲将生成负数采购入库单，原单标记已红冲，并同样回退源采购订单第 "
+                + doc.get("sourceLineNo") + " 行已入库数量。");
+            return copy;
+        }).toList();
     }
 
     @PostMapping("/draft")

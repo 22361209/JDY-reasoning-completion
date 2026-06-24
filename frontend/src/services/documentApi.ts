@@ -51,6 +51,9 @@ export interface DownstreamDocumentRef {
   downstreamLineNo?: number | string;
   qty?: number | string;
   amount?: number | string;
+  riskLevel?: string;
+  reverseImpact?: string;
+  redReverseImpact?: string;
 }
 
 export interface DocumentDetail {
