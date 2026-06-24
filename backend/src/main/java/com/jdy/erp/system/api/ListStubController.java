@@ -10,6 +10,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,13 +55,7 @@ public class ListStubController {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Stub error for list state");
         }
 
-        var filters = parseColumnFilters(columnFilters);
-        var rows = expandRowsForLargePage(listKey, seedRows(listKey), pageSize).stream()
-            .filter(row -> keyword.isBlank() || row.values().stream().anyMatch(value -> String.valueOf(value).contains(keyword)))
-            .filter(row -> status.isBlank() || status.equals(row.get("status")))
-            .filter(row -> matchesOperationLogFilters(listKey, row, module, action, operator, targetType, dateFrom, dateTo))
-            .filter(row -> matchesColumnFilters(row, filters))
-            .toList();
+        var rows = filteredRows(listKey, keyword, status, pageSize, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
         if (!sortField.isBlank()) {
             rows = rows.stream()
                 .sorted(comparator(sortField, sortOrder))
@@ -73,6 +70,101 @@ public class ListStubController {
             "rows", rows.stream().skip((long) (page - 1) * pageSize).limit(pageSize).toList()
         );
     }
+
+    @GetMapping("/{listKey}/export.csv")
+    public ResponseEntity<String> exportCsv(
+        @PathVariable String listKey,
+        @RequestParam(defaultValue = "") String keyword,
+        @RequestParam(defaultValue = "") String status,
+        @RequestParam(defaultValue = "1000") int pageSize,
+        @RequestParam(defaultValue = "") String sortField,
+        @RequestParam(defaultValue = "asc") String sortOrder,
+        @RequestParam(defaultValue = "") String columnFilters,
+        @RequestParam(defaultValue = "") String module,
+        @RequestParam(defaultValue = "") String action,
+        @RequestParam(defaultValue = "") String operator,
+        @RequestParam(defaultValue = "") String targetType,
+        @RequestParam(defaultValue = "") String dateFrom,
+        @RequestParam(defaultValue = "") String dateTo
+    ) {
+        var rows = filteredRows(listKey, keyword, status, pageSize, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
+        if (!sortField.isBlank()) {
+            rows = rows.stream()
+                .sorted(comparator(sortField, sortOrder))
+                .toList();
+        }
+        var columns = columnsForExport(listKey, rows);
+        var csv = new StringBuilder();
+        csv.append('\ufeff');
+        csv.append(columns.stream().map(column -> escapeCsv(column.title())).collect(java.util.stream.Collectors.joining(","))).append('\n');
+        for (var row : rows) {
+            csv.append(columns.stream()
+                .map(column -> escapeCsv(String.valueOf(row.get(column.field()) == null ? "" : row.get(column.field()))))
+                .collect(java.util.stream.Collectors.joining(",")))
+                .append('\n');
+        }
+        var fileName = listKey + "-export.csv";
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
+            .contentType(new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+            .body(csv.toString());
+    }
+
+    private List<Map<String, ?>> filteredRows(
+        String listKey,
+        String keyword,
+        String status,
+        int pageSize,
+        String columnFilters,
+        String module,
+        String action,
+        String operator,
+        String targetType,
+        String dateFrom,
+        String dateTo
+    ) {
+        var filters = parseColumnFilters(columnFilters);
+        return expandRowsForLargePage(listKey, seedRows(listKey), pageSize).stream()
+            .filter(row -> keyword.isBlank() || row.values().stream().anyMatch(value -> String.valueOf(value).contains(keyword)))
+            .filter(row -> status.isBlank() || status.equals(row.get("status")))
+            .filter(row -> matchesOperationLogFilters(listKey, row, module, action, operator, targetType, dateFrom, dateTo))
+            .filter(row -> matchesColumnFilters(row, filters))
+            .toList();
+    }
+
+    private List<ExportColumn> columnsForExport(String listKey, List<Map<String, ?>> rows) {
+        if ("operation-log-list".equals(listKey)) {
+            return List.of(
+                new ExportColumn("operatedAt", "操作时间"),
+                new ExportColumn("module", "模块"),
+                new ExportColumn("action", "动作"),
+                new ExportColumn("targetType", "对象类型"),
+                new ExportColumn("targetNo", "业务单号"),
+                new ExportColumn("operator", "操作人"),
+                new ExportColumn("status", "状态"),
+                new ExportColumn("reason", "失败原因")
+            );
+        }
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        return rows.get(0).keySet().stream()
+            .filter(field -> !"id".equals(field))
+            .map(field -> new ExportColumn(field, field))
+            .toList();
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
+    private record ExportColumn(String field, String title) {}
 
     private boolean matchesOperationLogFilters(
         String listKey,

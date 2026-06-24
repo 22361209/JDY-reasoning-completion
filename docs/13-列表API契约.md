@@ -10,6 +10,14 @@
 GET /api/lists/{listKey}
 ```
 
+列表引出：
+
+```http
+GET /api/lists/{listKey}/export.csv
+```
+
+引出接口复用列表查询参数，导出应用筛选和排序后的结果集，不只导出当前页。
+
 统一参数：
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -21,6 +29,12 @@ GET /api/lists/{listKey}
 | `sortField` | string | 否 | 排序字段，必须是当前列表已知字段。 |
 | `sortOrder` | `asc`/`desc` | 否 | 排序方向，默认 `asc`。 |
 | `columnFilters` | JSON string | 否 | 列过滤条件，字段名到过滤规则的映射。 |
+| `module` | string | 否 | 操作日志专用，模块代码。 |
+| `action` | string | 否 | 操作日志专用，动作代码。 |
+| `operator` | string | 否 | 操作日志专用，操作人包含匹配。 |
+| `targetType` | string | 否 | 操作日志专用，对象类型精确匹配。 |
+| `dateFrom` | date | 否 | 操作日志专用，操作日期起点。 |
+| `dateTo` | date | 否 | 操作日志专用，操作日期终点。 |
 
 `columnFilters` 示例：
 

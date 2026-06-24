@@ -660,6 +660,12 @@ input:disabled {
   font-size: 13px;
 }
 
+.list-export-message {
+  color: #2b6f4a;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .vxe-wrap {
   position: relative;
   background: #ffffff;

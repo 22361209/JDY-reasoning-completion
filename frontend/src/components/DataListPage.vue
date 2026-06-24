@@ -94,10 +94,11 @@
       <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
       <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
-      <button type="button">引出</button>
+      <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
       <button type="button">打印</button>
       <button type="button" data-testid="column-settings" @click="columnDialogOpen = true">列设置</button>
       <span class="selected-count">已选中 {{ selectedRows.length }} 条</span>
+      <span v-if="exportMessage" class="list-export-message" data-testid="list-export-message">{{ exportMessage }}</span>
     </div>
 
     <div class="vxe-wrap" data-testid="vxe-list-table">
@@ -284,7 +285,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { createMasterData, deleteMasterData, fetchListRows, setMasterDataStatus, updateMasterData } from "../services/listApi";
+import { createMasterData, deleteMasterData, exportListRows, fetchListRows, setMasterDataStatus, updateMasterData } from "../services/listApi";
 
 interface ListColumn {
   field: string;
@@ -344,6 +345,7 @@ const total = ref(0);
 const selectedRows = ref<Record<string, unknown>[]>([]);
 const createForm = reactive<Record<string, string>>({});
 const createError = ref("");
+const exportMessage = ref("");
 const editOriginalCode = ref("");
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
@@ -807,6 +809,7 @@ function resetColumns() {
 }
 
 async function reload() {
+  exportMessage.value = "";
   loading.value = true;
   listState.value = "ready";
   stateMessage.value = "";
@@ -824,6 +827,25 @@ async function reload() {
     stateMessage.value = response.message;
   }
   loading.value = false;
+}
+
+async function exportCurrentList() {
+  exportMessage.value = "";
+  const result = await exportListRows(props.listKey, { ...query, columnFilters });
+  if (!result.ok || !result.blob) {
+    exportMessage.value = result.message;
+    return;
+  }
+  const url = URL.createObjectURL(result.blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = result.fileName;
+  link.dataset.testid = "list-export-download-link";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  exportMessage.value = "引出文件已生成";
 }
 
 function resetQuery() {
