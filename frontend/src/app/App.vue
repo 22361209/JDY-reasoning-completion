@@ -390,6 +390,55 @@
         </div>
       </div>
     </div>
+
+    <div v-if="pendingPushDown" class="modal-mask" data-testid="push-confirm-dialog">
+      <div class="dialog push-confirm-dialog">
+        <h3>{{ pendingPushDown.title }}</h3>
+        <p>{{ pendingPushDown.sourceBillNo }} 可按剩余数量下推，确认本次数量后生成{{ pendingPushDown.targetTitle }}草稿。</p>
+        <div class="push-confirm-table">
+          <table>
+            <thead>
+              <tr>
+                <th>商品</th>
+                <th>仓库</th>
+                <th>源单</th>
+                <th>已执行</th>
+                <th>剩余</th>
+                <th>本次</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(line, lineIndex) in pendingPushDown.lines" :key="`${line.productCode}-${lineIndex}`">
+                <td>
+                  <strong>{{ line.productCode }}</strong>
+                  <span>{{ line.productName || line.spec }}</span>
+                </td>
+                <td>{{ line.warehouseCode }}</td>
+                <td>{{ line.sourceQty }}</td>
+                <td>{{ line.executedQty }}</td>
+                <td>{{ line.remainingQty }}</td>
+                <td>
+                  <input
+                    v-model.number="line.qty"
+                    inputmode="decimal"
+                    :data-testid="pushConfirmQtyTestId(lineIndex)"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="push-confirm-summary">
+          <span>本次数量合计</span>
+          <strong data-testid="push-confirm-total">{{ pendingPushDownTotal }}</strong>
+        </div>
+        <p v-if="pushConfirmError" class="form-error" data-testid="push-confirm-error">{{ pushConfirmError }}</p>
+        <div class="dialog-actions">
+          <button type="button" data-testid="push-confirm-cancel" @click="cancelPushDown">取消</button>
+          <button class="primary-action" type="button" data-testid="push-confirm-ok" @click="confirmPushDown">生成草稿</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -453,6 +502,27 @@ interface OrderForm {
   lines: OrderLineForm[];
 }
 
+interface PendingPushLine extends OrderLineForm {
+  sourceQty: number;
+  executedQty: number;
+  remainingQty: number;
+}
+
+interface PendingPushDown {
+  kind: "salesOut" | "purchaseIn";
+  title: string;
+  targetTitle: string;
+  targetTabId: string;
+  targetModule: string;
+  targetBillNo: string;
+  sourceBillNo: string;
+  partyCode: string;
+  billDate: string;
+  department: string;
+  ownerName: string;
+  lines: PendingPushLine[];
+}
+
 const session = useSessionStore();
 const tabs = useTabStore();
 const preferences = usePreferenceStore();
@@ -462,6 +532,8 @@ const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
 const formMessage = ref("");
 const batchWarehouseCode = ref("CK-001");
+const pendingPushDown = ref<PendingPushDown | null>(null);
+const pushConfirmError = ref("");
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -761,6 +833,9 @@ const formStatusByBackendStatus: Record<string, OrderForm["status"]> = {
 const currentOrderTotal = computed(() => currentOrderForm.value.lines
   .reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0)
   .toFixed(2));
+const pendingPushDownTotal = computed(() => (pendingPushDown.value?.lines ?? [])
+  .reduce((sum, line) => sum + normalizedQty(line.qty), 0)
+  .toFixed(2));
 
 function lineAmount(line: OrderLineForm) {
   return (Number(line.qty || 0) * Number(line.unitPrice || 0)).toFixed(2);
@@ -954,34 +1029,79 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
+  const lines = result.data.lines.map((line) => toPendingPushLine(line, "shippedQty")).filter((line) => line.remainingQty > 0);
+  if (lines.length === 0) {
+    formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可出数量`;
+    return;
+  }
+  pendingPushDown.value = {
+    kind: "salesOut",
+    title: "销售出库下推确认",
+    targetTitle: "销售出库单",
+    targetTabId: "sales-out-form",
+    targetModule: "销售管理",
+    targetBillNo: nextBillNoFor("XSCK"),
+    sourceBillNo,
+    partyCode: result.data.order.customerCode || "KH-001",
+    billDate: dateText,
+    department: result.data.order.department || "销售部",
+    ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
+    lines
+  };
+  pushConfirmError.value = "";
+  formMessage.value = `请确认销售订单 ${sourceBillNo} 本次下推数量`;
+}
+
+function confirmPushDown() {
+  const pending = pendingPushDown.value;
+  if (!pending) {
+    return;
+  }
+  const selectedLines = pending.lines
+    .map((line) => ({ ...line, qty: normalizedQty(line.qty) }))
+    .filter((line) => line.qty > 0);
+  const invalidLine = pending.lines.find((line) => normalizedQty(line.qty) < 0 || normalizedQty(line.qty) > line.remainingQty);
+  if (invalidLine) {
+    pushConfirmError.value = "本次下推数量不能小于 0，也不能超过剩余数量。";
+    return;
+  }
+  if (selectedLines.length === 0) {
+    pushConfirmError.value = "至少保留一行本次数量大于 0 的明细。";
+    return;
+  }
+  const targetForm = pending.kind === "salesOut" ? salesOutForm : purchaseInForm;
   tabs.openTab({
-    id: "sales-out-form",
-    title: "销售出库单",
-    module: "销售管理",
+    id: pending.targetTabId,
+    title: pending.targetTitle,
+    module: pending.targetModule,
     kind: "form",
     dirty: true
   });
-  activeModuleName.value = "销售管理";
-  salesOutForm.billNo = nextBillNoFor("XSCK");
-  salesOutForm.sourceOrderNo = sourceBillNo;
-  salesOutForm.partyCode = result.data.order.customerCode || "KH-001";
-  salesOutForm.billDate = dateText;
-  salesOutForm.department = result.data.order.department || "销售部";
-  salesOutForm.ownerName = session.userName.value || result.data.order.ownerName || "本地管理员";
-  salesOutForm.status = "DRAFT";
-  salesOutForm.lines = result.data.lines.map((line) => ({
+  activeModuleName.value = pending.targetModule;
+  targetForm.billNo = pending.targetBillNo;
+  targetForm.sourceOrderNo = pending.sourceBillNo;
+  targetForm.partyCode = pending.partyCode;
+  targetForm.billDate = pending.billDate;
+  targetForm.department = pending.department;
+  targetForm.ownerName = pending.ownerName;
+  targetForm.status = "DRAFT";
+  targetForm.lines = selectedLines.map((line) => ({
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
-    qty: remainingLineQty(line),
+    qty: line.qty,
     unitPrice: Number(line.unitPrice ?? 0)
-  })).filter((line) => line.qty > 0);
-  if (salesOutForm.lines.length === 0) {
-    formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可出数量`;
-    return;
-  }
-  formMessage.value = `已由销售订单 ${sourceBillNo} 按剩余数量下推生成销售出库草稿`;
+  }));
+  pendingPushDown.value = null;
+  pushConfirmError.value = "";
+  formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
+}
+
+function cancelPushDown() {
+  pendingPushDown.value = null;
+  pushConfirmError.value = "";
+  formMessage.value = "已取消下推。";
 }
 
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
@@ -1000,39 +1120,58 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
-  tabs.openTab({
-    id: "purchase-in-form",
-    title: "采购入库单",
-    module: "采购管理",
-    kind: "form",
-    dirty: true
-  });
-  activeModuleName.value = "采购管理";
-  purchaseInForm.billNo = nextBillNoFor("CGRK");
-  purchaseInForm.sourceOrderNo = sourceBillNo;
-  purchaseInForm.partyCode = result.data.document.supplierCode || "GYS-001";
-  purchaseInForm.billDate = dateText;
-  purchaseInForm.department = result.data.document.department || "采购部";
-  purchaseInForm.ownerName = session.userName.value || result.data.document.ownerName || "本地管理员";
-  purchaseInForm.status = "DRAFT";
-  purchaseInForm.lines = result.data.lines.map((line) => ({
-    productCode: String(line.productCode ?? ""),
-    productName: String(line.productName ?? ""),
-    spec: String(line.spec ?? ""),
-    warehouseCode: String(line.warehouseCode ?? "CK-001"),
-    qty: remainingLineQty(line),
-    unitPrice: Number(line.unitPrice ?? 0)
-  })).filter((line) => line.qty > 0);
-  if (purchaseInForm.lines.length === 0) {
+  const lines = result.data.lines.map((line) => toPendingPushLine(line, "receivedQty")).filter((line) => line.remainingQty > 0);
+  if (lines.length === 0) {
     formMessage.value = `采购订单 ${sourceBillNo} 已无剩余可入数量`;
     return;
   }
-  formMessage.value = `已由采购订单 ${sourceBillNo} 按剩余数量下推生成采购入库草稿`;
+  pendingPushDown.value = {
+    kind: "purchaseIn",
+    title: "采购入库下推确认",
+    targetTitle: "采购入库单",
+    targetTabId: "purchase-in-form",
+    targetModule: "采购管理",
+    targetBillNo: nextBillNoFor("CGRK"),
+    sourceBillNo,
+    partyCode: result.data.document.supplierCode || "GYS-001",
+    billDate: dateText,
+    department: result.data.document.department || "采购部",
+    ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
+    lines
+  };
+  pushConfirmError.value = "";
+  formMessage.value = `请确认采购订单 ${sourceBillNo} 本次下推数量`;
 }
 
 function remainingLineQty(line: { qty?: number | string; remainingQty?: number | string }) {
   const remaining = Number(line.remainingQty ?? line.qty ?? 0);
   return Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
+}
+
+function normalizedQty(value: number | string | undefined) {
+  const qty = Number(value ?? 0);
+  return Number.isFinite(qty) ? qty : 0;
+}
+
+function toPendingPushLine(line: { productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
+  const sourceQty = normalizedQty(line.qty);
+  const executedQty = normalizedQty(line[executedField]);
+  const remainingQty = remainingLineQty(line);
+  return {
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName ?? ""),
+    spec: String(line.spec ?? ""),
+    warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    sourceQty,
+    executedQty,
+    remainingQty,
+    qty: remainingQty,
+    unitPrice: Number(line.unitPrice ?? 0)
+  };
+}
+
+function pushConfirmQtyTestId(index: number) {
+  return index === 0 ? "push-confirm-qty" : `push-confirm-qty-${index + 1}`;
 }
 
 function startNewCurrentDocument() {

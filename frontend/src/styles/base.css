@@ -1169,6 +1169,12 @@ th {
   padding: 18px;
 }
 
+.push-confirm-dialog {
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+
 .dialog h3 {
   margin: 0 0 8px;
   font-size: 17px;
@@ -1184,6 +1190,78 @@ th {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.push-confirm-table {
+  border: 1px solid #d6e0ea;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.push-confirm-table table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.push-confirm-table th,
+.push-confirm-table td {
+  height: 34px;
+  border-bottom: 1px solid #e5ebf2;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.push-confirm-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f5f8fb;
+  color: #4c5c6d;
+  font-weight: 600;
+}
+
+.push-confirm-table td strong,
+.push-confirm-table td span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.push-confirm-table td span {
+  color: #687789;
+  margin-top: 2px;
+}
+
+.push-confirm-table input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid #cbd6e2;
+  border-radius: 3px;
+  padding: 0 6px;
+  color: #17283b;
+  background: #ffffff;
+  text-align: left;
+}
+
+.push-confirm-summary {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  color: #506172;
+}
+
+.push-confirm-summary strong {
+  min-width: 96px;
+  text-align: right;
+  color: #1d2f45;
+  font-size: 15px;
 }
 
 @media (max-width: 1200px) {
