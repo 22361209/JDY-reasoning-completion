@@ -273,7 +273,13 @@
                   <tr
                     v-for="(line, lineIndex) in currentOrderForm.lines"
                     :key="lineIndex"
+                    :class="{ 'is-dragging': draggingLineIndex === lineIndex }"
+                    :draggable="isDraftDocument"
                     :data-testid="`${formTestPrefix}-entry-row`"
+                    @dragstart="handleLineDragStart($event, lineIndex)"
+                    @dragover.prevent="handleLineDragOver($event)"
+                    @drop.prevent="handleLineDrop(lineIndex)"
+                    @dragend="handleLineDragEnd"
                   >
                     <td>
                       <span class="master-selector in-cell">
@@ -331,6 +337,24 @@
                     <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" /></td>
                     <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
                     <td>
+                      <button
+                        class="line-action drag-handle"
+                        type="button"
+                        :disabled="!isDraftDocument"
+                        :data-testid="lineDragHandleTestId(lineIndex)"
+                        title="拖拽调整行顺序"
+                      >
+                        ↕
+                      </button>
+                      <button
+                        class="line-action"
+                        type="button"
+                        :disabled="!isDraftDocument"
+                        :data-testid="lineInsertTestId(lineIndex)"
+                        @click="insertLineAfter(lineIndex)"
+                      >
+                        插入
+                      </button>
                       <button
                         class="line-action"
                         type="button"
@@ -538,6 +562,7 @@ const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
 const formMessage = ref("");
 const batchWarehouseCode = ref("CK-001");
+const draggingLineIndex = ref<number | null>(null);
 const pendingPushDown = ref<PendingPushDown | null>(null);
 const pushConfirmError = ref("");
 const salesOrderForm = reactive<OrderForm>({
@@ -912,8 +937,16 @@ function lineDeleteTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-delete` : `${formTestPrefix.value}-line-delete-${index + 1}`;
 }
 
+function lineInsertTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-insert` : `${formTestPrefix.value}-line-insert-${index + 1}`;
+}
+
 function lineCopyTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-copy` : `${formTestPrefix.value}-line-copy-${index + 1}`;
+}
+
+function lineDragHandleTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-drag` : `${formTestPrefix.value}-line-drag-${index + 1}`;
 }
 
 onMounted(async () => {
@@ -1266,6 +1299,15 @@ function addLine() {
   markActiveDirty();
 }
 
+function insertLineAfter(index: number) {
+  if (!isDraftDocument.value) {
+    return;
+  }
+  currentOrderForm.value.lines.splice(index + 1, 0, defaultLine());
+  markActiveDirty();
+  void focusLineCell(index + 1, "product");
+}
+
 function copyLine(index: number) {
   if (!isDraftDocument.value) {
     return;
@@ -1284,6 +1326,49 @@ function removeLine(index: number) {
     return;
   }
   currentOrderForm.value.lines.splice(index, 1);
+  markActiveDirty();
+}
+
+function handleLineDragStart(event: DragEvent, index: number) {
+  if (!isDraftDocument.value) {
+    event.preventDefault();
+    return;
+  }
+  draggingLineIndex.value = index;
+  event.dataTransfer?.setData("text/plain", String(index));
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+
+function handleLineDragOver(event: DragEvent) {
+  if (!isDraftDocument.value || !event.dataTransfer) {
+    return;
+  }
+  event.dataTransfer.dropEffect = "move";
+}
+
+function handleLineDrop(targetIndex: number) {
+  if (!isDraftDocument.value || draggingLineIndex.value === null || draggingLineIndex.value === targetIndex) {
+    draggingLineIndex.value = null;
+    return;
+  }
+  moveLine(draggingLineIndex.value, targetIndex);
+  draggingLineIndex.value = null;
+}
+
+function handleLineDragEnd() {
+  draggingLineIndex.value = null;
+}
+
+function moveLine(fromIndex: number, toIndex: number) {
+  const lines = currentOrderForm.value.lines;
+  const [line] = lines.splice(fromIndex, 1);
+  if (!line) {
+    return;
+  }
+  lines.splice(toIndex, 0, line);
+  activeSelector.value = "";
   markActiveDirty();
 }
 
@@ -1308,6 +1393,11 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "p
     handleSelectorKeydown(event, selectorId);
   }
   if (!isDraftDocument.value || selectorWasOpen || event.defaultPrevented) {
+    return;
+  }
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    insertLineAfter(lineIndex);
     return;
   }
   if (event.key === "Enter" || event.key === "ArrowDown") {

@@ -1092,6 +1092,22 @@ td input {
   background: #f9fbfd;
 }
 
+tr.is-dragging td {
+  background: #eef6ff;
+  opacity: 0.72;
+}
+
+.drag-handle {
+  width: 26px;
+  padding: 0;
+  cursor: grab;
+  color: #486a8c;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 th {
   background: #f3f6f9;
   color: #405064;
