@@ -15,6 +15,10 @@ export interface SystemUser {
 export interface ManagedUser extends SystemUser {
   id: string;
   enabled: boolean;
+  failedLoginCount?: number;
+  locked?: boolean;
+  lockedUntil?: string;
+  lastLoginAt?: string;
 }
 
 export interface ManagedRole {
@@ -181,6 +185,10 @@ export async function resetManagedUserPassword(username: string, password: strin
   } catch {
     return { ok: false, status: 0, message: "密码重置失败。" };
   }
+}
+
+export async function unlockManagedUser(username: string): Promise<ManagedUsersResult> {
+  return writeManagedUser(`/api/system/managed-users/${encodeURIComponent(username)}/unlock`, "PUT", {});
 }
 
 async function writeManagedUser(pathname: string, method: "POST" | "PUT", payload: Record<string, unknown>): Promise<ManagedUsersResult> {

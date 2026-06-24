@@ -220,15 +220,29 @@
                 @click="selectManagedUser(user.username)"
               >
                 <strong>{{ user.displayName }}</strong>
-                <span>{{ user.username }} / {{ user.roleName }} / {{ user.enabled ? "启用" : "禁用" }}</span>
+                <span>{{ user.username }} / {{ user.roleName }} / {{ managedUserStateLabel(user) }}</span>
               </button>
             </aside>
             <div class="user-management-form">
               <div class="role-permission-summary" data-testid="user-management-summary">
                 <strong>{{ userManagementMode === "create" ? "新增用户" : selectedManagedUser?.displayName || "未选择用户" }}</strong>
                 <span>{{ userManagementMode === "create" ? "CREATE" : selectedManagedUser?.username || "" }}</span>
-                <em>{{ selectedManagedUser?.roleName || "选择角色后保存" }}</em>
+                <em>{{ selectedManagedUser ? managedUserStateLabel(selectedManagedUser) : "选择角色后保存" }}</em>
               </div>
+              <dl v-if="selectedManagedUser && userManagementMode === 'edit'" class="user-security-summary" data-testid="user-security-summary">
+                <div>
+                  <dt>失败次数</dt>
+                  <dd data-testid="managed-user-failed-count">{{ selectedManagedUser.failedLoginCount ?? 0 }}</dd>
+                </div>
+                <div>
+                  <dt>锁定状态</dt>
+                  <dd data-testid="managed-user-lock-state">{{ selectedManagedUser.locked ? `已锁定至 ${selectedManagedUser.lockedUntil}` : "未锁定" }}</dd>
+                </div>
+                <div>
+                  <dt>最近登录</dt>
+                  <dd>{{ selectedManagedUser.lastLoginAt || "-" }}</dd>
+                </div>
+              </dl>
               <label>
                 <span>用户名</span>
                 <input v-model="managedUserForm.username" :readonly="userManagementMode === 'edit'" data-testid="managed-user-username" />
@@ -253,6 +267,7 @@
               </label>
               <div class="role-permission-head__actions">
                 <button type="button" :disabled="userManagementMode === 'create' || !canManageRolePermissions" data-testid="managed-user-reset-password" @click="resetManagedUserPasswordAction">重置密码</button>
+                <button type="button" :disabled="userManagementMode === 'create' || !selectedManagedUser?.locked || !canManageRolePermissions" data-testid="managed-user-unlock" @click="unlockManagedUserAction">解除锁定</button>
               </div>
               <p v-if="userManagementMessage" class="form-message" data-testid="user-management-message">{{ userManagementMessage }}</p>
             </div>
@@ -945,7 +960,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, logoutSystemUser, resetManagedUserPassword, saveRolePermissions, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, logoutSystemUser, resetManagedUserPassword, saveRolePermissions, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1939,6 +1954,16 @@ function applySelectedManagedUser() {
   managedUserPassword.value = "";
 }
 
+function managedUserStateLabel(user: ManagedUser) {
+  if (!user.enabled) {
+    return "禁用";
+  }
+  if (user.locked) {
+    return "已锁定";
+  }
+  return "启用";
+}
+
 function startCreateManagedUser() {
   userManagementMode.value = "create";
   selectedManagedUsername.value = "";
@@ -1986,6 +2011,22 @@ async function resetManagedUserPasswordAction() {
   }
   managedUserPassword.value = "";
   userManagementMessage.value = "密码已重置";
+}
+
+async function unlockManagedUserAction() {
+  if (!canManageRolePermissions.value || userManagementMode.value === "create" || !selectedManagedUser.value?.locked) {
+    return;
+  }
+  const result = await unlockManagedUser(managedUserForm.username);
+  if (!result.ok || !result.data) {
+    userManagementMessage.value = result.message || "解除锁定失败。";
+    return;
+  }
+  managedUsers.value = result.data.users;
+  managedRoles.value = result.data.roles;
+  selectedManagedUsername.value = managedUserForm.username;
+  applySelectedManagedUser();
+  userManagementMessage.value = "账号锁定已解除";
 }
 
 async function loadRolePermissions() {

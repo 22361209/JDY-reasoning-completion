@@ -111,6 +111,23 @@ public class UserManagementController {
         return Map.of("ok", true);
     }
 
+    @PutMapping("/managed-users/{username}/unlock")
+    @RequirePermission("system.role_permission.manage")
+    public Map<String, Object> unlockUser(@PathVariable String username) {
+        var normalizedUsername = required(username, "用户名");
+        var userId = userId(normalizedUsername);
+        jdbcTemplate.update("""
+            UPDATE sys_user
+            SET failed_login_count = 0,
+                locked_until = NULL,
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, userId);
+        log("SYSTEM", "UNLOCK_USER", "sys_user", userId, true, null);
+        return managedUsers();
+    }
+
     @PutMapping("/password")
     public Map<String, Object> changePassword(@RequestBody ChangePasswordRequest request) {
         var currentPassword = required(request.currentPassword(), "当前密码");
@@ -131,7 +148,11 @@ public class UserManagementController {
                    u.display_name AS "displayName",
                    r.code AS "roleCode",
                    r.name AS "roleName",
-                   u.enabled
+                   u.enabled,
+                   u.failed_login_count AS "failedLoginCount",
+                   CASE WHEN u.locked_until IS NOT NULL AND u.locked_until > now() THEN TRUE ELSE FALSE END AS locked,
+                   COALESCE(to_char(u.locked_until, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lockedUntil",
+                   COALESCE(to_char(u.last_login_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastLoginAt"
             FROM sys_user u
             LEFT JOIN sys_user_role ur ON ur.user_id = u.id
             LEFT JOIN sys_role r ON r.id = ur.role_id
@@ -169,6 +190,15 @@ public class UserManagementController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能为空");
         }
         return value.trim();
+    }
+
+    private void log(String module, String action, String targetType, String targetId, boolean success, String reason) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
+            SELECT ?, ?, ?, ?::uuid, ?, ?, id
+            FROM sys_user
+            WHERE username = ?
+            """, module, action, targetType, targetId, success, reason, currentSessionService.currentUsername());
     }
 
     public record UserRequest(String username, String displayName, String roleCode, String password, Boolean enabled) {
