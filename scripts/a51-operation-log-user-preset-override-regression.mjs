@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a51-operation-log-user-preset-override-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const listKey = "operation-log-list";
 const userPresetName = `A51本人默认-生产冲销-${batch}`;
@@ -46,7 +48,9 @@ function assert(condition, message) {
 
 const session = await requireApi("/api/system/session");
 assert(session.user.roleCode === "ADMIN", "session should expose ADMIN role code");
-assert(session.user.username === "本地管理员", "session should expose current username");
+assert(session.user.username === "admin", "session should expose current login username");
+assert(session.user.name === "本地管理员", "session should expose current display name");
+const presetUserName = session.user.name;
 
 await cleanupA51Presets();
 
@@ -54,7 +58,7 @@ const userPreset = await requireApi(`/api/list-presets/${listKey}`, {
   method: "POST",
   body: {
     name: userPresetName,
-    userName: session.user.username,
+    userName: presetUserName,
     shared: true,
     isDefault: true,
     query: {
@@ -73,7 +77,7 @@ const userPreset = await requireApi(`/api/list-presets/${listKey}`, {
   }
 });
 assert(userPreset.roleCode === "ADMIN", "user preset should keep current role code for audit context");
-assert(userPreset.userName === session.user.username, "user preset should be scoped to current user");
+assert(userPreset.userName === presetUserName, "user preset should be scoped to current user display name");
 assert(userPreset.isDefault === true, "user preset should be saved as default");
 
 const presets = await requireApi(`/api/list-presets/${listKey}`);
@@ -91,6 +95,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.evaluate(() => localStorage.removeItem("jdy:operation-log-filter-presets"));
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("module-系统设置").hover();
@@ -100,7 +105,7 @@ try {
     await page.getByTestId("list-toggle-filter").click();
   }
   const optionTexts = await page.getByTestId("operation-log-preset-select").locator("option").evaluateAll((options) => options.map((option) => option.textContent || ""));
-  assert(optionTexts.some((text) => text.includes(`${userPresetName}（本人:${session.user.username}）（默认）`)), "frontend should show current-user default preset");
+  assert(optionTexts.some((text) => text.includes(`${userPresetName}（本人:${presetUserName}）（默认）`)), "frontend should show current-user default preset");
   assert(optionTexts.some((text) => text.includes(`${roleDefaultPresetName}（ADMIN）（默认）（只读）`)), "frontend should keep ADMIN role default preset visible");
   assert(await page.getByTestId("operation-log-module").inputValue() === "PRODUCTION", "user default should override role default module");
   assert(await page.getByTestId("operation-log-action").inputValue() === "RED_REVERSE_ISSUE", "user default should override role default action");
@@ -120,12 +125,13 @@ await cleanupA51Presets();
 const result = {
   batch,
   generatedAt: new Date().toISOString(),
-  currentUserName: session.user.username,
+  currentUserName: presetUserName,
   currentRoleCode: session.user.roleCode,
   userPresetId: userPreset.id,
   roleDefaultPresetId: roleDefaultPreset.id,
   checks: {
-    sessionHasUsername: session.user.username === "本地管理员",
+    sessionHasUsername: session.user.username === "admin",
+    sessionHasDisplayName: session.user.name === "本地管理员",
     userPresetSavedAsDefault: userPreset.isDefault === true,
     roleDefaultStillDefault: roleDefaultPreset.isDefault === true,
     userDefaultOrderedBeforeRoleDefault: presets.findIndex((preset) => preset.name === userPresetName) < presets.findIndex((preset) => preset.name === roleDefaultPresetName),

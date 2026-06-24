@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -8,6 +9,7 @@ const screenshotDir = path.join(verificationDir, "playwright");
 const resultPath = path.join(verificationDir, "a55-permission-driven-ui-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const roleCode = "ADMIN";
 const removedPermissions = ["sales.order.audit", "system.print_template.manage"];
@@ -69,6 +71,7 @@ try {
   try {
     const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
     await page.getByTestId("module-销售管理").hover();
     await page.getByTestId("module-panel").waitFor({ state: "visible" });
     await page.getByTestId("entry-sales-out-form").waitFor({ state: "visible" });

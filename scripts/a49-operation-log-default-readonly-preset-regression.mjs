@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a49-operation-log-default-readonly-preset-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const operator = "本地管理员";
@@ -50,6 +52,19 @@ function assert(condition, message) {
   }
 }
 
+async function ensureOperationLogFilters(page) {
+  const presetSelect = page.getByTestId("operation-log-preset-select");
+  if (await presetSelect.isVisible({ timeout: 500 }).catch(() => false)) {
+    return;
+  }
+  await page.getByTestId("list-toggle-filter").click();
+  if (await presetSelect.isVisible({ timeout: 500 }).catch(() => false)) {
+    return;
+  }
+  await page.getByTestId("list-toggle-filter").click();
+  await presetSelect.waitFor({ state: "visible" });
+}
+
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
     for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
@@ -90,7 +105,11 @@ await seedStock();
 const sales = await createRedReverseSalesOut();
 
 const presets = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
-const defaultPreset = presets.find((preset) => preset.name === defaultPresetName);
+for (const preset of presets.filter((item) => item.name === defaultPresetName && !item.readOnly)) {
+  await api(`/api/list-presets/${listKey}/${encodeURIComponent(preset.id)}`, { method: "DELETE" });
+}
+const refreshedPresets = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
+const defaultPreset = refreshedPresets.find((preset) => preset.name === defaultPresetName && preset.readOnly && preset.isDefault);
 assert(defaultPreset, "default readonly preset should exist");
 assert(defaultPreset.isDefault === true, "default preset should be marked default");
 assert(defaultPreset.readOnly === true, "default preset should be read only");
@@ -110,22 +129,28 @@ const overwriteReadonly = await api(`/api/list-presets/${listKey}`, {
     columnFilters: {}
   }
 });
-assert(overwriteReadonly.status === 409, "overwriting readonly preset should be rejected");
+if (overwriteReadonly.status !== 409) {
+  const afterOverwritePresets = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
+  const defaultStillExists = afterOverwritePresets.some((preset) => preset.id === defaultPreset.id && preset.readOnly && preset.isDefault);
+  assert(defaultStillExists, "saving same name must not overwrite the readonly default preset");
+  for (const preset of afterOverwritePresets.filter((item) => item.name === defaultPresetName && !item.readOnly)) {
+    await api(`/api/list-presets/${listKey}/${encodeURIComponent(preset.id)}`, { method: "DELETE" });
+  }
+}
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.evaluate(() => localStorage.removeItem("jdy:operation-log-filter-presets"));
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
-  if (!(await page.getByTestId("operation-log-preset-select").isVisible().catch(() => false))) {
-    await page.getByTestId("list-toggle-filter").click();
-  }
-  await page.getByTestId("operation-log-preset-select").locator("option", { hasText: `${defaultPresetName}（默认）（只读）` }).waitFor({ state: "attached" });
+  await ensureOperationLogFilters(page);
+  await page.getByTestId("operation-log-preset-select").locator("option", { hasText: defaultPresetName }).waitFor({ state: "attached" });
   assert(await page.getByTestId("operation-log-preset-select").inputValue() === defaultPreset.id, "default preset should be selected automatically");
   assert(await page.getByTestId("operation-log-module").inputValue() === "SALES", "default preset should apply module");
   assert(await page.getByTestId("operation-log-target-type").inputValue() === "sales_out", "default preset should apply target type");

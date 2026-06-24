@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginApi, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -33,11 +34,15 @@ const purchaseFirstInLines = [
 
 await mkdir(screenshotDir, { recursive: true });
 await mkdir(path.dirname(resultPath), { recursive: true });
+const apiCookie = await loginApi(apiBase);
 
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      Cookie: apiCookie
+    },
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const text = await response.text();
@@ -177,6 +182,8 @@ async function openListAndPush(page, moduleName, entryId, listId, billNo, pushTe
   await row.waitFor({ state: "visible" });
   await row.locator(".vxe-checkbox--icon").first().click();
   await page.getByTestId(pushTestId).click();
+  await page.getByTestId("push-confirm-ok").waitFor({ state: "visible" });
+  await page.getByTestId("push-confirm-ok").click();
 }
 
 async function assertQtys(page, prefix, expectedQtys) {
@@ -198,6 +205,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openListAndPush(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo, "push-sales-out");
   await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
   const salesSource = await page.getByTestId("sales-out-source-order-no").inputValue();
@@ -210,6 +218,7 @@ try {
   screenshots.push(`verification/playwright/${salesScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openListAndPush(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo, "push-purchase-in");
   await page.getByTestId("purchase-in-source-order-no").waitFor({ state: "visible" });
   const purchaseSource = await page.getByTestId("purchase-in-source-order-no").inputValue();

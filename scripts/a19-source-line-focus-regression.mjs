@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a19-source-line-focus-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
@@ -172,6 +174,7 @@ const screenshots = [];
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
   await page.getByTestId("sales-out-line-source-trace").click();
   await waitInputValue(page, "sales-bill-no", data.salesOrderNo);
@@ -184,6 +187,7 @@ try {
   screenshots.push(`verification/playwright/${salesScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo);
   await page.getByTestId("purchase-in-line-source-trace-2").click();
   await waitInputValue(page, "purchase-bill-no", data.purchaseOrderNo);

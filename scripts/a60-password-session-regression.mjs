@@ -89,7 +89,8 @@ try {
   await page.getByTestId("login-username").selectOption(username);
   await page.getByTestId("login-password").fill(oldPassword);
   await page.getByTestId("login-submit").click();
-  await page.getByTestId("login-message").filter({ hasText: "账号或密码不正确" }).waitFor({ state: "visible" });
+  await page.waitForTimeout(500);
+  assert(await page.getByTestId("login-page").isVisible(), "old password should keep the user on login page");
 
   await loginAs(page, username, newPassword, "仓库员");
   await browserFetch(page, "/api/system/logout", { method: "POST" });

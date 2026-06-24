@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a21-push-confirm-bidirectional-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
@@ -213,6 +215,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   const sales = await exercisePushConfirm(page, {
     name: "sales",
     moduleName: "销售管理",
@@ -226,6 +229,7 @@ try {
   });
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   const purchase = await exercisePushConfirm(page, {
     name: "purchase",
     moduleName: "采购管理",

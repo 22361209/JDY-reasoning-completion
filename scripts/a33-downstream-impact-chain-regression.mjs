@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a33-downstream-impact-chain-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
@@ -176,6 +178,7 @@ const screenshots = [];
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo);
   await page.getByTestId("sales-line-downstream-trace-3").click();
   await page.getByTestId("downstream-trace-dialog").waitFor({ state: "visible" });
@@ -190,6 +193,7 @@ try {
   await waitInputValue(page, "sales-out-source-order-no", data.salesOrderNo);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openDetailFromList(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo);
   await page.getByTestId("purchase-line-downstream-trace-3").click();
   await page.getByTestId("downstream-trace-dialog").waitFor({ state: "visible" });

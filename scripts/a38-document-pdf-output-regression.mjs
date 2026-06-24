@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -8,6 +9,7 @@ const pdfPath = path.join(rootDir, "verification/a38-sales-order-print.pdf");
 const resultPath = path.join(rootDir, "verification/a38-document-pdf-output-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billNo = `XSDD-A38-${batch}`;
 const firstRemark = "PDF打印备注：样品";
@@ -91,6 +93,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("query-sales-order-form").click();
   await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });

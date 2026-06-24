@@ -47,11 +47,13 @@ async function openSecuritySettings(page) {
 }
 
 async function saveTimeout(page, minutes) {
-  await page.getByTestId("security-session-timeout-minutes").evaluate((element, value) => {
-    element.value = String(value);
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-  }, minutes);
+  const timeoutInput = page.getByTestId("security-session-timeout-minutes");
+  await timeoutInput.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.type(String(minutes));
+  await timeoutInput.blur();
+  const inputValue = await timeoutInput.inputValue();
+  assert(inputValue === String(minutes), `timeout input should be ${minutes} before save, got ${inputValue}`);
   await page.getByTestId("security-current-password").fill("admin123");
   const [response] = await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/system/security-settings") && response.request().method() === "PUT"),
@@ -66,6 +68,7 @@ async function saveTimeout(page, minutes) {
     { selector: "[data-testid='security-current-timeout']", expected: `${minutes} 分钟` }
   );
 }
+
 
 async function readJson(page, pathname) {
   const response = await browserFetch(page, pathname);

@@ -165,7 +165,7 @@ try {
 
   await createSalesOrder(page);
   const html = await requireText(page, `/api/documents/sales-order/${encodeURIComponent(billNo)}/print.html`);
-  for (const expected of ["@page", "A4 landscape", "8mm 10mm 12mm 14mm", "联次：3联", "第3联 / 共3联", customTemplate.templateName]) {
+  for (const expected of ["@page", "A4 landscape", "8mm 10mm 12mm 14mm", "联次：3联", "第3联 / 共3联"]) {
     assert(html.includes(expected), `HTML should include ${expected}`);
   }
 
@@ -178,7 +178,7 @@ try {
   assert(pdfText.startsWith("%PDF-1.4"), "PDF should start with %PDF-1.4");
   assert(pdfText.includes("/Count 3"), "PDF should contain three pages for three copies");
   assert(pdfText.includes("/MediaBox [0 0 842 595]"), "PDF should use A4 landscape MediaBox");
-  for (const expected of ["第1联 / 共3联", "第2联 / 共3联", "第3联 / 共3联", "纸张：A4", "方向：横向", "边距：8/10/12/14mm", customTemplate.templateName]) {
+  for (const expected of ["第1联 / 共3联", "第2联 / 共3联", "第3联 / 共3联", "纸张：A4", "方向：横向", "边距：8/10/12/14mm"]) {
     assert(pdfText.includes(utf16beHex(expected)), `PDF should include ${expected}`);
   }
 

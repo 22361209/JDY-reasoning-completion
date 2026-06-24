@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a11-push-confirm-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
@@ -194,6 +196,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openListAndPush(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo, "push-sales-out");
   const salesDefaultQtys = await readPushConfirmQtys(page, 3);
   assertSameArray("sales default remaining", salesDefaultQtys, data.expectedSalesRemaining);
@@ -213,6 +216,7 @@ try {
   screenshots.push(`verification/playwright/${salesScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openListAndPush(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo, "push-purchase-in");
   const purchaseDefaultQtys = await readPushConfirmQtys(page, 3);
   assertSameArray("purchase default remaining", purchaseDefaultQtys, data.expectedPurchaseRemaining);

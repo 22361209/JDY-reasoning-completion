@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a37-operation-log-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const lines = [
@@ -93,6 +95,7 @@ const screenshots = [];
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
@@ -100,7 +103,7 @@ try {
   await page.getByTestId("list-keyword").press("Enter");
   const table = page.getByTestId("vxe-list-table");
   await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
-  await table.getByText("RED_REVERSE").waitFor({ state: "visible" });
+  await table.getByText("RED_REVERSE").first().waitFor({ state: "visible" });
   await table.getByText("成功").first().waitFor({ state: "visible" });
   const screenshot = `a37-operation-log-red-reverse-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });

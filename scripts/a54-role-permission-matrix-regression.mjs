@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -8,6 +9,7 @@ const screenshotDir = path.join(verificationDir, "playwright");
 const resultPath = path.join(verificationDir, "a54-role-permission-matrix-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const targetRoleCode = "WAREHOUSE";
 const toggledPermission = "finance.settle";
@@ -72,6 +74,7 @@ let screenshot;
 try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-role-permission-settings").click();
   await page.getByTestId("role-permission-role-WAREHOUSE").click();

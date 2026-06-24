@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a12-execution-columns-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
@@ -164,6 +166,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openOrderDetail(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo);
   await page.getByTestId("sales-line-executed-qty").waitFor({ state: "visible" });
   const salesExecuted = await readReadonlyQtys(page, "sales", "executed", 3);
@@ -175,6 +178,7 @@ try {
   screenshots.push(`verification/playwright/${salesScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openOrderDetail(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo);
   await page.getByTestId("purchase-line-executed-qty").waitFor({ state: "visible" });
   const purchaseExecuted = await readReadonlyQtys(page, "purchase", "executed", 3);

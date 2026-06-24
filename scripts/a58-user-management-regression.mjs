@@ -81,7 +81,7 @@ try {
   await page.getByTestId(`managed-user-${username}`).click();
   await page.getByTestId("managed-user-password").fill(resetPassword);
   await page.getByTestId("managed-user-reset-password").click();
-  await page.getByText("密码已重置").waitFor({ state: "visible" });
+  await page.getByText("密码已重置").first().waitFor({ state: "visible" });
 
   await logout(page);
   await page.reload({ waitUntil: "networkidle" });

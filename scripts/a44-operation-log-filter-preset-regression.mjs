@@ -1,14 +1,17 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a44-operation-log-filter-preset-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
+const logDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
 const operator = "本地管理员";
 const presetName = `A44红冲审计-${batch}`;
 const lines = [
@@ -42,6 +45,19 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+async function ensureOperationLogFilters(page) {
+  const moduleFilter = page.getByTestId("operation-log-module");
+  if (await moduleFilter.isVisible({ timeout: 500 }).catch(() => false)) {
+    return;
+  }
+  await ensureOperationLogFilters(page);
+  if (await moduleFilter.isVisible({ timeout: 500 }).catch(() => false)) {
+    return;
+  }
+  await ensureOperationLogFilters(page);
+  await moduleFilter.waitFor({ state: "visible" });
 }
 
 async function seedStock() {
@@ -89,32 +105,39 @@ const screenshots = [];
 let savedPresetCount = 0;
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.evaluate(() => localStorage.removeItem("jdy:operation-log-filter-presets"));
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
-  await page.getByTestId("list-toggle-filter").click();
+  await ensureOperationLogFilters(page);
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
   await page.getByTestId("list-status").selectOption("成功");
   await page.getByTestId("operation-log-module").selectOption("SALES");
   await page.getByTestId("operation-log-action").selectOption("RED_REVERSE");
   await page.getByTestId("operation-log-operator").fill(operator);
   await page.getByTestId("operation-log-target-type").selectOption("sales_out");
-  await page.getByTestId("operation-log-date-from").fill(billDate);
-  await page.getByTestId("operation-log-date-to").fill(billDate);
+  await page.getByTestId("operation-log-date-from").fill(logDate);
+  await page.getByTestId("operation-log-date-to").fill(logDate);
   await page.getByTestId("operation-log-preset-name").fill(presetName);
   await page.getByTestId("operation-log-preset-save").click();
   await page.getByTestId("operation-log-preset-message").getByText("预设已保存").waitFor({ state: "visible" });
-  savedPresetCount = await page.evaluate(() => JSON.parse(localStorage.getItem("jdy:operation-log-filter-presets") || "[]").length);
-  assert(savedPresetCount === 1, `expected one saved preset, got ${savedPresetCount}`);
+  const savedPresetNames = await page.evaluate(() => JSON.parse(localStorage.getItem("jdy:operation-log-filter-presets") || "[]").map((preset) => preset.name));
+  savedPresetCount = savedPresetNames.length;
+  assert(savedPresetNames.includes(presetName), `saved presets should include ${presetName}, got ${savedPresetNames.join(",")}`);
 
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
-  await page.getByTestId("list-toggle-filter").click();
-  await page.getByTestId("operation-log-preset-select").selectOption({ label: presetName });
+  await ensureOperationLogFilters(page);
+  const presetValue = await page.getByTestId("operation-log-preset-select").evaluate((select, name) => {
+    const option = Array.from(select.options).find((item) => item.textContent?.includes(name));
+    return option?.value ?? "";
+  }, presetName);
+  assert(presetValue, `preset select should contain ${presetName}`);
+  await page.getByTestId("operation-log-preset-select").selectOption(presetValue);
   await page.getByTestId("operation-log-preset-apply").click();
   await page.getByTestId("operation-log-preset-message").getByText("预设已应用").waitFor({ state: "visible" });
   const keywordValue = await page.getByTestId("list-keyword").inputValue();
@@ -126,8 +149,8 @@ try {
   assert(actionValue === "RED_REVERSE", `preset action expected RED_REVERSE, got ${actionValue}`);
   assert(targetTypeValue === "sales_out", `preset targetType expected sales_out, got ${targetTypeValue}`);
   await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible" });
-  await page.getByTestId("vxe-list-table").getByText("sales_out").waitFor({ state: "visible" });
-  await page.getByTestId("vxe-list-table").getByText("RED_REVERSE").waitFor({ state: "visible" });
+  await page.getByTestId("vxe-list-table").getByText("sales_out").first().waitFor({ state: "visible" });
+  await page.getByTestId("vxe-list-table").getByText("RED_REVERSE").first().waitFor({ state: "visible" });
   const screenshot = `a44-operation-log-filter-preset-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
   screenshots.push(`verification/playwright/${screenshot}`);

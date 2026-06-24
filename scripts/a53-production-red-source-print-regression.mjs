@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const screenshotDir = path.join(verificationDir, "playwright");
 const resultPath = path.join(verificationDir, "a53-production-red-source-print-regression.json");
 const apiBase = "http://127.0.0.1:8080";
+const apiCookie = await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 
 await mkdir(screenshotDir, { recursive: true });
@@ -201,7 +203,10 @@ for (const document of documents) {
 
 const browser = await chromium.launch({ headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+  const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+  const [cookieName, cookieValue] = apiCookie.split("=");
+  await context.addCookies([{ name: cookieName, value: cookieValue, domain: "127.0.0.1", path: "/" }]);
+  const page = await context.newPage();
   for (const check of checks) {
     check.screenshot = await screenshotHtml(page, check);
   }

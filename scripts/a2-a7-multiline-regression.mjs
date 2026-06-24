@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a2-a7-multiline-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
@@ -277,11 +279,13 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   for (const item of documents) {
     try {
       await openList(page, item);
       screenshots.push(await assertDetail(page, item));
       await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
     } catch (error) {
       const failureShot = `a2-a7-regression-failure-${item.type}-${batch}.png`;
       await page.screenshot({ path: path.join(screenshotDir, failureShot), fullPage: true });

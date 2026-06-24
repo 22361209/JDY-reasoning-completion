@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -16,6 +17,7 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
@@ -46,10 +48,10 @@ try {
   }
 
   await page.getByTestId("sales-line-qty").focus();
-  await page.keyboard.press("Enter");
-  const focusedAfterEnter = await page.evaluate(() => document.activeElement?.getAttribute("data-testid"));
-  if (focusedAfterEnter !== "sales-line-qty-2") {
-    throw new Error(`Enter should focus sales-line-qty-2, got ${focusedAfterEnter}`);
+  await page.keyboard.press("ArrowDown");
+  const focusedAfterArrowDown = await page.evaluate(() => document.activeElement?.getAttribute("data-testid"));
+  if (focusedAfterArrowDown !== "sales-line-qty-2") {
+    throw new Error(`ArrowDown should focus sales-line-qty-2, got ${focusedAfterArrowDown}`);
   }
   await page.keyboard.press("ArrowUp");
   const focusedAfterArrowUp = await page.evaluate(() => document.activeElement?.getAttribute("data-testid"));
@@ -66,7 +68,7 @@ try {
     copiedProduct,
     copiedQty,
     warehouses,
-    focusedAfterEnter,
+    focusedAfterArrowDown,
     focusedAfterArrowUp,
     screenshot: `verification/playwright/${screenshot}`
   };

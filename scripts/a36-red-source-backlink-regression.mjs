@@ -1,12 +1,14 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a36-red-source-backlink-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const lines = [
@@ -140,6 +142,7 @@ const screenshots = [];
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", sales.redBillNo);
   await page.getByTestId("open-red-source-bill").waitFor({ state: "visible" });
   const salesRedScreenshot = `a36-sales-red-source-link-${batch}.png`;
@@ -153,6 +156,7 @@ try {
   screenshots.push(`verification/playwright/${salesOriginalScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
   await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", purchase.redBillNo);
   await page.getByTestId("open-red-source-bill").waitFor({ state: "visible" });
   const purchaseRedScreenshot = `a36-purchase-red-source-link-${batch}.png`;

@@ -265,13 +265,12 @@
                 <span>会话超时（分钟）</span>
                 <input
                   ref="securitySessionTimeoutInput"
-                  :value="securitySettingsForm.sessionTimeoutMinutes"
+                  v-model.number="securitySettingsForm.sessionTimeoutMinutes"
                   data-testid="security-session-timeout-minutes"
                   type="number"
                   min="5"
                   max="480"
                   step="1"
-                  @input="updateSecuritySessionTimeout"
                   @change="updateSecuritySessionTimeout"
                 />
               </label>
@@ -279,13 +278,12 @@
                 <span>密码最小长度</span>
                 <input
                   ref="securityPasswordMinLengthInput"
-                  :value="securitySettingsForm.passwordMinLength"
+                  v-model.number="securitySettingsForm.passwordMinLength"
                   data-testid="security-password-min-length"
                   type="number"
                   min="6"
                   max="64"
                   step="1"
-                  @input="updateSecurityPasswordMinLength"
                   @change="updateSecurityPasswordMinLength"
                 />
               </label>
@@ -780,253 +778,135 @@
           @open-document="openDocumentFromList"
         />
 
-        <div v-else class="business-page">
-          <div class="business-head">
-            <div>
-              <h2>{{ tabs.activeTab.value.title }}</h2>
-              <p>{{ pageSubtitle }}</p>
-            </div>
-            <div class="status-stamp" :class="tabs.activeTab.value.kind" data-testid="document-status">{{ currentOrderStatusLabel }}</div>
-          </div>
+        <SalesOrderForm
+          v-else-if="isSalesOrderForm"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-label="currentOrderStatusLabel"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :message="formMessage"
+          :form="salesOrderDocument.form"
+          :is-draft="isDraftDocument"
+          :can-audit="canAuditCurrentDocument"
+          :can-reverse="canReverseDocument"
+          :can-void="canVoidDocument"
+          :can-delete="canDeleteSalesOrder"
+          :show-execution-columns="showExecutionColumns"
+          :entry-table-colspan="entryTableColspan"
+          :entry-total-colspan="entryTotalColspan"
+          :total-amount="currentOrderTotal"
+          :batch-warehouse-code="batchWarehouseCode"
+          :active-selector="activeSelector"
+          :selector-options="selectorOptions"
+          :selector-cursor-index="selectorCursorIndex"
+          :known-product-options="knownProductOptions"
+          :dragging-line-index="draggingLineIndex"
+          :highlighted-source-bill-no="highlightedSourceBillNo"
+          :highlighted-source-line-no="highlightedSourceLineNo"
+          @create="startNewCurrentDocument"
+          @save="saveCurrentDocument"
+          @audit="auditCurrentDocument"
+          @reverse="openRiskyDocumentAction('reverse')"
+          @red-reverse="openRiskyDocumentAction('redReverse')"
+          @void-document="voidCurrentDocument"
+          @delete-document="deleteCurrentSalesOrder"
+          @export-document="exportCurrentDocument"
+          @print-document="printCurrentDocument"
+          @show-existing="tabs.activeTabId.value = 'sales-order-form'"
+          @open-red-reverse-bill="openRedReverseBill"
+          @open-red-source-bill="openRedSourceBill"
+          @update:batch-warehouse-code="batchWarehouseCode = $event"
+          @apply-batch-warehouse="applyBatchWarehouse"
+          @mark-dirty="markActiveDirty"
+          @search-master-options="searchMasterOptions"
+          @handle-master-input="handleMasterInput"
+          @handle-selector-keydown="handleSelectorKeydown"
+          @select-party-option="selectPartyOption"
+          @select-line-product="selectLineProduct"
+          @select-warehouse-option="selectWarehouseOption"
+          @entry-paste="handleEntryPaste"
+          @trace-source-order="traceSourceOrder"
+          @open-downstream-trace="openDownstreamTrace"
+          @line-drag-start="handleLineDragStart"
+          @line-drag-over="handleLineDragOver"
+          @line-drop="handleLineDrop"
+          @line-drag-end="handleLineDragEnd"
+          @insert-line-after="insertLineAfter"
+          @remove-line="removeLine"
+          @copy-line="copyLine"
+          @add-line="addLine"
+        />
 
-          <div v-if="isLockedList" class="lock-banner" data-testid="lock-banner">
-            单据已在其他页签打开，列表的审核/删除/批量操作已锁定。
-            <button type="button" @click="tabs.activeTabId.value = 'sales-order-form'">查看已有单据</button>
-          </div>
+        <DocumentForm
+          v-else
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-label="currentOrderStatusLabel"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :message="formMessage"
+          :form="currentOrderForm"
+          :test-prefix="formTestPrefix"
+          :party-label="partyLabel"
+          :party-type="partyType"
+          :is-document-form="isDocumentForm"
+          :is-stock-document-form="isStockDocumentForm"
+          :is-draft="isDraftDocument"
+          :can-audit="canAuditCurrentDocument"
+          :can-reverse="canReverseDocument"
+          :can-void="canVoidDocument"
+          :can-delete="canDeleteSalesOrder"
+          :can-trace-source-order="canTraceSourceOrder"
+          :show-source-line-column="showSourceLineColumn"
+          :show-execution-columns="showExecutionColumns"
+          :entry-table-colspan="entryTableColspan"
+          :entry-total-colspan="entryTotalColspan"
+          :total-amount="currentOrderTotal"
+          :batch-warehouse-code="batchWarehouseCode"
+          :active-selector="activeSelector"
+          :selector-options="selectorOptions"
+          :selector-cursor-index="selectorCursorIndex"
+          :known-product-options="knownProductOptions"
+          :dragging-line-index="draggingLineIndex"
+          :highlighted-source-bill-no="highlightedSourceBillNo"
+          :highlighted-source-line-no="highlightedSourceLineNo"
+          @create="startNewCurrentDocument"
+          @save="saveCurrentDocument"
+          @audit="auditCurrentDocument"
+          @reverse="openRiskyDocumentAction('reverse')"
+          @red-reverse="openRiskyDocumentAction('redReverse')"
+          @void-document="voidCurrentDocument"
+          @delete-document="deleteCurrentSalesOrder"
+          @export-document="exportCurrentDocument"
+          @print-document="printCurrentDocument"
+          @show-existing="tabs.activeTabId.value = 'sales-order-form'"
+          @open-red-reverse-bill="openRedReverseBill"
+          @open-red-source-bill="openRedSourceBill"
+          @update:batch-warehouse-code="batchWarehouseCode = $event"
+          @apply-batch-warehouse="applyBatchWarehouse"
+          @mark-dirty="markActiveDirty"
+          @search-master-options="searchMasterOptions"
+          @handle-master-input="handleMasterInput"
+          @handle-selector-keydown="handleSelectorKeydown"
+          @select-party-option="selectPartyOption"
+          @select-line-product="selectLineProduct"
+          @select-warehouse-option="selectWarehouseOption"
+          @entry-paste="handleEntryPaste"
+          @trace-source-order="traceSourceOrder"
+          @open-downstream-trace="openDownstreamTrace"
+          @line-drag-start="handleLineDragStart"
+          @line-drag-over="handleLineDragOver"
+          @line-drop="handleLineDrop"
+          @line-drag-end="handleLineDragEnd"
+          @insert-line-after="insertLineAfter"
+          @remove-line="removeLine"
+          @copy-line="copyLine"
+          @add-line="addLine"
+        />
 
-          <div class="action-bar">
-            <button class="primary-action" type="button" :disabled="isLockedList" data-testid="new-document" @click="startNewCurrentDocument">新增</button>
-            <button type="button" :disabled="!isDraftDocument" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
-            <button type="button" :disabled="!canAuditCurrentDocument" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
-            <button type="button" :disabled="!canReverseDocument" data-testid="reverse-document" @click="openRiskyDocumentAction('reverse')">反审核</button>
-            <button type="button" :disabled="!canReverseDocument" data-testid="red-reverse-document" @click="openRiskyDocumentAction('redReverse')">红冲</button>
-            <button type="button" :disabled="!canVoidDocument" data-testid="void-document" @click="voidCurrentDocument">作废</button>
-            <button type="button" :disabled="!canDeleteSalesOrder" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
-            <button type="button" :disabled="!isDocumentForm" data-testid="export-sales-order" @click="exportCurrentDocument">引出</button>
-            <button type="button" :disabled="!isDocumentForm" data-testid="print-sales-order" @click="printCurrentDocument">打印</button>
-            <span v-if="tabs.activeTab.value.dirty" class="dirty-tip">有未保存改动</span>
-            <span v-if="formMessage" class="form-message" data-testid="form-message">{{ formMessage }}</span>
-          </div>
-
-          <div v-if="isDocumentForm" class="form-layout">
-            <section class="form-head-fields">
-              <div v-if="isStockDocumentForm" class="source-order-field">
-                <label>源订单号<input v-model="currentOrderForm.sourceOrderNo" :data-testid="`${formTestPrefix}-source-order-no`" @input="markActiveDirty" /></label>
-                <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="traceSourceOrder()">追踪源单</button>
-                <button v-if="currentOrderForm.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="openRedReverseBill">红字单 {{ currentOrderForm.redReverseBillNo }}</button>
-                <button v-if="currentOrderForm.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="openRedSourceBill">来源原单 {{ currentOrderForm.redSourceBillNo }}</button>
-              </div>
-              <div v-else-if="currentOrderForm.redReverseBillNo || currentOrderForm.redSourceBillNo" class="source-order-field source-order-field--links">
-                <button v-if="currentOrderForm.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="openRedReverseBill">红字单 {{ currentOrderForm.redReverseBillNo }}</button>
-                <button v-if="currentOrderForm.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="openRedSourceBill">来源原单 {{ currentOrderForm.redSourceBillNo }}</button>
-              </div>
-              <label>
-                {{ partyLabel }}编码
-                <span class="master-selector">
-                  <input
-                    v-model="currentOrderForm.partyCode"
-                    :data-testid="`${formTestPrefix}-party-code`"
-                    @focus="searchMasterOptions(partyType, currentOrderForm.partyCode, `${formTestPrefix}-party`)"
-                    @input="handleMasterInput(partyType, currentOrderForm.partyCode, `${formTestPrefix}-party`)"
-                    @keydown="handleSelectorKeydown($event, `${formTestPrefix}-party`)"
-                  />
-                  <span v-if="activeSelector === `${formTestPrefix}-party`" class="master-selector__menu">
-                    <button
-                      v-for="(option, optionIndex) in selectorOptions"
-                      :key="option.code"
-                      type="button"
-                      :class="{ selected: selectorCursorIndex === optionIndex }"
-                      @mousedown.prevent="selectPartyOption(option)"
-                    >
-                      <strong>{{ option.code }}</strong>
-                      <span>{{ option.name }}</span>
-                    </button>
-                  </span>
-                </span>
-              </label>
-              <label>业务日期<input v-model="currentOrderForm.billDate" :data-testid="`${formTestPrefix}-bill-date`" @input="markActiveDirty" /></label>
-              <label>单据编号<input v-model="currentOrderForm.billNo" :data-testid="`${formTestPrefix}-bill-no`" @input="markActiveDirty" /></label>
-              <label>部门<input v-model="currentOrderForm.department" :data-testid="`${formTestPrefix}-department`" @input="markActiveDirty" /></label>
-            </section>
-            <div class="entry-tools">
-              <label>
-                批量仓库
-                <input
-                  v-model="batchWarehouseCode"
-                  :disabled="!isDraftDocument"
-                  data-testid="batch-warehouse-code"
-                  @keydown.enter="applyBatchWarehouse"
-                />
-              </label>
-              <button type="button" :disabled="!isDraftDocument" data-testid="apply-batch-warehouse" @click="applyBatchWarehouse">应用</button>
-            </div>
-            <div class="entry-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>商品编码</th>
-                    <th>商品名称</th>
-                    <th>规格型号</th>
-                    <th>仓库</th>
-                    <th v-if="showSourceLineColumn">源行号</th>
-                    <th>数量</th>
-                    <th v-if="showExecutionColumns">已执行</th>
-                    <th v-if="showExecutionColumns">剩余</th>
-                    <th>单价</th>
-                    <th>金额</th>
-                    <th>备注</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(line, lineIndex) in currentOrderForm.lines"
-                    :key="lineIndex"
-                    :class="{ 'is-dragging': draggingLineIndex === lineIndex, 'is-source-target': isHighlightedSourceLine(line, lineIndex) }"
-                    :draggable="isDraftDocument"
-                    :data-testid="`${formTestPrefix}-entry-row`"
-                    :data-line-no="lineLineNo(line, lineIndex)"
-                    @dragstart="handleLineDragStart($event, lineIndex)"
-                    @dragover.prevent="handleLineDragOver($event)"
-                    @drop.prevent="handleLineDrop(lineIndex)"
-                    @dragend="handleLineDragEnd"
-                  >
-                    <td>
-                      <span class="master-selector in-cell">
-                        <input
-                          v-model="line.productCode"
-                          :disabled="!isDraftDocument"
-                          :data-testid="lineProductTestId(lineIndex)"
-                          @focus="searchMasterOptions('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
-                          @input="handleMasterInput('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
-                          @keydown="handleLineCellKeydown($event, lineIndex, 'product', `${formTestPrefix}-line-${lineIndex}-product`)"
-                          @paste="handleEntryPaste($event, lineIndex)"
-                        />
-                        <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-product`" class="master-selector__menu">
-                          <button
-                            v-for="(option, optionIndex) in selectorOptions"
-                            :key="option.code"
-                            type="button"
-                            :class="{ selected: selectorCursorIndex === optionIndex }"
-                            @mousedown.prevent="selectLineProduct(option, lineIndex)"
-                          >
-                            <strong>{{ option.code }}</strong>
-                            <span>{{ option.name }}</span>
-                          </button>
-                        </span>
-                      </span>
-                    </td>
-                    <td>{{ productInfo(line).name }}</td>
-                    <td>{{ productInfo(line).spec }}</td>
-                    <td>
-                      <span class="master-selector in-cell">
-                        <input
-                          v-model="line.warehouseCode"
-                          :disabled="!isDraftDocument"
-                          :data-testid="lineWarehouseTestId(lineIndex)"
-                          @focus="searchMasterOptions('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
-                          @input="handleMasterInput('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
-                          @keydown="handleLineCellKeydown($event, lineIndex, 'warehouse', `${formTestPrefix}-line-${lineIndex}-warehouse`)"
-                          @paste="handleEntryPaste($event, lineIndex)"
-                        />
-                        <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-warehouse`" class="master-selector__menu">
-                          <button
-                            v-for="(option, optionIndex) in selectorOptions"
-                            :key="option.code"
-                            type="button"
-                            :class="{ selected: selectorCursorIndex === optionIndex }"
-                            @mousedown.prevent="selectWarehouseOption(option, lineIndex)"
-                          >
-                            <strong>{{ option.code }}</strong>
-                            <span>{{ option.name }}</span>
-                          </button>
-                        </span>
-                      </span>
-                    </td>
-                    <td v-if="showSourceLineColumn" class="readonly-qty" :data-testid="lineSourceLineNoTestId(lineIndex)">
-                      <button
-                        v-if="line.sourceLineNo"
-                        class="source-line-link"
-                        type="button"
-                        :data-testid="lineSourceTraceTestId(lineIndex)"
-                        @click="traceSourceOrder(line.sourceLineNo)"
-                      >
-                        {{ lineSourceLineNo(line) }}
-                      </button>
-                      <span v-else>-</span>
-                    </td>
-                    <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" @paste="handleEntryPaste($event, lineIndex)" /></td>
-                    <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">
-                      <button
-                        v-if="line.downstreamDocs?.length"
-                        class="source-line-link"
-                        type="button"
-                        :data-testid="lineDownstreamTraceTestId(lineIndex)"
-                        @click="openDownstreamTrace(line, lineIndex)"
-                      >
-                        {{ lineExecutedQty(line) }}
-                      </button>
-                      <span v-else>{{ lineExecutedQty(line) }}</span>
-                    </td>
-                    <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
-                    <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" @paste="handleEntryPaste($event, lineIndex)" /></td>
-                    <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
-                    <td class="remark-cell"><input v-model="line.lineRemark" :disabled="!isDraftDocument" :data-testid="lineRemarkTestId(lineIndex)" @input="markActiveDirty" /></td>
-                    <td>
-                      <button
-                        class="line-action drag-handle"
-                        type="button"
-                        :disabled="!isDraftDocument"
-                        :data-testid="lineDragHandleTestId(lineIndex)"
-                        title="拖拽调整行顺序"
-                      >
-                        ↕
-                      </button>
-                      <button
-                        class="line-action"
-                        type="button"
-                        :disabled="!isDraftDocument"
-                        :data-testid="lineInsertTestId(lineIndex)"
-                        @click="insertLineAfter(lineIndex)"
-                      >
-                        插入
-                      </button>
-                      <button
-                        class="line-action"
-                        type="button"
-                        :disabled="!isDraftDocument || currentOrderForm.lines.length <= 1"
-                        :data-testid="lineDeleteTestId(lineIndex)"
-                        @click="removeLine(lineIndex)"
-                      >
-                        删除
-                      </button>
-                      <button
-                        class="line-action"
-                        type="button"
-                        :disabled="!isDraftDocument"
-                        :data-testid="lineCopyTestId(lineIndex)"
-                        @click="copyLine(lineIndex)"
-                      >
-                        复制
-                      </button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td :colspan="entryTotalColspan" class="total-cell">合计</td>
-                    <td class="amount-cell" data-testid="document-total-amount">{{ currentOrderTotal }}</td>
-                  </tr>
-                  <tr>
-                    <td :colspan="entryTableColspan" class="add-line">
-                      <button type="button" :disabled="!isDraftDocument" data-testid="add-document-line" @click="addLine">+ 增加明细行</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div v-else class="empty-shell">该表单正在等待本批次接入，先保留统一工作区和页签行为。</div>
-
-        </div>
       </section>
 
       <aside v-if="preferences.showAssistantRail.value" class="assist-rail">
@@ -1081,247 +961,100 @@
       </form>
     </div>
 
-    <div v-if="pendingZeroEntrySave" class="modal-mask" data-testid="entry-zero-confirm-dialog">
-      <div class="dialog entry-zero-confirm-dialog">
-        <h3>零值分录确认</h3>
-        <p>以下分录数量或单价为 0。若用于赠品、样品、补录等真实业务，可以确认后继续保存。</p>
-        <table class="entry-zero-warning-table">
-          <thead>
-            <tr>
-              <th>行号</th>
-              <th>商品</th>
-              <th>仓库</th>
-              <th>数量</th>
-              <th>单价</th>
-              <th>原因</th>
-              <th>业务说明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="warning in pendingZeroEntrySave.warnings" :key="warning.lineNo">
-              <td>第 {{ warning.lineNo }} 行</td>
-              <td>{{ warning.productCode }}</td>
-              <td>{{ warning.warehouseCode }}</td>
-              <td>{{ formatQty(warning.qty) }}</td>
-              <td>{{ formatAmount(warning.unitPrice) }}</td>
-              <td>{{ warning.reasons.join("、") }}</td>
-              <td>
-                <select v-model="warning.reason" :data-testid="zeroReasonTestId(warning.lineNo)">
-                  <option v-for="option in zeroReasonOptions" :key="option" :value="option">{{ option }}</option>
-                </select>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="dialog-actions">
-          <button type="button" data-testid="entry-zero-cancel" @click="cancelZeroEntrySave">取消</button>
-          <button class="primary-action" type="button" data-testid="entry-zero-confirm" @click="confirmZeroEntrySave">确认保存</button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="downstreamTrace" class="modal-mask" data-testid="downstream-trace-dialog">
-      <div class="dialog downstream-trace-dialog">
-        <h3>{{ downstreamTrace.title }}</h3>
-        <p>源单第 {{ downstreamTrace.lineNo }} 行已执行 {{ downstreamTrace.executedQty }}，以下单据参与了该行执行。</p>
-        <div class="downstream-impact-note" data-testid="downstream-impact-note">
-          <strong>影响提示</strong>
-          <span>反审核或红冲下游执行单据会回退源单行已执行数量，并重新计算源单执行状态；操作前请确认库存与后续单据链。</span>
-        </div>
-        <table class="downstream-trace-table">
-          <thead>
-            <tr>
-              <th>单据类型</th>
-              <th>单据编号</th>
-              <th>日期</th>
-              <th>状态</th>
-              <th>源行</th>
-              <th>下游行</th>
-              <th>数量</th>
-              <th>金额</th>
-              <th>反审核影响</th>
-              <th>红冲影响</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(doc, docIndex) in downstreamTrace.docs" :key="`${doc.type}-${doc.billNo}-${docIndex}`">
-              <td>{{ doc.typeLabel || downstreamTypeLabel(doc.type) }}</td>
-              <td>
-                <button
-                  class="downstream-doc-link"
-                  type="button"
-                  :data-testid="downstreamDocTestId(docIndex)"
-                  @click="openDownstreamDocument(doc)"
-                >
-                  {{ doc.billNo }}
-                </button>
-              </td>
-              <td>{{ doc.billDate || "-" }}</td>
-              <td>{{ backendStatusLabel(doc.status) }}</td>
-              <td>#{{ doc.sourceLineNo }}</td>
-              <td>#{{ doc.downstreamLineNo }}</td>
-              <td>{{ formatQty(doc.qty) }}</td>
-              <td>{{ formatAmount(doc.amount) }}</td>
-              <td class="impact-cell">{{ doc.reverseImpact || downstreamReverseImpact(doc) }}</td>
-              <td class="impact-cell">{{ doc.redReverseImpact || downstreamRedReverseImpact(doc) }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="dialog-actions">
-          <button type="button" data-testid="downstream-trace-close" @click="downstreamTrace = null">关闭</button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="pendingRiskyDocumentAction" class="modal-mask" data-testid="risky-action-dialog">
-      <div class="dialog risky-action-dialog">
-        <h3>{{ riskyActionTitle }}</h3>
-        <p>{{ riskyActionSummary }}</p>
-        <div class="downstream-impact-note">
-          <strong>影响提示</strong>
-          <span>{{ riskyActionImpact }}</span>
-        </div>
-        <dl class="risky-action-fields">
-          <div>
-            <dt>单据编号</dt>
-            <dd>{{ currentOrderForm.billNo }}</dd>
-          </div>
-          <div>
-            <dt>当前状态</dt>
-            <dd>{{ currentOrderStatusLabel }}</dd>
-          </div>
-          <div v-if="pendingRiskyDocumentAction === 'redReverse'">
-            <dt>红冲单号</dt>
-            <dd>{{ redReverseBillNo }}</dd>
-          </div>
-        </dl>
-        <div class="dialog-actions">
-          <button type="button" data-testid="risky-action-cancel" @click="cancelRiskyDocumentAction">取消</button>
-          <button class="primary-action" type="button" data-testid="risky-action-confirm" @click="confirmRiskyDocumentAction">确认{{ riskyActionVerb }}</button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
-      <div ref="entryPasteDialogRef" class="dialog entry-paste-conflict-dialog" tabindex="-1" @keydown="handleEntryPasteConflictKeydown">
-        <h3>选择商品</h3>
-        <p>粘贴内容里有商品名称对应多个资料，请选定后再写入分录。</p>
-        <div v-for="conflict in pendingEntryPaste.conflicts" :key="conflict.lineIndex" class="entry-paste-conflict">
-          <div class="entry-paste-conflict-title">第 {{ conflict.lineIndex + 1 }} 行：{{ conflict.productText }}</div>
-          <div class="entry-paste-candidates">
-            <button
-              v-for="(candidate, candidateIndex) in conflict.candidates"
-              :key="candidate.code"
-              type="button"
-              class="entry-paste-candidate"
-              :class="{ selected: conflict.selectedCode === candidate.code, active: isEntryPasteCandidateActive(conflict, candidateIndex) }"
-              :data-testid="entryPasteCandidateTestId(conflict.lineIndex, candidate.code)"
-              @click="selectEntryPasteCandidate(conflict.lineIndex, candidate.code)"
-            >
-              <strong>{{ candidate.code }}</strong>
-              <span>{{ candidate.name }}</span>
-              <span>{{ candidate.spec || "-" }}</span>
-              <small>{{ candidate.unit || "" }}</small>
-            </button>
-          </div>
-        </div>
-        <div class="dialog-actions">
-          <button type="button" data-testid="entry-paste-cancel" @click="cancelPendingEntryPaste">取消</button>
-          <button type="button" data-testid="entry-paste-confirm" :disabled="!entryPasteConflictsResolved" @click="confirmPendingEntryPaste">确定</button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="pendingPushDown" class="modal-mask" data-testid="push-confirm-dialog">
-      <div class="dialog push-confirm-dialog">
-        <h3>{{ pendingPushDown.title }}</h3>
-        <p>{{ pendingPushDown.sourceBillNo }} 可按剩余数量下推，确认本次数量后生成{{ pendingPushDown.targetTitle }}草稿。</p>
-        <div class="push-confirm-tools">
-          <button type="button" data-testid="push-confirm-clear" @click="clearPushDownQtys">清零</button>
-          <button type="button" data-testid="push-confirm-all" @click="fillAllRemainingQtys">全剩余</button>
-          <button type="button" data-testid="push-confirm-invert-selection" @click="invertPushDownSelection">反选</button>
-          <label>
-            比例
-            <input v-model.number="pushConfirmRatio" inputmode="decimal" data-testid="push-confirm-ratio" />
-            <span>%</span>
-          </label>
-          <button type="button" data-testid="push-confirm-apply-ratio" @click="applyPushDownRatio">按比例</button>
-          <label>
-            仓库
-            <input v-model="pushConfirmWarehouseCode" data-testid="push-confirm-warehouse-code" />
-          </label>
-          <button type="button" data-testid="push-confirm-apply-warehouse" @click="applyPushDownWarehouse">应用仓库</button>
-          <span class="push-confirm-selection" data-testid="push-confirm-selection-summary">{{ pushConfirmSelectionSummary }}</span>
-        </div>
-        <div class="push-confirm-table">
-          <table>
-            <thead>
-              <tr>
-                <th class="selection-cell">
-                  <input
-                    type="checkbox"
-                    :checked="allPushDownLinesSelected"
-                    data-testid="push-confirm-select-all"
-                    @change="toggleAllPushDownLinesFromEvent"
-                  />
-                </th>
-                <th>商品</th>
-                <th>仓库</th>
-                <th>源单</th>
-                <th>已执行</th>
-                <th>剩余</th>
-                <th>本次</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(line, lineIndex) in pendingPushDown.lines" :key="`${line.productCode}-${lineIndex}`">
-                <td class="selection-cell">
-                  <input
-                    v-model="line.selected"
-                    type="checkbox"
-                    :data-testid="pushConfirmSelectTestId(lineIndex)"
-                  />
-                </td>
-                <td>
-                  <strong>{{ line.productCode }}</strong>
-                  <span>{{ line.productName || line.spec }}</span>
-                </td>
-                <td :data-testid="pushConfirmWarehouseTestId(lineIndex)">{{ line.warehouseCode }}</td>
-                <td>{{ line.sourceQty }}</td>
-                <td>{{ line.executedQty }}</td>
-                <td>{{ line.remainingQty }}</td>
-                <td>
-                  <input
-                    v-model.number="line.qty"
-                    inputmode="decimal"
-                    :data-testid="pushConfirmQtyTestId(lineIndex)"
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="push-confirm-summary">
-          <span>本次数量合计</span>
-          <strong data-testid="push-confirm-total">{{ pendingPushDownTotal }}</strong>
-        </div>
-        <p v-if="pushConfirmError" class="form-error" data-testid="push-confirm-error">{{ pushConfirmError }}</p>
-        <div class="dialog-actions">
-          <button type="button" data-testid="push-confirm-cancel" @click="cancelPushDown">取消</button>
-          <button class="primary-action" type="button" data-testid="push-confirm-ok" @click="confirmPushDown">生成草稿</button>
-        </div>
-      </div>
-    </div>
+    <DocumentDialogs
+      :pending-zero-entry-save="pendingZeroEntrySave"
+      :zero-reason-options="zeroReasonOptions"
+      :downstream-trace="downstreamTrace"
+      :pending-risky-document-action="pendingRiskyDocumentAction"
+      :pending-entry-paste="pendingEntryPaste"
+      :pending-push-down="pendingPushDown"
+      :current-bill-no="currentOrderForm.billNo"
+      :current-order-status-label="currentOrderStatusLabel"
+      :red-reverse-bill-no="redReverseBillNo"
+      :risky-action-title="riskyActionTitle"
+      :risky-action-summary="riskyActionSummary"
+      :risky-action-impact="riskyActionImpact"
+      :risky-action-verb="riskyActionVerb"
+      :entry-paste-conflicts-resolved="entryPasteConflictsResolved"
+      :push-confirm-ratio="pushConfirmRatio"
+      :push-confirm-warehouse-code="pushConfirmWarehouseCode"
+      :push-confirm-selection-summary="pushConfirmSelectionSummary"
+      :all-push-down-lines-selected="allPushDownLinesSelected"
+      :pending-push-down-total="pendingPushDownTotal"
+      :push-confirm-error="pushConfirmError"
+      :format-qty="formatQty"
+      :format-amount="formatAmount"
+      :zero-reason-test-id="zeroReasonTestId"
+      :downstream-type-label="downstreamTypeLabel"
+      :backend-status-label="backendStatusLabel"
+      :downstream-reverse-impact="downstreamReverseImpact"
+      :downstream-red-reverse-impact="downstreamRedReverseImpact"
+      :downstream-doc-test-id="downstreamDocTestId"
+      :entry-paste-candidate-test-id="entryPasteCandidateTestId"
+      :is-entry-paste-candidate-active="isEntryPasteCandidateActive"
+      :push-confirm-select-test-id="pushConfirmSelectTestId"
+      :push-confirm-warehouse-test-id="pushConfirmWarehouseTestId"
+      :push-confirm-qty-test-id="pushConfirmQtyTestId"
+      @cancel-zero-entry-save="cancelZeroEntrySave"
+      @confirm-zero-entry-save="confirmZeroEntrySave"
+      @close-downstream-trace="downstreamTrace = null"
+      @open-downstream-document="openDownstreamDocument"
+      @cancel-risky-document-action="cancelRiskyDocumentAction"
+      @confirm-risky-document-action="confirmRiskyDocumentAction"
+      @handle-entry-paste-conflict-keydown="handleEntryPasteConflictKeydown"
+      @select-entry-paste-candidate="selectEntryPasteCandidate"
+      @cancel-pending-entry-paste="cancelPendingEntryPaste"
+      @confirm-pending-entry-paste="confirmPendingEntryPaste"
+      @update:push-confirm-ratio="pushConfirmRatio = $event"
+      @update:push-confirm-warehouse-code="pushConfirmWarehouseCode = $event"
+      @clear-push-down-qtys="clearPushDownQtys"
+      @fill-all-remaining-qtys="fillAllRemainingQtys"
+      @invert-push-down-selection="invertPushDownSelection"
+      @apply-push-down-ratio="applyPushDownRatio"
+      @apply-push-down-warehouse="applyPushDownWarehouse"
+      @toggle-all-push-down-lines-from-event="toggleAllPushDownLinesFromEvent"
+      @cancel-push-down="cancelPushDown"
+      @confirm-push-down="confirmPushDown"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
+import {
+  defaultPrintTemplateForm,
+  initialMaterialIssueForm,
+  initialProductInForm,
+  initialPurchaseInForm,
+  initialPurchaseOrderForm,
+  initialSalesOutForm,
+  knownProductOptions,
+  knownWarehouseOptions,
+  printTemplateDocumentTypes,
+  zeroReasonOptions,
+  type DownstreamTraceState,
+  type EntryPasteConflict,
+  type EntryPasteRefs,
+  type MasterOption,
+  type OrderForm,
+  type OrderLineForm,
+  type PendingEntryPaste,
+  type PendingPushDown,
+  type PendingPushLine,
+  type PendingZeroEntrySave,
+  type RiskyDocumentAction,
+  type ZeroEntryWarning
+} from "./documentModel";
+import { excludedModules, moduleCatalog } from "../modules/catalog";
 import DataListPage from "../components/DataListPage.vue";
+import DocumentDialogs from "../components/DocumentDialogs.vue";
+import DocumentForm from "../components/DocumentForm.vue";
+import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
+import { useSalesOrderDocument } from "../modules/sales/sales-order/useSalesOrderDocument";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
-import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
+import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, saveSecuritySettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -1349,115 +1082,16 @@ interface ShellModule {
   groups: EntryGroup[];
 }
 
-interface MasterOption {
-  code: string;
-  name: string;
-  spec?: string;
-  unit?: string;
-}
-
-interface EntryPasteRefs {
-  products: MasterOption[];
-  warehouses: MasterOption[];
-}
-
-interface EntryPasteConflict {
-  lineIndex: number;
-  productText: string;
-  candidates: MasterOption[];
-  selectedCode?: string;
-  activeIndex?: number;
-}
-
-interface PendingEntryPaste {
-  startIndex: number;
-  lines: OrderLineForm[];
-  conflicts: EntryPasteConflict[];
-}
-
 interface PreparedEntryLines {
   formLines: OrderLineForm[];
   documentLines: ReturnType<typeof toDocumentLines>;
   removedBlankCount: number;
 }
 
-interface ZeroEntryWarning {
-  lineNo: number;
-  productCode: string;
-  warehouseCode: string;
-  qty: number;
-  unitPrice: number;
-  reasons: string[];
-  reason: string;
-}
-
-interface PendingZeroEntrySave {
-  target: "salesOrder" | "document";
-  warnings: ZeroEntryWarning[];
-}
-
-type RiskyDocumentAction = "reverse" | "redReverse";
-
-interface OrderLineForm {
-  lineNo?: number;
-  productCode: string;
-  productName?: string;
-  spec?: string;
-  warehouseCode: string;
-  sourceLineNo?: number;
-  qty: number;
-  executedQty?: number;
-  remainingQty?: number;
-  unitPrice: number;
-  lineRemark?: string;
-  downstreamDocs?: DownstreamDocumentRef[];
-}
-
-interface DownstreamTraceState {
-  title: string;
-  lineNo: number;
-  executedQty: string;
-  docs: DownstreamDocumentRef[];
-}
-
-interface OrderForm {
-  billNo: string;
-  sourceOrderNo?: string;
-  redReverseBillNo?: string;
-  redSourceBillNo?: string;
-  partyCode: string;
-  billDate: string;
-  department: string;
-  ownerName: string;
-  status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
-  lines: OrderLineForm[];
-}
-
-interface PendingPushLine extends OrderLineForm {
-  sourceQty: number;
-  executedQty: number;
-  remainingQty: number;
-  selected?: boolean;
-}
-
-interface PendingPushDown {
-  kind: "salesOut" | "purchaseIn";
-  title: string;
-  targetTitle: string;
-  targetTabId: string;
-  targetModule: string;
-  targetBillNo: string;
-  sourceBillNo: string;
-  partyCode: string;
-  billDate: string;
-  department: string;
-  ownerName: string;
-  lines: PendingPushLine[];
-}
-
 const session = useSessionStore();
 const tabs = useTabStore();
 const preferences = usePreferenceStore();
+const salesOrderDocument = useSalesOrderDocument();
 const keyword = ref("");
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
@@ -1469,16 +1103,6 @@ const pendingPushDown = ref<PendingPushDown | null>(null);
 const pushConfirmRatio = ref(50);
 const pushConfirmWarehouseCode = ref("CK-001");
 const pushConfirmError = ref("");
-const entryPasteDialogRef = ref<HTMLElement | null>(null);
-const zeroReasonOptions = ["赠品", "样品", "补录", "其他已确认"];
-const printTemplateDocumentTypes = [
-  { documentType: "sales-order", documentTitle: "销售订单" },
-  { documentType: "purchase-order", documentTitle: "采购订单" },
-  { documentType: "sales-out", documentTitle: "销售出库单" },
-  { documentType: "purchase-in", documentTitle: "采购入库单" },
-  { documentType: "material-issue", documentTitle: "生产领料单" },
-  { documentType: "product-in", documentTitle: "产品入库单" }
-];
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
@@ -1575,249 +1199,26 @@ const passwordForm = reactive({
   newPassword: "",
   confirmPassword: ""
 });
-const printTemplateForm = reactive<PrintTemplateConfig>({
-  documentType: "sales-order",
-  documentTitle: "销售订单",
-  templateCode: "STANDARD",
-  templateName: "标准套打模板",
-  roleCode: "",
-  companyName: "博莱德机械测试账套",
-  headerNote: "会计期间 2026-06 / 业务期间 2026-06",
-  footerNote: "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
-  showSignature: true,
-  showSeal: true,
-  isDefault: true,
-  paperSize: "A4",
-  pageOrientation: "PORTRAIT",
-  marginTopMm: "12",
-  marginRightMm: "12",
-  marginBottomMm: "12",
-  marginLeftMm: "12",
-  copyCount: 1,
-  enabled: true
-});
-const salesOrderForm = reactive<OrderForm>({
-  billNo: "XSDD-00001",
-  partyCode: "KH-001",
-  billDate: "2026-06-23",
-  department: "销售部",
-  ownerName: "本地管理员",
-  status: "DRAFT",
-  lines: [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86 }
-  ]
-});
-const purchaseOrderForm = reactive<OrderForm>({
-  billNo: "CGDD-00001",
-  partyCode: "GYS-001",
-  billDate: "2026-06-23",
-  department: "采购部",
-  ownerName: "本地管理员",
-  status: "DRAFT",
-  lines: [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72 }
-  ]
-});
-const purchaseInForm = reactive<OrderForm>({
-  billNo: "CGRK-00001",
-  sourceOrderNo: "CGDD-00001",
-  partyCode: "GYS-001",
-  billDate: "2026-06-23",
-  department: "采购部",
-  ownerName: "本地管理员",
-  status: "DRAFT",
-  lines: [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72 }
-  ]
-});
-const salesOutForm = reactive<OrderForm>({
-  billNo: "XSCK-00001",
-  sourceOrderNo: "XSDD-00001",
-  partyCode: "KH-001",
-  billDate: "2026-06-23",
-  department: "销售部",
-  ownerName: "本地管理员",
-  status: "DRAFT",
-  lines: [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86 }
-  ]
-});
-const materialIssueForm = reactive<OrderForm>({
-  billNo: "SCLL-00001",
-  sourceOrderNo: "SCRW-00001",
-  partyCode: "SCRW-00001",
-  billDate: "2026-06-23",
-  department: "生产部",
-  ownerName: "本地管理员",
-  status: "AUDITED",
-  lines: [
-    { productCode: "WL-001", warehouseCode: "CK-001", qty: 2, unitPrice: 1 }
-  ]
-});
-const productInForm = reactive<OrderForm>({
-  billNo: "CPRK-00001",
-  sourceOrderNo: "SCRW-00001",
-  partyCode: "SCRW-00001",
-  billDate: "2026-06-23",
-  department: "生产部",
-  ownerName: "本地管理员",
-  status: "AUDITED",
-  lines: [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 1 }
-  ]
-});
+const printTemplateForm = reactive<PrintTemplateConfig>({ ...defaultPrintTemplateForm });
+const purchaseOrderForm = reactive<OrderForm>({ ...initialPurchaseOrderForm, lines: initialPurchaseOrderForm.lines.map((line) => ({ ...line })) });
+const purchaseInForm = reactive<OrderForm>({ ...initialPurchaseInForm, lines: initialPurchaseInForm.lines.map((line) => ({ ...line })) });
+const salesOutForm = reactive<OrderForm>({ ...initialSalesOutForm, lines: initialSalesOutForm.lines.map((line) => ({ ...line })) });
+const materialIssueForm = reactive<OrderForm>({ ...initialMaterialIssueForm, lines: initialMaterialIssueForm.lines.map((line) => ({ ...line })) });
+const productInForm = reactive<OrderForm>({ ...initialProductInForm, lines: initialProductInForm.lines.map((line) => ({ ...line })) });
 const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
 let selectorRequestSeq = 0;
 
-const knownProductOptions: MasterOption[] = [
-  { code: "CP-001", name: "控制臂总成", spec: "左前 / 黑色", unit: "只" },
-  { code: "CP-T413874", name: "验收商品总成", spec: "左前 / 蓝色", unit: "只" },
-  { code: "PJ-014", name: "衬套", spec: "65mm / 加强", unit: "件" }
-];
-const knownWarehouseOptions: MasterOption[] = [
-  { code: "CK-001", name: "成品仓" },
-  { code: "CK-002", name: "原材料仓" },
-  { code: "CK-T413874", name: "验收仓" }
-];
-
-const moduleCatalog: ShellModule[] = [
-  {
-    name: "销售管理",
-    short: "销",
-    groups: [
-      { title: "销售业务", entries: [
-        { id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" },
-        { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
-        { id: "sales-return-form", label: "销售退货申请", module: "销售管理", mode: "form" }
-      ] },
-      { title: "报表查询", entries: [
-        { id: "sales-detail-report", label: "销售明细表", module: "销售管理", mode: "report", queryable: true },
-        { id: "sales-profit-report", label: "销售利润表", module: "销售管理", mode: "report" }
-      ] }
-    ]
-  },
-  {
-    name: "采购管理",
-    short: "采",
-    groups: [
-      { title: "采购业务", entries: [
-        { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.order.audit" },
-        { id: "purchase-in-form", label: "采购入库单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.in.audit" },
-        { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form" }
-      ] },
-      { title: "报表查询", entries: [
-        { id: "purchase-summary-report", label: "采购汇总表", module: "采购管理", mode: "report", queryable: true }
-      ] }
-    ]
-  },
-  {
-    name: "库存管理",
-    short: "库",
-    groups: [
-      { title: "库存业务", entries: [
-        { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" },
-        { id: "stock-transfer-form", label: "调拨单", module: "库存管理", mode: "form", queryable: true },
-        { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form" }
-      ] },
-      { title: "流水报表", entries: [
-        { id: "stock-flow-report", label: "商品收发明细表", module: "库存管理", mode: "report", queryable: true },
-        { id: "scrap-report", label: "材料报废统计表", module: "库存管理", mode: "report" }
-      ] }
-    ]
-  },
-  {
-    name: "应收应付",
-    short: "款",
-    groups: [
-      { title: "往来单据", entries: [
-        { id: "receivable-list", label: "应收单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
-        { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" }
-      ] },
-      { title: "往来报表", entries: [
-        { id: "ar-summary-report", label: "应收汇总表", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" }
-      ] }
-    ]
-  },
-  {
-    name: "生产管理",
-    short: "产",
-    groups: [
-      { title: "生产执行", entries: [
-        { id: "production-task-form", label: "生产任务单", module: "生产管理", mode: "form", queryable: true, permission: "production.task.audit" },
-        { id: "material-issue-form", label: "生产领料单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" },
-        { id: "product-in-form", label: "产品入库单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" }
-      ] },
-      { title: "BOM 与报表", entries: [
-        { id: "bom-list", label: "BOM维护", module: "生产管理", mode: "list", queryable: true },
-        { id: "task-track-report", label: "生产任务跟踪表", module: "生产管理", mode: "report", queryable: true }
-      ] }
-    ]
-  },
-  {
-    name: "委外管理",
-    short: "委",
-    groups: [
-      { title: "委外业务", entries: [
-        { id: "outsourcing-order-form", label: "委外订单", module: "委外管理", mode: "form", queryable: true },
-        { id: "outsourcing-in-list", label: "委外入库单", module: "委外管理", mode: "list", queryable: true }
-      ] }
-    ]
-  },
-  {
-    name: "基础资料",
-    short: "资",
-    groups: [
-      { title: "资料维护", entries: [
-        { id: "product-master-list", label: "商品资料", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
-        { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
-        { id: "supplier-master-list", label: "供应商", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
-        { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" }
-      ] }
-    ]
-  },
-  {
-    name: "系统设置",
-    short: "设",
-    groups: [
-      { title: "系统基础", entries: [
-        { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
-        { id: "security-settings", label: "安全设置", module: "系统设置", mode: "shell", permission: "system.security.manage" },
-        { id: "notification-provider-settings", label: "通知供应商", module: "系统设置", mode: "shell", permission: "system.notification_provider.manage" },
-        { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
-        { id: "role-permission-settings", label: "权限矩阵", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
-        { id: "operation-log-list", label: "操作日志", module: "系统设置", mode: "list", queryable: true, permission: "system.audit_log.view" },
-        { id: "print-template-settings", label: "打印模板", module: "系统设置", mode: "shell", permission: "system.print_template.manage" }
-      ] }
-    ]
-  },
-  {
-    name: "快捷应用",
-    short: "快",
-    groups: [
-      { title: "可见壳层", entries: [
-        { id: "quick-sales-shell", label: "销售快速发起", module: "快捷应用", mode: "shell" },
-        { id: "quick-purchase-shell", label: "采购快速发起", module: "快捷应用", mode: "shell" }
-      ] }
-    ]
-  }
-];
-
-const excludedModules = ["老板参谋", "客户经营", "协同助手", "自定义中心"].map((name) => ({
-  name,
-  short: name.slice(0, 1),
-  excluded: true,
-  groups: []
-}));
-
-const visibleModules = [...moduleCatalog, ...excludedModules];
-const activeModule = computed(() => visibleModules.find((module) => module.name === activeModuleName.value) ?? moduleCatalog[0]);
+const typedModuleCatalog = moduleCatalog as unknown as ShellModule[];
+const typedExcludedModules = excludedModules as unknown as ShellModule[];
+const visibleModules = [...typedModuleCatalog, ...typedExcludedModules];
+const activeModule = computed(() => visibleModules.find((module) => module.name === activeModuleName.value) ?? typedModuleCatalog[0]);
 const activeEntryGroups = computed(() => activeModule.value.groups
   .map((group) => ({ ...group, entries: group.entries.filter((entry) => canOpenEntry(entry)) }))
   .filter((group) => group.entries.length > 0));
 const approvedCount = computed(() => featureScope.filter((feature) => feature.decision === "build" || feature.decision === "simple").length);
-const quickEntries = computed(() => moduleCatalog.flatMap((module) => module.groups.flatMap((group) => group.entries)).filter((entry) => canOpenEntry(entry)).slice(0, 8));
+const quickEntries = computed(() => typedModuleCatalog.flatMap((module) => module.groups.flatMap((group) => group.entries)).filter((entry) => canOpenEntry(entry)).slice(0, 8));
 const demoDirtyEntry = computed<ShellEntry>(() => ({ id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" })).value;
 
 const pageSubtitle = computed(() => {
@@ -1911,7 +1312,7 @@ const currentOrderForm = computed(() => {
   if (isProductInForm.value) {
     return productInForm;
   }
-  return salesOrderForm;
+  return salesOrderDocument.form;
 });
 const formTestPrefix = computed(() => {
   if (isPurchaseOrderForm.value) {
@@ -3026,7 +2427,7 @@ async function saveCurrentSalesOrderDraft(allowZeroValues: boolean) {
     pendingZeroEntrySave.value = null;
   }
   formMessage.value = "";
-  const preparedLines = prepareEntryLinesForSave(salesOrderForm.lines);
+  const preparedLines = prepareEntryLinesForSave(salesOrderDocument.form.lines);
   if (!preparedLines.ok) {
     formMessage.value = preparedLines.message;
     return;
@@ -3036,18 +2437,9 @@ async function saveCurrentSalesOrderDraft(allowZeroValues: boolean) {
     pendingZeroEntrySave.value = { target: "salesOrder", warnings: zeroWarnings };
     return;
   }
-  salesOrderForm.lines = preparedLines.formLines;
-  const result = await saveSalesOrderDraft({
-    billNo: salesOrderForm.billNo,
-    customerCode: salesOrderForm.partyCode,
-    billDate: salesOrderForm.billDate,
-    department: salesOrderForm.department,
-    ownerName: salesOrderForm.ownerName,
-    lines: preparedLines.documentLines
-  });
+  const result = await salesOrderDocument.saveDraft(preparedLines);
   formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
   if (result.ok) {
-    salesOrderForm.status = "DRAFT";
     const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
     if (activeTab) {
       activeTab.dirty = false;
@@ -3194,7 +2586,7 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: "product-in-form", title: "产品入库单", module: "生产管理", form: productInForm, partyType: "customer" };
     case "salesOrder":
     default:
-      return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", form: salesOrderForm, partyType: "customer" };
+      return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", form: salesOrderDocument.form, partyType: "customer" };
   }
 }
 
@@ -3687,15 +3079,9 @@ async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
       conflicts: pasteResult.conflicts
     };
     formMessage.value = `有 ${pasteResult.conflicts.length} 行商品需要选择。`;
-    void focusEntryPasteDialog();
     return;
   }
   applyPastedEntryLines(startIndex, pasteResult.lines);
-}
-
-async function focusEntryPasteDialog() {
-  await nextTick();
-  entryPasteDialogRef.value?.focus();
 }
 
 async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
@@ -4204,10 +3590,9 @@ function mergeLineRemark(current: string | undefined, addition: string) {
 }
 
 async function auditCurrentSalesOrder() {
-  const result = await auditSalesOrder(salesOrderForm.billNo);
+  const result = await salesOrderDocument.audit();
   formMessage.value = result.ok ? "审核成功" : result.message;
   if (result.ok) {
-    salesOrderForm.status = "AUDITED";
     clearActiveDirty();
   }
 }
@@ -4309,7 +3694,7 @@ async function redReverseCurrentDocument() {
 }
 
 async function deleteCurrentSalesOrder() {
-  const result = await deleteSalesOrder(salesOrderForm.billNo);
+  const result = await salesOrderDocument.remove();
   formMessage.value = result.ok ? "删除成功" : result.message;
   if (result.ok) {
     const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
