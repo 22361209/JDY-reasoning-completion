@@ -969,6 +969,20 @@ input:disabled {
   padding: 0 8px;
 }
 
+.source-order-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-order-field button {
+  height: 30px;
+  white-space: nowrap;
+  padding: 0 10px;
+}
+
 .master-selector {
   position: relative;
   display: block;

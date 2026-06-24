@@ -212,7 +212,10 @@
 
           <div v-if="isDocumentForm" class="form-layout">
             <section class="form-head-fields">
-              <label v-if="isStockDocumentForm">源订单号<input v-model="currentOrderForm.sourceOrderNo" :data-testid="`${formTestPrefix}-source-order-no`" @input="markActiveDirty" /></label>
+              <div v-if="isStockDocumentForm" class="source-order-field">
+                <label>源订单号<input v-model="currentOrderForm.sourceOrderNo" :data-testid="`${formTestPrefix}-source-order-no`" @input="markActiveDirty" /></label>
+                <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="traceSourceOrder">追踪源单</button>
+              </div>
               <label>
                 {{ partyLabel }}编码
                 <span class="master-selector">
@@ -881,6 +884,16 @@ const currentOrderTotal = computed(() => currentOrderForm.value.lines
 const pendingPushDownTotal = computed(() => (pendingPushDown.value?.lines ?? [])
   .reduce((sum, line) => sum + normalizedQty(line.qty), 0)
   .toFixed(2));
+const sourceOrderTraceType = computed<OpenableDocumentType | null>(() => {
+  if (isSalesOutForm.value) {
+    return "salesOrder";
+  }
+  if (isPurchaseInForm.value) {
+    return "purchaseOrder";
+  }
+  return null;
+});
+const canTraceSourceOrder = computed(() => Boolean(sourceOrderTraceType.value && currentOrderForm.value.sourceOrderNo?.trim()));
 
 function lineAmount(line: OrderLineForm) {
   return (Number(line.qty || 0) * Number(line.unitPrice || 0)).toFixed(2);
@@ -1044,6 +1057,32 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
   activeModuleName.value = target.module;
   fillDocumentForm(target.form, result.data, target.partyType);
   formMessage.value = `已打开${target.title} ${billNo}`;
+  clearActiveDirty();
+}
+
+async function traceSourceOrder() {
+  const billNo = currentOrderForm.value.sourceOrderNo?.trim();
+  const type = sourceOrderTraceType.value;
+  if (!billNo || !type) {
+    return;
+  }
+  const result = await fetchDocumentDetail(type, billNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "源单详情加载失败。";
+    return;
+  }
+  const target = openableDocumentTarget(type);
+  tabs.openTab({
+    id: target.tabId,
+    title: target.title,
+    module: target.module,
+    kind: "form",
+    dirty: false,
+    lockedObjectId: billNo
+  });
+  activeModuleName.value = target.module;
+  fillDocumentForm(target.form, result.data, target.partyType);
+  formMessage.value = `已追踪打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
 
