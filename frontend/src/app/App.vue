@@ -430,7 +430,16 @@
               <section v-if="recentPasswordResetNotifications.length" class="password-reset-admin-panel" data-testid="password-reset-notification-panel">
                 <div class="password-reset-admin-panel__head">
                   <strong>最近通知</strong>
-                  <span>{{ recentPasswordResetNotifications.length }} 条</span>
+                  <div class="password-reset-notification-tools">
+                    <select v-model="notificationStatusFilter" data-testid="notification-status-filter" @change="loadNotificationOutboxAction">
+                      <option value="">全部</option>
+                      <option value="FAILED">失败</option>
+                      <option value="PENDING">待发送</option>
+                      <option value="SENT">已发送</option>
+                    </select>
+                    <button type="button" data-testid="notification-refresh" @click="loadNotificationOutboxAction">刷新</button>
+                    <span>{{ recentPasswordResetNotifications.length }} 条</span>
+                  </div>
                 </div>
                 <div
                   v-for="notice in recentPasswordResetNotifications"
@@ -439,8 +448,10 @@
                   :data-testid="`password-reset-notice-${notice.recipientUsername}-${notice.templateCode}`"
                 >
                   <strong>{{ notice.title }}</strong>
-                  <span>{{ notice.recipientUsername }} / {{ notificationStatusLabel(notice) }} / {{ notice.sentAt || notice.createdAt }}</span>
+                  <span>{{ notice.recipientUsername }} / {{ notificationStatusLabel(notice) }} / 重试 {{ notice.retryCount ?? 0 }} 次 / {{ notice.sentAt || notice.lastAttemptAt || notice.createdAt }}</span>
                   <em>{{ notice.body }}</em>
+                  <em v-if="notice.failureReason">失败原因：{{ notice.failureReason }}</em>
+                  <button type="button" :data-testid="`notification-resend-${notice.recipientUsername}`" @click="resendNotificationAction(notice.id)">重发</button>
                 </div>
               </section>
               <label>
@@ -1202,7 +1213,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resendNotification, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1405,6 +1416,7 @@ const managedUsers = ref<ManagedUser[]>([]);
 const managedRoles = ref<ManagedRole[]>([]);
 const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
 const notificationOutbox = ref<NotificationOutboxItem[]>([]);
+const notificationStatusFilter = ref("");
 const selectedPasswordResetRequestId = ref("");
 const passwordResetHandleNote = ref("");
 const selectedManagedUsername = ref("");
@@ -2315,6 +2327,15 @@ async function loadManagedUsers() {
   userManagementMessage.value = "";
 }
 
+async function loadNotificationOutboxAction() {
+  const result = await fetchNotificationOutbox(notificationStatusFilter.value);
+  if (!result.ok) {
+    userManagementMessage.value = result.message;
+    return;
+  }
+  notificationOutbox.value = result.data;
+}
+
 function selectManagedUser(username: string) {
   selectedManagedUsername.value = username;
   userManagementMode.value = "edit";
@@ -2428,6 +2449,21 @@ async function rejectPasswordResetRequestAction() {
   selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
   passwordResetHandleNote.value = "";
   userManagementMessage.value = "找回申请已驳回";
+}
+
+async function resendNotificationAction(notificationId: string) {
+  if (!canManageRolePermissions.value) {
+    userManagementMessage.value = "当前角色无权维护通知。";
+    return;
+  }
+  const result = await resendNotification(notificationId);
+  if (!result.ok) {
+    userManagementMessage.value = result.message || "通知重发失败。";
+    return;
+  }
+  notificationStatusFilter.value = "";
+  notificationOutbox.value = result.data;
+  userManagementMessage.value = "通知已重发";
 }
 
 function notificationStatusLabel(notice: NotificationOutboxItem) {

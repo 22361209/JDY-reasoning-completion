@@ -56,6 +56,9 @@ export interface NotificationOutboxItem {
   sourceId: string;
   status: string;
   provider: string;
+  retryCount?: number;
+  lastAttemptAt?: string;
+  failureReason?: string;
   createdAt: string;
   sentAt: string;
 }
@@ -271,6 +274,35 @@ export async function unlockManagedUser(username: string): Promise<ManagedUsersR
 
 export async function handlePasswordResetRequest(requestId: string, status: "DONE" | "REJECTED", note: string): Promise<ManagedUsersResult> {
   return writeManagedUser(`/api/system/password-reset-requests/${encodeURIComponent(requestId)}`, "PUT", { status, note });
+}
+
+export async function fetchNotificationOutbox(status = ""): Promise<{ ok: boolean; status: number; message: string; data: NotificationOutboxItem[] }> {
+  try {
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    const response = await fetch(`/api/system/notification-outbox${query}`);
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "通知列表加载失败。", data: [] };
+    }
+    const payload = await response.json() as { notificationOutbox?: NotificationOutboxItem[] };
+    return { ok: true, status: response.status, message: "", data: payload.notificationOutbox ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "通知列表加载失败。", data: [] };
+  }
+}
+
+export async function resendNotification(notificationId: string): Promise<{ ok: boolean; status: number; message: string; data: NotificationOutboxItem[] }> {
+  try {
+    const response = await fetch(`/api/system/notification-outbox/${encodeURIComponent(notificationId)}/resend`, { method: "PUT" });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "通知重发失败。", data: [] };
+    }
+    const payload = await response.json() as { notificationOutbox?: NotificationOutboxItem[] };
+    return { ok: true, status: response.status, message: "", data: payload.notificationOutbox ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "通知重发失败。", data: [] };
+  }
 }
 
 async function writeManagedUser(pathname: string, method: "POST" | "PUT", payload: Record<string, unknown>): Promise<ManagedUsersResult> {

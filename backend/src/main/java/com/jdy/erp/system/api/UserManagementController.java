@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -39,8 +40,44 @@ public class UserManagementController {
             "users", userRows(),
             "roles", roleRows(),
             "passwordResetRequests", passwordResetRequestRows(),
-            "notificationOutbox", notificationRows()
+            "notificationOutbox", notificationRows("")
         );
+    }
+
+    @GetMapping("/notification-outbox")
+    @RequirePermission("system.role_permission.manage")
+    public Map<String, Object> notificationOutbox(@RequestParam(name = "status", required = false) String status) {
+        return Map.of("notificationOutbox", notificationRows(status));
+    }
+
+    @PutMapping("/notification-outbox/{notificationId}/resend")
+    @RequirePermission("system.role_permission.manage")
+    @Transactional
+    public Map<String, Object> resendNotification(@PathVariable String notificationId) {
+        var normalizedNotificationId = required(notificationId, "通知ID");
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   recipient_username AS "recipientUsername",
+                   status
+            FROM sys_notification_outbox
+            WHERE id = ?::uuid
+            """, normalizedNotificationId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "通知不存在");
+        }
+        jdbcTemplate.update("""
+            UPDATE sys_notification_outbox
+            SET status = 'SENT',
+                provider = 'LOCAL',
+                retry_count = retry_count + 1,
+                last_attempt_at = now(),
+                sent_at = now(),
+                failure_reason = NULL,
+                provider_message_id = 'LOCAL-' || replace(id::text, '-', '')
+            WHERE id = ?::uuid
+            """, normalizedNotificationId);
+        log("SYSTEM", "RESEND_NOTIFICATION", "sys_notification_outbox", normalizedNotificationId, true, "重发给 " + rows.get(0).get("recipientUsername"));
+        return Map.of("notificationOutbox", notificationRows(""));
     }
 
     @PostMapping("/password-reset-requests")
@@ -306,8 +343,12 @@ public class UserManagementController {
             """);
     }
 
-    private List<Map<String, Object>> notificationRows() {
-        return jdbcTemplate.queryForList("""
+    private List<Map<String, Object>> notificationRows(String status) {
+        var normalizedStatus = status == null ? "" : status.trim().toUpperCase();
+        if (!normalizedStatus.isBlank() && !List.of("PENDING", "SENT", "FAILED").contains(normalizedStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "通知状态不正确");
+        }
+        var sql = """
             SELECT id::text AS id,
                    channel,
                    template_code AS "templateCode",
@@ -319,13 +360,18 @@ public class UserManagementController {
                    COALESCE(source_id::text, '') AS "sourceId",
                    status,
                    provider,
+                   retry_count AS "retryCount",
+                   COALESCE(to_char(last_attempt_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastAttemptAt",
+                   COALESCE(failure_reason, '') AS "failureReason",
                    COALESCE(to_char(created_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "createdAt",
                    COALESCE(to_char(sent_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "sentAt"
             FROM sys_notification_outbox
             WHERE template_code LIKE 'PASSWORD_RESET_%'
+              AND (? = '' OR status = ?)
             ORDER BY created_at DESC
             LIMIT 50
-            """);
+            """;
+        return jdbcTemplate.queryForList(sql, normalizedStatus, normalizedStatus);
     }
 
     private List<Map<String, Object>> roleRows() {
@@ -407,9 +453,11 @@ public class UserManagementController {
                 source_id,
                 status,
                 provider,
+                retry_count,
+                last_attempt_at,
                 sent_at
             )
-            VALUES ('IN_APP', ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, 'SENT', 'LOCAL', now())
+            VALUES ('IN_APP', ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, 'SENT', 'LOCAL', 0, now(), now())
             """,
             templateCode,
             recipientUserId,

@@ -924,6 +924,24 @@ input:disabled {
   font-size: 12px;
 }
 
+.password-reset-notification-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.password-reset-notification-tools select,
+.password-reset-notification-tools button,
+.password-reset-notice-row button {
+  height: 26px;
+  border: 1px solid #cfd9e5;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #31445a;
+  font-size: 12px;
+  padding: 0 8px;
+}
+
 .password-reset-request-row {
   min-height: 50px;
   display: grid;
@@ -945,6 +963,10 @@ input:disabled {
   background: #ffffff;
   color: #2b3e52;
   padding: 8px 10px;
+}
+
+.password-reset-notice-row button {
+  justify-self: start;
 }
 
 .password-reset-request-row:hover,
