@@ -46,6 +46,8 @@ export interface ListFilterPreset {
   query: Record<string, string>;
   columnFilters: Record<string, { operator: string; value: string }>;
   shared?: boolean;
+  isDefault?: boolean;
+  readOnly?: boolean;
   updatedAt?: string;
 }
 

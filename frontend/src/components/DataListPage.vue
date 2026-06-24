@@ -77,13 +77,15 @@
           已保存预设
           <select v-model="selectedPresetId" data-testid="operation-log-preset-select">
             <option value="">请选择</option>
-            <option v-for="preset in operationLogPresets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
+            <option v-for="preset in operationLogPresets" :key="preset.id" :value="preset.id">
+              {{ preset.name }}{{ preset.isDefault ? "（默认）" : "" }}{{ preset.readOnly ? "（只读）" : "" }}
+            </option>
           </select>
         </label>
         <div class="filter-actions preset-actions">
           <button type="button" data-testid="operation-log-preset-save" @click="saveCurrentPreset">保存预设</button>
           <button type="button" :disabled="!selectedPresetId" data-testid="operation-log-preset-apply" @click="applySelectedPreset">应用预设</button>
-          <button type="button" :disabled="!selectedPresetId" data-testid="operation-log-preset-delete" @click="deleteSelectedPreset">删除预设</button>
+          <button type="button" :disabled="!selectedPresetId || selectedPreset?.readOnly" data-testid="operation-log-preset-delete" @click="deleteSelectedPreset">删除预设</button>
           <span v-if="presetMessage" class="filter-preset-message" data-testid="operation-log-preset-message">{{ presetMessage }}</span>
         </div>
       </div>
@@ -97,7 +99,7 @@
       </label>
       <div class="filter-actions">
         <button class="primary-action" type="button" data-testid="list-query" @click="reload">查询</button>
-        <button type="button" data-testid="list-reset" @click="resetQuery">重置</button>
+        <button type="button" data-testid="list-reset" @click="resetQuery()">重置</button>
         <button type="button" data-testid="list-toggle-filter" @click="filtersExpanded = !filtersExpanded">
           {{ filtersExpanded ? "收起过滤" : "展开过滤" }}
         </button>
@@ -804,11 +806,12 @@ const createFields = computed<CreateField[]>(() => {
 const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
 const displayedRows = computed(() => rows.value);
+const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 
 watch(() => props.listKey, () => {
   resetColumns();
-  loadOperationLogPresets();
-  resetQuery();
+  resetQuery(false);
+  void loadOperationLogPresets(true);
 }, { immediate: true });
 
 onMounted(() => {
@@ -898,7 +901,8 @@ async function saveCurrentPreset() {
     name,
     query: snapshotOperationLogQuery(),
     columnFilters: snapshotColumnFilters(),
-    shared: true
+    shared: true,
+    isDefault: false
   };
   const response = await saveListPreset(props.listKey, preset);
   if (response.ok && response.data) {
@@ -928,20 +932,17 @@ function applySelectedPreset() {
   if (!preset) {
     return;
   }
-  Object.assign(query, {
-    ...preset.query,
-    page: 1
-  });
-  replaceColumnFilters(preset.columnFilters);
-  filtersExpanded.value = true;
-  presetName.value = preset.name;
+  applyOperationLogPreset(preset);
   presetMessage.value = "预设已应用";
-  reload();
 }
 
 async function deleteSelectedPreset() {
   const preset = operationLogPresets.value.find((item) => item.id === selectedPresetId.value);
   if (!preset) {
+    return;
+  }
+  if (preset.readOnly) {
+    presetMessage.value = "系统预设不可删除";
     return;
   }
   if (!preset.id.startsWith("operation-log-preset-")) {
@@ -982,7 +983,7 @@ function replaceColumnFilters(nextFilters: Record<string, ColumnFilter>) {
   });
 }
 
-async function loadOperationLogPresets() {
+async function loadOperationLogPresets(applyDefault = false) {
   if (!isOperationLogList.value) {
     operationLogPresets.value = [];
     selectedPresetId.value = "";
@@ -993,6 +994,14 @@ async function loadOperationLogPresets() {
   if (response.ok) {
     operationLogPresets.value = response.data;
     persistOperationLogPresets();
+    if (applyDefault) {
+      const defaultPreset = response.data.find((preset) => preset.isDefault);
+      if (defaultPreset) {
+        applyOperationLogPreset(defaultPreset, "默认预设已应用");
+        return;
+      }
+      reload();
+    }
     return;
   }
   try {
@@ -1000,6 +1009,22 @@ async function loadOperationLogPresets() {
   } catch {
     operationLogPresets.value = [];
   }
+  if (applyDefault) {
+    reload();
+  }
+}
+
+function applyOperationLogPreset(preset: ListFilterPreset, message = "") {
+  Object.assign(query, {
+    ...preset.query,
+    page: 1
+  });
+  replaceColumnFilters(preset.columnFilters);
+  filtersExpanded.value = true;
+  selectedPresetId.value = preset.id;
+  presetName.value = preset.name;
+  presetMessage.value = message;
+  reload();
 }
 
 function persistOperationLogPresets() {
@@ -1010,7 +1035,7 @@ function operationLogPresetKey() {
   return "jdy:operation-log-filter-presets";
 }
 
-function resetQuery() {
+function resetQuery(shouldReload = true) {
   query.keyword = "";
   query.status = "";
   query.module = "";
@@ -1021,7 +1046,9 @@ function resetQuery() {
   query.dateTo = "";
   query.page = 1;
   presetMessage.value = "";
-  reload();
+  if (shouldReload) {
+    reload();
+  }
 }
 
 function goPage(page: number) {
