@@ -1765,9 +1765,10 @@ function applySystemSession(remoteSession: SystemSession) {
 
 async function loginCurrentUser() {
   loginMessage.value = "";
-  const remoteSession = await loginSystemUser(loginForm.username, loginForm.password);
-  if (!remoteSession?.authenticated || !remoteSession.user) {
-    loginMessage.value = "账号或密码不正确";
+  const loginResult = await loginSystemUser(loginForm.username, loginForm.password);
+  const remoteSession = loginResult.session;
+  if (!loginResult.ok || !remoteSession?.authenticated || !remoteSession.user) {
+    loginMessage.value = loginResult.message || "账号或密码不正确";
     return;
   }
   applySystemSession(remoteSession);

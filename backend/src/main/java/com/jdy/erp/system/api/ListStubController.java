@@ -601,7 +601,7 @@ public class ListStubController {
                    l.module_code AS module,
                    l.action_code AS action,
                    l.target_type AS "targetType",
-                   COALESCE(so.bill_no, pi.bill_no, sor.bill_no, po.bill_no, pt.bill_no, pmi.bill_no, pc.bill_no, ar.bill_no, ap.bill_no, b.code, '') AS "targetNo",
+                   COALESCE(so.bill_no, pi.bill_no, sor.bill_no, po.bill_no, pt.bill_no, pmi.bill_no, pc.bill_no, ar.bill_no, ap.bill_no, b.code, tu.username, '') AS "targetNo",
                    COALESCE(l.target_id::text, '') AS "targetId",
                    COALESCE(u.display_name, '本地管理员') AS operator,
                    CASE WHEN l.success THEN '成功' ELSE '失败' END AS status,
@@ -618,6 +618,7 @@ public class ListStubController {
             LEFT JOIN ar_receivable ar ON l.target_type = 'ar_receivable' AND ar.id = l.target_id
             LEFT JOIN ap_payable ap ON l.target_type = 'ap_payable' AND ap.id = l.target_id
             LEFT JOIN prod_bom b ON l.target_type = 'prod_bom' AND b.id = l.target_id
+            LEFT JOIN sys_user tu ON l.target_type = 'sys_user' AND tu.id = l.target_id
             LEFT JOIN sys_user u ON u.id = l.operated_by
             ORDER BY l.operated_at DESC
             """));

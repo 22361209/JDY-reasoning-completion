@@ -68,6 +68,13 @@ export interface WriteResult {
   message: string;
 }
 
+export interface LoginResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  session: SystemSession | null;
+}
+
 export async function fetchSystemSession(): Promise<SystemSession | null> {
   try {
     const response = await fetch("/api/system/session");
@@ -93,7 +100,7 @@ export async function fetchSystemUsers(): Promise<SystemUser[]> {
   }
 }
 
-export async function loginSystemUser(username: string, password: string): Promise<SystemSession | null> {
+export async function loginSystemUser(username: string, password: string): Promise<LoginResult> {
   try {
     const response = await fetch("/api/system/login", {
       method: "POST",
@@ -101,11 +108,15 @@ export async function loginSystemUser(username: string, password: string): Promi
       body: JSON.stringify({ username, password })
     });
     if (!response.ok) {
-      return null;
+      const text = await response.text();
+      const parsedMessage = parseErrorMessage(text);
+      const fallbackMessage = response.status === 423 ? "账号已锁定，请稍后再试" : "账号或密码不正确";
+      const message = parsedMessage && !["Locked", "Unauthorized"].includes(parsedMessage) ? parsedMessage : fallbackMessage;
+      return { ok: false, status: response.status, message, session: null };
     }
-    return await response.json() as SystemSession;
+    return { ok: true, status: response.status, message: "", session: await response.json() as SystemSession };
   } catch {
-    return null;
+    return { ok: false, status: 0, message: "登录失败。", session: null };
   }
 }
 
@@ -186,6 +197,18 @@ async function writeManagedUser(pathname: string, method: "POST" | "PUT", payloa
     return { ok: true, status: response.status, message: "", data: await response.json() as ManagedUsersPayload };
   } catch {
     return { ok: false, status: 0, message: "用户保存失败。", data: null };
+  }
+}
+
+function parseErrorMessage(text: string) {
+  if (!text) {
+    return "";
+  }
+  try {
+    const payload = JSON.parse(text) as { message?: string; error?: string };
+    return payload.message || payload.error || text;
+  } catch {
+    return text;
   }
 }
 

@@ -20,6 +20,8 @@ server:
   servlet:
     session:
       timeout: ${JDY_SESSION_TIMEOUT:30m}
+  error:
+    include-message: always
 
 mybatis:
   configuration:

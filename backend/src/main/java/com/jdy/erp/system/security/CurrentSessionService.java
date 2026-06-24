@@ -1,5 +1,7 @@
 package com.jdy.erp.system.security;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -15,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CurrentSessionService {
     public static final String SESSION_USERNAME = "jdy.username";
+    private static final int MAX_FAILED_LOGIN = 5;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -102,18 +105,49 @@ public class CurrentSessionService {
     public void login(String username, String password) {
         var normalizedUsername = username == null ? "" : username.trim();
         var rows = jdbcTemplate.queryForList("""
-            SELECT username, COALESCE(password_hash, '') AS "passwordHash"
+            SELECT id::text AS id,
+                   username,
+                   COALESCE(password_hash, '') AS "passwordHash",
+                   failed_login_count AS "failedLoginCount",
+                   locked_until AS "lockedUntil"
             FROM sys_user
             WHERE username = ?
               AND enabled = TRUE
             """, normalizedUsername);
         if (rows.isEmpty()) {
+            logLogin("LOGIN", null, null, false, "用户不存在或已停用：" + normalizedUsername);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户不存在或已停用");
+        }
+        var userId = String.valueOf(rows.get(0).get("id"));
+        if (isLocked(rows.get(0).get("lockedUntil"))) {
+            logLogin("LOGIN_LOCKED", userId, null, false, "账号已锁定");
+            throw new ResponseStatusException(HttpStatus.LOCKED, "账号已锁定，请稍后再试");
         }
         var passwordHash = String.valueOf(rows.get(0).get("passwordHash"));
         if (!passwordHash.isBlank()) {
             var expected = passwordHash.startsWith("{noop}") ? passwordHash.substring("{noop}".length()) : passwordHash;
             if (password == null || !expected.equals(password)) {
+                var failedCount = Number.class.cast(rows.get(0).get("failedLoginCount")).intValue() + 1;
+                if (failedCount >= MAX_FAILED_LOGIN) {
+                    jdbcTemplate.update("""
+                        UPDATE sys_user
+                        SET failed_login_count = ?,
+                            locked_until = now() + interval '15 minutes',
+                            updated_at = now(),
+                            version = version + 1
+                        WHERE id = ?::uuid
+                        """, failedCount, userId);
+                    logLogin("LOGIN_LOCKED", userId, null, false, "连续登录失败，账号锁定 15 分钟");
+                    throw new ResponseStatusException(HttpStatus.LOCKED, "连续登录失败，账号已锁定 15 分钟");
+                }
+                jdbcTemplate.update("""
+                    UPDATE sys_user
+                    SET failed_login_count = ?,
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                    """, failedCount, userId);
+                logLogin("LOGIN", userId, null, false, "用户名或密码错误");
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
             }
         }
@@ -121,7 +155,17 @@ public class CurrentSessionService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法创建本地会话");
         }
+        jdbcTemplate.update("""
+            UPDATE sys_user
+            SET failed_login_count = 0,
+                locked_until = NULL,
+                last_login_at = now(),
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, userId);
         request.getSession(true).setAttribute(SESSION_USERNAME, normalizedUsername);
+        logLogin("LOGIN", userId, userId, true, null);
     }
 
     public void verifyCurrentPassword(String password) {
@@ -175,5 +219,25 @@ public class CurrentSessionService {
             return servletAttributes.getRequest();
         }
         return null;
+    }
+
+    private boolean isLocked(Object lockedUntil) {
+        if (lockedUntil == null) {
+            return false;
+        }
+        if (lockedUntil instanceof OffsetDateTime offsetDateTime) {
+            return offsetDateTime.toInstant().isAfter(Instant.now());
+        }
+        if (lockedUntil instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toInstant().isAfter(Instant.now());
+        }
+        return false;
+    }
+
+    private void logLogin(String action, String targetUserId, String operatedBy, boolean success, String reason) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
+            VALUES ('SYSTEM', ?, 'sys_user', ?::uuid, ?, ?, ?::uuid)
+            """, action, targetUserId, success, reason, operatedBy);
     }
 }
