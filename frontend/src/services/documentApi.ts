@@ -43,6 +43,18 @@ export type DocumentType = keyof typeof endpointByType;
 export type OpenableDocumentType = keyof typeof detailEndpointByType;
 export type OutputDocumentType = keyof typeof outputTypeByDocumentType;
 
+export interface PrintTemplateConfig {
+  documentType: string;
+  documentTitle: string;
+  templateCode: string;
+  templateName: string;
+  companyName: string;
+  headerNote: string;
+  footerNote: string;
+  showSignature: boolean;
+  showSeal: boolean;
+}
+
 export interface DownstreamDocumentRef {
   billNo: string;
   type: OpenableDocumentType;
@@ -124,6 +136,22 @@ export async function exportDocument(type: OutputDocumentType, billNo: string) {
 
 export async function printDocument(type: OutputDocumentType, billNo: string) {
   return callBlobDocument(`/api/documents/${outputTypeByDocumentType[type]}/${encodeURIComponent(billNo)}/print.pdf`);
+}
+
+export async function fetchPrintTemplates(): Promise<{ ok: boolean; message: string; data: PrintTemplateConfig[] }> {
+  const result = await callDocument("/api/documents/print-templates", "GET");
+  if (!result.ok || !Array.isArray(result.data)) {
+    return { ok: false, message: result.message || "打印模板加载失败。", data: [] };
+  }
+  return { ok: true, message: "", data: result.data as PrintTemplateConfig[] };
+}
+
+export async function savePrintTemplate(documentType: string, payload: Omit<PrintTemplateConfig, "documentType" | "documentTitle">): Promise<{ ok: boolean; message: string; data?: PrintTemplateConfig }> {
+  const result = await callDocument(`/api/documents/${encodeURIComponent(documentType)}/print-template`, "PUT", payload);
+  if (!result.ok || !result.data) {
+    return { ok: false, message: result.message || "打印模板保存失败。" };
+  }
+  return { ok: true, message: "", data: result.data as PrintTemplateConfig };
 }
 
 function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {

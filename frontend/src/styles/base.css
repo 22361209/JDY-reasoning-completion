@@ -437,6 +437,146 @@ input:disabled {
   font-size: 13px;
 }
 
+.print-template-page {
+  min-width: 920px;
+  background: #fff;
+  border: 1px solid #d4dde8;
+}
+
+.print-template-head {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid #d8e1ec;
+}
+
+.print-template-head h2,
+.print-template-head p {
+  margin: 0;
+}
+
+.print-template-head h2 {
+  font-size: 18px;
+}
+
+.print-template-head p {
+  margin-top: 4px;
+  color: #697887;
+  font-size: 13px;
+}
+
+.print-template-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 520px;
+}
+
+.print-template-list {
+  padding: 10px;
+  border-right: 1px solid #d8e1ec;
+  background: #f7fafc;
+}
+
+.print-template-list button {
+  width: 100%;
+  min-height: 50px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #2b3e52;
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.print-template-list button:hover,
+.print-template-list button.active {
+  border-color: #b8d3ed;
+  background: #eaf4ff;
+}
+
+.print-template-list span {
+  color: #6d7d8d;
+  font-size: 12px;
+}
+
+.print-template-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  align-content: start;
+  padding: 14px;
+}
+
+.print-template-form label {
+  display: grid;
+  gap: 6px;
+  color: #405064;
+  font-size: 12px;
+}
+
+.print-template-form input,
+.print-template-form select,
+.print-template-form textarea {
+  width: 100%;
+  border: 1px solid #c6d3df;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2933;
+  padding: 7px 8px;
+}
+
+.print-template-form textarea {
+  resize: vertical;
+}
+
+.print-template-form__wide,
+.print-template-switches,
+.print-template-preview,
+.print-template-form .form-message {
+  grid-column: 1 / -1;
+}
+
+.print-template-switches {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.print-template-switches label {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 7px;
+}
+
+.print-template-switches input {
+  width: auto;
+}
+
+.print-template-preview {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px dashed #b8c7d8;
+  background: #fbfcfe;
+  color: #33465c;
+}
+
+.print-template-preview strong {
+  font-size: 15px;
+}
+
+.print-template-preview small {
+  color: #6b7c8d;
+  line-height: 1.45;
+}
+
 .metric-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

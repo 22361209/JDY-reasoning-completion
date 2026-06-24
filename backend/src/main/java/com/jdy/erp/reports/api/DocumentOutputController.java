@@ -14,6 +14,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -128,17 +130,46 @@ public class DocumentOutputController {
 
     @GetMapping("/{documentType}/print-template")
     public Map<String, Object> printTemplateConfig(@PathVariable String documentType) {
-        var template = printTemplate(documentType);
-        return Map.of(
-            "documentType", documentType,
-            "templateCode", template.templateCode(),
-            "templateName", template.templateName(),
-            "companyName", template.companyName(),
-            "headerNote", template.headerNote(),
-            "footerNote", template.footerNote(),
-            "showSignature", template.showSignature(),
-            "showSeal", template.showSeal()
-        );
+        return templateResponse(documentType, printTemplate(documentType));
+    }
+
+    @GetMapping("/print-templates")
+    public List<Map<String, Object>> printTemplates() {
+        return supportedDocumentTypes().stream()
+            .map(documentType -> templateResponse(documentType, printTemplate(documentType)))
+            .toList();
+    }
+
+    @PutMapping("/{documentType}/print-template")
+    public Map<String, Object> savePrintTemplate(@PathVariable String documentType, @RequestBody PrintTemplateRequest request) {
+        if (!supportedDocumentTypes().contains(documentType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据模板");
+        }
+        var templateCode = request.templateCode == null || request.templateCode.isBlank() ? "STANDARD" : request.templateCode.trim();
+        var templateName = request.templateName == null || request.templateName.isBlank() ? "标准套打模板" : request.templateName.trim();
+        var companyName = request.companyName == null || request.companyName.isBlank() ? "博莱德机械测试账套" : request.companyName.trim();
+        var headerNote = request.headerNote == null ? "" : request.headerNote.trim();
+        var footerNote = request.footerNote == null ? "" : request.footerNote.trim();
+        var showSignature = request.showSignature == null || request.showSignature;
+        var showSeal = request.showSeal == null || request.showSeal;
+        jdbcTemplate.update("""
+            INSERT INTO sys_print_template (
+                document_type, template_code, template_name, company_name, header_note, footer_note,
+                show_signature, show_seal, is_default, enabled, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, now())
+            ON CONFLICT (document_type, template_code) DO UPDATE
+            SET template_name = EXCLUDED.template_name,
+                company_name = EXCLUDED.company_name,
+                header_note = EXCLUDED.header_note,
+                footer_note = EXCLUDED.footer_note,
+                show_signature = EXCLUDED.show_signature,
+                show_seal = EXCLUDED.show_seal,
+                is_default = TRUE,
+                enabled = TRUE,
+                updated_at = now()
+            """, documentType, templateCode, templateName, companyName, headerNote, footerNote, showSignature, showSeal);
+        return templateResponse(documentType, printTemplate(documentType));
     }
 
     @GetMapping("/{documentType}/{billNo}/print.pdf")
@@ -289,6 +320,24 @@ public class DocumentOutputController {
         };
     }
 
+    private List<String> supportedDocumentTypes() {
+        return List.of("sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in");
+    }
+
+    private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {
+        return Map.of(
+            "documentType", documentType,
+            "documentTitle", title(documentType),
+            "templateCode", template.templateCode(),
+            "templateName", template.templateName(),
+            "companyName", template.companyName(),
+            "headerNote", template.headerNote(),
+            "footerNote", template.footerNote(),
+            "showSignature", template.showSignature(),
+            "showSeal", template.showSeal()
+        );
+    }
+
     private String escapeCsv(String value) {
         var safe = value == null ? "" : value;
         return "\"" + safe.replace("\"", "\"\"") + "\"";
@@ -435,6 +484,17 @@ public class DocumentOutputController {
         String footerNote,
         boolean showSignature,
         boolean showSeal
+    ) {
+    }
+
+    public record PrintTemplateRequest(
+        String templateCode,
+        String templateName,
+        String companyName,
+        String headerNote,
+        String footerNote,
+        Boolean showSignature,
+        Boolean showSeal
     ) {
     }
 }
