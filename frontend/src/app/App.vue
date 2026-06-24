@@ -423,6 +423,16 @@
       <div class="dialog push-confirm-dialog">
         <h3>{{ pendingPushDown.title }}</h3>
         <p>{{ pendingPushDown.sourceBillNo }} 可按剩余数量下推，确认本次数量后生成{{ pendingPushDown.targetTitle }}草稿。</p>
+        <div class="push-confirm-tools">
+          <button type="button" data-testid="push-confirm-clear" @click="clearPushDownQtys">清零</button>
+          <button type="button" data-testid="push-confirm-all" @click="fillAllRemainingQtys">全剩余</button>
+          <label>
+            比例
+            <input v-model.number="pushConfirmRatio" inputmode="decimal" data-testid="push-confirm-ratio" />
+            <span>%</span>
+          </label>
+          <button type="button" data-testid="push-confirm-apply-ratio" @click="applyPushDownRatio">按比例</button>
+        </div>
         <div class="push-confirm-table">
           <table>
             <thead>
@@ -564,6 +574,7 @@ const formMessage = ref("");
 const batchWarehouseCode = ref("CK-001");
 const draggingLineIndex = ref<number | null>(null);
 const pendingPushDown = ref<PendingPushDown | null>(null);
+const pushConfirmRatio = ref(50);
 const pushConfirmError = ref("");
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
@@ -1127,6 +1138,7 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
     lines
   };
   pushConfirmError.value = "";
+  pushConfirmRatio.value = 50;
   formMessage.value = `请确认销售订单 ${sourceBillNo} 本次下推数量`;
 }
 
@@ -1182,6 +1194,41 @@ function cancelPushDown() {
   formMessage.value = "已取消下推。";
 }
 
+function clearPushDownQtys() {
+  if (!pendingPushDown.value) {
+    return;
+  }
+  pendingPushDown.value.lines.forEach((line) => {
+    line.qty = 0;
+  });
+  pushConfirmError.value = "";
+}
+
+function fillAllRemainingQtys() {
+  if (!pendingPushDown.value) {
+    return;
+  }
+  pendingPushDown.value.lines.forEach((line) => {
+    line.qty = line.remainingQty;
+  });
+  pushConfirmError.value = "";
+}
+
+function applyPushDownRatio() {
+  if (!pendingPushDown.value) {
+    return;
+  }
+  const ratio = normalizedQty(pushConfirmRatio.value);
+  if (ratio < 0 || ratio > 100) {
+    pushConfirmError.value = "下推比例必须在 0 到 100 之间。";
+    return;
+  }
+  pendingPushDown.value.lines.forEach((line) => {
+    line.qty = roundQty(line.remainingQty * ratio / 100);
+  });
+  pushConfirmError.value = "";
+}
+
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
   if (!sourceBillNo) {
@@ -1218,6 +1265,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     lines
   };
   pushConfirmError.value = "";
+  pushConfirmRatio.value = 50;
   formMessage.value = `请确认采购订单 ${sourceBillNo} 本次下推数量`;
 }
 
@@ -1229,6 +1277,10 @@ function remainingLineQty(line: { qty?: number | string; remainingQty?: number |
 function normalizedQty(value: number | string | undefined) {
   const qty = Number(value ?? 0);
   return Number.isFinite(qty) ? qty : 0;
+}
+
+function roundQty(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function toPendingPushLine(line: { productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
