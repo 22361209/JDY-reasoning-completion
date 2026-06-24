@@ -433,17 +433,27 @@
         <div class="push-confirm-tools">
           <button type="button" data-testid="push-confirm-clear" @click="clearPushDownQtys">清零</button>
           <button type="button" data-testid="push-confirm-all" @click="fillAllRemainingQtys">全剩余</button>
+          <button type="button" data-testid="push-confirm-invert-selection" @click="invertPushDownSelection">反选</button>
           <label>
             比例
             <input v-model.number="pushConfirmRatio" inputmode="decimal" data-testid="push-confirm-ratio" />
             <span>%</span>
           </label>
           <button type="button" data-testid="push-confirm-apply-ratio" @click="applyPushDownRatio">按比例</button>
+          <span class="push-confirm-selection" data-testid="push-confirm-selection-summary">{{ pushConfirmSelectionSummary }}</span>
         </div>
         <div class="push-confirm-table">
           <table>
             <thead>
               <tr>
+                <th class="selection-cell">
+                  <input
+                    type="checkbox"
+                    :checked="allPushDownLinesSelected"
+                    data-testid="push-confirm-select-all"
+                    @change="toggleAllPushDownLinesFromEvent"
+                  />
+                </th>
                 <th>商品</th>
                 <th>仓库</th>
                 <th>源单</th>
@@ -454,6 +464,13 @@
             </thead>
             <tbody>
               <tr v-for="(line, lineIndex) in pendingPushDown.lines" :key="`${line.productCode}-${lineIndex}`">
+                <td class="selection-cell">
+                  <input
+                    v-model="line.selected"
+                    type="checkbox"
+                    :data-testid="pushConfirmSelectTestId(lineIndex)"
+                  />
+                </td>
                 <td>
                   <strong>{{ line.productCode }}</strong>
                   <span>{{ line.productName || line.spec }}</span>
@@ -554,6 +571,7 @@ interface PendingPushLine extends OrderLineForm {
   sourceQty: number;
   executedQty: number;
   remainingQty: number;
+  selected?: boolean;
 }
 
 interface PendingPushDown {
@@ -890,6 +908,16 @@ const currentOrderTotal = computed(() => currentOrderForm.value.lines
 const pendingPushDownTotal = computed(() => (pendingPushDown.value?.lines ?? [])
   .reduce((sum, line) => sum + normalizedQty(line.qty), 0)
   .toFixed(2));
+const selectedPushDownLines = computed(() => (pendingPushDown.value?.lines ?? []).filter((line) => line.selected));
+const effectivePushDownLines = computed(() => selectedPushDownLines.value.length > 0 ? selectedPushDownLines.value : pendingPushDown.value?.lines ?? []);
+const allPushDownLinesSelected = computed(() => {
+  const lines = pendingPushDown.value?.lines ?? [];
+  return lines.length > 0 && lines.every((line) => line.selected);
+});
+const pushConfirmSelectionSummary = computed(() => {
+  const selectedCount = selectedPushDownLines.value.length;
+  return selectedCount > 0 ? `已选 ${selectedCount} 行，本次工具只调整选中行` : "未选行时工具调整全部行";
+});
 const sourceOrderTraceType = computed<OpenableDocumentType | null>(() => {
   if (isSalesOutForm.value) {
     return "salesOrder";
@@ -1258,7 +1286,7 @@ function clearPushDownQtys() {
   if (!pendingPushDown.value) {
     return;
   }
-  pendingPushDown.value.lines.forEach((line) => {
+  effectivePushDownLines.value.forEach((line) => {
     line.qty = 0;
   });
   pushConfirmError.value = "";
@@ -1268,10 +1296,32 @@ function fillAllRemainingQtys() {
   if (!pendingPushDown.value) {
     return;
   }
-  pendingPushDown.value.lines.forEach((line) => {
+  effectivePushDownLines.value.forEach((line) => {
     line.qty = line.remainingQty;
   });
   pushConfirmError.value = "";
+}
+
+function toggleAllPushDownLinesFromEvent(event: Event) {
+  toggleAllPushDownLines((event.target as HTMLInputElement).checked);
+}
+
+function toggleAllPushDownLines(selected: boolean) {
+  if (!pendingPushDown.value) {
+    return;
+  }
+  pendingPushDown.value.lines.forEach((line) => {
+    line.selected = selected;
+  });
+}
+
+function invertPushDownSelection() {
+  if (!pendingPushDown.value) {
+    return;
+  }
+  pendingPushDown.value.lines.forEach((line) => {
+    line.selected = !line.selected;
+  });
 }
 
 function applyPushDownRatio() {
@@ -1283,7 +1333,7 @@ function applyPushDownRatio() {
     pushConfirmError.value = "下推比例必须在 0 到 100 之间。";
     return;
   }
-  pendingPushDown.value.lines.forEach((line) => {
+  effectivePushDownLines.value.forEach((line) => {
     line.qty = roundQty(line.remainingQty * ratio / 100);
   });
   pushConfirmError.value = "";
@@ -1361,6 +1411,7 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
     sourceQty,
     executedQty,
     remainingQty,
+    selected: false,
     qty: remainingQty,
     unitPrice: Number(line.unitPrice ?? 0)
   };
@@ -1368,6 +1419,10 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
 
 function pushConfirmQtyTestId(index: number) {
   return index === 0 ? "push-confirm-qty" : `push-confirm-qty-${index + 1}`;
+}
+
+function pushConfirmSelectTestId(index: number) {
+  return index === 0 ? "push-confirm-select" : `push-confirm-select-${index + 1}`;
 }
 
 function startNewCurrentDocument() {

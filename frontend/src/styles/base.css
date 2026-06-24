@@ -1232,6 +1232,11 @@ th {
   color: #284057;
 }
 
+.push-confirm-selection {
+  color: #5a6c7f;
+  font-size: 12px;
+}
+
 .push-confirm-tools label {
   display: inline-flex;
   align-items: center;
@@ -1297,6 +1302,11 @@ th {
   font-weight: 600;
 }
 
+.push-confirm-table .selection-cell {
+  width: 40px;
+  text-align: center;
+}
+
 .push-confirm-table td strong,
 .push-confirm-table td span {
   display: block;
@@ -1320,6 +1330,13 @@ th {
   color: #17283b;
   background: #ffffff;
   text-align: left;
+}
+
+.push-confirm-table input[type="checkbox"] {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0;
 }
 
 .push-confirm-summary {
