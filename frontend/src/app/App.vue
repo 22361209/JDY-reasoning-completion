@@ -168,9 +168,60 @@
           <div class="empty-shell">请选择功能名称、查询小按钮或直达新增入口继续。</div>
         </div>
 
-        <div v-else-if="tabs.activeTab.value.kind === 'shell' && tabs.activeTab.value.id !== 'print-template-settings'" class="panel-page">
+        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
+        </div>
+
+        <div v-else-if="tabs.activeTab.value.id === 'role-permission-settings'" class="role-permission-page">
+          <section class="role-permission-head">
+            <div>
+              <h2>权限矩阵</h2>
+              <p>按角色维护系统权限，保存后写入后端 RBAC 表。</p>
+            </div>
+            <div class="role-permission-head__actions">
+              <button type="button" data-testid="role-permission-refresh" @click="loadRolePermissions">刷新</button>
+              <button class="primary-action" type="button" data-testid="role-permission-save" @click="saveSelectedRolePermissions">保存</button>
+            </div>
+          </section>
+          <section class="role-permission-body">
+            <aside class="role-permission-list" aria-label="角色">
+              <button
+                v-for="role in rolePermissionMatrix?.roles ?? []"
+                :key="role.code"
+                type="button"
+                :class="{ active: role.code === selectedRoleCode }"
+                :data-testid="`role-permission-role-${role.code}`"
+                @click="selectRolePermissionRole(role.code)"
+              >
+                <strong>{{ role.name }}</strong>
+                <span>{{ role.code }} / {{ role.enabled ? "启用" : "禁用" }}</span>
+              </button>
+            </aside>
+            <div class="role-permission-matrix">
+              <div class="role-permission-summary" data-testid="role-permission-summary">
+                <strong>{{ selectedRole?.name || "未选择角色" }}</strong>
+                <span>{{ selectedRole?.code || "" }}</span>
+                <em>已勾选 {{ selectedRolePermissionCount }} 项权限</em>
+              </div>
+              <div v-for="group in permissionGroups" :key="group.moduleName" class="permission-group">
+                <h3>{{ group.moduleName }}</h3>
+                <div class="permission-grid">
+                  <label v-for="permission in group.permissions" :key="permission.permissionCode" :data-testid="`permission-cell-${permission.permissionCode}`">
+                    <input
+                      type="checkbox"
+                      :checked="rolePermissionChecked(permission.permissionCode)"
+                      :data-testid="`permission-check-${permission.permissionCode}`"
+                      @change="toggleRolePermission(permission.permissionCode, ($event.target as HTMLInputElement).checked)"
+                    />
+                    <span>{{ permission.permissionName }}</span>
+                    <small>{{ permission.permissionCode }}</small>
+                  </label>
+                </div>
+              </div>
+              <p v-if="rolePermissionMessage" class="form-message" data-testid="role-permission-message">{{ rolePermissionMessage }}</p>
+            </div>
+          </section>
         </div>
 
         <div v-else-if="tabs.activeTab.value.id === 'print-template-settings'" class="print-template-page">
@@ -782,7 +833,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { fetchSystemSession } from "../services/systemApi";
+import { fetchRolePermissions, fetchSystemSession, saveRolePermissions, type PermissionCatalogItem, type RolePermissionMatrix } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -946,6 +997,10 @@ const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
 const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
 const printTemplates = ref<PrintTemplateConfig[]>([]);
 const printTemplateMessage = ref("");
+const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
+const selectedRoleCode = ref("ADMIN");
+const rolePermissionDraft = ref<string[]>([]);
+const rolePermissionMessage = ref("");
 const printTemplateForm = reactive<PrintTemplateConfig>({
   documentType: "sales-order",
   documentTitle: "销售订单",
@@ -1148,6 +1203,7 @@ const moduleCatalog: ShellModule[] = [
       { title: "系统基础", entries: [
         { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
         { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "list", queryable: true },
+        { id: "role-permission-settings", label: "权限矩阵", module: "系统设置", mode: "shell" },
         { id: "operation-log-list", label: "操作日志", module: "系统设置", mode: "list", queryable: true },
         { id: "print-template-settings", label: "打印模板", module: "系统设置", mode: "shell" }
       ] }
@@ -1206,6 +1262,17 @@ const printDocumentOptions = computed(() => printTemplateDocumentTypes.map((docu
 }));
 const currentDocumentTemplates = computed(() => printTemplates.value.filter((template) => template.documentType === printTemplateForm.documentType));
 const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
+const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
+const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
+const permissionGroups = computed(() => {
+  const grouped = new Map<string, PermissionCatalogItem[]>();
+  for (const permission of rolePermissionMatrix.value?.permissions ?? []) {
+    const group = grouped.get(permission.moduleName) ?? [];
+    group.push(permission);
+    grouped.set(permission.moduleName, group);
+  }
+  return Array.from(grouped.entries()).map(([moduleName, permissions]) => ({ moduleName, permissions }));
+});
 
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
@@ -1540,8 +1607,64 @@ function openEntry(entry: ShellEntry) {
   if (opened && entry.id === "print-template-settings") {
     void loadPrintTemplates();
   }
+  if (opened && entry.id === "role-permission-settings") {
+    void loadRolePermissions();
+  }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
+}
+
+async function loadRolePermissions() {
+  const result = await fetchRolePermissions();
+  if (!result.ok || !result.data) {
+    rolePermissionMessage.value = result.message;
+    return;
+  }
+  rolePermissionMatrix.value = result.data;
+  if (!result.data.roles.some((role) => role.code === selectedRoleCode.value)) {
+    selectedRoleCode.value = result.data.roles[0]?.code ?? "";
+  }
+  applySelectedRolePermissions();
+  rolePermissionMessage.value = "";
+}
+
+function selectRolePermissionRole(roleCode: string) {
+  selectedRoleCode.value = roleCode;
+  applySelectedRolePermissions();
+  rolePermissionMessage.value = "";
+}
+
+function applySelectedRolePermissions() {
+  rolePermissionDraft.value = [...(selectedRole.value?.permissionCodes ?? [])];
+}
+
+function rolePermissionChecked(permissionCode: string) {
+  return rolePermissionDraft.value.includes(permissionCode);
+}
+
+function toggleRolePermission(permissionCode: string, checked: boolean) {
+  const current = new Set(rolePermissionDraft.value);
+  if (checked) {
+    current.add(permissionCode);
+  } else {
+    current.delete(permissionCode);
+  }
+  rolePermissionDraft.value = Array.from(current);
+}
+
+async function saveSelectedRolePermissions() {
+  if (!selectedRoleCode.value) {
+    rolePermissionMessage.value = "请先选择角色。";
+    return;
+  }
+  const result = await saveRolePermissions(selectedRoleCode.value, rolePermissionDraft.value);
+  if (!result.ok || !result.data) {
+    rolePermissionMessage.value = result.message || "权限保存失败。";
+    return;
+  }
+  rolePermissionMatrix.value = result.data;
+  applySelectedRolePermissions();
+  rolePermissionMessage.value = "权限矩阵已保存";
 }
 
 async function loadPrintTemplates() {

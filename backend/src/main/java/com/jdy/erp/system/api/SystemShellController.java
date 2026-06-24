@@ -3,6 +3,7 @@ package com.jdy.erp.system.api;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -10,11 +11,36 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/system")
 public class SystemShellController {
+    private final JdbcTemplate jdbcTemplate;
+
+    public SystemShellController(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
     @GetMapping("/session")
     public Map<String, Object> session() {
+        var userRows = jdbcTemplate.queryForList("""
+            SELECT u.username,
+                   u.display_name AS "displayName",
+                   r.code AS "roleCode",
+                   r.name AS "roleName"
+            FROM sys_user u
+            JOIN sys_user_role ur ON ur.user_id = u.id
+            JOIN sys_role r ON r.id = ur.role_id
+            WHERE u.username = 'admin'
+            ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 ELSE 1 END
+            LIMIT 1
+            """);
+        var user = userRows.isEmpty()
+            ? Map.of("name", "本地管理员", "username", "admin", "role", "系统管理员", "roleCode", "ADMIN")
+            : Map.of(
+                "name", String.valueOf(userRows.get(0).get("displayName")),
+                "username", String.valueOf(userRows.get(0).get("username")),
+                "role", String.valueOf(userRows.get(0).get("roleName")),
+                "roleCode", String.valueOf(userRows.get(0).get("roleCode"))
+            );
         return Map.of(
-            "user", Map.of("name", "本地管理员", "username", "本地管理员", "role", "系统管理员", "roleCode", "ADMIN"),
+            "user", user,
             "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
             "period", Map.of("accounting", "2026-06", "business", "2026-06")
         );

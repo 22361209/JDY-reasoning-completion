@@ -598,6 +598,161 @@ input:disabled {
   line-height: 1.45;
 }
 
+.role-permission-page {
+  min-width: 980px;
+  background: #fff;
+  border: 1px solid #d4dde8;
+}
+
+.role-permission-head {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid #d8e1ec;
+}
+
+.role-permission-head h2,
+.role-permission-head p {
+  margin: 0;
+}
+
+.role-permission-head h2 {
+  font-size: 18px;
+}
+
+.role-permission-head p {
+  margin-top: 4px;
+  color: #697887;
+  font-size: 13px;
+}
+
+.role-permission-head__actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.role-permission-head__actions button {
+  height: 30px;
+  border: 1px solid #c7d4e2;
+  border-radius: 4px;
+  background: #fff;
+  color: #2b3e52;
+  padding: 0 12px;
+}
+
+.role-permission-head__actions .primary-action {
+  border-color: #2f7cf6;
+  background: #2f7cf6;
+  color: #fff;
+}
+
+.role-permission-body {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 560px;
+}
+
+.role-permission-list {
+  padding: 10px;
+  border-right: 1px solid #d8e1ec;
+  background: #f7fafc;
+}
+
+.role-permission-list button {
+  width: 100%;
+  min-height: 52px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #2b3e52;
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.role-permission-list button:hover,
+.role-permission-list button.active {
+  border-color: #b8d3ed;
+  background: #eaf4ff;
+}
+
+.role-permission-list span {
+  color: #6d7d8d;
+  font-size: 12px;
+}
+
+.role-permission-matrix {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+}
+
+.role-permission-summary {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d8e1ec;
+  background: #fbfcfe;
+  padding: 8px 10px;
+}
+
+.role-permission-summary strong {
+  color: #1f2933;
+}
+
+.role-permission-summary span,
+.role-permission-summary em {
+  color: #647487;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.permission-group {
+  display: grid;
+  gap: 8px;
+}
+
+.permission-group h3 {
+  margin: 0;
+  color: #33465c;
+  font-size: 14px;
+}
+
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid #d8e1ec;
+  border-left: 1px solid #d8e1ec;
+}
+
+.permission-grid label {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 8px;
+  align-items: center;
+  border-right: 1px solid #d8e1ec;
+  border-bottom: 1px solid #d8e1ec;
+  padding: 8px;
+  color: #2b3e52;
+  font-size: 13px;
+}
+
+.permission-grid input {
+  grid-row: 1 / 3;
+}
+
+.permission-grid small {
+  color: #7b8796;
+  font-size: 11px;
+}
+
 .metric-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
