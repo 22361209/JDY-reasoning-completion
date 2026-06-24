@@ -35,7 +35,7 @@ public class DocumentOutputController {
         csv.append("业务日期,").append(escapeCsv(String.valueOf(payload.header().get("billDate")))).append('\n');
         csv.append("状态,").append(escapeCsv(String.valueOf(payload.header().get("status")))).append('\n');
         csv.append('\n');
-        csv.append("行号,商品编码,商品名称,规格型号,仓库,数量,单价,金额\n");
+        csv.append("行号,商品编码,商品名称,规格型号,仓库,数量,单价,金额,备注\n");
         for (var line : payload.lines()) {
             csv.append(escapeCsv(String.valueOf(line.get("lineNo")))).append(',')
                 .append(escapeCsv(String.valueOf(line.get("productCode")))).append(',')
@@ -44,7 +44,8 @@ public class DocumentOutputController {
                 .append(escapeCsv(String.valueOf(line.get("warehouse")))).append(',')
                 .append(escapeCsv(String.valueOf(line.get("qty")))).append(',')
                 .append(escapeCsv(String.valueOf(line.get("unitPrice")))).append(',')
-                .append(escapeCsv(String.valueOf(line.get("amount")))).append('\n');
+                .append(escapeCsv(String.valueOf(line.get("amount")))).append(',')
+                .append(escapeCsv(String.valueOf(line.get("lineRemark")))).append('\n');
         }
         var fileName = documentType + "-" + billNo + ".csv";
         return ResponseEntity.ok()
@@ -70,6 +71,7 @@ public class DocumentOutputController {
                 th, td { border: 1px solid #d8e0eb; padding: 7px 8px; text-align: left; }
                 th { background: #f3f7fb; }
                 .amount { text-align: right; }
+                .remark { min-width: 150px; white-space: normal; line-height: 1.5; }
               </style>
             </head>
             <body>
@@ -81,7 +83,7 @@ public class DocumentOutputController {
             .append("<div>业务日期：").append(escapeHtml(String.valueOf(payload.header().get("billDate")))).append("</div>")
             .append("<div>状态：").append(escapeHtml(String.valueOf(payload.header().get("status")))).append("</div>")
             .append("</section>");
-        html.append("<table><thead><tr><th>行号</th><th>商品编码</th><th>商品名称</th><th>规格型号</th><th>仓库</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>");
+        html.append("<table><thead><tr><th>行号</th><th>商品编码</th><th>商品名称</th><th>规格型号</th><th>仓库</th><th>数量</th><th>单价</th><th>金额</th><th>备注</th></tr></thead><tbody>");
         for (var line : payload.lines()) {
             html.append("<tr>")
                 .append("<td>").append(escapeHtml(String.valueOf(line.get("lineNo")))).append("</td>")
@@ -92,6 +94,7 @@ public class DocumentOutputController {
                 .append("<td class=\"amount\">").append(escapeHtml(String.valueOf(line.get("qty")))).append("</td>")
                 .append("<td class=\"amount\">").append(escapeHtml(String.valueOf(line.get("unitPrice")))).append("</td>")
                 .append("<td class=\"amount\">").append(escapeHtml(String.valueOf(line.get("amount")))).append("</td>")
+                .append("<td class=\"remark\">").append(escapeHtml(String.valueOf(line.get("lineRemark")))).append("</td>")
                 .append("</tr>");
         }
         html.append("</tbody></table></body></html>");
@@ -140,7 +143,8 @@ public class DocumentOutputController {
                    COALESCE(w.name, '') AS warehouse,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                    trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
-                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
             FROM %s l
             JOIN %s b ON b.id = l.order_id
             JOIN md_product p ON p.id = l.product_id
@@ -174,7 +178,8 @@ public class DocumentOutputController {
                    w.name AS warehouse,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                    trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
-                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
             FROM %s l
             JOIN %s b ON b.id = l.bill_id
             JOIN md_product p ON p.id = l.product_id
