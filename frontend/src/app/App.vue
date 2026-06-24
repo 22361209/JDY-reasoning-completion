@@ -2727,7 +2727,10 @@ async function printCurrentDocument() {
     return;
   }
   const result = await printDocument(type, currentOrderForm.value.billNo);
-  formMessage.value = result.ok ? "打印页面已生成" : result.message;
+  if (result.ok && result.data) {
+    window.open(result.data, "_blank", "noopener");
+  }
+  formMessage.value = result.ok ? "PDF 打印文件已生成" : result.message;
 }
 
 function markActiveDirty() {

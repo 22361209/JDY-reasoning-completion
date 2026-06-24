@@ -121,7 +121,7 @@ export async function exportDocument(type: OutputDocumentType, billNo: string) {
 }
 
 export async function printDocument(type: OutputDocumentType, billNo: string) {
-  return callTextDocument(`/api/documents/${outputTypeByDocumentType[type]}/${encodeURIComponent(billNo)}/print.html`);
+  return callBlobDocument(`/api/documents/${outputTypeByDocumentType[type]}/${encodeURIComponent(billNo)}/print.pdf`);
 }
 
 function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
@@ -183,6 +183,19 @@ async function callTextDocument(url: string): Promise<{ ok: boolean; message: st
       return { ok: false, message: "单据输出失败，请确认单据已保存。" };
     }
     return { ok: true, message: "", data: await response.text() };
+  } catch {
+    return { ok: false, message: "网络异常，单据输出失败。" };
+  }
+}
+
+async function callBlobDocument(url: string): Promise<{ ok: boolean; message: string; data?: string }> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return { ok: false, message: "单据输出失败，请确认单据已保存。" };
+    }
+    const blob = await response.blob();
+    return { ok: true, message: "", data: URL.createObjectURL(blob) };
   } catch {
     return { ok: false, message: "网络异常，单据输出失败。" };
   }

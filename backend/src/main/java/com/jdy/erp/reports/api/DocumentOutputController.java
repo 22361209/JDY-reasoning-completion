@@ -1,6 +1,9 @@
 package com.jdy.erp.reports.api;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -101,6 +104,16 @@ public class DocumentOutputController {
         return ResponseEntity.ok()
             .contentType(new MediaType("text", "html", StandardCharsets.UTF_8))
             .body(html.toString());
+    }
+
+    @GetMapping("/{documentType}/{billNo}/print.pdf")
+    public ResponseEntity<byte[]> printPdf(@PathVariable String documentType, @PathVariable String billNo) {
+        var payload = payload(documentType, billNo);
+        var fileName = documentType + "-" + billNo + ".pdf";
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename(fileName, StandardCharsets.UTF_8).build().toString())
+            .contentType(MediaType.APPLICATION_PDF)
+            .body(renderPdf(title(documentType), payload));
     }
 
     private DocumentPayload payload(String documentType, String billNo) {
@@ -211,6 +224,76 @@ public class DocumentOutputController {
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;");
+    }
+
+    private byte[] renderPdf(String title, DocumentPayload payload) {
+        var lines = new ArrayList<String>();
+        lines.add(title);
+        lines.add("单据编号：" + payload.header().get("billNo") + "    往来单位：" + payload.header().get("counterparty"));
+        lines.add("业务日期：" + payload.header().get("billDate") + "    状态：" + payload.header().get("status") + "    合计：" + payload.header().get("totalAmount"));
+        lines.add("行号  商品编码  商品名称 / 规格型号  仓库  数量  单价  金额  备注");
+        for (var line : payload.lines()) {
+            lines.add(line.get("lineNo") + "  " + line.get("productCode") + "  " + line.get("productName") + " / " + line.get("spec")
+                + "  " + line.get("warehouse") + "  " + line.get("qty") + "  " + line.get("unitPrice") + "  " + line.get("amount")
+                + "  " + line.get("lineRemark"));
+        }
+        lines.add("");
+        lines.add("制单：本地管理员    审核：____________    打印日期：" + LocalDate.now());
+
+        var content = new StringBuilder();
+        var y = 800;
+        for (var index = 0; index < lines.size(); index += 1) {
+            var fontSize = index == 0 ? 16 : 10;
+            var x = index == 0 ? 260 : 42;
+            content.append("BT /F1 ").append(fontSize).append(" Tf 1 0 0 1 ").append(x).append(' ').append(y).append(" Tm <")
+                .append(utf16Hex(lines.get(index)))
+                .append("> Tj ET\n");
+            y -= index == 0 ? 30 : 20;
+        }
+
+        var contentBytes = content.toString().getBytes(StandardCharsets.US_ASCII);
+        var objects = List.of(
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
+            "<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [5 0 R] >>",
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /FontDescriptor 6 0 R >>",
+            "<< /Type /FontDescriptor /FontName /STSong-Light /Flags 4 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
+            "<< /Length " + contentBytes.length + " >>\nstream\n" + content + "endstream"
+        );
+
+        var output = new ByteArrayOutputStream();
+        writeLatin1(output, "%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n");
+        var offsets = new ArrayList<Integer>();
+        for (var index = 0; index < objects.size(); index += 1) {
+            offsets.add(output.size());
+            writeAscii(output, (index + 1) + " 0 obj\n" + objects.get(index) + "\nendobj\n");
+        }
+        var xrefOffset = output.size();
+        writeAscii(output, "xref\n0 " + (objects.size() + 1) + "\n");
+        writeAscii(output, "0000000000 65535 f \n");
+        for (var offset : offsets) {
+            writeAscii(output, String.format("%010d 00000 n \n", offset));
+        }
+        writeAscii(output, "trailer\n<< /Size " + (objects.size() + 1) + " /Root 1 0 R >>\nstartxref\n" + xrefOffset + "\n%%EOF\n");
+        return output.toByteArray();
+    }
+
+    private String utf16Hex(String value) {
+        var bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_16BE);
+        var hex = new StringBuilder(bytes.length * 2);
+        for (var b : bytes) {
+            hex.append(String.format("%02X", b & 0xff));
+        }
+        return hex.toString();
+    }
+
+    private void writeAscii(ByteArrayOutputStream output, String value) {
+        output.writeBytes(value.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private void writeLatin1(ByteArrayOutputStream output, String value) {
+        output.writeBytes(value.getBytes(StandardCharsets.ISO_8859_1));
     }
 
     private record DocumentPayload(Map<String, Object> header, List<Map<String, Object>> lines) {
