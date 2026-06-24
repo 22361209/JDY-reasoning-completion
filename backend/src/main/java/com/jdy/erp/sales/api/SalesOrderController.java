@@ -103,6 +103,11 @@ public class SalesOrderController {
         return deleted.get(0);
     }
 
+    @GetMapping("/{billNo}")
+    public Map<String, Object> detail(@PathVariable String billNo) {
+        return orderPayload(billNo, "DETAIL");
+    }
+
     @GetMapping("/{billNo}/export")
     public Map<String, Object> export(@PathVariable String billNo) {
         return orderPayload(billNo, "EXPORT");
@@ -139,6 +144,7 @@ public class SalesOrderController {
         var orderRows = jdbcTemplate.queryForList("""
             SELECT so.id::text AS id,
                    so.bill_no AS "billNo",
+                   c.code AS "customerCode",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    so.department,

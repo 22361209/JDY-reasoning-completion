@@ -50,6 +50,7 @@
       <button class="primary-action" type="button" :disabled="locked" data-testid="list-create" @click="openCreateDialog">新增</button>
       <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
       <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
+      <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
       <button v-if="isMasterList" type="button" :disabled="locked || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
       <button type="button" :disabled="locked || selectedRows.length === 0" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
@@ -269,6 +270,9 @@ interface CreateField {
 const props = defineProps<{
   listKey: string;
   locked?: boolean;
+}>();
+const emit = defineEmits<{
+  pushDownSalesOut: [row: Record<string, unknown>];
 }>();
 
 const tableRef = ref();
@@ -560,6 +564,17 @@ const fallbackDefinition: ListDefinition = {
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
 const isMasterList = computed(() => Boolean(masterDataTypeByListKey[props.listKey]));
+const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
+const canPushDownSalesOut = computed(() => {
+  const row = selectedRows.value[0];
+  return Boolean(
+    isSalesOrderList.value &&
+    !props.locked &&
+    selectedRows.value.length === 1 &&
+    row?.status === "已审核" &&
+    row?.outStatus !== "全部出库"
+  );
+});
 const createFields = computed<CreateField[]>(() => {
   switch (props.listKey) {
     case "product-master-list":
@@ -687,6 +702,13 @@ function checkboxCheckMethod() {
 
 function confirmAction(action: string) {
   pendingAction.value = action;
+}
+
+function pushDownSalesOut() {
+  const row = selectedRows.value[0];
+  if (canPushDownSalesOut.value && row) {
+    emit("pushDownSalesOut", row);
+  }
 }
 
 function openCreateDialog() {

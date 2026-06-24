@@ -177,6 +177,7 @@
           v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report'"
           :list-key="tabs.activeTab.value.id"
           :locked="isLockedList"
+          @push-down-sales-out="openSalesOutFromSalesOrder"
         />
 
         <div v-else class="business-page">
@@ -351,7 +352,7 @@ import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentType, type OutputDocumentType } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
-import { auditSalesOrder, deleteSalesOrder, saveSalesOrderDraft } from "../services/salesOrderApi";
+import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -730,6 +731,46 @@ async function saveCurrentSalesOrder() {
   }
 }
 
+async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
+  const sourceBillNo = String(row.billNo ?? "");
+  if (!sourceBillNo) {
+    return;
+  }
+  const result = await fetchSalesOrderDetail(sourceBillNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "销售订单详情加载失败。";
+    return;
+  }
+  const today = new Date();
+  const dateText = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0")
+  ].join("-");
+  tabs.openTab({
+    id: "sales-out-form",
+    title: "销售出库单",
+    module: "销售管理",
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = "销售管理";
+  salesOutForm.billNo = nextBillNoFor("XSCK");
+  salesOutForm.sourceOrderNo = sourceBillNo;
+  salesOutForm.partyCode = result.data.order.customerCode || "KH-001";
+  salesOutForm.billDate = dateText;
+  salesOutForm.department = result.data.order.department || "销售部";
+  salesOutForm.ownerName = session.userName.value || result.data.order.ownerName || "本地管理员";
+  salesOutForm.status = "DRAFT";
+  salesOutForm.lines = result.data.lines.map((line) => ({
+    productCode: String(line.productCode ?? ""),
+    warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    qty: Number(line.qty ?? 0),
+    unitPrice: Number(line.unitPrice ?? 0)
+  }));
+  formMessage.value = `已由销售订单 ${sourceBillNo} 下推生成销售出库草稿`;
+}
+
 function startNewCurrentDocument() {
   if (!isDocumentForm.value) {
     return;
@@ -762,6 +803,10 @@ function startNewCurrentDocument() {
 
 function nextBillNo() {
   const prefix = isPurchaseOrderForm.value ? "CGDD" : isPurchaseInForm.value ? "CGRK" : isSalesOutForm.value ? "XSCK" : "XSDD";
+  return nextBillNoFor(prefix);
+}
+
+function nextBillNoFor(prefix: string) {
   const now = new Date();
   const datePart = [
     now.getFullYear(),

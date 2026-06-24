@@ -12,6 +12,23 @@ export interface SalesOrderDraftPayload {
   }>;
 }
 
+export interface SalesOrderDetail {
+  order: {
+    billNo: string;
+    customerCode: string;
+    billDate: string;
+    department: string;
+    ownerName: string;
+    status: string;
+  };
+  lines: Array<{
+    productCode: string;
+    warehouseCode: string;
+    qty: number | string;
+    unitPrice: number | string;
+  }>;
+}
+
 export async function saveSalesOrderDraft(payload: SalesOrderDraftPayload): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await fetch("/api/sales-orders/draft", {
@@ -30,6 +47,15 @@ export async function saveSalesOrderDraft(payload: SalesOrderDraftPayload): Prom
 
 export async function auditSalesOrder(billNo: string) {
   return callSalesOrder(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, "POST");
+}
+
+export async function fetchSalesOrderDetail(billNo: string): Promise<{ ok: boolean; message: string; data?: SalesOrderDetail }> {
+  const result = await callSalesOrder(`/api/sales-orders/${encodeURIComponent(billNo)}`, "GET");
+  return {
+    ok: result.ok,
+    message: result.message,
+    data: result.data as SalesOrderDetail | undefined
+  };
 }
 
 export async function deleteSalesOrder(billNo: string) {
