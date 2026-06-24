@@ -1085,6 +1085,13 @@ td input {
   padding: 0 6px;
 }
 
+.readonly-qty {
+  color: #32475c;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  background: #f9fbfd;
+}
+
 th {
   background: #f3f6f9;
   color: #405064;

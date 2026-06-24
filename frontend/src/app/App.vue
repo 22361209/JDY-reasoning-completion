@@ -262,6 +262,8 @@
                     <th>规格型号</th>
                     <th>仓库</th>
                     <th>数量</th>
+                    <th v-if="showExecutionColumns">已执行</th>
+                    <th v-if="showExecutionColumns">剩余</th>
                     <th>单价</th>
                     <th>金额</th>
                     <th>操作</th>
@@ -324,6 +326,8 @@
                       </span>
                     </td>
                     <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" /></td>
+                    <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">{{ lineExecutedQty(line) }}</td>
+                    <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
                     <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" /></td>
                     <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
                     <td>
@@ -348,11 +352,11 @@
                     </td>
                   </tr>
                   <tr>
-                    <td colspan="7" class="total-cell">合计</td>
+                    <td :colspan="entryTotalColspan" class="total-cell">合计</td>
                     <td class="amount-cell" data-testid="document-total-amount">{{ currentOrderTotal }}</td>
                   </tr>
                   <tr>
-                    <td colspan="8" class="add-line">
+                    <td :colspan="entryTableColspan" class="add-line">
                       <button type="button" :disabled="!isDraftDocument" data-testid="add-document-line" @click="addLine">+ 增加明细行</button>
                     </td>
                   </tr>
@@ -488,6 +492,8 @@ interface OrderLineForm {
   spec?: string;
   warehouseCode: string;
   qty: number;
+  executedQty?: number;
+  remainingQty?: number;
   unitPrice: number;
 }
 
@@ -763,6 +769,9 @@ const isStockDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutF
 const isReversibleDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
 const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isProductInForm.value);
 const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value || isProductionDocumentForm.value);
+const showExecutionColumns = computed(() => (isSalesOrderForm.value || isPurchaseOrderForm.value) && currentOrderForm.value.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
+const entryTableColspan = computed(() => showExecutionColumns.value ? 10 : 8);
+const entryTotalColspan = computed(() => entryTableColspan.value - 1);
 const currentOrderForm = computed(() => {
   if (isPurchaseOrderForm.value) {
     return purchaseOrderForm;
@@ -841,6 +850,22 @@ function lineAmount(line: OrderLineForm) {
   return (Number(line.qty || 0) * Number(line.unitPrice || 0)).toFixed(2);
 }
 
+function lineExecutedQty(line: OrderLineForm) {
+  return formatQty(line.executedQty ?? 0);
+}
+
+function lineRemainingQty(line: OrderLineForm) {
+  return formatQty(line.remainingQty ?? Math.max(0, Number(line.qty || 0) - Number(line.executedQty || 0)));
+}
+
+function formatQty(value: number | string | undefined) {
+  const qty = Number(value ?? 0);
+  if (!Number.isFinite(qty)) {
+    return "0";
+  }
+  return Number.isInteger(qty) ? String(qty) : qty.toFixed(2);
+}
+
 function productInfo(line: OrderLineForm) {
   if (line.productName || line.spec) {
     return { name: line.productName ?? "", spec: line.spec ?? "", unit: "" };
@@ -865,6 +890,14 @@ function lineWarehouseTestId(index: number) {
 
 function lineQtyTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-qty` : `${formTestPrefix.value}-line-qty-${index + 1}`;
+}
+
+function lineExecutedQtyTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-executed-qty` : `${formTestPrefix.value}-line-executed-qty-${index + 1}`;
+}
+
+function lineRemainingQtyTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-remaining-qty` : `${formTestPrefix.value}-line-remaining-qty-${index + 1}`;
 }
 
 function linePriceTestId(index: number) {
@@ -1008,9 +1041,21 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       qty: Number(line.qty ?? 0),
+      executedQty: documentLineExecutedQty(line),
+      remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0)
     }))
     : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0 }];
+}
+
+function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQty?: number | string }) {
+  if (line.shippedQty !== undefined) {
+    return normalizedQty(line.shippedQty);
+  }
+  if (line.receivedQty !== undefined) {
+    return normalizedQty(line.receivedQty);
+  }
+  return undefined;
 }
 
 async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
