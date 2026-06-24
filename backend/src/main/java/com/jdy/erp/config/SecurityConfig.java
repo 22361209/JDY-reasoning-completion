@@ -15,7 +15,7 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProperties properties) throws Exception {
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(auth -> {
-            auth.requestMatchers("/actuator/health/**", "/api/system/health").permitAll();
+            auth.requestMatchers("/actuator/health/**", "/api/system/health", "/error").permitAll();
             if (properties.devOpenApi()) {
                 auth.requestMatchers("/api/**").permitAll();
             }

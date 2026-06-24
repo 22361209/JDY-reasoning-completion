@@ -31,6 +31,10 @@ public class SalesOrderController {
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> saveDraft(@RequestBody SalesOrderDraftRequest request) {
+        var existingRows = jdbcTemplate.queryForList("SELECT status FROM sales_order WHERE bill_no = ?", required(request.billNo(), "单据编号"));
+        if (!existingRows.isEmpty() && !"DRAFT".equals(existingRows.get(0).get("status"))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "已审核销售订单不能覆盖保存");
+        }
         var customerId = lookupId("md_customer", request.customerCode(), "客户");
         var totalAmount = request.lines().stream()
             .map(line -> line.qty().multiply(line.unitPrice()))
@@ -43,6 +47,7 @@ public class SalesOrderController {
                 bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
                 status = 'DRAFT',
+                out_status = 'NOT_OUT',
                 total_amount = EXCLUDED.total_amount,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
@@ -82,18 +87,18 @@ public class SalesOrderController {
 
     @PostMapping("/{billNo}/audit")
     public Map<String, Object> audit(@PathVariable String billNo) {
-        return updateStatus(billNo, "AUDITED");
+        return updateStatus(billNo, "AUDITED", "DRAFT");
     }
 
     @DeleteMapping("/{billNo}")
     public Map<String, Object> delete(@PathVariable String billNo) {
         var deleted = jdbcTemplate.queryForList("""
             DELETE FROM sales_order
-            WHERE bill_no = ?
+            WHERE bill_no = ? AND status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo"
             """, billNo);
         if (deleted.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售订单不存在");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿销售订单可以删除");
         }
         return deleted.get(0);
     }
@@ -117,15 +122,15 @@ public class SalesOrderController {
         return String.valueOf(rows.get(0).get("id"));
     }
 
-    private Map<String, Object> updateStatus(String billNo, String status) {
+    private Map<String, Object> updateStatus(String billNo, String status, String fromStatus) {
         var rows = jdbcTemplate.queryForList("""
             UPDATE sales_order
             SET status = ?, updated_at = now(), version = version + 1
-            WHERE bill_no = ?
+            WHERE bill_no = ? AND status = ?
             RETURNING id::text AS id, bill_no AS "billNo", status
-            """, status, billNo);
+            """, status, billNo, fromStatus);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售订单不存在");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售订单不存在或状态不允许操作");
         }
         return rows.get(0);
     }

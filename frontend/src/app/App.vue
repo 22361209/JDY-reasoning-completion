@@ -185,7 +185,7 @@
               <h2>{{ tabs.activeTab.value.title }}</h2>
               <p>{{ pageSubtitle }}</p>
             </div>
-            <div class="status-stamp" :class="tabs.activeTab.value.kind">草稿</div>
+            <div class="status-stamp" :class="tabs.activeTab.value.kind" data-testid="document-status">{{ currentOrderStatusLabel }}</div>
           </div>
 
           <div v-if="isLockedList" class="lock-banner" data-testid="lock-banner">
@@ -194,13 +194,13 @@
           </div>
 
           <div class="action-bar">
-            <button class="primary-action" type="button" :disabled="isLockedList">新增</button>
-            <button type="button" :disabled="!isDocumentForm" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
-            <button type="button" :disabled="!isDocumentForm" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
-            <button type="button" :disabled="!isReversibleDocumentForm" data-testid="reverse-document" @click="reverseCurrentDocument">反审核</button>
-            <button type="button" :disabled="!isReversibleDocumentForm" data-testid="red-reverse-document" @click="redReverseCurrentDocument">红冲</button>
-            <button type="button" :disabled="!isReversibleDocumentForm" data-testid="void-document" @click="voidCurrentDocument">作废</button>
-            <button type="button" :disabled="!isSalesOrderForm" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
+            <button class="primary-action" type="button" :disabled="isLockedList" data-testid="new-document" @click="startNewCurrentDocument">新增</button>
+            <button type="button" :disabled="!isDraftDocument" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
+            <button type="button" :disabled="!isDraftDocument" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
+            <button type="button" :disabled="!canReverseDocument" data-testid="reverse-document" @click="reverseCurrentDocument">反审核</button>
+            <button type="button" :disabled="!canReverseDocument" data-testid="red-reverse-document" @click="redReverseCurrentDocument">红冲</button>
+            <button type="button" :disabled="!canVoidDocument" data-testid="void-document" @click="voidCurrentDocument">作废</button>
+            <button type="button" :disabled="!canDeleteSalesOrder" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
             <button type="button" :disabled="!isDocumentForm" data-testid="export-sales-order" @click="exportCurrentDocument">引出</button>
             <button type="button" :disabled="!isDocumentForm" data-testid="print-sales-order" @click="printCurrentDocument">打印</button>
             <span v-if="tabs.activeTab.value.dirty" class="dirty-tip">有未保存改动</span>
@@ -399,6 +399,7 @@ interface OrderForm {
   billDate: string;
   department: string;
   ownerName: string;
+  status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   lines: OrderLineForm[];
 }
 
@@ -416,6 +417,7 @@ const salesOrderForm = reactive<OrderForm>({
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
+  status: "DRAFT",
   lines: [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86 }
   ]
@@ -426,6 +428,7 @@ const purchaseOrderForm = reactive<OrderForm>({
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
+  status: "DRAFT",
   lines: [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72 }
   ]
@@ -437,6 +440,7 @@ const purchaseInForm = reactive<OrderForm>({
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
+  status: "DRAFT",
   lines: [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72 }
   ]
@@ -448,6 +452,7 @@ const salesOutForm = reactive<OrderForm>({
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
+  status: "DRAFT",
   lines: [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86 }
   ]
@@ -634,6 +639,23 @@ const formTestPrefix = computed(() => {
 });
 const partyLabel = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "供应商" : "客户");
 const partyType = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "supplier" : "customer");
+const isDraftDocument = computed(() => isDocumentForm.value && currentOrderForm.value.status === "DRAFT");
+const canReverseDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "AUDITED");
+const canVoidDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "DRAFT");
+const canDeleteSalesOrder = computed(() => isSalesOrderForm.value && currentOrderForm.value.status === "DRAFT");
+const currentOrderStatusLabel = computed(() => {
+  if (!isDocumentForm.value) {
+    return "";
+  }
+  const labels: Record<OrderForm["status"], string> = {
+    DRAFT: "草稿",
+    AUDITED: "已审核",
+    REVERSED: "已反审核",
+    VOIDED: "已作废",
+    RED_REVERSED: "已红冲"
+  };
+  return labels[currentOrderForm.value.status];
+});
 const currentOrderAmount = computed(() => (currentOrderForm.value.lines[0].qty * currentOrderForm.value.lines[0].unitPrice).toFixed(2));
 const selectedProduct = computed(() => {
   const product = selectorOptions.value.find((option) => option.code === currentOrderForm.value.lines[0].productCode);
@@ -669,14 +691,16 @@ function openEntry(entry: ShellEntry) {
   activeModuleName.value = entry.module;
   const isQuery = entry.mode === "list" || entry.mode === "report";
   const id = entry.mode === "list" && !entry.id.endsWith("-list") ? `${entry.id}-list` : entry.id;
-  tabs.openTab({
+  const opened = tabs.openTab({
     id,
     title: isQuery && !entry.label.includes("表") && !entry.label.includes("查询") ? `${entry.label}列表` : entry.label,
     module: entry.module,
     kind: entry.mode,
-    dirty: entry.dirty,
-    lockedObjectId: entry.id === "sales-order-form" ? "XSDD-00001" : undefined
+    dirty: entry.dirty
   });
+  if (opened && entry.mode === "form") {
+    startNewCurrentDocument();
+  }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
 }
@@ -698,11 +722,60 @@ async function saveCurrentSalesOrder() {
   });
   formMessage.value = result.ok ? "草稿已保存" : result.message;
   if (result.ok) {
+    salesOrderForm.status = "DRAFT";
     const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
     if (activeTab) {
       activeTab.dirty = false;
     }
   }
+}
+
+function startNewCurrentDocument() {
+  if (!isDocumentForm.value) {
+    return;
+  }
+  const form = currentOrderForm.value;
+  const today = new Date();
+  const dateText = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0")
+  ].join("-");
+  form.billDate = dateText;
+  form.billNo = nextBillNo();
+  form.sourceOrderNo = isStockDocumentForm.value ? "" : undefined;
+  form.partyCode = partyType.value === "supplier" ? "GYS-001" : "KH-001";
+  form.department = partyType.value === "supplier" ? "采购部" : "销售部";
+  form.ownerName = session.userName.value || "本地管理员";
+  form.status = "DRAFT";
+  form.lines = [
+    {
+      productCode: "CP-001",
+      warehouseCode: "CK-001",
+      qty: 1,
+      unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
+    }
+  ];
+  formMessage.value = "已生成新单据草稿号";
+  markActiveDirty();
+}
+
+function nextBillNo() {
+  const prefix = isPurchaseOrderForm.value ? "CGDD" : isPurchaseInForm.value ? "CGRK" : isSalesOutForm.value ? "XSCK" : "XSDD";
+  const now = new Date();
+  const datePart = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("");
+  const timePart = [
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+    String(now.getMilliseconds()).padStart(3, "0")
+  ].join("");
+  const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `${prefix}-${datePart}-${timePart}-${seq}`;
 }
 
 async function saveCurrentDocument() {
@@ -726,6 +799,7 @@ async function saveCurrentDocument() {
   });
   formMessage.value = result.ok ? "草稿已保存" : result.message;
   if (result.ok) {
+    currentOrderForm.value.status = "DRAFT";
     clearActiveDirty();
   }
 }
@@ -733,6 +807,10 @@ async function saveCurrentDocument() {
 async function auditCurrentSalesOrder() {
   const result = await auditSalesOrder(salesOrderForm.billNo);
   formMessage.value = result.ok ? "审核成功" : result.message;
+  if (result.ok) {
+    salesOrderForm.status = "AUDITED";
+    clearActiveDirty();
+  }
 }
 
 async function auditCurrentDocument() {
@@ -746,6 +824,10 @@ async function auditCurrentDocument() {
   }
   const result = await auditDocument(type, currentOrderForm.value.billNo);
   formMessage.value = result.ok ? "审核成功" : result.message;
+  if (result.ok) {
+    currentOrderForm.value.status = "AUDITED";
+    clearActiveDirty();
+  }
 }
 
 async function reverseCurrentDocument() {
@@ -755,6 +837,9 @@ async function reverseCurrentDocument() {
   }
   const result = await reverseDocument(type, currentOrderForm.value.billNo);
   formMessage.value = result.ok ? "反审核成功，库存流水已冲销" : result.message;
+  if (result.ok) {
+    currentOrderForm.value.status = "REVERSED";
+  }
 }
 
 async function voidCurrentDocument() {
@@ -764,6 +849,10 @@ async function voidCurrentDocument() {
   }
   const result = await voidDocument(type, currentOrderForm.value.billNo);
   formMessage.value = result.ok ? "作废成功" : result.message;
+  if (result.ok) {
+    currentOrderForm.value.status = "VOIDED";
+    clearActiveDirty();
+  }
 }
 
 async function redReverseCurrentDocument() {
@@ -778,6 +867,9 @@ async function redReverseCurrentDocument() {
     ownerName: currentOrderForm.value.ownerName
   });
   formMessage.value = result.ok ? `红冲成功：${redBillNo}` : result.message;
+  if (result.ok) {
+    currentOrderForm.value.status = "RED_REVERSED";
+  }
 }
 
 async function deleteCurrentSalesOrder() {
