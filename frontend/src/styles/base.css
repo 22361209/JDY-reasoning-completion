@@ -107,6 +107,15 @@ input:disabled {
   color: #ffffff;
 }
 
+.login-panel .text-action {
+  width: fit-content;
+  justify-self: end;
+  border: 0;
+  background: transparent;
+  color: #2f6fcc;
+  padding: 0;
+}
+
 .login-message {
   min-height: 18px;
   color: #b42318;
@@ -869,6 +878,61 @@ input:disabled {
   color: #223247;
   font-weight: 700;
   font-size: 12px;
+}
+
+.password-reset-admin-panel {
+  max-width: 680px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d8e1ec;
+  border-radius: 4px;
+  background: #fbfcfe;
+  padding: 10px;
+}
+
+.password-reset-admin-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #223247;
+}
+
+.password-reset-admin-panel__head span {
+  color: #6d7d8d;
+  font-size: 12px;
+}
+
+.password-reset-request-row {
+  min-height: 50px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid #d8e1ec;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #2b3e52;
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.password-reset-request-row:hover,
+.password-reset-request-row.active {
+  border-color: #9bc5ef;
+  background: #eef7ff;
+}
+
+.password-reset-request-row span,
+.password-reset-request-row em,
+.password-reset-admin-panel p {
+  margin: 0;
+  color: #697887;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.password-reset-admin-panel--selected {
+  background: #fffaf0;
+  border-color: #f0d79b;
 }
 
 .permission-group {

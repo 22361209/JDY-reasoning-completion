@@ -37,7 +37,33 @@ public class UserManagementController {
     public Map<String, Object> managedUsers() {
         return Map.of(
             "users", userRows(),
-            "roles", roleRows()
+            "roles", roleRows(),
+            "passwordResetRequests", passwordResetRequestRows()
+        );
+    }
+
+    @PostMapping("/password-reset-requests")
+    @Transactional
+    public Map<String, Object> requestPasswordReset(@RequestBody PasswordResetRequest request) {
+        var username = required(request.username(), "用户名");
+        var contactNote = optionalLimited(request.contactNote(), 240);
+        var userRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM sys_user
+            WHERE username = ?
+              AND enabled = TRUE
+            """, username);
+        var userId = userRows.isEmpty() ? null : String.valueOf(userRows.get(0).get("id"));
+        var resetRequest = jdbcTemplate.queryForMap("""
+            INSERT INTO sys_password_reset_request (username, contact_note, requested_user_id)
+            VALUES (?, ?, ?::uuid)
+            RETURNING id::text AS id
+            """, username, contactNote, userId);
+        logPublic("SYSTEM", "PASSWORD_RESET_REQUEST", "sys_user", userId, true, "申请编号 " + resetRequest.get("id"));
+        return Map.of(
+            "ok", true,
+            "matched", userId != null,
+            "message", "已提交找回申请，请联系管理员完成身份核验和密码重置。"
         );
     }
 
@@ -94,21 +120,73 @@ public class UserManagementController {
 
     @PutMapping("/managed-users/{username}/password")
     @RequirePermission("system.role_permission.manage")
+    @Transactional
     public Map<String, Object> resetPassword(@PathVariable String username, @RequestBody PasswordRequest request) {
         var normalizedUsername = required(username, "用户名");
         var password = required(request.password(), "新密码");
         passwordPolicy.validate(password);
+        var userId = userId(normalizedUsername);
         var updated = jdbcTemplate.update("""
             UPDATE sys_user
             SET password_hash = ?,
+                failed_login_count = 0,
+                locked_until = NULL,
                 updated_at = now(),
                 version = version + 1
-            WHERE username = ?
-            """, "{noop}" + password, normalizedUsername);
+            WHERE id = ?::uuid
+            """, "{noop}" + password, userId);
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
         }
+        jdbcTemplate.update("""
+            UPDATE sys_password_reset_request
+            SET status = 'DONE',
+                handled_at = now(),
+                handled_by = (SELECT id FROM sys_user WHERE username = ?),
+                handle_note = '管理员已重置密码',
+                version = version + 1
+            WHERE requested_user_id = ?::uuid
+              AND status = 'PENDING'
+            """, currentSessionService.currentUsername(), userId);
+        log("SYSTEM", "RESET_PASSWORD", "sys_user", userId, true, null);
         return Map.of("ok", true);
+    }
+
+    @PutMapping("/password-reset-requests/{requestId}")
+    @RequirePermission("system.role_permission.manage")
+    @Transactional
+    public Map<String, Object> handlePasswordResetRequest(@PathVariable String requestId, @RequestBody PasswordResetHandleRequest request) {
+        var normalizedRequestId = required(requestId, "申请ID");
+        var status = required(request.status(), "处理状态").toUpperCase();
+        if (!List.of("DONE", "REJECTED").contains(status)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "处理状态只能是 DONE 或 REJECTED");
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   requested_user_id::text AS "requestedUserId",
+                   status
+            FROM sys_password_reset_request
+            WHERE id = ?::uuid
+            """, normalizedRequestId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "找回申请不存在");
+        }
+        if (!"PENDING".equals(String.valueOf(rows.get(0).get("status")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "找回申请已处理");
+        }
+        var note = optionalLimited(request.note(), 240);
+        jdbcTemplate.update("""
+            UPDATE sys_password_reset_request
+            SET status = ?,
+                handled_at = now(),
+                handled_by = (SELECT id FROM sys_user WHERE username = ?),
+                handle_note = ?,
+                version = version + 1
+            WHERE id = ?::uuid
+            """, status, currentSessionService.currentUsername(), note, normalizedRequestId);
+        var targetUserId = rows.get(0).get("requestedUserId") == null ? null : String.valueOf(rows.get(0).get("requestedUserId"));
+        log("SYSTEM", "HANDLE_PASSWORD_RESET_REQUEST", "sys_user", targetUserId, true, status + (note == null || note.isBlank() ? "" : "：" + note));
+        return managedUsers();
     }
 
     @PutMapping("/managed-users/{username}/unlock")
@@ -152,11 +230,36 @@ public class UserManagementController {
                    u.failed_login_count AS "failedLoginCount",
                    CASE WHEN u.locked_until IS NOT NULL AND u.locked_until > now() THEN TRUE ELSE FALSE END AS locked,
                    COALESCE(to_char(u.locked_until, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lockedUntil",
-                   COALESCE(to_char(u.last_login_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastLoginAt"
+                   COALESCE(to_char(u.last_login_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastLoginAt",
+                   CASE WHEN EXISTS (
+                       SELECT 1
+                       FROM sys_password_reset_request pr
+                       WHERE pr.requested_user_id = u.id
+                         AND pr.status = 'PENDING'
+                   ) THEN TRUE ELSE FALSE END AS "pendingPasswordReset"
             FROM sys_user u
             LEFT JOIN sys_user_role ur ON ur.user_id = u.id
             LEFT JOIN sys_role r ON r.id = ur.role_id
             ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 WHEN 'WAREHOUSE' THEN 1 WHEN 'FINANCE' THEN 2 ELSE 3 END, u.username
+            """);
+    }
+
+    private List<Map<String, Object>> passwordResetRequestRows() {
+        return jdbcTemplate.queryForList("""
+            SELECT pr.id::text AS id,
+                   pr.username,
+                   COALESCE(u.display_name, '') AS "displayName",
+                   COALESCE(pr.contact_note, '') AS "contactNote",
+                   pr.status,
+                   COALESCE(to_char(pr.requested_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "requestedAt",
+                   COALESCE(to_char(pr.handled_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "handledAt",
+                   COALESCE(handler.display_name, '') AS "handledBy",
+                   COALESCE(pr.handle_note, '') AS "handleNote"
+            FROM sys_password_reset_request pr
+            LEFT JOIN sys_user u ON u.id = pr.requested_user_id
+            LEFT JOIN sys_user handler ON handler.id = pr.handled_by
+            ORDER BY CASE pr.status WHEN 'PENDING' THEN 0 ELSE 1 END, pr.requested_at DESC
+            LIMIT 50
             """);
     }
 
@@ -192,6 +295,14 @@ public class UserManagementController {
         return value.trim();
     }
 
+    private String optionalLimited(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        var normalized = value.trim();
+        return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
+    }
+
     private void log(String module, String action, String targetType, String targetId, boolean success, String reason) {
         jdbcTemplate.update("""
             INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
@@ -201,6 +312,13 @@ public class UserManagementController {
             """, module, action, targetType, targetId, success, reason, currentSessionService.currentUsername());
     }
 
+    private void logPublic(String module, String action, String targetType, String targetId, boolean success, String reason) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
+            VALUES (?, ?, ?, ?::uuid, ?, ?)
+            """, module, action, targetType, targetId, success, reason);
+    }
+
     public record UserRequest(String username, String displayName, String roleCode, String password, Boolean enabled) {
     }
 
@@ -208,5 +326,11 @@ public class UserManagementController {
     }
 
     public record ChangePasswordRequest(String currentPassword, String newPassword) {
+    }
+
+    public record PasswordResetRequest(String username, String contactNote) {
+    }
+
+    public record PasswordResetHandleRequest(String status, String note) {
     }
 }

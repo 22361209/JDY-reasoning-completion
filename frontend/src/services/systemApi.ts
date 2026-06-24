@@ -19,6 +19,7 @@ export interface ManagedUser extends SystemUser {
   locked?: boolean;
   lockedUntil?: string;
   lastLoginAt?: string;
+  pendingPasswordReset?: boolean;
 }
 
 export interface ManagedRole {
@@ -27,9 +28,22 @@ export interface ManagedRole {
   enabled: boolean;
 }
 
+export interface PasswordResetRequestItem {
+  id: string;
+  username: string;
+  displayName: string;
+  contactNote: string;
+  status: string;
+  requestedAt: string;
+  handledAt: string;
+  handledBy: string;
+  handleNote: string;
+}
+
 export interface ManagedUsersPayload {
   users: ManagedUser[];
   roles: ManagedRole[];
+  passwordResetRequests: PasswordResetRequestItem[];
 }
 
 export interface ManagedUsersResult {
@@ -150,6 +164,24 @@ export async function changeSystemPassword(payload: { currentPassword: string; n
   }
 }
 
+export async function requestPasswordReset(payload: { username: string; contactNote: string }): Promise<WriteResult> {
+  try {
+    const response = await fetch("/api/system/password-reset-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "找回申请提交失败。" };
+    }
+    const result = await response.json() as { message?: string };
+    return { ok: true, status: response.status, message: result.message || "已提交找回申请。" };
+  } catch {
+    return { ok: false, status: 0, message: "找回申请提交失败。" };
+  }
+}
+
 export async function fetchManagedUsers(): Promise<ManagedUsersResult> {
   try {
     const response = await fetch("/api/system/managed-users");
@@ -189,6 +221,10 @@ export async function resetManagedUserPassword(username: string, password: strin
 
 export async function unlockManagedUser(username: string): Promise<ManagedUsersResult> {
   return writeManagedUser(`/api/system/managed-users/${encodeURIComponent(username)}/unlock`, "PUT", {});
+}
+
+export async function handlePasswordResetRequest(requestId: string, status: "DONE" | "REJECTED", note: string): Promise<ManagedUsersResult> {
+  return writeManagedUser(`/api/system/password-reset-requests/${encodeURIComponent(requestId)}`, "PUT", { status, note });
 }
 
 async function writeManagedUser(pathname: string, method: "POST" | "PUT", payload: Record<string, unknown>): Promise<ManagedUsersResult> {

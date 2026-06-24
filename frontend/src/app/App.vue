@@ -17,8 +17,27 @@
         <input v-model="loginForm.password" data-testid="login-password" type="password" autocomplete="current-password" />
       </label>
       <button class="primary-action" type="submit" data-testid="login-submit">登录</button>
+      <button class="text-action" type="button" data-testid="forgot-password-open" @click="openPasswordResetRequestDialog">忘记密码</button>
       <p v-if="loginMessage" class="login-message" data-testid="login-message">{{ loginMessage }}</p>
     </form>
+    <div v-if="passwordResetRequestDialogOpen" class="modal-mask" data-testid="password-reset-request-dialog">
+      <form class="dialog password-dialog" @submit.prevent="submitPasswordResetRequest">
+        <h3>找回密码</h3>
+        <label>
+          <span>账号</span>
+          <input v-model="passwordResetRequestForm.username" data-testid="password-reset-username" autocomplete="username" />
+        </label>
+        <label>
+          <span>联系方式/说明</span>
+          <input v-model="passwordResetRequestForm.contactNote" data-testid="password-reset-contact" placeholder="手机号、班组或交接说明" />
+        </label>
+        <p v-if="passwordResetRequestMessage" class="form-message" data-testid="password-reset-message">{{ passwordResetRequestMessage }}</p>
+        <div class="dialog-actions">
+          <button type="button" data-testid="password-reset-cancel" @click="closePasswordResetRequestDialog">取消</button>
+          <button class="primary-action" type="submit" data-testid="password-reset-submit">提交申请</button>
+        </div>
+      </form>
+    </div>
   </section>
 
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
@@ -243,6 +262,40 @@
                   <dd>{{ selectedManagedUser.lastLoginAt || "-" }}</dd>
                 </div>
               </dl>
+              <section v-if="pendingPasswordResetRequests.length" class="password-reset-admin-panel" data-testid="password-reset-admin-panel">
+                <div class="password-reset-admin-panel__head">
+                  <strong>待处理找回申请</strong>
+                  <span>{{ pendingPasswordResetRequests.length }} 条</span>
+                </div>
+                <button
+                  v-for="request in pendingPasswordResetRequests"
+                  :key="request.id"
+                  type="button"
+                  class="password-reset-request-row"
+                  :class="{ active: request.id === selectedPasswordResetRequestId }"
+                  :data-testid="`password-reset-request-${request.username}`"
+                  @click="selectPasswordResetRequest(request.id)"
+                >
+                  <strong>{{ request.displayName || request.username }}</strong>
+                  <span>{{ request.username }} / {{ request.requestedAt }}</span>
+                  <em>{{ request.contactNote || "无联系方式说明" }}</em>
+                </button>
+              </section>
+              <section v-if="selectedPasswordResetRequest" class="password-reset-admin-panel password-reset-admin-panel--selected" data-testid="password-reset-selected">
+                <div class="password-reset-admin-panel__head">
+                  <strong>{{ selectedPasswordResetRequest.username }} 的找回申请</strong>
+                  <span>{{ selectedPasswordResetRequest.requestedAt }}</span>
+                </div>
+                <p>{{ selectedPasswordResetRequest.contactNote || "未填写联系方式说明。" }}</p>
+                <label>
+                  <span>处理备注</span>
+                  <input v-model="passwordResetHandleNote" data-testid="password-reset-handle-note" placeholder="如：已电话核验身份" />
+                </label>
+                <div class="role-permission-head__actions">
+                  <button type="button" data-testid="password-reset-select-user" @click="selectManagedUser(selectedPasswordResetRequest.username)">选中该用户</button>
+                  <button type="button" data-testid="password-reset-reject" @click="rejectPasswordResetRequestAction">驳回申请</button>
+                </div>
+              </section>
               <label>
                 <span>用户名</span>
                 <input v-model="managedUserForm.username" :readonly="userManagementMode === 'edit'" data-testid="managed-user-username" />
@@ -1002,7 +1055,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, logoutSystemUser, resetManagedUserPassword, saveRolePermissions, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PasswordResetRequestItem, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1173,6 +1226,9 @@ const rolePermissionDraft = ref<string[]>([]);
 const rolePermissionMessage = ref("");
 const managedUsers = ref<ManagedUser[]>([]);
 const managedRoles = ref<ManagedRole[]>([]);
+const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
+const selectedPasswordResetRequestId = ref("");
+const passwordResetHandleNote = ref("");
 const selectedManagedUsername = ref("");
 const userManagementMode = ref<"edit" | "create">("edit");
 const userManagementMessage = ref("");
@@ -1190,6 +1246,12 @@ const loginForm = reactive({
   password: ""
 });
 const loginMessage = ref("");
+const passwordResetRequestDialogOpen = ref(false);
+const passwordResetRequestMessage = ref("");
+const passwordResetRequestForm = reactive({
+  username: "admin",
+  contactNote: ""
+});
 const passwordDialogOpen = ref(false);
 const passwordMessage = ref("");
 const passwordForm = reactive({
@@ -1479,6 +1541,8 @@ const passwordStrengthRules = computed(() => [
 ]);
 const passwordStrengthOk = computed(() => passwordStrengthRules.value.every((rule) => rule.ok));
 const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
+const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
+const selectedPasswordResetRequest = computed(() => passwordResetRequests.value.find((request) => request.id === selectedPasswordResetRequestId.value && request.status === "PENDING") ?? null);
 const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
 const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
 const permissionGroups = computed(() => {
@@ -1842,6 +1906,31 @@ async function loginCurrentUser() {
   }
 }
 
+function openPasswordResetRequestDialog() {
+  passwordResetRequestForm.username = loginForm.username;
+  passwordResetRequestForm.contactNote = "";
+  passwordResetRequestMessage.value = "";
+  passwordResetRequestDialogOpen.value = true;
+}
+
+function closePasswordResetRequestDialog() {
+  passwordResetRequestDialogOpen.value = false;
+  passwordResetRequestMessage.value = "";
+}
+
+async function submitPasswordResetRequest() {
+  passwordResetRequestMessage.value = "";
+  const result = await requestPasswordReset({
+    username: passwordResetRequestForm.username,
+    contactNote: passwordResetRequestForm.contactNote
+  });
+  passwordResetRequestMessage.value = result.message || (result.ok ? "已提交找回申请。" : "找回申请提交失败。");
+  if (result.ok) {
+    loginMessage.value = passwordResetRequestMessage.value;
+    passwordResetRequestForm.contactNote = "";
+  }
+}
+
 async function logoutCurrentUser() {
   await logoutSystemUser();
   clearLocalSession("");
@@ -1905,7 +1994,7 @@ function handleSessionExpired() {
 }
 
 const SESSION_EXPIRED_EVENT = "jdy:session-expired";
-const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/users", "/api/system/login", "/api/system/logout"]);
+const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/users", "/api/system/login", "/api/system/logout", "/api/system/password-reset-requests"]);
 
 function installSessionExpiryInterceptor() {
   const runtimeWindow = window as Window & { __jdyFetchWrapped?: boolean; __jdyOriginalFetch?: typeof window.fetch };
@@ -1975,6 +2064,10 @@ async function loadManagedUsers() {
   }
   managedUsers.value = result.data.users;
   managedRoles.value = result.data.roles;
+  passwordResetRequests.value = result.data.passwordResetRequests ?? [];
+  if (!pendingPasswordResetRequests.value.some((request) => request.id === selectedPasswordResetRequestId.value)) {
+    selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
+  }
   if (userManagementMode.value !== "create" && !managedUsers.value.some((user) => user.username === selectedManagedUsername.value)) {
     selectedManagedUsername.value = managedUsers.value[0]?.username ?? "";
   }
@@ -1988,6 +2081,22 @@ function selectManagedUser(username: string) {
   selectedManagedUsername.value = username;
   userManagementMode.value = "edit";
   applySelectedManagedUser();
+  userManagementMessage.value = "";
+  const pendingRequest = pendingPasswordResetRequests.value.find((request) => request.username === username);
+  if (pendingRequest) {
+    selectedPasswordResetRequestId.value = pendingRequest.id;
+  }
+}
+
+function selectPasswordResetRequest(requestId: string) {
+  selectedPasswordResetRequestId.value = requestId;
+  const request = selectedPasswordResetRequest.value;
+  if (request && managedUsers.value.some((user) => user.username === request.username)) {
+    selectedManagedUsername.value = request.username;
+    userManagementMode.value = "edit";
+    applySelectedManagedUser();
+  }
+  passwordResetHandleNote.value = "";
   userManagementMessage.value = "";
 }
 
@@ -2042,6 +2151,7 @@ async function saveManagedUser() {
   }
   managedUsers.value = result.data.users;
   managedRoles.value = result.data.roles;
+  passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
   selectedManagedUsername.value = managedUserForm.username;
   userManagementMode.value = "edit";
   applySelectedManagedUser();
@@ -2059,7 +2169,25 @@ async function resetManagedUserPasswordAction() {
     return;
   }
   managedUserPassword.value = "";
-  userManagementMessage.value = "密码已重置";
+  await loadManagedUsers();
+  userManagementMessage.value = "密码已重置，待处理找回申请已标记完成";
+}
+
+async function rejectPasswordResetRequestAction() {
+  if (!canManageRolePermissions.value || !selectedPasswordResetRequest.value) {
+    return;
+  }
+  const result = await handlePasswordResetRequest(selectedPasswordResetRequest.value.id, "REJECTED", passwordResetHandleNote.value || "身份核验未通过");
+  if (!result.ok || !result.data) {
+    userManagementMessage.value = result.message || "找回申请处理失败。";
+    return;
+  }
+  managedUsers.value = result.data.users;
+  managedRoles.value = result.data.roles;
+  passwordResetRequests.value = result.data.passwordResetRequests ?? [];
+  selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
+  passwordResetHandleNote.value = "";
+  userManagementMessage.value = "找回申请已驳回";
 }
 
 async function unlockManagedUserAction() {
@@ -2073,6 +2201,7 @@ async function unlockManagedUserAction() {
   }
   managedUsers.value = result.data.users;
   managedRoles.value = result.data.roles;
+  passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
   selectedManagedUsername.value = managedUserForm.username;
   applySelectedManagedUser();
   userManagementMessage.value = "账号锁定已解除";
