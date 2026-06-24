@@ -21,7 +21,11 @@ public class CurrentSessionService {
     public static final String SESSION_TOKEN = "jdy.sessionToken";
     public static final String SESSION_GENERATION = "jdy.sessionGeneration";
     private static final int MAX_FAILED_LOGIN = 5;
+    private static final int DEFAULT_SESSION_TIMEOUT_MINUTES = 30;
+    private static final int MIN_SESSION_TIMEOUT_MINUTES = 5;
+    private static final int MAX_SESSION_TIMEOUT_MINUTES = 480;
     private static final String REPEATED_LOGIN_POLICY_KEY = "security.repeated_login_policy";
+    private static final String SESSION_TIMEOUT_MINUTES_KEY = "security.session_timeout_minutes";
     private static final String REPEATED_LOGIN_POLICY_SINGLE_ACTIVE = "SINGLE_ACTIVE";
     private static final String REPEATED_LOGIN_POLICY_ALLOW_CONCURRENT = "ALLOW_CONCURRENT";
 
@@ -67,6 +71,7 @@ public class CurrentSessionService {
             session.invalidate();
             return null;
         }
+        applySessionTimeout(session);
         return normalizedUsername;
     }
 
@@ -215,6 +220,7 @@ public class CurrentSessionService {
                 """, newSessionToken, userId);
         }
         var session = request.getSession(true);
+        applySessionTimeout(session);
         session.setAttribute(SESSION_USERNAME, normalizedUsername);
         session.setAttribute(SESSION_TOKEN, newSessionToken);
         session.setAttribute(SESSION_GENERATION, sessionGeneration);
@@ -362,7 +368,81 @@ public class CurrentSessionService {
                 updated_by = EXCLUDED.updated_by,
                 version = sys_setting.version + 1
             """, REPEATED_LOGIN_POLICY_KEY, normalizedPolicy, currentUsername());
-        logSetting("UPDATE_SECURITY_SETTING", normalizedPolicy);
+        logSetting("UPDATE_SECURITY_SETTING", "repeated_login_policy=" + normalizedPolicy);
+    }
+
+    public int sessionTimeoutMinutes() {
+        var values = jdbcTemplate.queryForList("""
+            SELECT setting_value
+            FROM sys_setting
+            WHERE setting_key = ?
+            """, String.class, SESSION_TIMEOUT_MINUTES_KEY);
+        if (values.isEmpty()) {
+            return DEFAULT_SESSION_TIMEOUT_MINUTES;
+        }
+        return normalizeSessionTimeoutMinutes(values.get(0));
+    }
+
+    public int currentSessionMaxInactiveIntervalSeconds() {
+        var request = currentRequest();
+        if (request == null) {
+            return sessionTimeoutMinutes() * 60;
+        }
+        var session = request.getSession(false);
+        if (session == null) {
+            return sessionTimeoutMinutes() * 60;
+        }
+        return session.getMaxInactiveInterval();
+    }
+
+    public void updateSessionTimeoutMinutes(Integer minutes) {
+        var normalizedMinutes = normalizeSessionTimeoutMinutes(minutes);
+        jdbcTemplate.update("""
+            INSERT INTO sys_setting (setting_key, setting_value, updated_by)
+            VALUES (?, ?, (SELECT id FROM sys_user WHERE username = ?))
+            ON CONFLICT (setting_key) DO UPDATE
+            SET setting_value = EXCLUDED.setting_value,
+                updated_at = now(),
+                updated_by = EXCLUDED.updated_by,
+                version = sys_setting.version + 1
+            """, SESSION_TIMEOUT_MINUTES_KEY, String.valueOf(normalizedMinutes), currentUsername());
+        applySessionTimeoutToCurrentSession(normalizedMinutes);
+        logSetting("UPDATE_SECURITY_SETTING", "session_timeout_minutes=" + normalizedMinutes);
+    }
+
+    private void applySessionTimeoutToCurrentSession(int minutes) {
+        var request = currentRequest();
+        if (request == null) {
+            return;
+        }
+        var session = request.getSession(false);
+        if (session != null) {
+            session.setMaxInactiveInterval(minutes * 60);
+        }
+    }
+
+    private void applySessionTimeout(jakarta.servlet.http.HttpSession session) {
+        session.setMaxInactiveInterval(sessionTimeoutMinutes() * 60);
+    }
+
+    private int normalizeSessionTimeoutMinutes(Object rawMinutes) {
+        int minutes;
+        try {
+            if (rawMinutes instanceof Number number) {
+                minutes = number.intValue();
+            } else {
+                minutes = Integer.parseInt(String.valueOf(rawMinutes).trim());
+            }
+        } catch (RuntimeException exception) {
+            minutes = DEFAULT_SESSION_TIMEOUT_MINUTES;
+        }
+        if (minutes < MIN_SESSION_TIMEOUT_MINUTES || minutes > MAX_SESSION_TIMEOUT_MINUTES) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "会话超时分钟数需在 " + MIN_SESSION_TIMEOUT_MINUTES + "-" + MAX_SESSION_TIMEOUT_MINUTES + " 之间"
+            );
+        }
+        return minutes;
     }
 
     private void logSetting(String action, String reason) {

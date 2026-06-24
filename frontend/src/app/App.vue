@@ -261,10 +261,28 @@
                   <option value="ALLOW_CONCURRENT">允许同账号多端同时在线</option>
                 </select>
               </label>
+              <label>
+                <span>会话超时（分钟）</span>
+                <input
+                  ref="securitySessionTimeoutInput"
+                  :value="securitySettingsForm.sessionTimeoutMinutes"
+                  data-testid="security-session-timeout-minutes"
+                  type="number"
+                  min="5"
+                  max="480"
+                  step="1"
+                  @input="updateSecuritySessionTimeout"
+                  @change="updateSecuritySessionTimeout"
+                />
+              </label>
               <dl class="user-security-summary">
                 <div>
                   <dt>当前生效</dt>
                   <dd data-testid="security-current-policy">{{ securitySettings?.repeatedLoginPolicy || "-" }}</dd>
+                </div>
+                <div>
+                  <dt>会话超时</dt>
+                  <dd data-testid="security-current-timeout">{{ securitySettings ? `${securitySettings.sessionTimeoutMinutes} 分钟` : "-" }}</dd>
                 </div>
                 <div>
                   <dt>改密处理</dt>
@@ -1294,8 +1312,10 @@ const rolePermissionDraft = ref<string[]>([]);
 const rolePermissionMessage = ref("");
 const securitySettings = ref<SecuritySettings | null>(null);
 const securitySettingsMessage = ref("");
-const securitySettingsForm = reactive<{ repeatedLoginPolicy: RepeatedLoginPolicy }>({
-  repeatedLoginPolicy: "SINGLE_ACTIVE"
+const securitySessionTimeoutInput = ref<HTMLInputElement | null>(null);
+const securitySettingsForm = reactive<{ repeatedLoginPolicy: RepeatedLoginPolicy; sessionTimeoutMinutes: number }>({
+  repeatedLoginPolicy: "SINGLE_ACTIVE",
+  sessionTimeoutMinutes: 30
 });
 const managedUsers = ref<ManagedUser[]>([]);
 const managedRoles = ref<ManagedRole[]>([]);
@@ -2406,6 +2426,7 @@ async function loadSecuritySettings() {
   }
   securitySettings.value = result.data;
   securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
+  securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
   securitySettingsMessage.value = "";
 }
 
@@ -2414,8 +2435,10 @@ async function saveSecuritySettingsAction() {
     securitySettingsMessage.value = "当前角色无权维护安全设置。";
     return;
   }
+  syncSecuritySessionTimeoutInput();
   const result = await saveSecuritySettings({
-    repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy
+    repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy,
+    sessionTimeoutMinutes: securitySettingsForm.sessionTimeoutMinutes
   });
   if (!result.ok || !result.data) {
     securitySettingsMessage.value = result.message || "安全设置保存失败。";
@@ -2423,11 +2446,27 @@ async function saveSecuritySettingsAction() {
   }
   securitySettings.value = result.data;
   securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
+  securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
   securitySettingsMessage.value = "安全设置已保存";
 }
 
 function securityPolicyLabel(policy: RepeatedLoginPolicy) {
   return policy === "ALLOW_CONCURRENT" ? "允许多端同时在线" : "后登录踢下线旧会话";
+}
+
+function updateSecuritySessionTimeout(event: Event) {
+  securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout((event.target as HTMLInputElement).value);
+}
+
+function syncSecuritySessionTimeoutInput() {
+  securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout(
+    securitySessionTimeoutInput.value?.value ?? securitySettingsForm.sessionTimeoutMinutes
+  );
+}
+
+function normalizeSecuritySessionTimeout(rawValue: string | number) {
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : 30;
 }
 
 async function loadPrintTemplates() {

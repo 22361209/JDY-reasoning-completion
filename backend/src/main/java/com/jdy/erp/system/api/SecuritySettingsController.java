@@ -22,9 +22,12 @@ public class SecuritySettingsController {
     @GetMapping
     @RequirePermission("system.security.manage")
     public Map<String, Object> settings() {
+        var sessionTimeoutMinutes = currentSessionService.sessionTimeoutMinutes();
         return Map.of(
             "repeatedLoginPolicy", currentSessionService.repeatedLoginPolicy(),
-            "repeatedLoginPolicyLabel", repeatedLoginPolicyLabel(currentSessionService.repeatedLoginPolicy())
+            "repeatedLoginPolicyLabel", repeatedLoginPolicyLabel(currentSessionService.repeatedLoginPolicy()),
+            "sessionTimeoutMinutes", sessionTimeoutMinutes,
+            "sessionTimeoutSeconds", sessionTimeoutMinutes * 60
         );
     }
 
@@ -32,6 +35,7 @@ public class SecuritySettingsController {
     @RequirePermission("system.security.manage")
     public Map<String, Object> updateSettings(@RequestBody SecuritySettingsRequest request) {
         currentSessionService.updateRepeatedLoginPolicy(request.repeatedLoginPolicy());
+        currentSessionService.updateSessionTimeoutMinutes(request.sessionTimeoutMinutes());
         return settings();
     }
 
@@ -42,6 +46,6 @@ public class SecuritySettingsController {
         return "后登录踢下线旧会话";
     }
 
-    public record SecuritySettingsRequest(String repeatedLoginPolicy) {
+    public record SecuritySettingsRequest(String repeatedLoginPolicy, Integer sessionTimeoutMinutes) {
     }
 }

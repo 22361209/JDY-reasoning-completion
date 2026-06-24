@@ -3,6 +3,7 @@ export interface SystemSession {
   user?: { name: string; username?: string; role: string; roleCode?: string; permissionCodes?: string[] };
   tenant: { name: string; environment: string };
   period: { accounting: string; business: string };
+  security?: { sessionTimeoutMinutes: number; sessionMaxInactiveSeconds: number };
 }
 
 export interface SystemUser {
@@ -88,6 +89,8 @@ export type RepeatedLoginPolicy = "SINGLE_ACTIVE" | "ALLOW_CONCURRENT";
 export interface SecuritySettings {
   repeatedLoginPolicy: RepeatedLoginPolicy;
   repeatedLoginPolicyLabel: string;
+  sessionTimeoutMinutes: number;
+  sessionTimeoutSeconds: number;
 }
 
 export interface SecuritySettingsResult {
@@ -314,7 +317,7 @@ export async function fetchSecuritySettings(): Promise<SecuritySettingsResult> {
   }
 }
 
-export async function saveSecuritySettings(payload: { repeatedLoginPolicy: RepeatedLoginPolicy }): Promise<SecuritySettingsResult> {
+export async function saveSecuritySettings(payload: { repeatedLoginPolicy: RepeatedLoginPolicy; sessionTimeoutMinutes: number }): Promise<SecuritySettingsResult> {
   try {
     const response = await fetch("/api/system/security-settings", {
       method: "PUT",

@@ -28,14 +28,23 @@ public class SystemShellController {
             return Map.of(
                 "authenticated", false,
                 "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
-                "period", Map.of("accounting", "2026-06", "business", "2026-06")
+                "period", Map.of("accounting", "2026-06", "business", "2026-06"),
+                "security", sessionSecurity()
             );
         }
         return Map.of(
             "authenticated", true,
             "user", currentSessionService.currentUser(),
             "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
-            "period", Map.of("accounting", "2026-06", "business", "2026-06")
+            "period", Map.of("accounting", "2026-06", "business", "2026-06"),
+            "security", sessionSecurity()
+        );
+    }
+
+    private Map<String, Object> sessionSecurity() {
+        return Map.of(
+            "sessionTimeoutMinutes", currentSessionService.sessionTimeoutMinutes(),
+            "sessionMaxInactiveSeconds", currentSessionService.currentSessionMaxInactiveIntervalSeconds()
         );
     }
 
