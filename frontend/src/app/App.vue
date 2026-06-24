@@ -449,6 +449,39 @@
       </div>
     </div>
 
+    <div v-if="pendingZeroEntrySave" class="modal-mask" data-testid="entry-zero-confirm-dialog">
+      <div class="dialog entry-zero-confirm-dialog">
+        <h3>零值分录确认</h3>
+        <p>以下分录数量或单价为 0。若用于赠品、样品、补录等真实业务，可以确认后继续保存。</p>
+        <table class="entry-zero-warning-table">
+          <thead>
+            <tr>
+              <th>行号</th>
+              <th>商品</th>
+              <th>仓库</th>
+              <th>数量</th>
+              <th>单价</th>
+              <th>原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="warning in pendingZeroEntrySave.warnings" :key="warning.lineNo">
+              <td>第 {{ warning.lineNo }} 行</td>
+              <td>{{ warning.productCode }}</td>
+              <td>{{ warning.warehouseCode }}</td>
+              <td>{{ formatQty(warning.qty) }}</td>
+              <td>{{ formatAmount(warning.unitPrice) }}</td>
+              <td>{{ warning.reasons.join("、") }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="dialog-actions">
+          <button type="button" data-testid="entry-zero-cancel" @click="cancelZeroEntrySave">取消</button>
+          <button class="primary-action" type="button" data-testid="entry-zero-confirm" @click="confirmZeroEntrySave">确认保存</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="downstreamTrace" class="modal-mask" data-testid="downstream-trace-dialog">
       <div class="dialog downstream-trace-dialog">
         <h3>{{ downstreamTrace.title }}</h3>
@@ -666,6 +699,26 @@ interface PendingEntryPaste {
   conflicts: EntryPasteConflict[];
 }
 
+interface PreparedEntryLines {
+  formLines: OrderLineForm[];
+  documentLines: ReturnType<typeof toDocumentLines>;
+  removedBlankCount: number;
+}
+
+interface ZeroEntryWarning {
+  lineNo: number;
+  productCode: string;
+  warehouseCode: string;
+  qty: number;
+  unitPrice: number;
+  reasons: string[];
+}
+
+interface PendingZeroEntrySave {
+  target: "salesOrder" | "document";
+  warnings: ZeroEntryWarning[];
+}
+
 interface OrderLineForm {
   lineNo?: number;
   productCode: string;
@@ -739,6 +792,7 @@ const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
 const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
+const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -1265,10 +1319,22 @@ function closeNavigation() {
 }
 
 async function saveCurrentSalesOrder() {
+  await saveCurrentSalesOrderDraft(false);
+}
+
+async function saveCurrentSalesOrderDraft(allowZeroValues: boolean) {
+  if (!allowZeroValues) {
+    pendingZeroEntrySave.value = null;
+  }
   formMessage.value = "";
   const preparedLines = prepareEntryLinesForSave(salesOrderForm.lines);
   if (!preparedLines.ok) {
     formMessage.value = preparedLines.message;
+    return;
+  }
+  const zeroWarnings = zeroEntryWarnings(preparedLines.formLines);
+  if (!allowZeroValues && zeroWarnings.length > 0) {
+    pendingZeroEntrySave.value = { target: "salesOrder", warnings: zeroWarnings };
     return;
   }
   salesOrderForm.lines = preparedLines.formLines;
@@ -1280,7 +1346,7 @@ async function saveCurrentSalesOrder() {
     ownerName: salesOrderForm.ownerName,
     lines: preparedLines.documentLines
   });
-  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount) : result.message;
+  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
   if (result.ok) {
     salesOrderForm.status = "DRAFT";
     const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
@@ -2307,14 +2373,30 @@ async function saveCurrentDocument() {
     await saveCurrentSalesOrder();
     return;
   }
+  await saveCurrentDocumentDraft(false);
+}
+
+async function saveCurrentDocumentDraft(allowZeroValues: boolean) {
+  if (isSalesOrderForm.value) {
+    await saveCurrentSalesOrderDraft(allowZeroValues);
+    return;
+  }
   const type = currentDocumentType();
   if (!type) {
     return;
+  }
+  if (!allowZeroValues) {
+    pendingZeroEntrySave.value = null;
   }
   formMessage.value = "";
   const preparedLines = prepareEntryLinesForSave(currentOrderForm.value.lines);
   if (!preparedLines.ok) {
     formMessage.value = preparedLines.message;
+    return;
+  }
+  const zeroWarnings = zeroEntryWarnings(preparedLines.formLines);
+  if (!allowZeroValues && zeroWarnings.length > 0) {
+    pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
     return;
   }
   currentOrderForm.value.lines = preparedLines.formLines;
@@ -2327,11 +2409,29 @@ async function saveCurrentDocument() {
     ownerName: currentOrderForm.value.ownerName,
     lines: preparedLines.documentLines
   });
-  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount) : result.message;
+  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
   if (result.ok) {
     currentOrderForm.value.status = "DRAFT";
     clearActiveDirty();
   }
+}
+
+function cancelZeroEntrySave() {
+  pendingZeroEntrySave.value = null;
+  formMessage.value = "已取消保存，请检查零数量/零单价分录。";
+}
+
+async function confirmZeroEntrySave() {
+  const pending = pendingZeroEntrySave.value;
+  if (!pending) {
+    return;
+  }
+  pendingZeroEntrySave.value = null;
+  if (pending.target === "salesOrder") {
+    await saveCurrentSalesOrderDraft(true);
+    return;
+  }
+  await saveCurrentDocumentDraft(true);
 }
 
 async function auditCurrentSalesOrder() {
@@ -2468,7 +2568,7 @@ function toDocumentLines(lines: OrderLineForm[]) {
   }));
 }
 
-function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true; formLines: OrderLineForm[]; documentLines: ReturnType<typeof toDocumentLines>; removedBlankCount: number } | { ok: false; message: string } {
+function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true } & PreparedEntryLines | { ok: false; message: string } {
   const nonBlankLines = lines
     .map((line, index) => ({ line, index }))
     .filter(({ line }) => !isBlankEntryLine(line));
@@ -2513,8 +2613,36 @@ function entryLineWarehouseCode(line: OrderLineForm) {
   return String(line.warehouseCode ?? "").trim() || "CK-001";
 }
 
-function saveSuccessMessage(removedBlankCount: number) {
-  return removedBlankCount > 0 ? `草稿已保存，已移除 ${removedBlankCount} 行空白分录` : "草稿已保存";
+function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
+  return lines
+    .map((line, index) => {
+      const qty = normalizedQty(line.qty);
+      const unitPrice = normalizedQty(line.unitPrice);
+      const reasons = [
+        qty === 0 ? "数量为 0" : "",
+        unitPrice === 0 ? "单价为 0" : ""
+      ].filter(Boolean);
+      return {
+        lineNo: index + 1,
+        productCode: entryLineProductCode(line),
+        warehouseCode: entryLineWarehouseCode(line),
+        qty,
+        unitPrice,
+        reasons
+      };
+    })
+    .filter((warning) => warning.reasons.length > 0);
+}
+
+function saveSuccessMessage(removedBlankCount: number, confirmedZeroCount = 0) {
+  const notes: string[] = [];
+  if (removedBlankCount > 0) {
+    notes.push(`已移除 ${removedBlankCount} 行空白分录`);
+  }
+  if (confirmedZeroCount > 0) {
+    notes.push(`已确认 ${confirmedZeroCount} 行零值分录`);
+  }
+  return notes.length > 0 ? `草稿已保存，${notes.join("，")}` : "草稿已保存";
 }
 
 function currentOutputDocumentType(): OutputDocumentType | null {
