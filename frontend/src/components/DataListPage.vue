@@ -63,6 +63,30 @@
         结束日期
         <input v-model="query.dateTo" type="date" data-testid="operation-log-date-to" />
       </label>
+      <div v-if="filtersExpanded && isOperationLogList" class="filter-preset-row">
+        <label>
+          预设名称
+          <input
+            v-model="presetName"
+            data-testid="operation-log-preset-name"
+            placeholder="如 红冲审计"
+            @keydown.enter="saveCurrentPreset"
+          />
+        </label>
+        <label>
+          已保存预设
+          <select v-model="selectedPresetId" data-testid="operation-log-preset-select">
+            <option value="">请选择</option>
+            <option v-for="preset in operationLogPresets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
+          </select>
+        </label>
+        <div class="filter-actions preset-actions">
+          <button type="button" data-testid="operation-log-preset-save" @click="saveCurrentPreset">保存预设</button>
+          <button type="button" :disabled="!selectedPresetId" data-testid="operation-log-preset-apply" @click="applySelectedPreset">应用预设</button>
+          <button type="button" :disabled="!selectedPresetId" data-testid="operation-log-preset-delete" @click="deleteSelectedPreset">删除预设</button>
+          <span v-if="presetMessage" class="filter-preset-message" data-testid="operation-log-preset-message">{{ presetMessage }}</span>
+        </div>
+      </div>
       <label v-if="filtersExpanded && !isOperationLogList">
         日期
         <input value="2026-06-01 至 2026-06-30" readonly />
@@ -310,6 +334,22 @@ interface ColumnFilter {
   value: string;
 }
 
+interface OperationLogPreset {
+  id: string;
+  name: string;
+  query: {
+    keyword: string;
+    status: string;
+    module: string;
+    action: string;
+    operator: string;
+    targetType: string;
+    dateFrom: string;
+    dateTo: string;
+  };
+  columnFilters: Record<string, ColumnFilter>;
+}
+
 interface CreateField {
   name: string;
   label: string;
@@ -346,6 +386,10 @@ const selectedRows = ref<Record<string, unknown>[]>([]);
 const createForm = reactive<Record<string, string>>({});
 const createError = ref("");
 const exportMessage = ref("");
+const presetMessage = ref("");
+const presetName = ref("");
+const selectedPresetId = ref("");
+const operationLogPresets = ref<OperationLogPreset[]>([]);
 const editOriginalCode = ref("");
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
@@ -768,6 +812,7 @@ const displayedRows = computed(() => rows.value);
 
 watch(() => props.listKey, () => {
   resetColumns();
+  loadOperationLogPresets();
   resetQuery();
 }, { immediate: true });
 
@@ -848,6 +893,100 @@ async function exportCurrentList() {
   exportMessage.value = "引出文件已生成";
 }
 
+function saveCurrentPreset() {
+  if (!isOperationLogList.value) {
+    return;
+  }
+  const name = presetName.value.trim() || "未命名预设";
+  const existing = operationLogPresets.value.find((preset) => preset.name === name);
+  const preset: OperationLogPreset = {
+    id: existing?.id ?? `operation-log-preset-${Date.now()}`,
+    name,
+    query: snapshotOperationLogQuery(),
+    columnFilters: snapshotColumnFilters()
+  };
+  operationLogPresets.value = existing
+    ? operationLogPresets.value.map((item) => item.id === existing.id ? preset : item)
+    : [...operationLogPresets.value, preset];
+  selectedPresetId.value = preset.id;
+  persistOperationLogPresets();
+  presetMessage.value = "预设已保存";
+}
+
+function applySelectedPreset() {
+  const preset = operationLogPresets.value.find((item) => item.id === selectedPresetId.value);
+  if (!preset) {
+    return;
+  }
+  Object.assign(query, {
+    ...preset.query,
+    page: 1
+  });
+  replaceColumnFilters(preset.columnFilters);
+  filtersExpanded.value = true;
+  presetName.value = preset.name;
+  presetMessage.value = "预设已应用";
+  reload();
+}
+
+function deleteSelectedPreset() {
+  const preset = operationLogPresets.value.find((item) => item.id === selectedPresetId.value);
+  if (!preset) {
+    return;
+  }
+  operationLogPresets.value = operationLogPresets.value.filter((item) => item.id !== preset.id);
+  selectedPresetId.value = "";
+  presetName.value = "";
+  persistOperationLogPresets();
+  presetMessage.value = "预设已删除";
+}
+
+function snapshotOperationLogQuery() {
+  return {
+    keyword: query.keyword,
+    status: query.status,
+    module: query.module,
+    action: query.action,
+    operator: query.operator,
+    targetType: query.targetType,
+    dateFrom: query.dateFrom,
+    dateTo: query.dateTo
+  };
+}
+
+function snapshotColumnFilters() {
+  return Object.fromEntries(Object.entries(columnFilters).map(([field, filter]) => [field, { ...filter }]));
+}
+
+function replaceColumnFilters(nextFilters: Record<string, ColumnFilter>) {
+  Object.keys(columnFilters).forEach((field) => delete columnFilters[field]);
+  Object.entries(nextFilters).forEach(([field, filter]) => {
+    columnFilters[field] = { ...filter };
+  });
+}
+
+function loadOperationLogPresets() {
+  if (!isOperationLogList.value) {
+    operationLogPresets.value = [];
+    selectedPresetId.value = "";
+    presetName.value = "";
+    return;
+  }
+  try {
+    operationLogPresets.value = JSON.parse(localStorage.getItem(operationLogPresetKey()) || "[]") as OperationLogPreset[];
+  } catch {
+    operationLogPresets.value = [];
+  }
+}
+
+function persistOperationLogPresets() {
+  localStorage.setItem(operationLogPresetKey(), JSON.stringify(operationLogPresets.value));
+}
+
+function operationLogPresetKey() {
+  return "jdy:operation-log-filter-presets";
+}
+
 function resetQuery() {
   query.keyword = "";
   query.status = "";
@@ -858,6 +997,7 @@ function resetQuery() {
   query.dateFrom = "";
   query.dateTo = "";
   query.page = 1;
+  presetMessage.value = "";
   reload();
 }
 
