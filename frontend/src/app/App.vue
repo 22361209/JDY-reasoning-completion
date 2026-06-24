@@ -494,6 +494,36 @@
       </div>
     </div>
 
+    <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
+      <div class="dialog entry-paste-conflict-dialog">
+        <h3>选择商品</h3>
+        <p>粘贴内容里有商品名称对应多个资料，请选定后再写入分录。</p>
+        <div v-for="conflict in pendingEntryPaste.conflicts" :key="conflict.lineIndex" class="entry-paste-conflict">
+          <div class="entry-paste-conflict-title">第 {{ conflict.lineIndex + 1 }} 行：{{ conflict.productText }}</div>
+          <div class="entry-paste-candidates">
+            <button
+              v-for="candidate in conflict.candidates"
+              :key="candidate.code"
+              type="button"
+              class="entry-paste-candidate"
+              :class="{ selected: conflict.selectedCode === candidate.code }"
+              :data-testid="entryPasteCandidateTestId(conflict.lineIndex, candidate.code)"
+              @click="selectEntryPasteCandidate(conflict.lineIndex, candidate.code)"
+            >
+              <strong>{{ candidate.code }}</strong>
+              <span>{{ candidate.name }}</span>
+              <span>{{ candidate.spec || "-" }}</span>
+              <small>{{ candidate.unit || "" }}</small>
+            </button>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" data-testid="entry-paste-cancel" @click="cancelPendingEntryPaste">取消</button>
+          <button type="button" data-testid="entry-paste-confirm" :disabled="!entryPasteConflictsResolved" @click="confirmPendingEntryPaste">确定</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="pendingPushDown" class="modal-mask" data-testid="push-confirm-dialog">
       <div class="dialog push-confirm-dialog">
         <h3>{{ pendingPushDown.title }}</h3>
@@ -617,6 +647,19 @@ interface EntryPasteRefs {
   warehouses: MasterOption[];
 }
 
+interface EntryPasteConflict {
+  lineIndex: number;
+  productText: string;
+  candidates: MasterOption[];
+  selectedCode?: string;
+}
+
+interface PendingEntryPaste {
+  startIndex: number;
+  lines: OrderLineForm[];
+  conflicts: EntryPasteConflict[];
+}
+
 interface OrderLineForm {
   lineNo?: number;
   productCode: string;
@@ -687,6 +730,7 @@ const pushConfirmError = ref("");
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
+const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -975,6 +1019,7 @@ const partyLabel = computed(() => {
 });
 const partyType = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "supplier" : "customer");
 const isDraftDocument = computed(() => isDocumentForm.value && currentOrderForm.value.status === "DRAFT");
+const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 const canReverseDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "AUDITED");
 const canVoidDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "DRAFT");
 const canDeleteSalesOrder = computed(() => isSalesOrderForm.value && currentOrderForm.value.status === "DRAFT");
@@ -1131,6 +1176,10 @@ function lineDownstreamTraceTestId(index: number) {
 
 function downstreamDocTestId(index: number) {
   return index === 0 ? "downstream-doc-open" : `downstream-doc-open-${index + 1}`;
+}
+
+function entryPasteCandidateTestId(lineIndex: number, code: string) {
+  return `entry-paste-candidate-${lineIndex + 1}-${code}`;
 }
 
 function lineExecutedQtyTestId(index: number) {
@@ -1778,12 +1827,22 @@ async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
   }
   event.preventDefault();
   const refs = await loadEntryPasteRefs();
-  const pastedLines = parseEntryClipboard(text, refs);
-  if (pastedLines.length === 0) {
+  const pasteResult = parseEntryClipboard(text, refs);
+  if (pasteResult.lines.length === 0) {
     formMessage.value = "未识别到可粘贴的分录。";
     return;
   }
-  applyPastedEntryLines(startIndex, pastedLines);
+  if (pasteResult.conflicts.length > 0) {
+    activeSelector.value = "";
+    pendingEntryPaste.value = {
+      startIndex,
+      lines: pasteResult.lines,
+      conflicts: pasteResult.conflicts
+    };
+    formMessage.value = `有 ${pasteResult.conflicts.length} 行商品需要选择。`;
+    return;
+  }
+  applyPastedEntryLines(startIndex, pasteResult.lines);
 }
 
 async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
@@ -1822,7 +1881,7 @@ function mergeMasterOptions(primary: MasterOption[], fallback: MasterOption[]) {
   return Array.from(byCode.values());
 }
 
-function parseEntryClipboard(text: string, refs: EntryPasteRefs): OrderLineForm[] {
+function parseEntryClipboard(text: string, refs: EntryPasteRefs): { lines: OrderLineForm[]; conflicts: EntryPasteConflict[] } {
   const rows = text
     .split(/\r?\n/)
     .map((row) => row.trim())
@@ -1830,16 +1889,26 @@ function parseEntryClipboard(text: string, refs: EntryPasteRefs): OrderLineForm[
     .map((row) => row.split(/\t|,|;/).map((cell) => cell.trim()))
     .filter((cells) => cells.some(Boolean));
   if (rows.length === 0) {
-    return [];
+    return { lines: [], conflicts: [] };
   }
   const header = detectEntryPasteHeader(rows[0]);
   const dataRows = header ? rows.slice(1) : rows;
-  return dataRows
-    .map((cells) => parseEntryPasteRow(cells, refs, header))
-    .filter((line): line is OrderLineForm => Boolean(line));
+  const lines: OrderLineForm[] = [];
+  const conflicts: EntryPasteConflict[] = [];
+  dataRows.forEach((cells) => {
+    const parsed = parseEntryPasteRow(cells, refs, header, lines.length);
+    if (!parsed) {
+      return;
+    }
+    lines.push(parsed.line);
+    if (parsed.conflict) {
+      conflicts.push(parsed.conflict);
+    }
+  });
+  return { lines, conflicts };
 }
 
-function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Record<string, number> | null): OrderLineForm | null {
+function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Record<string, number> | null, lineIndex: number): { line: OrderLineForm; conflict?: EntryPasteConflict } | null {
   const productToken = cellByHeader(cells, header, "productCode", header ? -1 : 0);
   const productName = cellByHeader(cells, header, "productName", header ? -1 : 0);
   const productSpec = cellByHeader(cells, header, "spec", -1);
@@ -1847,22 +1916,33 @@ function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Recor
   const warehouseName = cellByHeader(cells, header, "warehouseName", -1);
   const qtyText = cellByHeader(cells, header, "qty", header ? -1 : 2);
   const priceText = cellByHeader(cells, header, "unitPrice", header ? -1 : 3);
-  const matchedProduct = matchProduct(productToken, productName, productSpec, refs.products);
-  if (!matchedProduct && !productToken) {
+  const productMatch = matchProduct(productToken, productName, productSpec, refs.products);
+  if (!productMatch.product && !productToken && productMatch.candidates.length === 0) {
     return null;
   }
   const matchedWarehouse = matchMasterOption(warehouseToken || warehouseName, refs.warehouses);
   const fallbackWarehouseCode = warehouseToken || batchWarehouseCode.value.trim() || "CK-001";
   const qty = normalizedPositiveNumber(qtyText, 1);
   const unitPrice = normalizedPositiveNumber(priceText, isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86);
-  return {
-    productCode: matchedProduct?.code ?? productToken,
-    productName: matchedProduct?.name,
-    spec: matchedProduct?.spec ?? productSpec,
+  const line: OrderLineForm = {
+    productCode: productMatch.product?.code ?? productToken,
+    productName: productMatch.product?.name,
+    spec: productMatch.product?.spec ?? productSpec,
     warehouseCode: matchedWarehouse?.code ?? fallbackWarehouseCode,
     qty,
     unitPrice
   };
+  if (productMatch.candidates.length > 0) {
+    return {
+      line,
+      conflict: {
+        lineIndex,
+        productText: [productName || productToken, productSpec].filter(Boolean).join(" / "),
+        candidates: productMatch.candidates
+      }
+    };
+  }
+  return { line };
 }
 
 function detectEntryPasteHeader(cells: string[]) {
@@ -1920,19 +2000,36 @@ function cellByHeader(cells: string[], header: Record<string, number> | null, fi
   return fallbackIndex >= 0 ? cells[fallbackIndex]?.trim() ?? "" : "";
 }
 
-function matchProduct(productToken: string, productName: string, productSpec: string, products: MasterOption[]) {
-  const exactByToken = matchMasterOption(productToken, products);
-  if (exactByToken) {
-    return exactByToken;
+function matchProduct(productToken: string, productName: string, productSpec: string, products: MasterOption[]): { product?: MasterOption; candidates: MasterOption[] } {
+  const exactByCode = matchMasterOptionCode(productToken, products);
+  if (exactByCode) {
+    return { product: exactByCode, candidates: [] };
   }
   const normalizedName = normalizePasteText(productName || productToken);
   const normalizedSpec = normalizePasteText(productSpec);
   if (!normalizedName) {
-    return undefined;
+    return { candidates: [] };
   }
-  return products.find((option) => normalizePasteText(option.name) === normalizedName && (!normalizedSpec || normalizePasteText(option.spec ?? "") === normalizedSpec))
-    ?? products.find((option) => normalizePasteText(`${option.name}${option.spec ?? ""}`) === normalizePasteText(`${productName || productToken}${productSpec}`))
-    ?? products.find((option) => normalizePasteText(option.name) === normalizedName);
+  const sameName = products.filter((option) => normalizePasteText(option.name) === normalizedName);
+  const exactNameAndSpec = sameName.filter((option) => normalizePasteText(option.spec ?? "") === normalizedSpec);
+  if (normalizedSpec && exactNameAndSpec.length === 1) {
+    return { product: exactNameAndSpec[0], candidates: [] };
+  }
+  if (sameName.length === 1 && (!normalizedSpec || exactNameAndSpec.length === 1)) {
+    return { product: sameName[0], candidates: [] };
+  }
+  if (sameName.length > 1) {
+    return { candidates: exactNameAndSpec.length > 1 ? exactNameAndSpec : sameName };
+  }
+  const joinedText = normalizePasteText(`${productName || productToken}${productSpec}`);
+  const joinedMatches = products.filter((option) => normalizePasteText(`${option.name}${option.spec ?? ""}`) === joinedText);
+  if (joinedMatches.length === 1) {
+    return { product: joinedMatches[0], candidates: [] };
+  }
+  if (joinedMatches.length > 1) {
+    return { candidates: joinedMatches };
+  }
+  return { candidates: [] };
 }
 
 function matchMasterOption(token: string, options: MasterOption[]) {
@@ -1940,12 +2037,21 @@ function matchMasterOption(token: string, options: MasterOption[]) {
   if (!normalized) {
     return undefined;
   }
-  return options.find((option) => normalizePasteText(option.code) === normalized)
+  return matchMasterOptionCode(token, options)
     ?? options.find((option) => normalizePasteText(option.name) === normalized);
+}
+
+function matchMasterOptionCode(token: string, options: MasterOption[]) {
+  const normalized = normalizePasteText(token);
+  if (!normalized) {
+    return undefined;
+  }
+  return options.find((option) => normalizePasteText(option.code) === normalized);
 }
 
 function normalizePasteText(value: string | undefined) {
   return String(value ?? "")
+    .replace(/原材料/g, "原料")
     .replace(/\s+/g, "")
     .replace(/[（）()【】\[\]]/g, "")
     .replace(/[\/_.-]/g, "")
@@ -1971,6 +2077,37 @@ function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[])
   formMessage.value = `已粘贴 ${pastedLines.length} 行分录`;
   markActiveDirty();
   void focusLineCell(startIndex + pastedLines.length - 1, "qty");
+}
+
+function selectEntryPasteCandidate(lineIndex: number, code: string) {
+  const pending = pendingEntryPaste.value;
+  if (!pending) {
+    return;
+  }
+  const conflict = pending.conflicts.find((item) => item.lineIndex === lineIndex);
+  const candidate = conflict?.candidates.find((item) => item.code === code);
+  const line = pending.lines[lineIndex];
+  if (!conflict || !candidate || !line) {
+    return;
+  }
+  conflict.selectedCode = code;
+  line.productCode = candidate.code;
+  line.productName = candidate.name;
+  line.spec = candidate.spec ?? "";
+}
+
+function cancelPendingEntryPaste() {
+  pendingEntryPaste.value = null;
+  formMessage.value = "已取消本次粘贴。";
+}
+
+function confirmPendingEntryPaste() {
+  const pending = pendingEntryPaste.value;
+  if (!pending || !entryPasteConflictsResolved.value) {
+    return;
+  }
+  applyPastedEntryLines(pending.startIndex, pending.lines);
+  pendingEntryPaste.value = null;
 }
 
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {

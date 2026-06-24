@@ -47,7 +47,7 @@ public class ListStubController {
         }
 
         var filters = parseColumnFilters(columnFilters);
-        var rows = expandRowsForLargePage(seedRows(listKey), pageSize).stream()
+        var rows = expandRowsForLargePage(listKey, seedRows(listKey), pageSize).stream()
             .filter(row -> keyword.isBlank() || row.values().stream().anyMatch(value -> String.valueOf(value).contains(keyword)))
             .filter(row -> status.isBlank() || status.equals(row.get("status")))
             .filter(row -> matchesColumnFilters(row, filters))
@@ -106,8 +106,8 @@ public class ListStubController {
         return "desc".equalsIgnoreCase(sortOrder) ? comparator.reversed() : comparator;
     }
 
-    private List<Map<String, ?>> expandRowsForLargePage(List<Map<String, ?>> seedRows, int pageSize) {
-        if (pageSize < 1000 || seedRows.isEmpty()) {
+    private List<Map<String, ?>> expandRowsForLargePage(String listKey, List<Map<String, ?>> seedRows, int pageSize) {
+        if (pageSize < 1000 || seedRows.isEmpty() || !isSyntheticExpandableList(listKey)) {
             return seedRows;
         }
         var rows = new ArrayList<Map<String, ?>>();
@@ -124,6 +124,11 @@ public class ListStubController {
             rows.add(row);
         }
         return rows;
+    }
+
+    private boolean isSyntheticExpandableList(String listKey) {
+        return Stream.of("standard-list", "error-list", "permission-denied-list")
+            .anyMatch(listKey::equals);
     }
 
     private List<Map<String, ?>> seedRows(String listKey) {
