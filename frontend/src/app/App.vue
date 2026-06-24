@@ -197,9 +197,12 @@
             <button class="primary-action" type="button" :disabled="isLockedList">新增</button>
             <button type="button" :disabled="!isDocumentForm" data-testid="save-sales-order" @click="saveCurrentDocument">保存</button>
             <button type="button" :disabled="!isDocumentForm" data-testid="audit-sales-order" @click="auditCurrentDocument">审核</button>
+            <button type="button" :disabled="!isReversibleDocumentForm" data-testid="reverse-document" @click="reverseCurrentDocument">反审核</button>
+            <button type="button" :disabled="!isReversibleDocumentForm" data-testid="red-reverse-document" @click="redReverseCurrentDocument">红冲</button>
+            <button type="button" :disabled="!isReversibleDocumentForm" data-testid="void-document" @click="voidCurrentDocument">作废</button>
             <button type="button" :disabled="!isSalesOrderForm" data-testid="delete-sales-order" @click="deleteCurrentSalesOrder">删除</button>
-            <button type="button" :disabled="!isSalesOrderForm" data-testid="export-sales-order" @click="exportCurrentSalesOrder">引出</button>
-            <button type="button" :disabled="!isSalesOrderForm" data-testid="print-sales-order" @click="printCurrentSalesOrder">打印</button>
+            <button type="button" :disabled="!isDocumentForm" data-testid="export-sales-order" @click="exportCurrentDocument">引出</button>
+            <button type="button" :disabled="!isDocumentForm" data-testid="print-sales-order" @click="printCurrentDocument">打印</button>
             <span v-if="tabs.activeTab.value.dirty" class="dirty-tip">有未保存改动</span>
             <span v-if="formMessage" class="form-message" data-testid="form-message">{{ formMessage }}</span>
           </div>
@@ -215,12 +218,14 @@
                     :data-testid="`${formTestPrefix}-party-code`"
                     @focus="searchMasterOptions(partyType, currentOrderForm.partyCode, `${formTestPrefix}-party`)"
                     @input="handleMasterInput(partyType, currentOrderForm.partyCode, `${formTestPrefix}-party`)"
+                    @keydown="handleSelectorKeydown($event, `${formTestPrefix}-party`)"
                   />
                   <span v-if="activeSelector === `${formTestPrefix}-party`" class="master-selector__menu">
                     <button
-                      v-for="option in selectorOptions"
+                      v-for="(option, optionIndex) in selectorOptions"
                       :key="option.code"
                       type="button"
+                      :class="{ selected: selectorCursorIndex === optionIndex }"
                       @mousedown.prevent="selectPartyOption(option)"
                     >
                       <strong>{{ option.code }}</strong>
@@ -255,12 +260,14 @@
                           :data-testid="`${formTestPrefix}-line-product`"
                           @focus="searchMasterOptions('product', currentOrderForm.lines[0].productCode, `${formTestPrefix}-product`)"
                           @input="handleMasterInput('product', currentOrderForm.lines[0].productCode, `${formTestPrefix}-product`)"
+                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-product`)"
                         />
                         <span v-if="activeSelector === `${formTestPrefix}-product`" class="master-selector__menu">
                           <button
-                            v-for="option in selectorOptions"
+                            v-for="(option, optionIndex) in selectorOptions"
                             :key="option.code"
                             type="button"
+                            :class="{ selected: selectorCursorIndex === optionIndex }"
                             @mousedown.prevent="selectLineProduct(option)"
                           >
                             <strong>{{ option.code }}</strong>
@@ -278,12 +285,14 @@
                           :data-testid="`${formTestPrefix}-line-warehouse`"
                           @focus="searchMasterOptions('warehouse', currentOrderForm.lines[0].warehouseCode, `${formTestPrefix}-warehouse`)"
                           @input="handleMasterInput('warehouse', currentOrderForm.lines[0].warehouseCode, `${formTestPrefix}-warehouse`)"
+                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-warehouse`)"
                         />
                         <span v-if="activeSelector === `${formTestPrefix}-warehouse`" class="master-selector__menu">
                           <button
-                            v-for="option in selectorOptions"
+                            v-for="(option, optionIndex) in selectorOptions"
                             :key="option.code"
                             type="button"
+                            :class="{ selected: selectorCursorIndex === optionIndex }"
                             @mousedown.prevent="selectWarehouseOption(option)"
                           >
                             <strong>{{ option.code }}</strong>
@@ -340,9 +349,9 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
-import { auditDocument, saveDocumentDraft, type DocumentType } from "../services/documentApi";
+import { auditDocument, exportDocument, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentType, type OutputDocumentType } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
-import { auditSalesOrder, deleteSalesOrder, exportSalesOrder, printSalesOrder, saveSalesOrderDraft } from "../services/salesOrderApi";
+import { auditSalesOrder, deleteSalesOrder, saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -445,6 +454,7 @@ const salesOutForm = reactive<OrderForm>({
 });
 const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
+const selectorCursorIndex = ref(0);
 let selectorRequestSeq = 0;
 
 const moduleCatalog: ShellModule[] = [
@@ -596,6 +606,7 @@ const isPurchaseOrderForm = computed(() => tabs.activeTab.value.id === "purchase
 const isPurchaseInForm = computed(() => tabs.activeTab.value.id === "purchase-in-form");
 const isSalesOutForm = computed(() => tabs.activeTab.value.id === "sales-out-form");
 const isStockDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
+const isReversibleDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
 const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value);
 const currentOrderForm = computed(() => {
   if (isPurchaseOrderForm.value) {
@@ -737,6 +748,38 @@ async function auditCurrentDocument() {
   formMessage.value = result.ok ? "审核成功" : result.message;
 }
 
+async function reverseCurrentDocument() {
+  const type = currentDocumentType();
+  if (!type || !isReversibleDocumentForm.value) {
+    return;
+  }
+  const result = await reverseDocument(type, currentOrderForm.value.billNo);
+  formMessage.value = result.ok ? "反审核成功，库存流水已冲销" : result.message;
+}
+
+async function voidCurrentDocument() {
+  const type = currentDocumentType();
+  if (!type || !isReversibleDocumentForm.value) {
+    return;
+  }
+  const result = await voidDocument(type, currentOrderForm.value.billNo);
+  formMessage.value = result.ok ? "作废成功" : result.message;
+}
+
+async function redReverseCurrentDocument() {
+  const type = currentDocumentType();
+  if (!type || !isReversibleDocumentForm.value) {
+    return;
+  }
+  const redBillNo = `HC-${currentOrderForm.value.billNo}`;
+  const result = await redReverseDocument(type, currentOrderForm.value.billNo, {
+    redBillNo,
+    billDate: currentOrderForm.value.billDate,
+    ownerName: currentOrderForm.value.ownerName
+  });
+  formMessage.value = result.ok ? `红冲成功：${redBillNo}` : result.message;
+}
+
 async function deleteCurrentSalesOrder() {
   const result = await deleteSalesOrder(salesOrderForm.billNo);
   formMessage.value = result.ok ? "删除成功" : result.message;
@@ -748,14 +791,22 @@ async function deleteCurrentSalesOrder() {
   }
 }
 
-async function exportCurrentSalesOrder() {
-  const result = await exportSalesOrder(salesOrderForm.billNo);
-  formMessage.value = result.ok ? "引出数据已生成" : result.message;
+async function exportCurrentDocument() {
+  const type = currentOutputDocumentType();
+  if (!type) {
+    return;
+  }
+  const result = await exportDocument(type, currentOrderForm.value.billNo);
+  formMessage.value = result.ok ? "引出文件已生成" : result.message;
 }
 
-async function printCurrentSalesOrder() {
-  const result = await printSalesOrder(salesOrderForm.billNo);
-  formMessage.value = result.ok ? "打印数据已生成" : result.message;
+async function printCurrentDocument() {
+  const type = currentOutputDocumentType();
+  if (!type) {
+    return;
+  }
+  const result = await printDocument(type, currentOrderForm.value.billNo);
+  formMessage.value = result.ok ? "打印页面已生成" : result.message;
 }
 
 function markActiveDirty() {
@@ -785,6 +836,22 @@ function currentDocumentType(): DocumentType | null {
   return null;
 }
 
+function currentOutputDocumentType(): OutputDocumentType | null {
+  if (isSalesOrderForm.value) {
+    return "salesOrder";
+  }
+  if (isPurchaseOrderForm.value) {
+    return "purchaseOrder";
+  }
+  if (isPurchaseInForm.value) {
+    return "purchaseIn";
+  }
+  if (isSalesOutForm.value) {
+    return "salesOut";
+  }
+  return null;
+}
+
 function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
   markActiveDirty();
   void searchMasterOptions(type, keywordValue, selectorId);
@@ -793,6 +860,7 @@ function handleMasterInput(type: string, keywordValue: string, selectorId: strin
 async function searchMasterOptions(type: string, keywordValue: string, selectorId: string) {
   activeSelector.value = selectorId;
   selectorOptions.value = [];
+  selectorCursorIndex.value = 0;
   const requestSeq = selectorRequestSeq + 1;
   selectorRequestSeq = requestSeq;
   const listKeyByType: Record<string, string> = {
@@ -820,6 +888,38 @@ async function searchMasterOptions(type: string, keywordValue: string, selectorI
     spec: row.spec ? String(row.spec) : "",
     unit: row.unit ? String(row.unit) : ""
   }));
+  selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
+}
+
+function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
+  if (event.key === "Escape") {
+    activeSelector.value = "";
+    return;
+  }
+  if (activeSelector.value !== selectorId || selectorOptions.value.length === 0) {
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    selectorCursorIndex.value = Math.min(selectorCursorIndex.value + 1, selectorOptions.value.length - 1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    selectorCursorIndex.value = Math.max(selectorCursorIndex.value - 1, 0);
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    const option = selectorOptions.value[selectorCursorIndex.value] ?? selectorOptions.value[0];
+    if (selectorId.endsWith("-party")) {
+      selectPartyOption(option);
+    } else if (selectorId.endsWith("-product")) {
+      selectLineProduct(option);
+    } else if (selectorId.endsWith("-warehouse")) {
+      selectWarehouseOption(option);
+    }
+  }
 }
 
 function selectPartyOption(option: MasterOption) {

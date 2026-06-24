@@ -72,14 +72,16 @@ public class PurchaseInController {
         var rows = jdbcTemplate.queryForList("""
             UPDATE purchase_in
             SET status = 'AUDITED', updated_at = now(), version = version + 1
-            WHERE bill_no = ?
+            WHERE bill_no = ? AND status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", source_order_id::text AS "sourceOrderId"
             """, billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "采购入库单不存在");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库单不存在或已审核");
         }
+        var billId = String.valueOf(rows.get(0).get("id"));
+        var sourceOrderId = rows.get(0).get("sourceOrderId");
         var lines = jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT l.line_no AS "lineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM purchase_in_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -96,11 +98,167 @@ public class PurchaseInController {
                 "PURCHASE_IN:" + billNo
             );
         }
-        var sourceOrderId = rows.get(0).get("sourceOrderId");
         if (sourceOrderId != null) {
-            jdbcTemplate.update("UPDATE purchase_order SET in_status = 'ALL_IN', updated_at = now(), version = version + 1 WHERE id = ?::uuid", sourceOrderId);
+            for (var line : lines) {
+                jdbcTemplate.update("""
+                    UPDATE purchase_order_line
+                    SET received_qty = received_qty + ?
+                    WHERE order_id = ?::uuid AND line_no = ?
+                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
+            }
+            refreshPurchaseOrderInStatus(String.valueOf(sourceOrderId));
         }
+        log("PURCHASE", "AUDIT", "purchase_in", billId, true, null);
         return rows.get(0);
+    }
+
+    @PostMapping("/{billNo}/reverse")
+    @Transactional
+    public Map<String, Object> reverse(@PathVariable String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE purchase_in
+            SET status = 'REVERSED', reversed_at = now(), updated_at = now(), version = version + 1
+            WHERE bill_no = ? AND status = 'AUDITED'
+            RETURNING id::text AS id, bill_no AS "billNo", source_order_id::text AS "sourceOrderId"
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库单不存在或不能反审核");
+        }
+        var billId = String.valueOf(rows.get(0).get("id"));
+        var sourceOrderId = rows.get(0).get("sourceOrderId");
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            FROM purchase_in_line l
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN purchase_in pi ON pi.id = l.bill_id
+            WHERE pi.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        for (var line : lines) {
+            postingService.post(
+                String.valueOf(line.get("productCode")),
+                String.valueOf(line.get("warehouseCode")),
+                ((BigDecimal) line.get("qty")).negate(),
+                "PURCHASE_IN_REVERSE",
+                "PURCHASE_IN_REVERSE:" + billNo
+            );
+        }
+        if (sourceOrderId != null) {
+            for (var line : lines) {
+                jdbcTemplate.update("""
+                    UPDATE purchase_order_line
+                    SET received_qty = GREATEST(0, received_qty - ?)
+                    WHERE order_id = ?::uuid AND line_no = ?
+                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
+            }
+            refreshPurchaseOrderInStatus(String.valueOf(sourceOrderId));
+        }
+        log("PURCHASE", "REVERSE", "purchase_in", billId, true, null);
+        return rows.get(0);
+    }
+
+    @PostMapping("/{billNo}/void")
+    @Transactional
+    public Map<String, Object> voidBill(@PathVariable String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE purchase_in
+            SET status = 'VOID', voided_at = now(), updated_at = now(), version = version + 1
+            WHERE bill_no = ? AND status = 'DRAFT'
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿采购入库单可以作废");
+        }
+        log("PURCHASE", "VOID", "purchase_in", String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
+    }
+
+    @PostMapping("/{billNo}/red-reverse")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
+    public Map<String, Object> redReverse(@PathVariable String billNo, @RequestBody RedReverseRequest request) {
+        var sourceRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   source_order_id::text AS "sourceOrderId",
+                   supplier_id::text AS "supplierId",
+                   department,
+                   total_amount,
+                   owner_name AS "ownerName"
+            FROM purchase_in
+            WHERE bill_no = ? AND status = 'AUDITED'
+            """, billNo);
+        if (sourceRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核采购入库单可以红冲");
+        }
+        var redBillNo = required(request.redBillNo(), "红冲单号");
+        if (!jdbcTemplate.queryForList("SELECT 1 FROM purchase_in WHERE bill_no = ?", redBillNo).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "红冲单号已存在");
+        }
+        var source = sourceRows.get(0);
+        var redBill = jdbcTemplate.queryForMap("""
+            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, 'AUDITED', ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
+            """,
+            redBillNo,
+            source.get("sourceOrderId"),
+            source.get("supplierId"),
+            LocalDate.parse(required(request.billDate(), "红冲日期")),
+            source.get("department"),
+            ((BigDecimal) source.get("total_amount")).negate(),
+            request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
+        );
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   w.code AS "warehouseCode",
+                   l.product_id::text AS "productId",
+                   l.warehouse_id::text AS "warehouseId",
+                   l.qty,
+                   l.unit_price AS "unitPrice",
+                   l.amount
+            FROM purchase_in_line l
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN purchase_in pi ON pi.id = l.bill_id
+            WHERE pi.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        for (var line : lines) {
+            var qty = (BigDecimal) line.get("qty");
+            jdbcTemplate.update("""
+                INSERT INTO purchase_in_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
+                """,
+                redBill.get("id"),
+                line.get("lineNo"),
+                line.get("productId"),
+                line.get("warehouseId"),
+                qty.negate(),
+                line.get("unitPrice"),
+                ((BigDecimal) line.get("amount")).negate()
+            );
+            postingService.post(
+                String.valueOf(line.get("productCode")),
+                String.valueOf(line.get("warehouseCode")),
+                qty.negate(),
+                "PURCHASE_IN_RED",
+                "PURCHASE_IN_RED:" + redBillNo
+            );
+            if (source.get("sourceOrderId") != null) {
+                jdbcTemplate.update("""
+                    UPDATE purchase_order_line
+                    SET received_qty = GREATEST(0, received_qty - ?)
+                    WHERE order_id = ?::uuid AND line_no = ?
+                    """, qty, source.get("sourceOrderId"), line.get("lineNo"));
+            }
+        }
+        if (source.get("sourceOrderId") != null) {
+            refreshPurchaseOrderInStatus(String.valueOf(source.get("sourceOrderId")));
+        }
+        log("PURCHASE", "RED_REVERSE", "purchase_in", String.valueOf(redBill.get("id")), true, null);
+        return redBill;
     }
 
     private void insertLines(String table, String billIdColumn, Object billId, List<PurchaseInLineRequest> lines) {
@@ -137,6 +295,27 @@ public class PurchaseInController {
         return String.valueOf(rows.get(0).get("id"));
     }
 
+    private void refreshPurchaseOrderInStatus(String orderId) {
+        jdbcTemplate.update("""
+            UPDATE purchase_order
+            SET in_status = CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM purchase_order_line WHERE order_id = ?::uuid AND received_qty > 0) THEN 'NOT_IN'
+                    WHEN NOT EXISTS (SELECT 1 FROM purchase_order_line WHERE order_id = ?::uuid AND received_qty < qty) THEN 'ALL_IN'
+                    ELSE 'PART_IN'
+                END,
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, orderId, orderId, orderId);
+    }
+
+    private void log(String module, String action, String targetType, String targetId, boolean success, String reason) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
+            VALUES (?, ?, ?, ?::uuid, ?, ?)
+            """, module, action, targetType, targetId, success, reason);
+    }
+
     private String required(String value, String label) {
         if (value == null || value.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能为空");
@@ -153,5 +332,8 @@ public class PurchaseInController {
     }
 
     public record PurchaseInLineRequest(String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitPrice) {
+    }
+
+    public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {
     }
 }

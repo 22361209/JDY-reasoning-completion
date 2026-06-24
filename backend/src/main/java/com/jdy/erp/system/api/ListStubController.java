@@ -136,6 +136,12 @@ public class ListStubController {
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
             case "sales-out-list", "sales-out-form-list" -> salesOutRows();
             case "inventory-query-list" -> realInventoryRows();
+            case "receivable-list", "ar-receivable-list" -> receivableRows();
+            case "payable-list", "ap-payable-list" -> payableRows();
+            case "bom-list" -> bomRows();
+            case "production-task-list", "production-task-form-list" -> productionTaskRows();
+            case "role-list", "user-role-list" -> roleRows();
+            case "operation-log-list" -> operationLogRows();
             default -> salesRows();
         };
     }
@@ -217,8 +223,12 @@ public class ListStubController {
                    so.bill_no AS "billNo",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   CASE WHEN so.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
-                   CASE WHEN so.out_status = 'ALL_OUT' THEN '全部出库' ELSE '未出库' END AS "outStatus",
+                   CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                   CASE
+                       WHEN so.out_status = 'ALL_OUT' THEN '全部出库'
+                       WHEN so.out_status = 'PART_OUT' THEN '部分出库'
+                       ELSE '未出库'
+                   END AS "outStatus",
                    trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(so.owner_name, '') AS owner
             FROM sales_order so
@@ -239,8 +249,12 @@ public class ListStubController {
                    po.bill_no AS "billNo",
                    s.name AS supplier,
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   CASE WHEN po.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
-                   CASE WHEN po.in_status = 'ALL_IN' THEN '全部入库' ELSE '未入库' END AS "inStatus",
+                   CASE WHEN po.status = 'DRAFT' THEN '草稿' WHEN po.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                   CASE
+                       WHEN po.in_status = 'ALL_IN' THEN '全部入库'
+                       WHEN po.in_status = 'PART_IN' THEN '部分入库'
+                       ELSE '未入库'
+                   END AS "inStatus",
                    trim(to_char(po.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(po.owner_name, '') AS owner
             FROM purchase_order po
@@ -255,7 +269,12 @@ public class ListStubController {
                    pi.bill_no AS "billNo",
                    s.name AS supplier,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   CASE WHEN pi.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   CASE
+                       WHEN pi.status = 'DRAFT' THEN '草稿'
+                       WHEN pi.status = 'REVERSED' THEN '已反审核'
+                       WHEN pi.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
                    trim(to_char(pi.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(w.name, '') AS warehouse
             FROM purchase_in pi
@@ -272,7 +291,12 @@ public class ListStubController {
                    so.bill_no AS "billNo",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   CASE WHEN so.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   CASE
+                       WHEN so.status = 'DRAFT' THEN '草稿'
+                       WHEN so.status = 'REVERSED' THEN '已反审核'
+                       WHEN so.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
                    trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(w.name, '') AS warehouse
             FROM sales_out so
@@ -280,6 +304,115 @@ public class ListStubController {
             LEFT JOIN sales_out_line l ON l.bill_id = so.id AND l.line_no = 1
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY so.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> receivableRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT ar.id::text AS id,
+                   ar.bill_no AS "billNo",
+                   COALESCE(ar.source_bill_no, '') AS "sourceBillNo",
+                   c.name AS customer,
+                   to_char(ar.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   trim(to_char(ar.amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(ar.received_amount, 'FM9999999990.00')) AS "receivedAmount",
+                   CASE
+                       WHEN ar.status = 'SETTLED' THEN '已核销'
+                       WHEN ar.status = 'PART_SETTLED' THEN '部分核销'
+                       ELSE '未核销'
+                   END AS status
+            FROM ar_receivable ar
+            JOIN md_customer c ON c.id = ar.customer_id
+            ORDER BY ar.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> payableRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT ap.id::text AS id,
+                   ap.bill_no AS "billNo",
+                   COALESCE(ap.source_bill_no, '') AS "sourceBillNo",
+                   s.name AS supplier,
+                   to_char(ap.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   trim(to_char(ap.amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(ap.paid_amount, 'FM9999999990.00')) AS "paidAmount",
+                   CASE
+                       WHEN ap.status = 'SETTLED' THEN '已核销'
+                       WHEN ap.status = 'PART_SETTLED' THEN '部分核销'
+                       ELSE '未核销'
+                   END AS status
+            FROM ap_payable ap
+            JOIN md_supplier s ON s.id = ap.supplier_id
+            ORDER BY ap.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> productionTaskRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT t.id::text AS id,
+                   t.bill_no AS "billNo",
+                   b.code AS "bomCode",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   w.name AS warehouse,
+                   trim(to_char(t.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(t.issued_qty, 'FM9999999990.####')) AS "issuedQty",
+                   trim(to_char(t.completed_qty, 'FM9999999990.####')) AS "completedQty",
+                   CASE
+                       WHEN t.status = 'COMPLETED' THEN '已完工'
+                       WHEN t.status = 'ISSUED' THEN '已领料'
+                       WHEN t.status = 'AUDITED' THEN '已审核'
+                       ELSE '草稿'
+                   END AS status
+            FROM production_task t
+            JOIN prod_bom b ON b.id = t.bom_id
+            JOIN md_product p ON p.id = t.product_id
+            JOIN md_warehouse w ON w.id = t.warehouse_id
+            ORDER BY t.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> bomRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT b.id::text AS id,
+                   b.code,
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   trim(to_char(b.qty, 'FM9999999990.####')) AS qty,
+                   CASE WHEN b.enabled THEN '启用' ELSE '禁用' END AS status
+            FROM prod_bom b
+            JOIN md_product p ON p.id = b.product_id
+            ORDER BY b.code
+            """));
+    }
+
+    private List<Map<String, ?>> roleRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT r.id::text AS id,
+                   r.code,
+                   r.name,
+                   CASE WHEN r.enabled THEN '启用' ELSE '禁用' END AS status,
+                   COALESCE(string_agg(p.permission_code, ', ' ORDER BY p.permission_code) FILTER (WHERE p.enabled), '') AS permissions
+            FROM sys_role r
+            LEFT JOIN sys_permission p ON p.role_id = r.id
+            GROUP BY r.id, r.code, r.name, r.enabled
+            ORDER BY r.code
+            """));
+    }
+
+    private List<Map<String, ?>> operationLogRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT l.id::text AS id,
+                   l.module_code AS module,
+                   l.action_code AS action,
+                   l.target_type AS "targetType",
+                   COALESCE(l.target_id::text, '') AS "targetId",
+                   CASE WHEN l.success THEN '成功' ELSE '失败' END AS status,
+                   COALESCE(l.failure_reason, '') AS reason,
+                   to_char(l.operated_at, 'YYYY-MM-DD HH24:MI:SS') AS "operatedAt"
+            FROM sys_operation_log l
+            ORDER BY l.operated_at DESC
+            LIMIT 500
             """));
     }
 }

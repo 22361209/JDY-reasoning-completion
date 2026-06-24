@@ -72,14 +72,16 @@ public class SalesOutController {
         var rows = jdbcTemplate.queryForList("""
             UPDATE sales_out
             SET status = 'AUDITED', updated_at = now(), version = version + 1
-            WHERE bill_no = ?
+            WHERE bill_no = ? AND status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", source_order_id::text AS "sourceOrderId"
             """, billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售出库单不存在");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库单不存在或已审核");
         }
+        var billId = String.valueOf(rows.get(0).get("id"));
+        var sourceOrderId = rows.get(0).get("sourceOrderId");
         var lines = jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT l.line_no AS "lineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM sales_out_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -96,11 +98,167 @@ public class SalesOutController {
                 "SALES_OUT:" + billNo
             );
         }
-        var sourceOrderId = rows.get(0).get("sourceOrderId");
         if (sourceOrderId != null) {
-            jdbcTemplate.update("UPDATE sales_order SET out_status = 'ALL_OUT', updated_at = now(), version = version + 1 WHERE id = ?::uuid", sourceOrderId);
+            for (var line : lines) {
+                jdbcTemplate.update("""
+                    UPDATE sales_order_line
+                    SET shipped_qty = shipped_qty + ?
+                    WHERE order_id = ?::uuid AND line_no = ?
+                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
+            }
+            refreshSalesOrderOutStatus(String.valueOf(sourceOrderId));
         }
+        log("SALES", "AUDIT", "sales_out", billId, true, null);
         return rows.get(0);
+    }
+
+    @PostMapping("/{billNo}/reverse")
+    @Transactional
+    public Map<String, Object> reverse(@PathVariable String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE sales_out
+            SET status = 'REVERSED', reversed_at = now(), updated_at = now(), version = version + 1
+            WHERE bill_no = ? AND status = 'AUDITED'
+            RETURNING id::text AS id, bill_no AS "billNo", source_order_id::text AS "sourceOrderId"
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库单不存在或不能反审核");
+        }
+        var billId = String.valueOf(rows.get(0).get("id"));
+        var sourceOrderId = rows.get(0).get("sourceOrderId");
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            FROM sales_out_line l
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN sales_out so ON so.id = l.bill_id
+            WHERE so.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        for (var line : lines) {
+            postingService.post(
+                String.valueOf(line.get("productCode")),
+                String.valueOf(line.get("warehouseCode")),
+                (BigDecimal) line.get("qty"),
+                "SALES_OUT_REVERSE",
+                "SALES_OUT_REVERSE:" + billNo
+            );
+        }
+        if (sourceOrderId != null) {
+            for (var line : lines) {
+                jdbcTemplate.update("""
+                    UPDATE sales_order_line
+                    SET shipped_qty = GREATEST(0, shipped_qty - ?)
+                    WHERE order_id = ?::uuid AND line_no = ?
+                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
+            }
+            refreshSalesOrderOutStatus(String.valueOf(sourceOrderId));
+        }
+        log("SALES", "REVERSE", "sales_out", billId, true, null);
+        return rows.get(0);
+    }
+
+    @PostMapping("/{billNo}/void")
+    @Transactional
+    public Map<String, Object> voidBill(@PathVariable String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE sales_out
+            SET status = 'VOID', voided_at = now(), updated_at = now(), version = version + 1
+            WHERE bill_no = ? AND status = 'DRAFT'
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿销售出库单可以作废");
+        }
+        log("SALES", "VOID", "sales_out", String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
+    }
+
+    @PostMapping("/{billNo}/red-reverse")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
+    public Map<String, Object> redReverse(@PathVariable String billNo, @RequestBody RedReverseRequest request) {
+        var sourceRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   source_order_id::text AS "sourceOrderId",
+                   customer_id::text AS "customerId",
+                   department,
+                   total_amount,
+                   owner_name AS "ownerName"
+            FROM sales_out
+            WHERE bill_no = ? AND status = 'AUDITED'
+            """, billNo);
+        if (sourceRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核销售出库单可以红冲");
+        }
+        var redBillNo = required(request.redBillNo(), "红冲单号");
+        if (!jdbcTemplate.queryForList("SELECT 1 FROM sales_out WHERE bill_no = ?", redBillNo).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "红冲单号已存在");
+        }
+        var source = sourceRows.get(0);
+        var redBill = jdbcTemplate.queryForMap("""
+            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, 'AUDITED', ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
+            """,
+            redBillNo,
+            source.get("sourceOrderId"),
+            source.get("customerId"),
+            LocalDate.parse(required(request.billDate(), "红冲日期")),
+            source.get("department"),
+            ((BigDecimal) source.get("total_amount")).negate(),
+            request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
+        );
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   w.code AS "warehouseCode",
+                   l.product_id::text AS "productId",
+                   l.warehouse_id::text AS "warehouseId",
+                   l.qty,
+                   l.unit_price AS "unitPrice",
+                   l.amount
+            FROM sales_out_line l
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN sales_out so ON so.id = l.bill_id
+            WHERE so.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        for (var line : lines) {
+            var qty = (BigDecimal) line.get("qty");
+            jdbcTemplate.update("""
+                INSERT INTO sales_out_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
+                """,
+                redBill.get("id"),
+                line.get("lineNo"),
+                line.get("productId"),
+                line.get("warehouseId"),
+                qty.negate(),
+                line.get("unitPrice"),
+                ((BigDecimal) line.get("amount")).negate()
+            );
+            postingService.post(
+                String.valueOf(line.get("productCode")),
+                String.valueOf(line.get("warehouseCode")),
+                qty,
+                "SALES_OUT_RED",
+                "SALES_OUT_RED:" + redBillNo
+            );
+            if (source.get("sourceOrderId") != null) {
+                jdbcTemplate.update("""
+                    UPDATE sales_order_line
+                    SET shipped_qty = GREATEST(0, shipped_qty - ?)
+                    WHERE order_id = ?::uuid AND line_no = ?
+                    """, qty, source.get("sourceOrderId"), line.get("lineNo"));
+            }
+        }
+        if (source.get("sourceOrderId") != null) {
+            refreshSalesOrderOutStatus(String.valueOf(source.get("sourceOrderId")));
+        }
+        log("SALES", "RED_REVERSE", "sales_out", String.valueOf(redBill.get("id")), true, null);
+        return redBill;
     }
 
     private void insertLines(Object billId, List<SalesOutLineRequest> lines) {
@@ -139,6 +297,27 @@ public class SalesOutController {
         return String.valueOf(rows.get(0).get("id"));
     }
 
+    private void refreshSalesOrderOutStatus(String orderId) {
+        jdbcTemplate.update("""
+            UPDATE sales_order
+            SET out_status = CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM sales_order_line WHERE order_id = ?::uuid AND shipped_qty > 0) THEN 'NOT_OUT'
+                    WHEN NOT EXISTS (SELECT 1 FROM sales_order_line WHERE order_id = ?::uuid AND shipped_qty < qty) THEN 'ALL_OUT'
+                    ELSE 'PART_OUT'
+                END,
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, orderId, orderId, orderId);
+    }
+
+    private void log(String module, String action, String targetType, String targetId, boolean success, String reason) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
+            VALUES (?, ?, ?, ?::uuid, ?, ?)
+            """, module, action, targetType, targetId, success, reason);
+    }
+
     private String required(String value, String label) {
         if (value == null || value.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能为空");
@@ -155,5 +334,8 @@ public class SalesOutController {
     }
 
     public record SalesOutLineRequest(String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitPrice) {
+    }
+
+    public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {
     }
 }

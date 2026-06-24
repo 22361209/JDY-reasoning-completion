@@ -67,10 +67,9 @@
         height="360"
         size="mini"
         border
-        show-overflow
-        show-header-overflow
+        show-overflow="title"
+        show-header-overflow="title"
         stripe
-        :loading="loading"
         :data="displayedRows"
         :row-config="{ keyField: 'id', isHover: true }"
         :column-config="{ resizable: true }"
@@ -90,7 +89,7 @@
           :fixed="column.fixed || undefined"
           :align="column.align || 'left'"
           :resizable="true"
-          show-overflow
+          show-overflow="title"
         >
           <template #header>
             <div
@@ -353,7 +352,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "销售订单列表",
     subtitle: "销售订单列表承载查询、批量动作、列设置、页签锁定和分页。",
     keywordPlaceholder: "单据编号、客户、商品",
-    statuses: ["草稿", "已审核"],
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "customer", title: "客户/对象", width: 220, visible: true },
@@ -368,7 +367,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "采购订单列表",
     subtitle: "采购订单列表承载供应商、审核状态、入库状态和金额查询。",
     keywordPlaceholder: "单据编号、供应商、商品",
-    statuses: ["草稿", "已审核"],
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
@@ -383,7 +382,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "采购入库单",
     subtitle: "采购入库单用于验证业务列表的供应商、仓库、金额和状态列。",
     keywordPlaceholder: "单据编号、供应商、仓库",
-    statuses: ["草稿", "已审核"],
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
@@ -397,7 +396,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "采购入库单",
     subtitle: "采购入库单读取真实单据，审核后增加库存。",
     keywordPlaceholder: "单据编号、供应商、仓库",
-    statuses: ["草稿", "已审核"],
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
@@ -460,6 +459,93 @@ const definitions: Record<string, ListDefinition> = {
       { field: "name", title: "仓库名称", width: 220, visible: true },
       { field: "stockPolicy", title: "库存策略", width: 150, visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "receivable-list": {
+    title: "应收单",
+    subtitle: "销售订单生成应收，收款后按未核销、部分核销、已核销展示。",
+    keywordPlaceholder: "应收单号、源单号、客户",
+    statuses: ["未核销", "部分核销", "已核销"],
+    columns: [
+      { field: "billNo", title: "应收单号", width: 160, fixed: "left", visible: true },
+      { field: "sourceBillNo", title: "源单号", width: 150, visible: true },
+      { field: "customer", title: "客户", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 120, visible: true },
+      { field: "amount", title: "应收金额", width: 120, align: "right", visible: true },
+      { field: "receivedAmount", title: "已收金额", width: 120, align: "right", visible: true },
+      { field: "status", title: "状态", width: 110, visible: true }
+    ]
+  },
+  "payable-list": {
+    title: "应付单",
+    subtitle: "采购订单生成应付，付款后按未核销、部分核销、已核销展示。",
+    keywordPlaceholder: "应付单号、源单号、供应商",
+    statuses: ["未核销", "部分核销", "已核销"],
+    columns: [
+      { field: "billNo", title: "应付单号", width: 160, fixed: "left", visible: true },
+      { field: "sourceBillNo", title: "源单号", width: 150, visible: true },
+      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 120, visible: true },
+      { field: "amount", title: "应付金额", width: 120, align: "right", visible: true },
+      { field: "paidAmount", title: "已付金额", width: 120, align: "right", visible: true },
+      { field: "status", title: "状态", width: 110, visible: true }
+    ]
+  },
+  "production-task-form-list": {
+    title: "生产任务单",
+    subtitle: "生产任务展示 BOM、计划数、已领料数、完工数和执行状态。",
+    keywordPlaceholder: "任务单号、BOM、商品",
+    statuses: ["已审核", "已领料", "已完工"],
+    columns: [
+      { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
+      { field: "bomCode", title: "BOM", width: 120, visible: true },
+      { field: "productCode", title: "商品编码", width: 130, visible: true },
+      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "warehouse", title: "完工仓库", width: 130, visible: true },
+      { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
+      { field: "issuedQty", title: "已领料数", width: 110, align: "right", visible: true },
+      { field: "completedQty", title: "完工数", width: 100, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "bom-list": {
+    title: "BOM维护",
+    subtitle: "BOM 维护展示成品、基准数量和启用状态，明细由后端 BOM 接口维护。",
+    keywordPlaceholder: "BOM编码、商品编码、商品名称",
+    statuses: ["启用", "禁用"],
+    columns: [
+      { field: "code", title: "BOM编码", width: 150, fixed: "left", visible: true },
+      { field: "productCode", title: "成品编码", width: 140, visible: true },
+      { field: "productName", title: "成品名称", width: 200, visible: true },
+      { field: "qty", title: "基准数量", width: 100, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "user-role-list": {
+    title: "用户角色",
+    subtitle: "角色和权限码以最小 RBAC 口径展示，后续可扩展到授权矩阵。",
+    keywordPlaceholder: "角色编码、角色名称、权限码",
+    statuses: ["启用", "禁用"],
+    columns: [
+      { field: "code", title: "角色编码", width: 150, fixed: "left", visible: true },
+      { field: "name", title: "角色名称", width: 160, visible: true },
+      { field: "permissions", title: "权限码", width: 520, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "operation-log-list": {
+    title: "操作日志",
+    subtitle: "关键审核、冲销、核销、生产动作写入操作日志，供追溯审计。",
+    keywordPlaceholder: "模块、动作、对象、时间",
+    statuses: ["成功", "失败"],
+    columns: [
+      { field: "operatedAt", title: "操作时间", width: 170, fixed: "left", visible: true },
+      { field: "module", title: "模块", width: 120, visible: true },
+      { field: "action", title: "动作", width: 160, visible: true },
+      { field: "targetType", title: "对象类型", width: 160, visible: true },
+      { field: "targetId", title: "对象ID", width: 250, visible: true },
+      { field: "status", title: "状态", width: 90, visible: true },
+      { field: "reason", title: "失败原因", width: 180, visible: true }
     ]
   }
 };

@@ -1003,7 +1003,8 @@ input:disabled {
   padding: 5px 8px;
 }
 
-.master-selector__menu button:hover {
+.master-selector__menu button:hover,
+.master-selector__menu button.selected {
   background: #edf4ff;
 }
 
