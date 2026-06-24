@@ -14,7 +14,7 @@ public class SystemShellController {
     @GetMapping("/session")
     public Map<String, Object> session() {
         return Map.of(
-            "user", Map.of("name", "本地管理员", "role", "系统管理员", "roleCode", "ADMIN"),
+            "user", Map.of("name", "本地管理员", "username", "本地管理员", "role", "系统管理员", "roleCode", "ADMIN"),
             "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
             "period", Map.of("accounting", "2026-06", "business", "2026-06")
         );

@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/list-presets")
 public class ListFilterPresetController {
     private static final String CURRENT_ROLE_CODE = "ADMIN";
+    private static final String CURRENT_USER_NAME = "本地管理员";
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -36,6 +37,7 @@ public class ListFilterPresetController {
                    list_key AS "listKey",
                    name,
                    role_code AS "roleCode",
+                   user_name AS "userName",
                    query::text AS query,
                    column_filters::text AS "columnFilters",
                    shared,
@@ -44,34 +46,48 @@ public class ListFilterPresetController {
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS') AS "updatedAt"
             FROM sys_list_filter_preset
             WHERE list_key = ?
-              AND (role_code IS NULL OR role_code = ?)
-            ORDER BY is_default DESC, updated_at DESC, name
-            """, (rs, rowNum) -> Map.of(
-                "id", rs.getString("id"),
-                "listKey", rs.getString("listKey"),
-                "name", rs.getString("name"),
-                "roleCode", rs.getString("roleCode") == null ? "" : rs.getString("roleCode"),
-                "query", parseJson(rs.getString("query")),
-                "columnFilters", parseJson(rs.getString("columnFilters")),
-                "shared", rs.getBoolean("shared"),
-                "isDefault", rs.getBoolean("isDefault"),
-                "readOnly", rs.getBoolean("readOnly"),
-                "updatedAt", rs.getString("updatedAt")
-            ), listKey, CURRENT_ROLE_CODE);
+              AND (
+                  user_name = ?
+                  OR (user_name IS NULL AND role_code = ?)
+                  OR (user_name IS NULL AND role_code IS NULL)
+              )
+            ORDER BY
+              CASE
+                WHEN user_name = ? THEN 0
+                WHEN user_name IS NULL AND role_code = ? THEN 1
+                ELSE 2
+              END,
+              is_default DESC,
+              updated_at DESC,
+              name
+            """, (rs, rowNum) -> Map.ofEntries(
+                Map.entry("id", rs.getString("id")),
+                Map.entry("listKey", rs.getString("listKey")),
+                Map.entry("name", rs.getString("name")),
+                Map.entry("roleCode", rs.getString("roleCode") == null ? "" : rs.getString("roleCode")),
+                Map.entry("userName", rs.getString("userName") == null ? "" : rs.getString("userName")),
+                Map.entry("query", parseJson(rs.getString("query"))),
+                Map.entry("columnFilters", parseJson(rs.getString("columnFilters"))),
+                Map.entry("shared", rs.getBoolean("shared")),
+                Map.entry("isDefault", rs.getBoolean("isDefault")),
+                Map.entry("readOnly", rs.getBoolean("readOnly")),
+                Map.entry("updatedAt", rs.getString("updatedAt"))
+            ), listKey, CURRENT_USER_NAME, CURRENT_ROLE_CODE, CURRENT_USER_NAME, CURRENT_ROLE_CODE);
     }
 
     @PostMapping("/{listKey}")
     public Map<String, Object> save(@PathVariable String listKey, @RequestBody PresetRequest request) {
         var name = request.name == null || request.name.isBlank() ? "未命名预设" : request.name.trim();
-        var roleCode = request.roleCode == null || request.roleCode.isBlank() ? CURRENT_ROLE_CODE : request.roleCode.trim();
+        var scope = resolveScope(request);
         var readOnlyRows = jdbcTemplate.queryForList("""
             SELECT id::text
             FROM sys_list_filter_preset
             WHERE list_key = ?
               AND name = ?
               AND role_code IS NOT DISTINCT FROM ?
+              AND user_name IS NOT DISTINCT FROM ?
               AND read_only = TRUE
-            """, listKey, name, roleCode);
+            """, listKey, name, scope.roleCode(), scope.userName());
         if (!readOnlyRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "系统预设不可覆盖");
         }
@@ -85,33 +101,55 @@ public class ListFilterPresetController {
                     updated_at = now()
                 WHERE list_key = ?
                   AND role_code IS NOT DISTINCT FROM ?
-                """, listKey, roleCode);
+                  AND user_name IS NOT DISTINCT FROM ?
+                """, listKey, scope.roleCode(), scope.userName());
+        }
+        var existingRows = jdbcTemplate.queryForList("""
+            SELECT id::text
+            FROM sys_list_filter_preset
+            WHERE list_key = ?
+              AND name = ?
+              AND role_code IS NOT DISTINCT FROM ?
+              AND user_name IS NOT DISTINCT FROM ?
+            """, listKey, name, scope.roleCode(), scope.userName());
+        if (!existingRows.isEmpty()) {
+            jdbcTemplate.update("""
+                UPDATE sys_list_filter_preset
+                SET query = ?::jsonb,
+                    column_filters = ?::jsonb,
+                    shared = ?,
+                    is_default = ?,
+                    updated_at = now()
+                WHERE id = ?::uuid
+                  AND read_only = FALSE
+                """, query, columnFilters, request.shared == null || request.shared, isDefault, existingRows.getFirst().get("id"));
+        } else {
+            jdbcTemplate.update("""
+                INSERT INTO sys_list_filter_preset (list_key, name, role_code, user_name, query, column_filters, shared, is_default, read_only, updated_at)
+                VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, FALSE, now())
+                """, listKey, name, scope.roleCode(), scope.userName(), query, columnFilters, request.shared == null || request.shared, isDefault);
         }
         var rows = jdbcTemplate.query("""
-            INSERT INTO sys_list_filter_preset (list_key, name, role_code, query, column_filters, shared, is_default, read_only, updated_at)
-            VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, FALSE, now())
-            ON CONFLICT (list_key, name) DO UPDATE
-            SET query = EXCLUDED.query,
-                role_code = EXCLUDED.role_code,
-                column_filters = EXCLUDED.column_filters,
-                shared = EXCLUDED.shared,
-                is_default = EXCLUDED.is_default,
-                updated_at = now()
-            WHERE sys_list_filter_preset.read_only = FALSE
-            RETURNING id::text, list_key, name, role_code, query::text, column_filters::text, shared, is_default, read_only,
+            SELECT id::text, list_key, name, role_code, user_name, query::text, column_filters::text, shared, is_default, read_only,
                       to_char(updated_at, 'YYYY-MM-DD HH24:MI:SS') AS updated_at
-            """, (rs, rowNum) -> Map.<String, Object>of(
-                "id", rs.getString("id"),
-                "listKey", rs.getString("list_key"),
-                "name", rs.getString("name"),
-                "roleCode", rs.getString("role_code") == null ? "" : rs.getString("role_code"),
-                "query", parseJson(rs.getString("query")),
-                "columnFilters", parseJson(rs.getString("column_filters")),
-                "shared", rs.getBoolean("shared"),
-                "isDefault", rs.getBoolean("is_default"),
-                "readOnly", rs.getBoolean("read_only"),
-                "updatedAt", rs.getString("updated_at")
-            ), listKey, name, roleCode, query, columnFilters, request.shared == null || request.shared, isDefault);
+            FROM sys_list_filter_preset
+            WHERE list_key = ?
+              AND name = ?
+              AND role_code IS NOT DISTINCT FROM ?
+              AND user_name IS NOT DISTINCT FROM ?
+            """, (rs, rowNum) -> Map.<String, Object>ofEntries(
+                Map.entry("id", rs.getString("id")),
+                Map.entry("listKey", rs.getString("list_key")),
+                Map.entry("name", rs.getString("name")),
+                Map.entry("roleCode", rs.getString("role_code") == null ? "" : rs.getString("role_code")),
+                Map.entry("userName", rs.getString("user_name") == null ? "" : rs.getString("user_name")),
+                Map.entry("query", parseJson(rs.getString("query"))),
+                Map.entry("columnFilters", parseJson(rs.getString("column_filters"))),
+                Map.entry("shared", rs.getBoolean("shared")),
+                Map.entry("isDefault", rs.getBoolean("is_default")),
+                Map.entry("readOnly", rs.getBoolean("read_only")),
+                Map.entry("updatedAt", rs.getString("updated_at"))
+            ), listKey, name, scope.roleCode(), scope.userName());
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "系统预设不可覆盖");
         }
@@ -125,9 +163,13 @@ public class ListFilterPresetController {
             FROM sys_list_filter_preset
             WHERE list_key = ?
               AND id = ?::uuid
-              AND (role_code IS NULL OR role_code = ?)
+              AND (
+                  user_name = ?
+                  OR (user_name IS NULL AND role_code = ?)
+                  OR (user_name IS NULL AND role_code IS NULL)
+              )
               AND read_only = TRUE
-            """, listKey, id, CURRENT_ROLE_CODE);
+            """, listKey, id, CURRENT_USER_NAME, CURRENT_ROLE_CODE);
         if (!readOnlyRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "系统预设不可删除");
         }
@@ -136,9 +178,24 @@ public class ListFilterPresetController {
             WHERE list_key = ?
               AND id = ?::uuid
               AND read_only = FALSE
-              AND (role_code IS NULL OR role_code = ?)
-            """, listKey, id, CURRENT_ROLE_CODE);
+              AND (
+                  user_name = ?
+                  OR (user_name IS NULL AND role_code = ?)
+                  OR (user_name IS NULL AND role_code IS NULL)
+              )
+            """, listKey, id, CURRENT_USER_NAME, CURRENT_ROLE_CODE);
         return Map.of("deleted", deleted);
+    }
+
+    private PresetScope resolveScope(PresetRequest request) {
+        if ("GENERAL".equalsIgnoreCase(request.scope)) {
+            return new PresetScope(null, null);
+        }
+        if (request.roleCode != null && !request.roleCode.isBlank()) {
+            return new PresetScope(request.roleCode.trim(), null);
+        }
+        var userName = request.userName == null || request.userName.isBlank() ? CURRENT_USER_NAME : request.userName.trim();
+        return new PresetScope(CURRENT_ROLE_CODE, userName);
     }
 
     private Map<String, Object> parseJson(String json) {
@@ -162,10 +219,14 @@ public class ListFilterPresetController {
 
     public record PresetRequest(
         String name,
+        String scope,
         String roleCode,
+        String userName,
         Map<String, Object> query,
         Map<String, Object> columnFilters,
         Boolean shared,
         Boolean isDefault
     ) {}
+
+    private record PresetScope(String roleCode, String userName) {}
 }
