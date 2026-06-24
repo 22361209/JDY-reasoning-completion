@@ -1,5 +1,5 @@
 export interface SystemSession {
-  user: { name: string; role: string };
+  user: { name: string; role: string; roleCode?: string };
   tenant: { name: string; environment: string };
   period: { accounting: string; business: string };
 }

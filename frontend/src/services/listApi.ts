@@ -43,6 +43,7 @@ export interface ListFilterPreset {
   id: string;
   listKey?: string;
   name: string;
+  roleCode?: string;
   query: Record<string, string>;
   columnFilters: Record<string, { operator: string; value: string }>;
   shared?: boolean;

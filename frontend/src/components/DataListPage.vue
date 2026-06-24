@@ -78,7 +78,7 @@
           <select v-model="selectedPresetId" data-testid="operation-log-preset-select">
             <option value="">请选择</option>
             <option v-for="preset in operationLogPresets" :key="preset.id" :value="preset.id">
-              {{ preset.name }}{{ preset.isDefault ? "（默认）" : "" }}{{ preset.readOnly ? "（只读）" : "" }}
+              {{ preset.name }}{{ preset.roleCode ? `（${preset.roleCode}）` : "（通用）" }}{{ preset.isDefault ? "（默认）" : "" }}{{ preset.readOnly ? "（只读）" : "" }}
             </option>
           </select>
         </label>
