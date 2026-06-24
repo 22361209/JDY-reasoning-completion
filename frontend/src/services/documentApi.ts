@@ -68,6 +68,7 @@ export interface DocumentDetail {
     ownerName?: string;
     status: string;
     redReverseBillNo?: string;
+    redSourceBillNo?: string;
   };
   lines: Array<{
     lineNo?: number | string;

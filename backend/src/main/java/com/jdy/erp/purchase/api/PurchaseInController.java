@@ -48,7 +48,14 @@ public class PurchaseInController {
                        WHERE red.bill_no = concat('HC-', pi.bill_no)
                          AND red.status = 'RED_REVERSED'
                        LIMIT 1
-                   ) AS "redReverseBillNo"
+                   ) AS "redReverseBillNo",
+                   (
+                       SELECT original.bill_no
+                       FROM purchase_in original
+                       WHERE pi.bill_no = concat('HC-', original.bill_no)
+                         AND pi.status = 'RED_REVERSED'
+                       LIMIT 1
+                   ) AS "redSourceBillNo"
             FROM purchase_in pi
             JOIN md_supplier s ON s.id = pi.supplier_id
             LEFT JOIN purchase_order po ON po.id = pi.source_order_id
