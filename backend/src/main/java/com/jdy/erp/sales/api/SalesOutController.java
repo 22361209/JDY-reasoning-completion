@@ -45,14 +45,14 @@ public class SalesOutController {
                    (
                        SELECT red.bill_no
                        FROM sales_out red
-                       WHERE red.bill_no = concat('HC-', so.bill_no)
+                       WHERE red.red_source_bill_id = so.id
                          AND red.status = 'RED_REVERSED'
                        LIMIT 1
                    ) AS "redReverseBillNo",
                    (
                        SELECT original.bill_no
                        FROM sales_out original
-                       WHERE so.bill_no = concat('HC-', original.bill_no)
+                       WHERE original.id = so.red_source_bill_id
                          AND so.status = 'RED_REVERSED'
                        LIMIT 1
                    ) AS "redSourceBillNo"
@@ -259,12 +259,13 @@ public class SalesOutController {
         }
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, 'RED_REVERSED', ?, ?)
+            INSERT INTO sales_out (bill_no, source_order_id, red_source_bill_id, customer_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, 'RED_REVERSED', ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
             """,
             redBillNo,
             source.get("sourceOrderId"),
+            source.get("id"),
             source.get("customerId"),
             LocalDate.parse(required(request.billDate(), "红冲日期")),
             source.get("department"),

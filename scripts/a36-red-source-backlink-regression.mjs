@@ -55,7 +55,7 @@ async function seedStock() {
 
 async function createSalesOutPair() {
   const billNo = `XSCK-A36-${batch}`;
-  const redBillNo = `HC-${billNo}`;
+  const redBillNo = `RED-A36-XSCK-${batch}`;
   await requireApi("/api/sales-outs/draft", {
     body: {
       billNo,
@@ -75,7 +75,7 @@ async function createSalesOutPair() {
 
 async function createPurchaseInPair() {
   const billNo = `CGRK-A36-${batch}`;
-  const redBillNo = `HC-${billNo}`;
+  const redBillNo = `RED-A36-CGRK-${batch}`;
   await requireApi("/api/purchase-ins/draft", {
     body: {
       billNo,

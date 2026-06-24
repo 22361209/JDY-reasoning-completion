@@ -45,14 +45,14 @@ public class PurchaseInController {
                    (
                        SELECT red.bill_no
                        FROM purchase_in red
-                       WHERE red.bill_no = concat('HC-', pi.bill_no)
+                       WHERE red.red_source_bill_id = pi.id
                          AND red.status = 'RED_REVERSED'
                        LIMIT 1
                    ) AS "redReverseBillNo",
                    (
                        SELECT original.bill_no
                        FROM purchase_in original
-                       WHERE pi.bill_no = concat('HC-', original.bill_no)
+                       WHERE original.id = pi.red_source_bill_id
                          AND pi.status = 'RED_REVERSED'
                        LIMIT 1
                    ) AS "redSourceBillNo"
@@ -259,12 +259,13 @@ public class PurchaseInController {
         }
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, 'RED_REVERSED', ?, ?)
+            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, 'RED_REVERSED', ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
             """,
             redBillNo,
             source.get("sourceOrderId"),
+            source.get("id"),
             source.get("supplierId"),
             LocalDate.parse(required(request.billDate(), "红冲日期")),
             source.get("department"),
