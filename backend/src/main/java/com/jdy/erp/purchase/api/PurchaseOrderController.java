@@ -8,6 +8,7 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,6 +24,45 @@ public class PurchaseOrderController {
 
     public PurchaseOrderController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    @GetMapping("/{billNo}")
+    public Map<String, Object> detail(@PathVariable String billNo) {
+        var orderRows = jdbcTemplate.queryForList("""
+            SELECT po.id::text AS id,
+                   po.bill_no AS "billNo",
+                   s.code AS "supplierCode",
+                   s.name AS supplier,
+                   to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   po.department,
+                   po.status,
+                   po.in_status AS "inStatus",
+                   po.total_amount AS "totalAmount",
+                   po.owner_name AS "ownerName"
+            FROM purchase_order po
+            JOIN md_supplier s ON s.id = po.supplier_id
+            WHERE po.bill_no = ?
+            """, billNo);
+        if (orderRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "采购订单不存在");
+        }
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.code AS "warehouseCode",
+                   l.qty,
+                   l.unit_price AS "unitPrice",
+                   l.amount
+            FROM purchase_order_line l
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN purchase_order po ON po.id = l.order_id
+            WHERE po.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        return Map.of("action", "DETAIL", "document", orderRows.get(0), "lines", lines);
     }
 
     @PostMapping("/draft")

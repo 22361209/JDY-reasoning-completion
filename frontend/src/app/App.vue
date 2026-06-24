@@ -178,7 +178,7 @@
           :list-key="tabs.activeTab.value.id"
           :locked="isLockedList"
           @push-down-sales-out="openSalesOutFromSalesOrder"
-          @open-sales-order="openSalesOrderFromList"
+          @open-document="openDocumentFromList"
         />
 
         <div v-else class="business-page">
@@ -351,7 +351,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
-import { auditDocument, exportDocument, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentType, type OutputDocumentType } from "../services/documentApi";
+import { auditDocument, exportDocument, fetchDocumentDetail, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentDetail, type DocumentType, type OpenableDocumentType, type OutputDocumentType } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
@@ -705,7 +705,7 @@ function openEntry(entry: ShellEntry) {
     title: isQuery && !entry.label.includes("表") && !entry.label.includes("查询") ? `${entry.label}列表` : entry.label,
     module: entry.module,
     kind: entry.mode,
-    dirty: entry.dirty
+    dirty: entry.mode === "form" ? entry.dirty : false
   });
   if (opened && entry.mode === "form") {
     startNewCurrentDocument();
@@ -739,46 +739,64 @@ async function saveCurrentSalesOrder() {
   }
 }
 
-async function openSalesOrderFromList(row: Record<string, unknown>) {
-  const billNo = String(row.billNo ?? "");
+async function openDocumentFromList(payload: { type: OpenableDocumentType; row: Record<string, unknown> }) {
+  const billNo = String(payload.row.billNo ?? "");
   if (!billNo) {
     return;
   }
-  const result = await fetchSalesOrderDetail(billNo);
+  const result = await fetchDocumentDetail(payload.type, billNo);
   if (!result.ok || !result.data) {
-    formMessage.value = result.message || "销售订单详情加载失败。";
+    formMessage.value = result.message || "单据详情加载失败。";
     return;
   }
+  const target = openableDocumentTarget(payload.type);
   tabs.openTab({
-    id: "sales-order-form",
-    title: "销售订单",
-    module: "销售管理",
+    id: target.tabId,
+    title: target.title,
+    module: target.module,
     kind: "form",
     dirty: false,
     lockedObjectId: billNo
   });
-  activeModuleName.value = "销售管理";
-  fillSalesOrderForm(result.data);
-  formMessage.value = `已打开销售订单 ${billNo}`;
+  activeModuleName.value = target.module;
+  fillDocumentForm(target.form, result.data, target.partyType);
+  formMessage.value = `已打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
 
-function fillSalesOrderForm(detail: NonNullable<Awaited<ReturnType<typeof fetchSalesOrderDetail>>["data"]>) {
-  salesOrderForm.billNo = detail.order.billNo;
-  salesOrderForm.partyCode = detail.order.customerCode;
-  salesOrderForm.billDate = detail.order.billDate;
-  salesOrderForm.department = detail.order.department || "销售部";
-  salesOrderForm.ownerName = detail.order.ownerName || "本地管理员";
-  salesOrderForm.status = formStatusByBackendStatus[detail.order.status] ?? "DRAFT";
-  salesOrderForm.sourceOrderNo = undefined;
-  salesOrderForm.lines = detail.lines.length
+function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; form: OrderForm; partyType: "customer" | "supplier" } {
+  switch (type) {
+    case "salesOut":
+      return { tabId: "sales-out-form", title: "销售出库单", module: "销售管理", form: salesOutForm, partyType: "customer" };
+    case "purchaseOrder":
+      return { tabId: "purchase-order-form", title: "采购订单", module: "采购管理", form: purchaseOrderForm, partyType: "supplier" };
+    case "purchaseIn":
+      return { tabId: "purchase-in-form", title: "采购入库单", module: "采购管理", form: purchaseInForm, partyType: "supplier" };
+    case "salesOrder":
+    default:
+      return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", form: salesOrderForm, partyType: "customer" };
+  }
+}
+
+function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "customer" | "supplier") {
+  const document = detail.document;
+  form.billNo = document.billNo;
+  form.sourceOrderNo = document.sourceOrderNo || undefined;
+  form.partyCode = partyKind === "supplier"
+    ? document.supplierCode || "GYS-001"
+    : document.customerCode || "KH-001";
+  form.billDate = document.billDate;
+  form.department = document.department || (partyKind === "supplier" ? "采购部" : "销售部");
+  form.ownerName = document.ownerName || "本地管理员";
+  form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
+  form.lines = detail.lines.length
     ? detail.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       qty: Number(line.qty ?? 0),
       unitPrice: Number(line.unitPrice ?? 0)
     }))
-    : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 86 }];
+    : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0 }];
 }
 
 async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {

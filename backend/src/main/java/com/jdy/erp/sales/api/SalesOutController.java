@@ -9,6 +9,7 @@ import com.jdy.erp.inventory.application.InventoryPostingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,6 +27,46 @@ public class SalesOutController {
     public SalesOutController(JdbcTemplate jdbcTemplate, InventoryPostingService postingService) {
         this.jdbcTemplate = jdbcTemplate;
         this.postingService = postingService;
+    }
+
+    @GetMapping("/{billNo}")
+    public Map<String, Object> detail(@PathVariable String billNo) {
+        var billRows = jdbcTemplate.queryForList("""
+            SELECT so.id::text AS id,
+                   so.bill_no AS "billNo",
+                   src.bill_no AS "sourceOrderNo",
+                   c.code AS "customerCode",
+                   c.name AS customer,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   so.department,
+                   so.status,
+                   so.total_amount AS "totalAmount",
+                   so.owner_name AS "ownerName"
+            FROM sales_out so
+            JOIN md_customer c ON c.id = so.customer_id
+            LEFT JOIN sales_order src ON src.id = so.source_order_id
+            WHERE so.bill_no = ?
+            """, billNo);
+        if (billRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售出库单不存在");
+        }
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.code AS "warehouseCode",
+                   l.qty,
+                   l.unit_price AS "unitPrice",
+                   l.amount
+            FROM sales_out_line l
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            JOIN sales_out so ON so.id = l.bill_id
+            WHERE so.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        return Map.of("action", "DETAIL", "document", billRows.get(0), "lines", lines);
     }
 
     @PostMapping("/draft")

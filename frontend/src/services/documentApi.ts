@@ -19,6 +19,13 @@ const endpointByType = {
   salesOut: "/api/sales-outs"
 } as const;
 
+const detailEndpointByType = {
+  salesOrder: "/api/sales-orders",
+  purchaseOrder: "/api/purchase-orders",
+  purchaseIn: "/api/purchase-ins",
+  salesOut: "/api/sales-outs"
+} as const;
+
 const outputTypeByDocumentType = {
   salesOrder: "sales-order",
   purchaseOrder: "purchase-order",
@@ -27,7 +34,28 @@ const outputTypeByDocumentType = {
 } as const;
 
 export type DocumentType = keyof typeof endpointByType;
+export type OpenableDocumentType = keyof typeof detailEndpointByType;
 export type OutputDocumentType = keyof typeof outputTypeByDocumentType;
+
+export interface DocumentDetail {
+  action?: string;
+  document: {
+    billNo: string;
+    sourceOrderNo?: string;
+    customerCode?: string;
+    supplierCode?: string;
+    billDate: string;
+    department?: string;
+    ownerName?: string;
+    status: string;
+  };
+  lines: Array<{
+    productCode?: string;
+    warehouseCode?: string;
+    qty?: number | string;
+    unitPrice?: number | string;
+  }>;
+}
 
 export async function saveDocumentDraft(type: DocumentType, payload: DocumentDraftPayload) {
   const body = toBackendPayload(type, payload);
@@ -36,6 +64,14 @@ export async function saveDocumentDraft(type: DocumentType, payload: DocumentDra
 
 export async function auditDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/audit`, "POST");
+}
+
+export async function fetchDocumentDetail(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentDetail }> {
+  const result = await callDocument(`${detailEndpointByType[type]}/${encodeURIComponent(billNo)}`, "GET");
+  if (!result.ok || !result.data) {
+    return { ok: false, message: result.message };
+  }
+  return normalizeDocumentDetail(result.data);
 }
 
 export async function reverseDocument(type: DocumentType, billNo: string) {
@@ -87,6 +123,27 @@ async function callDocument(url: string, method: string, body?: unknown): Promis
   } catch {
     return { ok: false, message: "网络异常，单据操作失败。" };
   }
+}
+
+function normalizeDocumentDetail(raw: unknown): { ok: boolean; message: string; data?: DocumentDetail } {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, message: "单据详情格式异常。" };
+  }
+  const payload = raw as { action?: string; document?: unknown; order?: unknown; lines?: unknown };
+  const document = payload.document ?? payload.order;
+  if (!document || typeof document !== "object") {
+    return { ok: false, message: "单据详情缺少单头信息。" };
+  }
+  const lines = Array.isArray(payload.lines) ? payload.lines : [];
+  return {
+    ok: true,
+    message: "",
+    data: {
+      action: payload.action,
+      document: document as DocumentDetail["document"],
+      lines: lines as DocumentDetail["lines"]
+    }
+  };
 }
 
 async function callTextDocument(url: string): Promise<{ ok: boolean; message: string; data?: string }> {

@@ -119,12 +119,12 @@
           <template #default="{ row }">
             <span v-if="column.field === 'status'" class="status-pill" :class="{ draft: row.status === '草稿' }">{{ row[column.field] }}</span>
             <button
-              v-else-if="isSalesOrderList && column.field === 'billNo'"
+              v-else-if="isOpenableDocumentList && column.field === 'billNo'"
               class="list-cell-link"
               type="button"
               :disabled="locked"
-              :data-testid="`open-sales-order-${row.billNo}`"
-              @click.stop="openSalesOrder(row)"
+              :data-testid="`open-document-${row.billNo}`"
+              @click.stop="openDocument(row)"
             >
               {{ row[column.field] }}
             </button>
@@ -277,13 +277,15 @@ interface CreateField {
   options?: string[];
 }
 
+type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn";
+
 const props = defineProps<{
   listKey: string;
   locked?: boolean;
 }>();
 const emit = defineEmits<{
   pushDownSalesOut: [row: Record<string, unknown>];
-  openSalesOrder: [row: Record<string, unknown>];
+  openDocument: [payload: { type: OpenableDocumentType; row: Record<string, unknown> }];
 }>();
 
 const tableRef = ref();
@@ -576,6 +578,16 @@ const fallbackDefinition: ListDefinition = {
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
 const isMasterList = computed(() => Boolean(masterDataTypeByListKey[props.listKey]));
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
+const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
+  "sales-order-form-list": "salesOrder",
+  "sales-out-list": "salesOut",
+  "sales-out-form-list": "salesOut",
+  "purchase-order-form-list": "purchaseOrder",
+  "purchase-in-list": "purchaseIn",
+  "purchase-in-form-list": "purchaseIn"
+};
+const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
+const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));
 const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
   return Boolean(
@@ -722,9 +734,9 @@ function pushDownSalesOut() {
   }
 }
 
-function openSalesOrder(row: Record<string, unknown>) {
-  if (!props.locked && isSalesOrderList.value) {
-    emit("openSalesOrder", row);
+function openDocument(row: Record<string, unknown>) {
+  if (!props.locked && openableDocumentType.value) {
+    emit("openDocument", { type: openableDocumentType.value, row });
   }
 }
 
