@@ -1077,7 +1077,7 @@ input:disabled {
 
 table {
   width: 100%;
-  min-width: 900px;
+  min-width: 1180px;
   border-collapse: collapse;
 }
 
@@ -1097,6 +1097,19 @@ td input {
   border: 1px solid #c7d2df;
   border-radius: 3px;
   padding: 0 6px;
+}
+
+.remark-cell {
+  min-width: 210px;
+}
+
+.entry-zero-warning-table select {
+  width: 100%;
+  height: 26px;
+  border: 1px solid #c7d2df;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #26394d;
 }
 
 .readonly-qty {

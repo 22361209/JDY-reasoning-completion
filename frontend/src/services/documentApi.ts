@@ -11,6 +11,7 @@ interface DocumentDraftPayload {
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
+    lineRemark?: string;
   }>;
 }
 
@@ -76,6 +77,7 @@ export interface DocumentDetail {
     shippedQty?: number | string;
     remainingQty?: number | string;
     unitPrice?: number | string;
+    lineRemark?: string;
     downstreamDocs?: DownstreamDocumentRef[];
   }>;
 }

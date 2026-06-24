@@ -70,8 +70,8 @@ public class SalesOrderController {
             var warehouseId = lookupId("md_warehouse", line.warehouseCode(), "仓库");
             var amount = line.qty().multiply(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
+                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -79,7 +79,8 @@ public class SalesOrderController {
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
-                amount
+                amount,
+                optionalText(line.lineRemark())
             );
             lineNo += 1;
         }
@@ -169,7 +170,8 @@ public class SalesOrderController {
                    l.shipped_qty AS "shippedQty",
                    GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
-                   l.amount
+                   l.amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
             FROM sales_order_line l
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -213,6 +215,10 @@ public class SalesOrderController {
         return value.trim();
     }
 
+    private String optionalText(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     public record SalesOrderDraftRequest(
         String billNo,
         String customerCode,
@@ -232,7 +238,8 @@ public class SalesOrderController {
         String productCode,
         String warehouseCode,
         BigDecimal qty,
-        BigDecimal unitPrice
+        BigDecimal unitPrice,
+        String lineRemark
     ) {
     }
 }

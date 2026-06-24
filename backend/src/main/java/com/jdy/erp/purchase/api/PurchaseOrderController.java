@@ -57,7 +57,8 @@ public class PurchaseOrderController {
                    l.received_qty AS "receivedQty",
                    GREATEST(0, l.qty - l.received_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
-                   l.amount
+                   l.amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
             FROM purchase_order_line l
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -132,8 +133,8 @@ public class PurchaseOrderController {
             var warehouseId = lookupId("md_warehouse", line.warehouseCode(), "仓库");
             var amount = line.qty().multiply(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
+                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -141,7 +142,8 @@ public class PurchaseOrderController {
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
-                amount
+                amount,
+                optionalText(line.lineRemark())
             );
             lineNo += 1;
         }
@@ -178,6 +180,10 @@ public class PurchaseOrderController {
         return value.trim();
     }
 
+    private String optionalText(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     public record PurchaseOrderDraftRequest(
         String billNo,
         String supplierCode,
@@ -197,7 +203,8 @@ public class PurchaseOrderController {
         String productCode,
         String warehouseCode,
         BigDecimal qty,
-        BigDecimal unitPrice
+        BigDecimal unitPrice,
+        String lineRemark
     ) {
     }
 }

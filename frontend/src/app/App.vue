@@ -270,6 +270,7 @@
                     <th v-if="showExecutionColumns">剩余</th>
                     <th>单价</th>
                     <th>金额</th>
+                    <th>备注</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -366,6 +367,7 @@
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
                     <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" @paste="handleEntryPaste($event, lineIndex)" /></td>
                     <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
+                    <td class="remark-cell"><input v-model="line.lineRemark" :disabled="!isDraftDocument" :data-testid="lineRemarkTestId(lineIndex)" @input="markActiveDirty" /></td>
                     <td>
                       <button
                         class="line-action drag-handle"
@@ -462,6 +464,7 @@
               <th>数量</th>
               <th>单价</th>
               <th>原因</th>
+              <th>业务说明</th>
             </tr>
           </thead>
           <tbody>
@@ -472,6 +475,11 @@
               <td>{{ formatQty(warning.qty) }}</td>
               <td>{{ formatAmount(warning.unitPrice) }}</td>
               <td>{{ warning.reasons.join("、") }}</td>
+              <td>
+                <select v-model="warning.reason" :data-testid="zeroReasonTestId(warning.lineNo)">
+                  <option v-for="option in zeroReasonOptions" :key="option" :value="option">{{ option }}</option>
+                </select>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -712,6 +720,7 @@ interface ZeroEntryWarning {
   qty: number;
   unitPrice: number;
   reasons: string[];
+  reason: string;
 }
 
 interface PendingZeroEntrySave {
@@ -730,6 +739,7 @@ interface OrderLineForm {
   executedQty?: number;
   remainingQty?: number;
   unitPrice: number;
+  lineRemark?: string;
   downstreamDocs?: DownstreamDocumentRef[];
 }
 
@@ -788,6 +798,7 @@ const pushConfirmRatio = ref(50);
 const pushConfirmWarehouseCode = ref("CK-001");
 const pushConfirmError = ref("");
 const entryPasteDialogRef = ref<HTMLElement | null>(null);
+const zeroReasonOptions = ["赠品", "样品", "补录", "其他已确认"];
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const downstreamTrace = ref<DownstreamTraceState | null>(null);
@@ -1035,7 +1046,7 @@ const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isP
 const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value || isProductionDocumentForm.value);
 const showExecutionColumns = computed(() => (isSalesOrderForm.value || isPurchaseOrderForm.value) && currentOrderForm.value.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
 const showSourceLineColumn = computed(() => isStockDocumentForm.value && Boolean(currentOrderForm.value.sourceOrderNo));
-const entryTableColspan = computed(() => 8 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0));
+const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0));
 const entryTotalColspan = computed(() => entryTableColspan.value - 1);
 const currentOrderForm = computed(() => {
   if (isPurchaseOrderForm.value) {
@@ -1258,6 +1269,14 @@ function linePriceTestId(index: number) {
 
 function lineAmountTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-amount` : `${formTestPrefix.value}-line-amount-${index + 1}`;
+}
+
+function lineRemarkTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-remark` : `${formTestPrefix.value}-line-remark-${index + 1}`;
+}
+
+function zeroReasonTestId(lineNo: number) {
+  return lineNo === 1 ? "entry-zero-reason" : `entry-zero-reason-${lineNo}`;
 }
 
 function lineDeleteTestId(index: number) {
@@ -1492,9 +1511,10 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
       executedQty: documentLineExecutedQty(line),
       remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0),
+      lineRemark: String(line.lineRemark ?? ""),
       downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
     }))
-    : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0 }];
+    : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0, lineRemark: "" }];
 }
 
 function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
@@ -1607,7 +1627,8 @@ function confirmPushDown() {
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     sourceLineNo: line.sourceLineNo,
     qty: line.qty,
-    unitPrice: Number(line.unitPrice ?? 0)
+    unitPrice: Number(line.unitPrice ?? 0),
+    lineRemark: String(line.lineRemark ?? "")
   }));
   pendingPushDown.value = null;
   pushConfirmError.value = "";
@@ -1806,7 +1827,8 @@ function startNewCurrentDocument() {
       productCode: "CP-001",
       warehouseCode: "CK-001",
       qty: 1,
-      unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
+      unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86,
+      lineRemark: ""
     }
   ];
   formMessage.value = "已生成新单据草稿号";
@@ -1818,7 +1840,8 @@ function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
     productCode: "CP-001",
     warehouseCode,
     qty: 1,
-    unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
+    unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86,
+    lineRemark: ""
   };
 }
 
@@ -2039,7 +2062,8 @@ function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Recor
     spec: productMatch.product?.spec ?? productSpec,
     warehouseCode: matchedWarehouse?.code ?? fallbackWarehouseCode,
     qty,
-    unitPrice
+    unitPrice,
+    lineRemark: ""
   };
   if (productMatch.candidates.length > 0) {
     return {
@@ -2426,12 +2450,36 @@ async function confirmZeroEntrySave() {
   if (!pending) {
     return;
   }
+  applyZeroEntryReasons(pending);
   pendingZeroEntrySave.value = null;
   if (pending.target === "salesOrder") {
     await saveCurrentSalesOrderDraft(true);
     return;
   }
   await saveCurrentDocumentDraft(true);
+}
+
+function applyZeroEntryReasons(pending: PendingZeroEntrySave) {
+  const form = currentOrderForm.value;
+  pending.warnings.forEach((warning) => {
+    const line = form.lines[warning.lineNo - 1];
+    if (!line) {
+      return;
+    }
+    const reasonText = `零值原因：${warning.reason}（${warning.reasons.join("、")}）`;
+    line.lineRemark = mergeLineRemark(line.lineRemark, reasonText);
+  });
+}
+
+function mergeLineRemark(current: string | undefined, addition: string) {
+  const trimmed = String(current ?? "").trim();
+  if (!trimmed) {
+    return addition;
+  }
+  if (trimmed.includes(addition)) {
+    return trimmed;
+  }
+  return `${trimmed}；${addition}`;
 }
 
 async function auditCurrentSalesOrder() {
@@ -2564,7 +2612,8 @@ function toDocumentLines(lines: OrderLineForm[]) {
     warehouseCode: line.warehouseCode,
     sourceLineNo: line.sourceLineNo,
     qty: Number(line.qty || 0),
-    unitPrice: Number(line.unitPrice || 0)
+    unitPrice: Number(line.unitPrice || 0),
+    lineRemark: String(line.lineRemark ?? "").trim()
   }));
 }
 
@@ -2601,6 +2650,7 @@ function isBlankEntryLine(line: OrderLineForm) {
   return !entryLineProductCode(line)
     && !String(line.productName ?? "").trim()
     && !String(line.spec ?? "").trim()
+    && !String(line.lineRemark ?? "").trim()
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
 }
@@ -2628,7 +2678,8 @@ function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
         warehouseCode: entryLineWarehouseCode(line),
         qty,
         unitPrice,
-        reasons
+        reasons,
+        reason: zeroReasonOptions[0]
       };
     })
     .filter((warning) => warning.reasons.length > 0);

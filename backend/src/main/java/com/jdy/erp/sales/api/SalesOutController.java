@@ -59,7 +59,8 @@ public class SalesOutController {
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
-                   l.amount
+                   l.amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
             FROM sales_out_line l
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -265,7 +266,8 @@ public class SalesOutController {
                    l.warehouse_id::text AS "warehouseId",
                    l.qty,
                    l.unit_price AS "unitPrice",
-                   l.amount
+                   l.amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
             FROM sales_out_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -276,8 +278,8 @@ public class SalesOutController {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
@@ -286,7 +288,8 @@ public class SalesOutController {
                 line.get("warehouseId"),
                 qty.negate(),
                 line.get("unitPrice"),
-                ((BigDecimal) line.get("amount")).negate()
+                ((BigDecimal) line.get("amount")).negate(),
+                line.get("lineRemark")
             );
             postingService.post(
                 String.valueOf(line.get("productCode")),
@@ -317,9 +320,9 @@ public class SalesOutController {
             var warehouseId = lookupId("md_warehouse", line.warehouseCode(), "仓库");
             var amount = line.qty().multiply(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?)
-                """, billId, lineNo, line.sourceLineNo() == null ? lineNo : line.sourceLineNo(), productId, warehouseId, line.qty(), line.unitPrice(), amount);
+                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
+                """, billId, lineNo, line.sourceLineNo() == null ? lineNo : line.sourceLineNo(), productId, warehouseId, line.qty(), line.unitPrice(), amount, optionalText(line.lineRemark()));
             lineNo += 1;
         }
     }
@@ -374,6 +377,10 @@ public class SalesOutController {
         return value.trim();
     }
 
+    private String optionalText(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, List<SalesOutLineRequest> lines) {
         public SalesOutDraftRequest {
             if (lines == null || lines.isEmpty()) {
@@ -382,7 +389,7 @@ public class SalesOutController {
         }
     }
 
-    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice) {
+    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

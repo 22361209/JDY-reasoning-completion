@@ -9,6 +9,7 @@ export interface SalesOrderDraftPayload {
     warehouseCode: string;
     qty: number;
     unitPrice: number;
+    lineRemark?: string;
   }>;
 }
 
@@ -30,6 +31,7 @@ export interface SalesOrderDetail {
     shippedQty?: number | string;
     remainingQty?: number | string;
     unitPrice: number | string;
+    lineRemark?: string;
   }>;
 }
 
