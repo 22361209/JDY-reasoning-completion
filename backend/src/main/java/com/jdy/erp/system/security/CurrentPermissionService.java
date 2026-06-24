@@ -5,27 +5,16 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class CurrentPermissionService {
-    private static final String LOCAL_USERNAME = "admin";
-
     private final JdbcTemplate jdbcTemplate;
+    private final CurrentSessionService currentSessionService;
 
-    public CurrentPermissionService(JdbcTemplate jdbcTemplate) {
+    public CurrentPermissionService(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.currentSessionService = currentSessionService;
     }
 
     public String currentRoleCode() {
-        var rows = jdbcTemplate.queryForList("""
-            SELECT r.code
-            FROM sys_user u
-            JOIN sys_user_role ur ON ur.user_id = u.id
-            JOIN sys_role r ON r.id = ur.role_id
-            WHERE u.username = ?
-              AND u.enabled = TRUE
-              AND r.enabled = TRUE
-            ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 ELSE 1 END
-            LIMIT 1
-            """, String.class, LOCAL_USERNAME);
-        return rows.isEmpty() ? "ADMIN" : rows.get(0);
+        return currentSessionService.currentRoleCode();
     }
 
     public boolean hasPermission(String permissionCode) {

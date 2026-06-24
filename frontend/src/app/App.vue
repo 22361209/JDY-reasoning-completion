@@ -85,8 +85,18 @@
           <button type="button">帮助</button>
           <button type="button">反馈</button>
           <div class="user-chip">
-            <strong>{{ session.userName.value }}</strong>
-            <span>{{ session.userRole.value }}</span>
+            <strong data-testid="session-user-name">{{ session.userName.value }}</strong>
+            <span data-testid="session-user-role">{{ session.userRole.value }}</span>
+          </div>
+          <div class="session-switcher" data-testid="session-switcher">
+            <select v-model="loginForm.username" data-testid="session-user-select">
+              <option v-for="user in systemUsers" :key="user.username" :value="user.username">
+                {{ user.displayName }} / {{ user.roleName }}
+              </option>
+            </select>
+            <input v-model="loginForm.password" data-testid="session-password" type="password" placeholder="密码" @keydown.enter="switchSessionUser" />
+            <button type="button" data-testid="session-switch" @click="switchSessionUser">切换</button>
+            <span v-if="loginMessage" class="session-switcher__message" data-testid="session-message">{{ loginMessage }}</span>
           </div>
         </div>
       </header>
@@ -827,13 +837,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { fetchRolePermissions, fetchSystemSession, saveRolePermissions, type PermissionCatalogItem, type RolePermissionMatrix } from "../services/systemApi";
+import { fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, saveRolePermissions, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1002,6 +1012,21 @@ const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
 const selectedRoleCode = ref("ADMIN");
 const rolePermissionDraft = ref<string[]>([]);
 const rolePermissionMessage = ref("");
+const systemUsers = ref<SystemUser[]>([]);
+const loginForm = reactive({
+  username: "admin",
+  password: "admin123"
+});
+const loginMessage = ref("");
+const localUserPasswords: Record<string, string> = {
+  admin: "admin123",
+  warehouse: "warehouse123",
+  finance: "finance123"
+};
+
+watch(() => loginForm.username, (username) => {
+  loginForm.password = localUserPasswords[username] ?? "";
+});
 const printTemplateForm = reactive<PrintTemplateConfig>({
   documentType: "sales-order",
   documentTitle: "销售订单",
@@ -1587,17 +1612,36 @@ function lineDragHandleTestId(index: number) {
 }
 
 onMounted(async () => {
+  systemUsers.value = await fetchSystemUsers();
   const remoteSession = await fetchSystemSession();
   if (remoteSession) {
-    session.userName.value = remoteSession.user.name;
-    session.userRole.value = remoteSession.user.role;
-    session.userRoleCode.value = remoteSession.user.roleCode || "";
-    session.permissionCodes.value = remoteSession.user.permissionCodes ?? [];
-    session.tenantName.value = remoteSession.tenant.name;
-    session.accountingPeriod.value = remoteSession.period.accounting;
-    session.businessPeriod.value = remoteSession.period.business;
+    applySystemSession(remoteSession);
   }
 });
+
+function applySystemSession(remoteSession: SystemSession) {
+  session.userName.value = remoteSession.user.name;
+  session.userRole.value = remoteSession.user.role;
+  session.userRoleCode.value = remoteSession.user.roleCode || "";
+  session.permissionCodes.value = remoteSession.user.permissionCodes ?? [];
+  session.tenantName.value = remoteSession.tenant.name;
+  session.accountingPeriod.value = remoteSession.period.accounting;
+  session.businessPeriod.value = remoteSession.period.business;
+  loginForm.username = remoteSession.user.username || loginForm.username;
+  loginMessage.value = "";
+}
+
+async function switchSessionUser() {
+  const remoteSession = await loginSystemUser(loginForm.username, loginForm.password);
+  if (!remoteSession) {
+    loginMessage.value = "切换失败";
+    return;
+  }
+  applySystemSession(remoteSession);
+  if (tabs.activeTab.value.id === "role-permission-settings") {
+    await loadRolePermissions();
+  }
+}
 
 function selectModule(name: string) {
   if (Date.now() < suppressNavigationUntil.value) {

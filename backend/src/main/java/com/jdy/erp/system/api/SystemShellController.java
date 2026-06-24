@@ -3,8 +3,11 @@ package com.jdy.erp.system.api;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.security.CurrentSessionService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -12,14 +15,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/system")
 public class SystemShellController {
     private final JdbcTemplate jdbcTemplate;
+    private final CurrentSessionService currentSessionService;
 
-    public SystemShellController(JdbcTemplate jdbcTemplate) {
+    public SystemShellController(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.currentSessionService = currentSessionService;
     }
 
     @GetMapping("/session")
     public Map<String, Object> session() {
-        var userRows = jdbcTemplate.queryForList("""
+        return Map.of(
+            "user", currentSessionService.currentUser(),
+            "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
+            "period", Map.of("accounting", "2026-06", "business", "2026-06")
+        );
+    }
+
+    @GetMapping("/users")
+    public Map<String, Object> users() {
+        var users = jdbcTemplate.queryForList("""
             SELECT u.username,
                    u.display_name AS "displayName",
                    r.code AS "roleCode",
@@ -27,40 +41,23 @@ public class SystemShellController {
             FROM sys_user u
             JOIN sys_user_role ur ON ur.user_id = u.id
             JOIN sys_role r ON r.id = ur.role_id
-            WHERE u.username = 'admin'
-            ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 ELSE 1 END
-            LIMIT 1
+            WHERE u.enabled = TRUE
+              AND r.enabled = TRUE
+            ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 WHEN 'WAREHOUSE' THEN 1 WHEN 'FINANCE' THEN 2 ELSE 3 END, u.username
             """);
-        var roleCode = userRows.isEmpty() ? "ADMIN" : String.valueOf(userRows.get(0).get("roleCode"));
-        var permissionCodes = jdbcTemplate.queryForList("""
-            SELECT p.permission_code
-            FROM sys_permission p
-            JOIN sys_role r ON r.id = p.role_id
-            LEFT JOIN sys_permission_catalog c ON c.permission_code = p.permission_code
-            WHERE r.code = ?
-              AND p.enabled = TRUE
-            ORDER BY c.sort_no, p.permission_code
-            """, String.class, roleCode);
-        var user = userRows.isEmpty()
-            ? Map.of(
-                "name", "本地管理员",
-                "username", "admin",
-                "role", "系统管理员",
-                "roleCode", "ADMIN",
-                "permissionCodes", permissionCodes
-            )
-            : Map.of(
-                "name", String.valueOf(userRows.get(0).get("displayName")),
-                "username", String.valueOf(userRows.get(0).get("username")),
-                "role", String.valueOf(userRows.get(0).get("roleName")),
-                "roleCode", roleCode,
-                "permissionCodes", permissionCodes
-            );
-        return Map.of(
-            "user", user,
-            "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
-            "period", Map.of("accounting", "2026-06", "business", "2026-06")
-        );
+        return Map.of("users", users);
+    }
+
+    @PostMapping("/login")
+    public Map<String, Object> login(@RequestBody LoginRequest request) {
+        currentSessionService.login(request.username(), request.password());
+        return session();
+    }
+
+    @PostMapping("/logout")
+    public Map<String, Object> logout() {
+        currentSessionService.logout();
+        return Map.of("ok", true);
     }
 
     @GetMapping("/period")
@@ -88,5 +85,8 @@ public class SystemShellController {
             ),
             "excluded", List.of("老板参谋", "客户经营", "协同助手", "自定义中心")
         );
+    }
+
+    public record LoginRequest(String username, String password) {
     }
 }

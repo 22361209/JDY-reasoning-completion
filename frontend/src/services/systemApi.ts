@@ -4,6 +4,13 @@ export interface SystemSession {
   period: { accounting: string; business: string };
 }
 
+export interface SystemUser {
+  username: string;
+  displayName: string;
+  roleCode: string;
+  roleName: string;
+}
+
 export interface PermissionCatalogItem {
   permissionCode: string;
   moduleName: string;
@@ -34,6 +41,35 @@ export interface RolePermissionResult {
 export async function fetchSystemSession(): Promise<SystemSession | null> {
   try {
     const response = await fetch("/api/system/session");
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json() as SystemSession;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSystemUsers(): Promise<SystemUser[]> {
+  try {
+    const response = await fetch("/api/system/users");
+    if (!response.ok) {
+      return [];
+    }
+    const payload = await response.json() as { users?: SystemUser[] };
+    return payload.users ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function loginSystemUser(username: string, password: string): Promise<SystemSession | null> {
+  try {
+    const response = await fetch("/api/system/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
     if (!response.ok) {
       return null;
     }

@@ -339,6 +339,35 @@ input:disabled {
   border-left: 1px solid #d7e0ea;
 }
 
+.session-switcher {
+  display: grid;
+  grid-template-columns: 132px 82px 42px;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.session-switcher select,
+.session-switcher input {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #293846;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.session-switcher__message {
+  position: absolute;
+  right: 0;
+  top: 32px;
+  color: #b42318;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .work-tabs {
   display: flex;
   align-items: end;
