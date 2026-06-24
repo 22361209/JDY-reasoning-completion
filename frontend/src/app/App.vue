@@ -1,5 +1,27 @@
 <template>
-  <div class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
+  <section v-if="!isAuthenticated" class="login-page" data-testid="login-page">
+    <form class="login-panel" @submit.prevent="loginCurrentUser">
+      <div class="login-panel__brand">JDY</div>
+      <h1>金蝶云星辰复刻工作台</h1>
+      <p>选择员工账号并输入密码后进入当前测试账套。</p>
+      <label>
+        <span>账号</span>
+        <select v-model="loginForm.username" data-testid="login-username">
+          <option v-for="user in systemUsers" :key="user.username" :value="user.username">
+            {{ user.displayName }} / {{ user.roleName }}
+          </option>
+        </select>
+      </label>
+      <label>
+        <span>密码</span>
+        <input v-model="loginForm.password" data-testid="login-password" type="password" autocomplete="current-password" />
+      </label>
+      <button class="primary-action" type="submit" data-testid="login-submit">登录</button>
+      <p v-if="loginMessage" class="login-message" data-testid="login-message">{{ loginMessage }}</p>
+    </form>
+  </section>
+
+  <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
         <div class="product-mark" aria-label="JDY">J</div>
@@ -88,16 +110,7 @@
             <strong data-testid="session-user-name">{{ session.userName.value }}</strong>
             <span data-testid="session-user-role">{{ session.userRole.value }}</span>
           </div>
-          <div class="session-switcher" data-testid="session-switcher">
-            <select v-model="loginForm.username" data-testid="session-user-select">
-              <option v-for="user in systemUsers" :key="user.username" :value="user.username">
-                {{ user.displayName }} / {{ user.roleName }}
-              </option>
-            </select>
-            <input v-model="loginForm.password" data-testid="session-password" type="password" placeholder="密码" @keydown.enter="switchSessionUser" />
-            <button type="button" data-testid="session-switch" @click="switchSessionUser">切换</button>
-            <span v-if="loginMessage" class="session-switcher__message" data-testid="session-message">{{ loginMessage }}</span>
-          </div>
+          <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出</button>
         </div>
       </header>
 
@@ -899,13 +912,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, resetManagedUserPassword, saveRolePermissions, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, logoutSystemUser, resetManagedUserPassword, saveRolePermissions, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1087,20 +1100,12 @@ const managedUserForm = reactive({
   enabled: true
 });
 const systemUsers = ref<SystemUser[]>([]);
+const isAuthenticated = ref(false);
 const loginForm = reactive({
   username: "admin",
-  password: "admin123"
+  password: ""
 });
 const loginMessage = ref("");
-const localUserPasswords: Record<string, string> = {
-  admin: "admin123",
-  warehouse: "warehouse123",
-  finance: "finance123"
-};
-
-watch(() => loginForm.username, (username) => {
-  loginForm.password = localUserPasswords[username] ?? "";
-});
 const printTemplateForm = reactive<PrintTemplateConfig>({
   documentType: "sales-order",
   documentTitle: "销售订单",
@@ -1689,12 +1694,15 @@ function lineDragHandleTestId(index: number) {
 onMounted(async () => {
   systemUsers.value = await fetchSystemUsers();
   const remoteSession = await fetchSystemSession();
-  if (remoteSession) {
+  if (remoteSession?.authenticated && remoteSession.user) {
     applySystemSession(remoteSession);
   }
 });
 
 function applySystemSession(remoteSession: SystemSession) {
+  if (!remoteSession.user) {
+    return;
+  }
   session.userName.value = remoteSession.user.name;
   session.userRole.value = remoteSession.user.role;
   session.userRoleCode.value = remoteSession.user.roleCode || "";
@@ -1703,19 +1711,34 @@ function applySystemSession(remoteSession: SystemSession) {
   session.accountingPeriod.value = remoteSession.period.accounting;
   session.businessPeriod.value = remoteSession.period.business;
   loginForm.username = remoteSession.user.username || loginForm.username;
+  isAuthenticated.value = true;
   loginMessage.value = "";
 }
 
-async function switchSessionUser() {
+async function loginCurrentUser() {
+  loginMessage.value = "";
   const remoteSession = await loginSystemUser(loginForm.username, loginForm.password);
-  if (!remoteSession) {
-    loginMessage.value = "切换失败";
+  if (!remoteSession?.authenticated || !remoteSession.user) {
+    loginMessage.value = "账号或密码不正确";
     return;
   }
   applySystemSession(remoteSession);
+  loginForm.password = "";
   if (tabs.activeTab.value.id === "role-permission-settings") {
     await loadRolePermissions();
   }
+}
+
+async function logoutCurrentUser() {
+  await logoutSystemUser();
+  isAuthenticated.value = false;
+  session.userName.value = "";
+  session.userRole.value = "";
+  session.userRoleCode.value = "";
+  session.permissionCodes.value = [];
+  loginForm.password = "";
+  loginMessage.value = "";
+  tabs.activeTabId.value = "home";
 }
 
 function selectModule(name: string) {

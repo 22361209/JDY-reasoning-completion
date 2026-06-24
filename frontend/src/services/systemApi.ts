@@ -1,5 +1,6 @@
 export interface SystemSession {
-  user: { name: string; username?: string; role: string; roleCode?: string; permissionCodes?: string[] };
+  authenticated?: boolean;
+  user?: { name: string; username?: string; role: string; roleCode?: string; permissionCodes?: string[] };
   tenant: { name: string; environment: string };
   period: { accounting: string; business: string };
 }
@@ -99,6 +100,15 @@ export async function loginSystemUser(username: string, password: string): Promi
     return await response.json() as SystemSession;
   } catch {
     return null;
+  }
+}
+
+export async function logoutSystemUser(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/system/logout", { method: "POST" });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 

@@ -24,7 +24,15 @@ public class SystemShellController {
 
     @GetMapping("/session")
     public Map<String, Object> session() {
+        if (!currentSessionService.isAuthenticated()) {
+            return Map.of(
+                "authenticated", false,
+                "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
+                "period", Map.of("accounting", "2026-06", "business", "2026-06")
+            );
+        }
         return Map.of(
+            "authenticated", true,
             "user", currentSessionService.currentUser(),
             "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
             "period", Map.of("accounting", "2026-06", "business", "2026-06")

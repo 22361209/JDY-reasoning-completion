@@ -15,7 +15,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CurrentSessionService {
     public static final String SESSION_USERNAME = "jdy.username";
-    private static final String DEFAULT_USERNAME = "admin";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -24,19 +23,32 @@ public class CurrentSessionService {
     }
 
     public String currentUsername() {
+        var username = optionalCurrentUsername();
+        if (username == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
+        }
+        return username;
+    }
+
+    public String optionalCurrentUsername() {
         var request = currentRequest();
         if (request == null) {
-            return DEFAULT_USERNAME;
+            return null;
         }
         var session = request.getSession(false);
         if (session == null) {
-            return DEFAULT_USERNAME;
+            return null;
         }
         var username = session.getAttribute(SESSION_USERNAME);
-        return username == null || String.valueOf(username).isBlank() ? DEFAULT_USERNAME : String.valueOf(username);
+        return username == null || String.valueOf(username).isBlank() ? null : String.valueOf(username);
+    }
+
+    public boolean isAuthenticated() {
+        return optionalCurrentUsername() != null;
     }
 
     public Map<String, Object> currentUser() {
+        var currentUsername = currentUsername();
         var userRows = jdbcTemplate.queryForList("""
             SELECT u.username,
                    u.display_name AS "displayName",
@@ -50,7 +62,7 @@ public class CurrentSessionService {
               AND r.enabled = TRUE
             ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 ELSE 1 END
             LIMIT 1
-            """, currentUsername());
+            """, currentUsername);
         if (userRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
         }
