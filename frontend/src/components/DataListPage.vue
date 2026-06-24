@@ -25,11 +25,33 @@
           <option v-for="status in definition.statuses" :key="status" :value="status">{{ status }}</option>
         </select>
       </label>
-      <label v-if="filtersExpanded">
+      <label v-if="filtersExpanded && isOperationLogList">
+        模块
+        <select v-model="query.module" data-testid="operation-log-module">
+          <option value="">全部</option>
+          <option v-for="module in operationLogModules" :key="module" :value="module">{{ module }}</option>
+        </select>
+      </label>
+      <label v-if="filtersExpanded && isOperationLogList">
+        动作
+        <select v-model="query.action" data-testid="operation-log-action">
+          <option value="">全部</option>
+          <option v-for="action in operationLogActions" :key="action" :value="action">{{ action }}</option>
+        </select>
+      </label>
+      <label v-if="filtersExpanded && isOperationLogList">
+        开始日期
+        <input v-model="query.dateFrom" type="date" data-testid="operation-log-date-from" />
+      </label>
+      <label v-if="filtersExpanded && isOperationLogList">
+        结束日期
+        <input v-model="query.dateTo" type="date" data-testid="operation-log-date-to" />
+      </label>
+      <label v-if="filtersExpanded && !isOperationLogList">
         日期
         <input value="2026-06-01 至 2026-06-30" readonly />
       </label>
-      <label v-if="filtersExpanded">
+      <label v-if="filtersExpanded && !isOperationLogList">
         经办人
         <input value="本地管理员" readonly />
       </label>
@@ -315,8 +337,24 @@ const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
 const draggingColumnField = ref("");
 const dragOverColumnField = ref("");
-const query = reactive({ keyword: "", status: "", page: 1, pageSize: 200 });
+const query = reactive({ keyword: "", status: "", page: 1, pageSize: 200, module: "", action: "", dateFrom: "", dateTo: "" });
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
+const operationLogModules = ["SALES", "PURCHASE", "PRODUCTION", "FINANCE", "MASTER", "SYSTEM"];
+const operationLogActions = [
+  "AUDIT",
+  "REVERSE",
+  "RED_REVERSE",
+  "ISSUE",
+  "REVERSE_ISSUE",
+  "RED_REVERSE_ISSUE",
+  "COMPLETE",
+  "REVERSE_COMPLETE",
+  "RED_REVERSE_COMPLETE",
+  "CREATE_TASK",
+  "SAVE_BOM",
+  "RECEIVE",
+  "PAY"
+];
 const masterDataTypeByListKey: Record<string, string> = {
   "product-master-list": "product",
   "customer-master-list": "customer",
@@ -611,6 +649,7 @@ const definition = computed(() => definitions[props.listKey] ?? fallbackDefiniti
 const isMasterList = computed(() => Boolean(masterDataTypeByListKey[props.listKey]));
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
+const isOperationLogList = computed(() => props.listKey === "operation-log-list");
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
   "sales-order-form-list": "salesOrder",
   "sales-out-list": "salesOut",
@@ -751,6 +790,10 @@ async function reload() {
 function resetQuery() {
   query.keyword = "";
   query.status = "";
+  query.module = "";
+  query.action = "";
+  query.dateFrom = "";
+  query.dateTo = "";
   query.page = 1;
   reload();
 }

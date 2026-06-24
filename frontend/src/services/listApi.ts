@@ -5,6 +5,10 @@ export interface ListQuery {
   pageSize: number;
   sortField?: string;
   sortOrder?: "asc" | "desc" | "";
+  module?: string;
+  action?: string;
+  dateFrom?: string;
+  dateTo?: string;
   columnFilters?: Record<string, { operator: string; value: string }>;
 }
 
@@ -35,6 +39,18 @@ export async function fetchListRows(listKey: string, query: ListQuery): Promise<
   if (query.sortField) {
     search.set("sortField", query.sortField);
     search.set("sortOrder", query.sortOrder || "asc");
+  }
+  if (query.module) {
+    search.set("module", query.module);
+  }
+  if (query.action) {
+    search.set("action", query.action);
+  }
+  if (query.dateFrom) {
+    search.set("dateFrom", query.dateFrom);
+  }
+  if (query.dateTo) {
+    search.set("dateTo", query.dateTo);
   }
   if (query.columnFilters && Object.keys(query.columnFilters).length) {
     search.set("columnFilters", JSON.stringify(query.columnFilters));

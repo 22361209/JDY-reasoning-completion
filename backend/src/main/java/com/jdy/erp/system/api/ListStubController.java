@@ -37,7 +37,11 @@ public class ListStubController {
         @RequestParam(defaultValue = "200") int pageSize,
         @RequestParam(defaultValue = "") String sortField,
         @RequestParam(defaultValue = "asc") String sortOrder,
-        @RequestParam(defaultValue = "") String columnFilters
+        @RequestParam(defaultValue = "") String columnFilters,
+        @RequestParam(defaultValue = "") String module,
+        @RequestParam(defaultValue = "") String action,
+        @RequestParam(defaultValue = "") String dateFrom,
+        @RequestParam(defaultValue = "") String dateTo
     ) {
         if ("permission-denied-list".equals(listKey)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No permission for this list");
@@ -50,6 +54,7 @@ public class ListStubController {
         var rows = expandRowsForLargePage(listKey, seedRows(listKey), pageSize).stream()
             .filter(row -> keyword.isBlank() || row.values().stream().anyMatch(value -> String.valueOf(value).contains(keyword)))
             .filter(row -> status.isBlank() || status.equals(row.get("status")))
+            .filter(row -> matchesOperationLogFilters(listKey, row, module, action, dateFrom, dateTo))
             .filter(row -> matchesColumnFilters(row, filters))
             .toList();
         if (!sortField.isBlank()) {
@@ -65,6 +70,20 @@ public class ListStubController {
             "total", rows.size(),
             "rows", rows.stream().skip((long) (page - 1) * pageSize).limit(pageSize).toList()
         );
+    }
+
+    private boolean matchesOperationLogFilters(String listKey, Map<String, ?> row, String module, String action, String dateFrom, String dateTo) {
+        if (!"operation-log-list".equals(listKey)) {
+            return true;
+        }
+        var rowModule = String.valueOf(row.get("module") == null ? "" : row.get("module"));
+        var rowAction = String.valueOf(row.get("action") == null ? "" : row.get("action"));
+        var operatedAt = String.valueOf(row.get("operatedAt") == null ? "" : row.get("operatedAt"));
+        var operatedDate = operatedAt.length() >= 10 ? operatedAt.substring(0, 10) : "";
+        return (module == null || module.isBlank() || module.equals(rowModule))
+            && (action == null || action.isBlank() || action.equals(rowAction))
+            && (dateFrom == null || dateFrom.isBlank() || operatedDate.compareTo(dateFrom) >= 0)
+            && (dateTo == null || dateTo.isBlank() || operatedDate.compareTo(dateTo) <= 0);
     }
 
     private Map<String, Map<String, String>> parseColumnFilters(String columnFilters) {
