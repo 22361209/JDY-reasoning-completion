@@ -40,7 +40,12 @@ public class ProductionController {
                    '生产部' AS department,
                    i.status,
                    COALESCE(SUM(l.amount), 0) AS "totalAmount",
-                   '本地管理员' AS "ownerName"
+                   '本地管理员' AS "ownerName",
+                   (
+                       SELECT original.bill_no
+                       FROM production_material_issue original
+                       WHERE original.id = i.red_source_bill_id
+                   ) AS "redSourceBillNo"
             FROM production_material_issue i
             JOIN production_task t ON t.id = i.task_id
             LEFT JOIN production_material_issue_line l ON l.issue_id = i.id
@@ -81,7 +86,12 @@ public class ProductionController {
                    '生产部' AS department,
                    c.status,
                    COALESCE(SUM(l.amount), 0) AS "totalAmount",
-                   '本地管理员' AS "ownerName"
+                   '本地管理员' AS "ownerName",
+                   (
+                       SELECT original.bill_no
+                       FROM production_completion original
+                       WHERE original.id = c.red_source_bill_id
+                   ) AS "redSourceBillNo"
             FROM production_completion c
             JOIN production_task t ON t.id = c.task_id
             LEFT JOIN production_completion_line l ON l.completion_id = c.id
@@ -264,10 +274,10 @@ public class ProductionController {
         }
         var redBillNo = required(request.redBillNo(), "红冲单号");
         var redRows = jdbcTemplate.queryForList("""
-            INSERT INTO production_material_issue (bill_no, task_id, status)
-            VALUES (?, ?::uuid, 'RED_REVERSED')
+            INSERT INTO production_material_issue (bill_no, task_id, red_source_bill_id, status)
+            VALUES (?, ?::uuid, ?::uuid, 'RED_REVERSED')
             RETURNING id::text AS id, bill_no AS "billNo", status
-            """, redBillNo, sourceRows.get(0).get("taskId"));
+            """, redBillNo, sourceRows.get(0).get("taskId"), sourceRows.get(0).get("id"));
         copyIssueLines(billNo, String.valueOf(redRows.get(0).get("id")), true);
         postIssueLines(redBillNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE_RED", "PRODUCTION_ISSUE_RED:" + redBillNo);
         log("PRODUCTION", "RED_REVERSE_ISSUE", "production_material_issue", String.valueOf(redRows.get(0).get("id")), true, null);
@@ -359,10 +369,10 @@ public class ProductionController {
         var redBillNo = required(request.redBillNo(), "红冲单号");
         var redQty = ((BigDecimal) sourceRows.get(0).get("qty")).negate();
         var redRows = jdbcTemplate.queryForList("""
-            INSERT INTO production_completion (bill_no, task_id, qty, status)
-            VALUES (?, ?::uuid, ?, 'RED_REVERSED')
+            INSERT INTO production_completion (bill_no, task_id, red_source_bill_id, qty, status)
+            VALUES (?, ?::uuid, ?::uuid, ?, 'RED_REVERSED')
             RETURNING id::text AS id, bill_no AS "billNo", status, qty
-            """, redBillNo, sourceRows.get(0).get("taskId"), redQty);
+            """, redBillNo, sourceRows.get(0).get("taskId"), sourceRows.get(0).get("id"), redQty);
         copyCompletionLines(billNo, String.valueOf(redRows.get(0).get("id")), true);
         postCompletionLines(redBillNo, BigDecimal.ONE, "PRODUCTION_COMPLETE_RED", "PRODUCTION_COMPLETE_RED:" + redBillNo);
         log("PRODUCTION", "RED_REVERSE_COMPLETE", "production_completion", String.valueOf(redRows.get(0).get("id")), true, null);

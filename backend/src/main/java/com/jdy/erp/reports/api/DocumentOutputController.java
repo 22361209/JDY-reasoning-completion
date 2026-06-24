@@ -102,8 +102,12 @@ public class DocumentOutputController {
             .append("<div>单据编号：").append(escapeHtml(String.valueOf(payload.header().get("billNo")))).append("</div>")
             .append("<div>往来单位：").append(escapeHtml(String.valueOf(payload.header().get("counterparty")))).append("</div>")
             .append("<div>业务日期：").append(escapeHtml(String.valueOf(payload.header().get("billDate")))).append("</div>")
-            .append("<div>状态：").append(escapeHtml(String.valueOf(payload.header().get("status")))).append("</div>")
-            .append("</section>");
+            .append("<div>状态：").append(escapeHtml(String.valueOf(payload.header().get("status")))).append("</div>");
+        var redSourceBillNo = String.valueOf(payload.header().getOrDefault("redSourceBillNo", ""));
+        if (!redSourceBillNo.isBlank() && !"null".equals(redSourceBillNo)) {
+            html.append("<div>来源原单：").append(escapeHtml(redSourceBillNo)).append("</div>");
+        }
+        html.append("</section>");
         html.append("<table><thead><tr><th>行号</th><th>商品编码</th><th>商品名称</th><th>规格型号</th><th>仓库</th><th>数量</th><th>单价</th><th>金额</th><th>备注</th></tr></thead><tbody>");
         for (var line : payload.lines()) {
             html.append("<tr>")
@@ -316,13 +320,15 @@ public class DocumentOutputController {
                    '生产车间 / ' || t.bill_no AS counterparty,
                    to_char(b.created_at, 'YYYY-MM-DD') AS "billDate",
                    b.status,
-                   COALESCE(SUM(l.amount), 0) AS "totalAmount"
+                   COALESCE(SUM(l.amount), 0) AS "totalAmount",
+                   original.bill_no AS "redSourceBillNo"
             FROM %s b
             JOIN production_task t ON t.id = b.task_id
+            LEFT JOIN %s original ON original.id = b.red_source_bill_id
             LEFT JOIN %s l ON l.%s = b.id
             WHERE b.bill_no = ?
-            GROUP BY b.id, t.bill_no
-            """.formatted(table, lineTable, billColumn), billNo);
+            GROUP BY b.id, t.bill_no, original.bill_no
+            """.formatted(table, table, lineTable, billColumn), billNo);
         if (header.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, documentLabel + "不存在");
         }
@@ -480,6 +486,10 @@ public class DocumentOutputController {
         lines.add(title);
         lines.add("单据编号：" + payload.header().get("billNo"));
         lines.add("往来单位：" + payload.header().get("counterparty"));
+        var redSourceBillNo = String.valueOf(payload.header().getOrDefault("redSourceBillNo", ""));
+        if (!redSourceBillNo.isBlank() && !"null".equals(redSourceBillNo)) {
+            lines.add("来源原单：" + redSourceBillNo);
+        }
         lines.add("业务日期：" + payload.header().get("billDate") + "    状态：" + payload.header().get("status") + "    合计：" + payload.header().get("totalAmount"));
         lines.add("行号  商品编码  商品名称 / 规格型号");
         for (var line : payload.lines()) {
