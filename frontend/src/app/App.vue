@@ -427,6 +427,22 @@
                   <button type="button" data-testid="password-reset-reject" @click="rejectPasswordResetRequestAction">驳回申请</button>
                 </div>
               </section>
+              <section v-if="recentPasswordResetNotifications.length" class="password-reset-admin-panel" data-testid="password-reset-notification-panel">
+                <div class="password-reset-admin-panel__head">
+                  <strong>最近通知</strong>
+                  <span>{{ recentPasswordResetNotifications.length }} 条</span>
+                </div>
+                <div
+                  v-for="notice in recentPasswordResetNotifications"
+                  :key="notice.id"
+                  class="password-reset-notice-row"
+                  :data-testid="`password-reset-notice-${notice.recipientUsername}-${notice.templateCode}`"
+                >
+                  <strong>{{ notice.title }}</strong>
+                  <span>{{ notice.recipientUsername }} / {{ notificationStatusLabel(notice) }} / {{ notice.sentAt || notice.createdAt }}</span>
+                  <em>{{ notice.body }}</em>
+                </div>
+              </section>
               <label>
                 <span>用户名</span>
                 <input v-model="managedUserForm.username" :readonly="userManagementMode === 'edit'" data-testid="managed-user-username" />
@@ -1186,7 +1202,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1388,6 +1404,7 @@ const securitySettingsForm = reactive<{
 const managedUsers = ref<ManagedUser[]>([]);
 const managedRoles = ref<ManagedRole[]>([]);
 const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
+const notificationOutbox = ref<NotificationOutboxItem[]>([]);
 const selectedPasswordResetRequestId = ref("");
 const passwordResetHandleNote = ref("");
 const selectedManagedUsername = ref("");
@@ -1700,6 +1717,7 @@ const passwordStrengthOk = computed(() => passwordStrengthRules.value.every((rul
 const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
 const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
 const selectedPasswordResetRequest = computed(() => passwordResetRequests.value.find((request) => request.id === selectedPasswordResetRequestId.value && request.status === "PENDING") ?? null);
+const recentPasswordResetNotifications = computed(() => notificationOutbox.value.slice(0, 6));
 const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
 const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
 const permissionGroups = computed(() => {
@@ -2284,6 +2302,7 @@ async function loadManagedUsers() {
   managedUsers.value = result.data.users;
   managedRoles.value = result.data.roles;
   passwordResetRequests.value = result.data.passwordResetRequests ?? [];
+  notificationOutbox.value = result.data.notificationOutbox ?? [];
   if (!pendingPasswordResetRequests.value.some((request) => request.id === selectedPasswordResetRequestId.value)) {
     selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
   }
@@ -2371,6 +2390,7 @@ async function saveManagedUser() {
   managedUsers.value = result.data.users;
   managedRoles.value = result.data.roles;
   passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
+  notificationOutbox.value = result.data.notificationOutbox ?? notificationOutbox.value;
   selectedManagedUsername.value = managedUserForm.username;
   userManagementMode.value = "edit";
   applySelectedManagedUser();
@@ -2404,9 +2424,20 @@ async function rejectPasswordResetRequestAction() {
   managedUsers.value = result.data.users;
   managedRoles.value = result.data.roles;
   passwordResetRequests.value = result.data.passwordResetRequests ?? [];
+  notificationOutbox.value = result.data.notificationOutbox ?? [];
   selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
   passwordResetHandleNote.value = "";
   userManagementMessage.value = "找回申请已驳回";
+}
+
+function notificationStatusLabel(notice: NotificationOutboxItem) {
+  if (notice.status === "SENT") {
+    return "已发送";
+  }
+  if (notice.status === "FAILED") {
+    return "失败";
+  }
+  return "待发送";
 }
 
 async function unlockManagedUserAction() {

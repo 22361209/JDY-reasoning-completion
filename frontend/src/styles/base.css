@@ -936,6 +936,17 @@ input:disabled {
   padding: 8px 10px;
 }
 
+.password-reset-notice-row {
+  min-height: 58px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid #d8e1ec;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #2b3e52;
+  padding: 8px 10px;
+}
+
 .password-reset-request-row:hover,
 .password-reset-request-row.active {
   border-color: #9bc5ef;
@@ -944,6 +955,8 @@ input:disabled {
 
 .password-reset-request-row span,
 .password-reset-request-row em,
+.password-reset-notice-row span,
+.password-reset-notice-row em,
 .password-reset-admin-panel p {
   margin: 0;
   color: #697887;

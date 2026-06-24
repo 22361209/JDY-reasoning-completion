@@ -38,7 +38,8 @@ public class UserManagementController {
         return Map.of(
             "users", userRows(),
             "roles", roleRows(),
-            "passwordResetRequests", passwordResetRequestRows()
+            "passwordResetRequests", passwordResetRequestRows(),
+            "notificationOutbox", notificationRows()
         );
     }
 
@@ -142,6 +143,14 @@ public class UserManagementController {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
         }
+        var pendingRequests = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   COALESCE(contact_note, '') AS "contactNote"
+            FROM sys_password_reset_request
+            WHERE requested_user_id = ?::uuid
+              AND status = 'PENDING'
+            ORDER BY requested_at DESC
+            """, userId);
         jdbcTemplate.update("""
             UPDATE sys_password_reset_request
             SET status = 'DONE',
@@ -152,6 +161,19 @@ public class UserManagementController {
             WHERE requested_user_id = ?::uuid
               AND status = 'PENDING'
             """, currentSessionService.currentUsername(), userId);
+        if (!pendingRequests.isEmpty()) {
+            var resetRequest = pendingRequests.get(0);
+            createNotification(
+                userId,
+                normalizedUsername,
+                String.valueOf(resetRequest.get("contactNote")),
+                "PASSWORD_RESET_DONE",
+                "密码已重置",
+                "管理员已完成身份核验并重置密码，请使用新密码登录后及时修改。",
+                "sys_password_reset_request",
+                String.valueOf(resetRequest.get("id"))
+            );
+        }
         log("SYSTEM", "RESET_PASSWORD", "sys_user", userId, true, null);
         return Map.of("ok", true);
     }
@@ -168,6 +190,8 @@ public class UserManagementController {
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    requested_user_id::text AS "requestedUserId",
+                   username,
+                   COALESCE(contact_note, '') AS "contactNote",
                    status
             FROM sys_password_reset_request
             WHERE id = ?::uuid
@@ -189,6 +213,18 @@ public class UserManagementController {
             WHERE id = ?::uuid
             """, status, currentSessionService.currentUsername(), note, normalizedRequestId);
         var targetUserId = rows.get(0).get("requestedUserId") == null ? null : String.valueOf(rows.get(0).get("requestedUserId"));
+        if ("REJECTED".equals(status)) {
+            createNotification(
+                targetUserId,
+                String.valueOf(rows.get(0).get("username")),
+                String.valueOf(rows.get(0).get("contactNote")),
+                "PASSWORD_RESET_REJECTED",
+                "找回申请已驳回",
+                "管理员未通过本次身份核验，请核对资料后重新提交找回申请。",
+                "sys_password_reset_request",
+                normalizedRequestId
+            );
+        }
         log("SYSTEM", "HANDLE_PASSWORD_RESET_REQUEST", "sys_user", targetUserId, true, status + (note == null || note.isBlank() ? "" : "：" + note));
         return managedUsers();
     }
@@ -270,6 +306,28 @@ public class UserManagementController {
             """);
     }
 
+    private List<Map<String, Object>> notificationRows() {
+        return jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   channel,
+                   template_code AS "templateCode",
+                   recipient_username AS "recipientUsername",
+                   COALESCE(recipient_contact, '') AS "recipientContact",
+                   title,
+                   body,
+                   COALESCE(source_type, '') AS "sourceType",
+                   COALESCE(source_id::text, '') AS "sourceId",
+                   status,
+                   provider,
+                   COALESCE(to_char(created_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "createdAt",
+                   COALESCE(to_char(sent_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "sentAt"
+            FROM sys_notification_outbox
+            WHERE template_code LIKE 'PASSWORD_RESET_%'
+            ORDER BY created_at DESC
+            LIMIT 50
+            """);
+    }
+
     private List<Map<String, Object>> roleRows() {
         return jdbcTemplate.queryForList("""
             SELECT code, name, enabled
@@ -324,6 +382,45 @@ public class UserManagementController {
             INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
             VALUES (?, ?, ?, ?::uuid, ?, ?)
             """, module, action, targetType, targetId, success, reason);
+    }
+
+    private void createNotification(
+        String recipientUserId,
+        String recipientUsername,
+        String recipientContact,
+        String templateCode,
+        String title,
+        String body,
+        String sourceType,
+        String sourceId
+    ) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_notification_outbox (
+                channel,
+                template_code,
+                recipient_user_id,
+                recipient_username,
+                recipient_contact,
+                title,
+                body,
+                source_type,
+                source_id,
+                status,
+                provider,
+                sent_at
+            )
+            VALUES ('IN_APP', ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, 'SENT', 'LOCAL', now())
+            """,
+            templateCode,
+            recipientUserId,
+            recipientUsername,
+            optionalLimited(recipientContact, 240),
+            title,
+            body,
+            sourceType,
+            sourceId
+        );
+        log("SYSTEM", "SEND_PASSWORD_RESET_NOTICE", "sys_notification_outbox", null, true, templateCode + "：" + recipientUsername);
     }
 
     public record UserRequest(String username, String displayName, String roleCode, String password, Boolean enabled) {

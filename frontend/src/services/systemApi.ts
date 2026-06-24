@@ -44,10 +44,27 @@ export interface PasswordResetRequestItem {
   handleNote: string;
 }
 
+export interface NotificationOutboxItem {
+  id: string;
+  channel: string;
+  templateCode: string;
+  recipientUsername: string;
+  recipientContact: string;
+  title: string;
+  body: string;
+  sourceType: string;
+  sourceId: string;
+  status: string;
+  provider: string;
+  createdAt: string;
+  sentAt: string;
+}
+
 export interface ManagedUsersPayload {
   users: ManagedUser[];
   roles: ManagedRole[];
   passwordResetRequests: PasswordResetRequestItem[];
+  notificationOutbox?: NotificationOutboxItem[];
 }
 
 export interface ManagedUsersResult {
