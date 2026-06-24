@@ -1741,10 +1741,10 @@ function startNewCurrentDocument() {
   markActiveDirty();
 }
 
-function defaultLine(): OrderLineForm {
+function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
   return {
     productCode: "CP-001",
-    warehouseCode: "CK-001",
+    warehouseCode,
     qty: 1,
     unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
   };
@@ -1754,7 +1754,8 @@ function addLine() {
   if (!isDraftDocument.value) {
     return;
   }
-  currentOrderForm.value.lines.push(defaultLine());
+  const previousLine = currentOrderForm.value.lines[currentOrderForm.value.lines.length - 1];
+  currentOrderForm.value.lines.push(defaultLine(previousLine?.warehouseCode || "CK-001"));
   markActiveDirty();
 }
 
@@ -1762,7 +1763,8 @@ function insertLineAfter(index: number) {
   if (!isDraftDocument.value) {
     return;
   }
-  currentOrderForm.value.lines.splice(index + 1, 0, defaultLine());
+  const previousLine = currentOrderForm.value.lines[index];
+  currentOrderForm.value.lines.splice(index + 1, 0, defaultLine(previousLine?.warehouseCode || "CK-001"));
   markActiveDirty();
   void focusLineCell(index + 1, "product");
 }
