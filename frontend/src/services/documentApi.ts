@@ -57,6 +57,9 @@ export interface DocumentDetail {
     spec?: string;
     warehouseCode?: string;
     qty?: number | string;
+    receivedQty?: number | string;
+    shippedQty?: number | string;
+    remainingQty?: number | string;
     unitPrice?: number | string;
   }>;
 }

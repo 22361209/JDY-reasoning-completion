@@ -130,6 +130,21 @@ public class SalesOutController {
             WHERE so.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
+        if (sourceOrderId != null) {
+            for (var line : lines) {
+                var updated = jdbcTemplate.update("""
+                    UPDATE sales_order_line
+                    SET shipped_qty = shipped_qty + ?
+                    WHERE order_id = ?::uuid
+                      AND line_no = ?
+                      AND shipped_qty + ? <= qty
+                    """, line.get("qty"), sourceOrderId, line.get("lineNo"), line.get("qty"));
+                if (updated == 0) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库数量不能超过销售订单剩余可出数量");
+                }
+            }
+            refreshSalesOrderOutStatus(String.valueOf(sourceOrderId));
+        }
         for (var line : lines) {
             postingService.post(
                 String.valueOf(line.get("productCode")),
@@ -138,16 +153,6 @@ public class SalesOutController {
                 "SALES_OUT",
                 "SALES_OUT:" + billNo
             );
-        }
-        if (sourceOrderId != null) {
-            for (var line : lines) {
-                jdbcTemplate.update("""
-                    UPDATE sales_order_line
-                    SET shipped_qty = shipped_qty + ?
-                    WHERE order_id = ?::uuid AND line_no = ?
-                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
-            }
-            refreshSalesOrderOutStatus(String.valueOf(sourceOrderId));
         }
         log("SALES", "AUDIT", "sales_out", billId, true, null);
         return rows.get(0);

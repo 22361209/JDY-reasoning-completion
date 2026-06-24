@@ -165,6 +165,8 @@ public class SalesOrderController {
                    COALESCE(p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
+                   l.shipped_qty AS "shippedQty",
+                   GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
                    l.amount
             FROM sales_order_line l

@@ -130,6 +130,21 @@ public class PurchaseInController {
             WHERE pi.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
+        if (sourceOrderId != null) {
+            for (var line : lines) {
+                var updated = jdbcTemplate.update("""
+                    UPDATE purchase_order_line
+                    SET received_qty = received_qty + ?
+                    WHERE order_id = ?::uuid
+                      AND line_no = ?
+                      AND received_qty + ? <= qty
+                    """, line.get("qty"), sourceOrderId, line.get("lineNo"), line.get("qty"));
+                if (updated == 0) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库数量不能超过采购订单剩余可入数量");
+                }
+            }
+            refreshPurchaseOrderInStatus(String.valueOf(sourceOrderId));
+        }
         for (var line : lines) {
             postingService.post(
                 String.valueOf(line.get("productCode")),
@@ -138,16 +153,6 @@ public class PurchaseInController {
                 "PURCHASE_IN",
                 "PURCHASE_IN:" + billNo
             );
-        }
-        if (sourceOrderId != null) {
-            for (var line : lines) {
-                jdbcTemplate.update("""
-                    UPDATE purchase_order_line
-                    SET received_qty = received_qty + ?
-                    WHERE order_id = ?::uuid AND line_no = ?
-                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
-            }
-            refreshPurchaseOrderInStatus(String.valueOf(sourceOrderId));
         }
         log("PURCHASE", "AUDIT", "purchase_in", billId, true, null);
         return rows.get(0);

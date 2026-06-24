@@ -53,6 +53,8 @@ public class PurchaseOrderController {
                    COALESCE(p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
+                   l.received_qty AS "receivedQty",
+                   GREATEST(0, l.qty - l.received_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
                    l.amount
             FROM purchase_order_line l

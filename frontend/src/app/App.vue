@@ -178,6 +178,7 @@
           :list-key="tabs.activeTab.value.id"
           :locked="isLockedList"
           @push-down-sales-out="openSalesOutFromSalesOrder"
+          @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
         />
 
@@ -947,10 +948,65 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
-    qty: Number(line.qty ?? 0),
+    qty: remainingLineQty(line),
     unitPrice: Number(line.unitPrice ?? 0)
-  }));
-  formMessage.value = `已由销售订单 ${sourceBillNo} 下推生成销售出库草稿`;
+  })).filter((line) => line.qty > 0);
+  if (salesOutForm.lines.length === 0) {
+    formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可出数量`;
+    return;
+  }
+  formMessage.value = `已由销售订单 ${sourceBillNo} 按剩余数量下推生成销售出库草稿`;
+}
+
+async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
+  const sourceBillNo = String(row.billNo ?? "");
+  if (!sourceBillNo) {
+    return;
+  }
+  const result = await fetchDocumentDetail("purchaseOrder", sourceBillNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "采购订单详情加载失败。";
+    return;
+  }
+  const today = new Date();
+  const dateText = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0")
+  ].join("-");
+  tabs.openTab({
+    id: "purchase-in-form",
+    title: "采购入库单",
+    module: "采购管理",
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = "采购管理";
+  purchaseInForm.billNo = nextBillNoFor("CGRK");
+  purchaseInForm.sourceOrderNo = sourceBillNo;
+  purchaseInForm.partyCode = result.data.document.supplierCode || "GYS-001";
+  purchaseInForm.billDate = dateText;
+  purchaseInForm.department = result.data.document.department || "采购部";
+  purchaseInForm.ownerName = session.userName.value || result.data.document.ownerName || "本地管理员";
+  purchaseInForm.status = "DRAFT";
+  purchaseInForm.lines = result.data.lines.map((line) => ({
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName ?? ""),
+    spec: String(line.spec ?? ""),
+    warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    qty: remainingLineQty(line),
+    unitPrice: Number(line.unitPrice ?? 0)
+  })).filter((line) => line.qty > 0);
+  if (purchaseInForm.lines.length === 0) {
+    formMessage.value = `采购订单 ${sourceBillNo} 已无剩余可入数量`;
+    return;
+  }
+  formMessage.value = `已由采购订单 ${sourceBillNo} 按剩余数量下推生成采购入库草稿`;
+}
+
+function remainingLineQty(line: { qty?: number | string; remainingQty?: number | string }) {
+  const remaining = Number(line.remainingQty ?? line.qty ?? 0);
+  return Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
 }
 
 function startNewCurrentDocument() {

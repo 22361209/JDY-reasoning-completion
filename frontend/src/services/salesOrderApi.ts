@@ -27,6 +27,8 @@ export interface SalesOrderDetail {
     spec?: string;
     warehouseCode: string;
     qty: number | string;
+    shippedQty?: number | string;
+    remainingQty?: number | string;
     unitPrice: number | string;
   }>;
 }
