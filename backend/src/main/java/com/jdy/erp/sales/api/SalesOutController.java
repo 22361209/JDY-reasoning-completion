@@ -41,7 +41,14 @@ public class SalesOutController {
                    so.department,
                    so.status,
                    so.total_amount AS "totalAmount",
-                   so.owner_name AS "ownerName"
+                   so.owner_name AS "ownerName",
+                   (
+                       SELECT red.bill_no
+                       FROM sales_out red
+                       WHERE red.bill_no = concat('HC-', so.bill_no)
+                         AND red.status = 'RED_REVERSED'
+                       LIMIT 1
+                   ) AS "redReverseBillNo"
             FROM sales_out so
             JOIN md_customer c ON c.id = so.customer_id
             LEFT JOIN sales_order src ON src.id = so.source_order_id

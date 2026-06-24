@@ -215,6 +215,7 @@
               <div v-if="isStockDocumentForm" class="source-order-field">
                 <label>源订单号<input v-model="currentOrderForm.sourceOrderNo" :data-testid="`${formTestPrefix}-source-order-no`" @input="markActiveDirty" /></label>
                 <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="traceSourceOrder()">追踪源单</button>
+                <button v-if="currentOrderForm.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="openRedReverseBill">红字单 {{ currentOrderForm.redReverseBillNo }}</button>
               </div>
               <label>
                 {{ partyLabel }}编码
@@ -792,6 +793,7 @@ interface DownstreamTraceState {
 interface OrderForm {
   billNo: string;
   sourceOrderNo?: string;
+  redReverseBillNo?: string;
   partyCode: string;
   billDate: string;
   department: string;
@@ -1541,6 +1543,22 @@ async function openDownstreamDocument(doc: DownstreamDocumentRef) {
   clearActiveDirty();
 }
 
+async function openRedReverseBill() {
+  const type = currentDocumentType();
+  const billNo = currentOrderForm.value.redReverseBillNo?.trim();
+  if (!type || !billNo) {
+    return;
+  }
+  const result = await fetchDocumentDetail(type, billNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "红字单详情加载失败。";
+    return;
+  }
+  fillDocumentForm(currentOrderForm.value, result.data, partyType.value);
+  formMessage.value = `已打开红字单 ${billNo}`;
+  clearActiveDirty();
+}
+
 function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; form: OrderForm; partyType: "customer" | "supplier" } {
   switch (type) {
     case "salesOut":
@@ -1563,6 +1581,7 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
   const document = detail.document;
   form.billNo = document.billNo;
   form.sourceOrderNo = document.sourceOrderNo || undefined;
+  form.redReverseBillNo = document.redReverseBillNo || undefined;
   form.partyCode = document.sourceOrderNo && (document.customerCode === "SC" || document.supplierCode === "SC")
     ? document.sourceOrderNo
     : partyKind === "supplier"
@@ -1691,6 +1710,7 @@ function confirmPushDown() {
   activeModuleName.value = pending.targetModule;
   targetForm.billNo = pending.targetBillNo;
   targetForm.sourceOrderNo = pending.sourceBillNo;
+  targetForm.redReverseBillNo = undefined;
   targetForm.partyCode = pending.partyCode;
   targetForm.billDate = pending.billDate;
   targetForm.department = pending.department;
@@ -1894,6 +1914,7 @@ function startNewCurrentDocument() {
   form.billDate = dateText;
   form.billNo = nextBillNo();
   form.sourceOrderNo = isStockDocumentForm.value ? "" : undefined;
+  form.redReverseBillNo = undefined;
   form.partyCode = partyType.value === "supplier" ? "GYS-001" : "KH-001";
   form.department = partyType.value === "supplier" ? "采购部" : "销售部";
   form.ownerName = session.userName.value || "本地管理员";

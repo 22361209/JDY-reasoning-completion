@@ -41,7 +41,14 @@ public class PurchaseInController {
                    pi.department,
                    pi.status,
                    pi.total_amount AS "totalAmount",
-                   pi.owner_name AS "ownerName"
+                   pi.owner_name AS "ownerName",
+                   (
+                       SELECT red.bill_no
+                       FROM purchase_in red
+                       WHERE red.bill_no = concat('HC-', pi.bill_no)
+                         AND red.status = 'RED_REVERSED'
+                       LIMIT 1
+                   ) AS "redReverseBillNo"
             FROM purchase_in pi
             JOIN md_supplier s ON s.id = pi.supplier_id
             LEFT JOIN purchase_order po ON po.id = pi.source_order_id
