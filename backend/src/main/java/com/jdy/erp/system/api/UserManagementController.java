@@ -231,6 +231,9 @@ public class UserManagementController {
                    CASE WHEN u.locked_until IS NOT NULL AND u.locked_until > now() THEN TRUE ELSE FALSE END AS locked,
                    COALESCE(to_char(u.locked_until, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lockedUntil",
                    COALESCE(to_char(u.last_login_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastLoginAt",
+                   CASE WHEN u.active_session_token IS NULL THEN FALSE ELSE TRUE END AS "activeSession",
+                   COALESCE(to_char(u.active_session_started_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "activeSessionStartedAt",
+                   COALESCE(to_char(u.last_session_replaced_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastSessionReplacedAt",
                    CASE WHEN EXISTS (
                        SELECT 1
                        FROM sys_password_reset_request pr

@@ -261,6 +261,14 @@
                   <dt>最近登录</dt>
                   <dd>{{ selectedManagedUser.lastLoginAt || "-" }}</dd>
                 </div>
+                <div>
+                  <dt>当前会话</dt>
+                  <dd data-testid="managed-user-active-session">{{ selectedManagedUser.activeSession ? `在线：${selectedManagedUser.activeSessionStartedAt || "-"}` : "无活动会话" }}</dd>
+                </div>
+                <div>
+                  <dt>上次替换</dt>
+                  <dd data-testid="managed-user-session-replaced">{{ selectedManagedUser.lastSessionReplacedAt || "-" }}</dd>
+                </div>
               </dl>
               <section v-if="pendingPasswordResetRequests.length" class="password-reset-admin-panel" data-testid="password-reset-admin-panel">
                 <div class="password-reset-admin-panel__head">

@@ -19,6 +19,9 @@ export interface ManagedUser extends SystemUser {
   locked?: boolean;
   lockedUntil?: string;
   lastLoginAt?: string;
+  activeSession?: boolean;
+  activeSessionStartedAt?: string;
+  lastSessionReplacedAt?: string;
   pendingPasswordReset?: boolean;
 }
 

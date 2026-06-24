@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -17,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CurrentSessionService {
     public static final String SESSION_USERNAME = "jdy.username";
+    public static final String SESSION_TOKEN = "jdy.sessionToken";
     private static final int MAX_FAILED_LOGIN = 5;
 
     private final JdbcTemplate jdbcTemplate;
@@ -43,7 +45,20 @@ public class CurrentSessionService {
             return null;
         }
         var username = session.getAttribute(SESSION_USERNAME);
-        return username == null || String.valueOf(username).isBlank() ? null : String.valueOf(username);
+        if (username == null || String.valueOf(username).isBlank()) {
+            return null;
+        }
+        var sessionToken = session.getAttribute(SESSION_TOKEN);
+        if (sessionToken == null || String.valueOf(sessionToken).isBlank()) {
+            session.invalidate();
+            return null;
+        }
+        var normalizedUsername = String.valueOf(username);
+        if (!isActiveSessionToken(normalizedUsername, String.valueOf(sessionToken))) {
+            session.invalidate();
+            return null;
+        }
+        return normalizedUsername;
     }
 
     public boolean isAuthenticated() {
@@ -109,7 +124,8 @@ public class CurrentSessionService {
                    username,
                    COALESCE(password_hash, '') AS "passwordHash",
                    failed_login_count AS "failedLoginCount",
-                   locked_until AS "lockedUntil"
+                   locked_until AS "lockedUntil",
+                   active_session_token AS "activeSessionToken"
             FROM sys_user
             WHERE username = ?
               AND enabled = TRUE
@@ -155,16 +171,29 @@ public class CurrentSessionService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法创建本地会话");
         }
+        var newSessionToken = UUID.randomUUID().toString();
+        var oldSessionToken = rows.get(0).get("activeSessionToken");
         jdbcTemplate.update("""
             UPDATE sys_user
             SET failed_login_count = 0,
                 locked_until = NULL,
                 last_login_at = now(),
+                active_session_token = ?,
+                active_session_started_at = now(),
+                last_session_replaced_at = CASE
+                    WHEN active_session_token IS NOT NULL AND active_session_token <> ? THEN now()
+                    ELSE last_session_replaced_at
+                END,
                 updated_at = now(),
                 version = version + 1
             WHERE id = ?::uuid
-            """, userId);
-        request.getSession(true).setAttribute(SESSION_USERNAME, normalizedUsername);
+            """, newSessionToken, newSessionToken, userId);
+        var session = request.getSession(true);
+        session.setAttribute(SESSION_USERNAME, normalizedUsername);
+        session.setAttribute(SESSION_TOKEN, newSessionToken);
+        if (oldSessionToken != null && !String.valueOf(oldSessionToken).isBlank()) {
+            logLogin("LOGIN_REPLACED", userId, userId, true, "重复登录，新会话已替换旧会话");
+        }
         logLogin("LOGIN", userId, userId, true, null);
     }
 
@@ -190,13 +219,17 @@ public class CurrentSessionService {
     }
 
     public void changeCurrentPassword(String newPassword) {
+        var username = currentUsername();
         var updated = jdbcTemplate.update("""
             UPDATE sys_user
             SET password_hash = ?,
+                active_session_token = NULL,
+                active_session_started_at = NULL,
+                last_session_replaced_at = now(),
                 updated_at = now(),
                 version = version + 1
             WHERE username = ?
-            """, "{noop}" + newPassword, currentUsername());
+            """, "{noop}" + newPassword, username);
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
         }
@@ -209,6 +242,19 @@ public class CurrentSessionService {
         }
         var session = request.getSession(false);
         if (session != null) {
+            var username = session.getAttribute(SESSION_USERNAME);
+            var sessionToken = session.getAttribute(SESSION_TOKEN);
+            if (username != null && sessionToken != null) {
+                jdbcTemplate.update("""
+                    UPDATE sys_user
+                    SET active_session_token = NULL,
+                        active_session_started_at = NULL,
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE username = ?
+                      AND active_session_token = ?
+                    """, String.valueOf(username), String.valueOf(sessionToken));
+            }
             session.invalidate();
         }
     }
@@ -232,6 +278,16 @@ public class CurrentSessionService {
             return timestamp.toInstant().isAfter(Instant.now());
         }
         return false;
+    }
+
+    private boolean isActiveSessionToken(String username, String sessionToken) {
+        var activeTokens = jdbcTemplate.queryForList("""
+            SELECT active_session_token
+            FROM sys_user
+            WHERE username = ?
+              AND enabled = TRUE
+            """, String.class, username);
+        return !activeTokens.isEmpty() && sessionToken.equals(activeTokens.get(0));
     }
 
     private void logLogin(String action, String targetUserId, String operatedBy, boolean success, String reason) {
