@@ -5,11 +5,13 @@ import java.util.Map;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/system/security-settings")
@@ -38,6 +40,7 @@ public class SecuritySettingsController {
     @PutMapping
     @RequirePermission("system.security.manage")
     public Map<String, Object> updateSettings(@RequestBody SecuritySettingsRequest request) {
+        verifySecurityPassword(request.currentPassword());
         currentSessionService.updateRepeatedLoginPolicy(request.repeatedLoginPolicy());
         currentSessionService.updateSessionTimeoutMinutes(request.sessionTimeoutMinutes());
         passwordPolicy.updatePolicy(
@@ -57,7 +60,19 @@ public class SecuritySettingsController {
         return "后登录踢下线旧会话";
     }
 
+    private void verifySecurityPassword(String currentPassword) {
+        try {
+            currentSessionService.verifyCurrentPassword(currentPassword);
+        } catch (ResponseStatusException exception) {
+            if (HttpStatus.UNAUTHORIZED.equals(exception.getStatusCode())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前密码不正确");
+            }
+            throw exception;
+        }
+    }
+
     public record SecuritySettingsRequest(
+        String currentPassword,
         String repeatedLoginPolicy,
         Integer sessionTimeoutMinutes,
         Integer passwordMinLength,

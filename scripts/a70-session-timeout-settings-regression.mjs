@@ -52,6 +52,7 @@ async function saveTimeout(page, minutes) {
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }, minutes);
+  await page.getByTestId("security-current-password").fill("admin123");
   const [response] = await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/system/security-settings") && response.request().method() === "PUT"),
     page.getByTestId("security-settings-save").click()

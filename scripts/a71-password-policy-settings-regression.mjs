@@ -70,6 +70,7 @@ async function savePasswordPolicy(page, policy) {
   await setCheckbox(page, "security-password-require-lowercase", policy.requireLowercase);
   await setCheckbox(page, "security-password-require-digit", policy.requireDigit);
   await setCheckbox(page, "security-password-require-symbol", policy.requireSymbol);
+  await page.getByTestId("security-current-password").fill("admin123");
   const [response] = await Promise.all([
     page.waitForResponse((res) => res.url().includes("/api/system/security-settings") && res.request().method() === "PUT"),
     page.getByTestId("security-settings-save").click()

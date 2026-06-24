@@ -307,6 +307,15 @@
                   <span>符号</span>
                 </label>
               </div>
+              <label>
+                <span>当前管理员密码</span>
+                <input
+                  v-model="securitySettingsForm.currentPassword"
+                  data-testid="security-current-password"
+                  type="password"
+                  autocomplete="current-password"
+                />
+              </label>
               <dl class="user-security-summary">
                 <div>
                   <dt>当前生效</dt>
@@ -1358,6 +1367,7 @@ const activePasswordPolicy = ref<PasswordPolicySettings>({
   requireSymbol: true
 });
 const securitySettingsForm = reactive<{
+  currentPassword: string;
   repeatedLoginPolicy: RepeatedLoginPolicy;
   sessionTimeoutMinutes: number;
   passwordMinLength: number;
@@ -1366,6 +1376,7 @@ const securitySettingsForm = reactive<{
   passwordRequireDigit: boolean;
   passwordRequireSymbol: boolean;
 }>({
+  currentPassword: "",
   repeatedLoginPolicy: "SINGLE_ACTIVE",
   sessionTimeoutMinutes: 30,
   passwordMinLength: 8,
@@ -2494,6 +2505,7 @@ async function saveSecuritySettingsAction() {
   syncSecuritySessionTimeoutInput();
   syncSecurityPasswordMinLengthInput();
   const result = await saveSecuritySettings({
+    currentPassword: securitySettingsForm.currentPassword,
     repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy,
     sessionTimeoutMinutes: securitySettingsForm.sessionTimeoutMinutes,
     passwordMinLength: securitySettingsForm.passwordMinLength,
@@ -2511,6 +2523,7 @@ async function saveSecuritySettingsAction() {
   securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
   applyPasswordPolicyToSecurityForm(result.data.passwordPolicy);
   activePasswordPolicy.value = result.data.passwordPolicy;
+  securitySettingsForm.currentPassword = "";
   securitySettingsMessage.value = "安全设置已保存";
 }
 

@@ -51,6 +51,7 @@ async function savePolicy(page, policy) {
     await page.getByTestId("security-policy-single-active").click();
   }
   await page.getByTestId("security-repeated-login-policy").selectOption(policy);
+  await page.getByTestId("security-current-password").fill("admin123");
   await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/system/security-settings") && response.request().method() === "PUT"),
     page.getByTestId("security-settings-save").click()

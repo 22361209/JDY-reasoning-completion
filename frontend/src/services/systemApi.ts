@@ -327,6 +327,7 @@ export async function fetchSecuritySettings(): Promise<SecuritySettingsResult> {
 }
 
 export async function saveSecuritySettings(payload: {
+  currentPassword: string;
   repeatedLoginPolicy: RepeatedLoginPolicy;
   sessionTimeoutMinutes: number;
   passwordMinLength: number;
@@ -343,10 +344,22 @@ export async function saveSecuritySettings(payload: {
     });
     if (!response.ok) {
       const text = await response.text();
-      return { ok: false, status: response.status, message: text || "安全设置保存失败。", data: null };
+      return { ok: false, status: response.status, message: parseApiErrorMessage(text, "安全设置保存失败。"), data: null };
     }
     return { ok: true, status: response.status, message: "", data: await response.json() as SecuritySettings };
   } catch {
     return { ok: false, status: 0, message: "安全设置保存失败。", data: null };
+  }
+}
+
+function parseApiErrorMessage(text: string, fallback: string) {
+  if (!text) {
+    return fallback;
+  }
+  try {
+    const payload = JSON.parse(text) as { message?: string; error?: string };
+    return payload.message || payload.error || fallback;
+  } catch {
+    return text;
   }
 }
