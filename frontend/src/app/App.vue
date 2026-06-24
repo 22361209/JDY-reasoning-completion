@@ -377,9 +377,45 @@
                 <input v-model="printTemplateForm.templateName" data-testid="print-template-name" />
               </label>
               <label>
+                纸张
+                <select v-model="printTemplateForm.paperSize" data-testid="print-template-paper-size">
+                  <option value="A4">A4</option>
+                  <option value="A5">A5</option>
+                </select>
+              </label>
+              <label>
+                方向
+                <select v-model="printTemplateForm.pageOrientation" data-testid="print-template-page-orientation">
+                  <option value="PORTRAIT">纵向</option>
+                  <option value="LANDSCAPE">横向</option>
+                </select>
+              </label>
+              <label>
+                联次
+                <input v-model.number="printTemplateForm.copyCount" type="number" min="1" max="5" step="1" data-testid="print-template-copy-count" />
+              </label>
+              <label>
                 公司抬头
                 <input v-model="printTemplateForm.companyName" data-testid="print-template-company" />
               </label>
+              <div class="print-template-margin-grid print-template-form__wide">
+                <label>
+                  上边距 mm
+                  <input v-model="printTemplateForm.marginTopMm" inputmode="decimal" data-testid="print-template-margin-top" />
+                </label>
+                <label>
+                  右边距 mm
+                  <input v-model="printTemplateForm.marginRightMm" inputmode="decimal" data-testid="print-template-margin-right" />
+                </label>
+                <label>
+                  下边距 mm
+                  <input v-model="printTemplateForm.marginBottomMm" inputmode="decimal" data-testid="print-template-margin-bottom" />
+                </label>
+                <label>
+                  左边距 mm
+                  <input v-model="printTemplateForm.marginLeftMm" inputmode="decimal" data-testid="print-template-margin-left" />
+                </label>
+              </div>
               <label>
                 页眉说明
                 <input v-model="printTemplateForm.headerNote" data-testid="print-template-header-note" />
@@ -406,6 +442,8 @@
                 <strong>{{ activePrintTemplateTitle }}</strong>
                 <span>{{ printTemplateForm.companyName }}</span>
                 <span>{{ printTemplateForm.templateName }}</span>
+                <span>{{ printTemplateForm.paperSize }} / {{ printTemplateForm.pageOrientation === "LANDSCAPE" ? "横向" : "纵向" }} / {{ printTemplateForm.copyCount }}联</span>
+                <small>边距 {{ printTemplateForm.marginTopMm }} / {{ printTemplateForm.marginRightMm }} / {{ printTemplateForm.marginBottomMm }} / {{ printTemplateForm.marginLeftMm }} mm</small>
                 <small>{{ printTemplateForm.footerNote }}</small>
               </div>
               <p v-if="printTemplateMessage" class="form-message" data-testid="print-template-message">{{ printTemplateMessage }}</p>
@@ -1167,6 +1205,13 @@ const printTemplateForm = reactive<PrintTemplateConfig>({
   showSignature: true,
   showSeal: true,
   isDefault: true,
+  paperSize: "A4",
+  pageOrientation: "PORTRAIT",
+  marginTopMm: "12",
+  marginRightMm: "12",
+  marginBottomMm: "12",
+  marginLeftMm: "12",
+  copyCount: 1,
   enabled: true
 });
 const salesOrderForm = reactive<OrderForm>({
@@ -2122,6 +2167,13 @@ function applyPrintTemplateToForm(template: PrintTemplateConfig) {
   printTemplateForm.showSignature = template.showSignature;
   printTemplateForm.showSeal = template.showSeal;
   printTemplateForm.isDefault = template.isDefault;
+  printTemplateForm.paperSize = template.paperSize || "A4";
+  printTemplateForm.pageOrientation = template.pageOrientation || "PORTRAIT";
+  printTemplateForm.marginTopMm = template.marginTopMm || "12";
+  printTemplateForm.marginRightMm = template.marginRightMm || "12";
+  printTemplateForm.marginBottomMm = template.marginBottomMm || "12";
+  printTemplateForm.marginLeftMm = template.marginLeftMm || "12";
+  printTemplateForm.copyCount = template.copyCount || 1;
   printTemplateForm.enabled = template.enabled;
 }
 
@@ -2139,7 +2191,14 @@ async function saveActivePrintTemplate() {
     footerNote: printTemplateForm.footerNote,
     showSignature: printTemplateForm.showSignature,
     showSeal: printTemplateForm.showSeal,
-    isDefault: printTemplateForm.isDefault
+    isDefault: printTemplateForm.isDefault,
+    paperSize: printTemplateForm.paperSize,
+    pageOrientation: printTemplateForm.pageOrientation,
+    marginTopMm: printTemplateForm.marginTopMm,
+    marginRightMm: printTemplateForm.marginRightMm,
+    marginBottomMm: printTemplateForm.marginBottomMm,
+    marginLeftMm: printTemplateForm.marginLeftMm,
+    copyCount: Number(printTemplateForm.copyCount) || 1
   });
   if (!result.ok || !result.data) {
     printTemplateMessage.value = result.message || "打印模板保存失败。";
@@ -2165,7 +2224,14 @@ async function copyActivePrintTemplate() {
     footerNote: printTemplateForm.footerNote,
     showSignature: printTemplateForm.showSignature,
     showSeal: printTemplateForm.showSeal,
-    isDefault: false
+    isDefault: false,
+    paperSize: printTemplateForm.paperSize,
+    pageOrientation: printTemplateForm.pageOrientation,
+    marginTopMm: printTemplateForm.marginTopMm,
+    marginRightMm: printTemplateForm.marginRightMm,
+    marginBottomMm: printTemplateForm.marginBottomMm,
+    marginLeftMm: printTemplateForm.marginLeftMm,
+    copyCount: Number(printTemplateForm.copyCount) || 1
   });
   if (!result.ok || !result.data) {
     printTemplateMessage.value = result.message || "模板副本保存失败。";

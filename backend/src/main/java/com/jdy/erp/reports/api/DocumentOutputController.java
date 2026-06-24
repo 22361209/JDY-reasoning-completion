@@ -2,6 +2,7 @@ package com.jdy.erp.reports.api;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -68,6 +69,7 @@ public class DocumentOutputController {
     public ResponseEntity<String> printHtml(@PathVariable String documentType, @PathVariable String billNo) {
         var payload = payload(documentType, billNo);
         var template = printTemplate(documentType);
+        var page = pageSpec(template);
         var html = new StringBuilder("""
             <!doctype html>
             <html lang="zh-CN">
@@ -75,16 +77,20 @@ public class DocumentOutputController {
               <meta charset="utf-8">
               <title>PRINT_TITLE</title>
               <style>
+                @page { size: PRINT_SIZE; margin: PRINT_MARGIN; }
                 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; margin: 28px; }
                 .template-head { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 8px; font-size: 12px; color: #4b5563; }
                 .template-head strong { display: block; color: #111827; font-size: 15px; }
                 h1 { font-size: 20px; margin: 0 0 18px; text-align: center; }
                 .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 18px; font-size: 12px; margin-bottom: 16px; }
+                .print-params { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 14px; font-size: 11px; color: #64748b; }
                 table { width: 100%; border-collapse: collapse; font-size: 12px; }
                 th, td { border: 1px solid #d8e0eb; padding: 7px 8px; text-align: left; }
                 th { background: #f3f7fb; }
                 .amount { text-align: right; }
                 .remark { min-width: 150px; white-space: normal; line-height: 1.5; }
+                .copy-badges { display: flex; gap: 8px; margin: 16px 0 0; font-size: 11px; color: #475569; }
+                .copy-badges span { border: 1px solid #d8e0eb; padding: 4px 8px; border-radius: 3px; background: #f8fafc; }
                 .signature { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 28px; font-size: 12px; }
                 .signature div { border-top: 1px solid #9ca3af; padding-top: 8px; }
                 .seal { width: 116px; height: 72px; border: 1px dashed #9ca3af; display: grid; place-items: center; color: #6b7280; justify-self: end; }
@@ -92,7 +98,9 @@ public class DocumentOutputController {
               </style>
             </head>
             <body>
-            """.replace("PRINT_TITLE", escapeHtml(title(documentType))));
+            """.replace("PRINT_TITLE", escapeHtml(title(documentType)))
+            .replace("PRINT_SIZE", page.cssSize())
+            .replace("PRINT_MARGIN", page.cssMargin()));
         html.append("<section class=\"template-head\">")
             .append("<div><strong>").append(escapeHtml(template.companyName())).append("</strong>")
             .append("<span>").append(escapeHtml(template.headerNote())).append("</span></div>")
@@ -109,6 +117,12 @@ public class DocumentOutputController {
             html.append("<div>来源原单：").append(escapeHtml(redSourceBillNo)).append("</div>");
         }
         html.append("</section>");
+        html.append("<section class=\"print-params\">")
+            .append("<div>纸张：").append(escapeHtml(template.paperSize())).append("</div>")
+            .append("<div>方向：").append(escapeHtml(orientationLabel(template.pageOrientation()))).append("</div>")
+            .append("<div>边距：上").append(template.marginTopMm()).append(" / 右").append(template.marginRightMm()).append(" / 下").append(template.marginBottomMm()).append(" / 左").append(template.marginLeftMm()).append(" mm</div>")
+            .append("<div>联次：").append(template.copyCount()).append("联</div>")
+            .append("</section>");
         html.append("<table><thead><tr><th>行号</th><th>商品编码</th><th>商品名称</th><th>规格型号</th><th>仓库</th><th>数量</th><th>单价</th><th>金额</th><th>备注</th></tr></thead><tbody>");
         for (var line : payload.lines()) {
             html.append("<tr>")
@@ -130,6 +144,11 @@ public class DocumentOutputController {
         if (template.showSeal()) {
             html.append("<section class=\"seal\">公司章</section>");
         }
+        html.append("<section class=\"copy-badges\">");
+        for (var copy = 1; copy <= template.copyCount(); copy += 1) {
+            html.append("<span>第").append(copy).append("联 / 共").append(template.copyCount()).append("联</span>");
+        }
+        html.append("</section>");
         html.append("<p class=\"footer-note\">").append(escapeHtml(template.footerNote())).append("</p>");
         html.append("</body></html>");
         return ResponseEntity.ok()
@@ -156,6 +175,13 @@ public class DocumentOutputController {
                    show_signature AS "showSignature",
                    show_seal AS "showSeal",
                    is_default AS "isDefault",
+                   paper_size AS "paperSize",
+                   page_orientation AS "pageOrientation",
+                   margin_top_mm AS "marginTopMm",
+                   margin_right_mm AS "marginRightMm",
+                   margin_bottom_mm AS "marginBottomMm",
+                   margin_left_mm AS "marginLeftMm",
+                   copy_count AS "copyCount",
                    enabled
             FROM sys_print_template
             WHERE enabled = TRUE
@@ -186,6 +212,13 @@ public class DocumentOutputController {
         var showSignature = request.showSignature == null || request.showSignature;
         var showSeal = request.showSeal == null || request.showSeal;
         var isDefault = request.isDefault == null || request.isDefault;
+        var paperSize = normalizePaperSize(request.paperSize);
+        var pageOrientation = normalizeOrientation(request.pageOrientation);
+        var marginTopMm = clampDecimal(request.marginTopMm, 0, 50, BigDecimal.valueOf(12));
+        var marginRightMm = clampDecimal(request.marginRightMm, 0, 50, BigDecimal.valueOf(12));
+        var marginBottomMm = clampDecimal(request.marginBottomMm, 0, 50, BigDecimal.valueOf(12));
+        var marginLeftMm = clampDecimal(request.marginLeftMm, 0, 50, BigDecimal.valueOf(12));
+        var copyCount = clampInt(request.copyCount, 1, 5, 1);
         if (isDefault) {
             jdbcTemplate.update("""
                 UPDATE sys_print_template
@@ -198,9 +231,10 @@ public class DocumentOutputController {
         jdbcTemplate.update("""
             INSERT INTO sys_print_template (
                 document_type, template_code, template_name, role_code, company_name, header_note, footer_note,
-                show_signature, show_seal, is_default, enabled, updated_at
+                show_signature, show_seal, is_default, paper_size, page_orientation, margin_top_mm, margin_right_mm,
+                margin_bottom_mm, margin_left_mm, copy_count, enabled, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, now())
             ON CONFLICT (document_type, template_code) DO UPDATE
             SET template_name = EXCLUDED.template_name,
                 role_code = EXCLUDED.role_code,
@@ -210,9 +244,17 @@ public class DocumentOutputController {
                 show_signature = EXCLUDED.show_signature,
                 show_seal = EXCLUDED.show_seal,
                 is_default = EXCLUDED.is_default,
+                paper_size = EXCLUDED.paper_size,
+                page_orientation = EXCLUDED.page_orientation,
+                margin_top_mm = EXCLUDED.margin_top_mm,
+                margin_right_mm = EXCLUDED.margin_right_mm,
+                margin_bottom_mm = EXCLUDED.margin_bottom_mm,
+                margin_left_mm = EXCLUDED.margin_left_mm,
+                copy_count = EXCLUDED.copy_count,
                 enabled = TRUE,
                 updated_at = now()
-            """, documentType, templateCode, templateName, roleCode, companyName, headerNote, footerNote, showSignature, showSeal, isDefault);
+            """, documentType, templateCode, templateName, roleCode, companyName, headerNote, footerNote, showSignature, showSeal, isDefault,
+            paperSize, pageOrientation, marginTopMm, marginRightMm, marginBottomMm, marginLeftMm, copyCount);
         return templateResponse(documentType, findPrintTemplate(documentType, templateCode));
     }
 
@@ -383,6 +425,13 @@ public class DocumentOutputController {
         response.put("showSignature", template.showSignature());
         response.put("showSeal", template.showSeal());
         response.put("isDefault", template.isDefault());
+        response.put("paperSize", template.paperSize());
+        response.put("pageOrientation", template.pageOrientation());
+        response.put("marginTopMm", template.marginTopMm());
+        response.put("marginRightMm", template.marginRightMm());
+        response.put("marginBottomMm", template.marginBottomMm());
+        response.put("marginLeftMm", template.marginLeftMm());
+        response.put("copyCount", template.copyCount());
         response.put("enabled", template.enabled());
         return response;
     }
@@ -411,6 +460,13 @@ public class DocumentOutputController {
                    show_signature AS "showSignature",
                    show_seal AS "showSeal",
                    is_default AS "isDefault",
+                   paper_size AS "paperSize",
+                   page_orientation AS "pageOrientation",
+                   margin_top_mm AS "marginTopMm",
+                   margin_right_mm AS "marginRightMm",
+                   margin_bottom_mm AS "marginBottomMm",
+                   margin_left_mm AS "marginLeftMm",
+                   copy_count AS "copyCount",
                    enabled
             FROM sys_print_template
             WHERE document_type = ?
@@ -436,6 +492,13 @@ public class DocumentOutputController {
                 true,
                 true,
                 true,
+                "A4",
+                "PORTRAIT",
+                "12.00",
+                "12.00",
+                "12.00",
+                "12.00",
+                1,
                 true
             );
         }
@@ -453,6 +516,13 @@ public class DocumentOutputController {
                    show_signature AS "showSignature",
                    show_seal AS "showSeal",
                    is_default AS "isDefault",
+                   paper_size AS "paperSize",
+                   page_orientation AS "pageOrientation",
+                   margin_top_mm AS "marginTopMm",
+                   margin_right_mm AS "marginRightMm",
+                   margin_bottom_mm AS "marginBottomMm",
+                   margin_left_mm AS "marginLeftMm",
+                   copy_count AS "copyCount",
                    enabled
             FROM sys_print_template
             WHERE document_type = ?
@@ -477,63 +547,77 @@ public class DocumentOutputController {
             Boolean.TRUE.equals(row.get("showSignature")),
             Boolean.TRUE.equals(row.get("showSeal")),
             Boolean.TRUE.equals(row.get("isDefault")),
+            row.get("paperSize") == null ? "A4" : String.valueOf(row.get("paperSize")),
+            row.get("pageOrientation") == null ? "PORTRAIT" : String.valueOf(row.get("pageOrientation")),
+            decimalString(row.get("marginTopMm"), "12.00"),
+            decimalString(row.get("marginRightMm"), "12.00"),
+            decimalString(row.get("marginBottomMm"), "12.00"),
+            decimalString(row.get("marginLeftMm"), "12.00"),
+            row.get("copyCount") instanceof Number number ? Math.max(1, number.intValue()) : 1,
             Boolean.TRUE.equals(row.get("enabled"))
         );
     }
 
     private byte[] renderPdf(String title, DocumentPayload payload, PrintTemplate template) {
-        var lines = new ArrayList<String>();
-        lines.add(template.companyName());
-        lines.add(template.headerNote() + "    模板：" + template.templateName());
-        lines.add(title);
-        lines.add("单据编号：" + payload.header().get("billNo"));
-        lines.add("往来单位：" + payload.header().get("counterparty"));
+        var page = pageSpec(template);
+        var baseLines = new ArrayList<String>();
+        baseLines.add("纸张：" + template.paperSize() + "    方向：" + orientationLabel(template.pageOrientation())
+            + "    边距：" + template.marginTopMm() + "/" + template.marginRightMm() + "/" + template.marginBottomMm() + "/" + template.marginLeftMm() + "mm"
+            + "    联次：" + template.copyCount() + "联");
+        baseLines.add(template.companyName());
+        baseLines.add(template.headerNote() + "    模板：" + template.templateName());
+        baseLines.add(title);
+        baseLines.add("单据编号：" + payload.header().get("billNo"));
+        baseLines.add("往来单位：" + payload.header().get("counterparty"));
         var redSourceBillNo = String.valueOf(payload.header().getOrDefault("redSourceBillNo", ""));
         if (!redSourceBillNo.isBlank() && !"null".equals(redSourceBillNo)) {
-            lines.add("来源原单：" + redSourceBillNo);
+            baseLines.add("来源原单：" + redSourceBillNo);
         }
-        lines.add("业务日期：" + payload.header().get("billDate") + "    状态：" + payload.header().get("status") + "    合计：" + payload.header().get("totalAmount"));
-        lines.add("行号  商品编码  商品名称 / 规格型号");
+        baseLines.add("业务日期：" + payload.header().get("billDate") + "    状态：" + payload.header().get("status") + "    合计：" + payload.header().get("totalAmount"));
+        baseLines.add("行号  商品编码  商品名称 / 规格型号");
         for (var line : payload.lines()) {
-            lines.add(line.get("lineNo") + "  " + line.get("productCode") + "  " + line.get("productName") + " / " + line.get("spec"));
-            lines.add("    仓库：" + line.get("warehouse") + "    数量：" + line.get("qty") + "    单价：" + line.get("unitPrice") + "    金额：" + line.get("amount"));
+            baseLines.add(line.get("lineNo") + "  " + line.get("productCode") + "  " + line.get("productName") + " / " + line.get("spec"));
+            baseLines.add("    仓库：" + line.get("warehouse") + "    数量：" + line.get("qty") + "    单价：" + line.get("unitPrice") + "    金额：" + line.get("amount"));
             var remark = String.valueOf(line.get("lineRemark"));
             if (!remark.isBlank()) {
-                lines.add("    备注：" + remark);
+                baseLines.add("    备注：" + remark);
             }
         }
-        lines.add("");
+        baseLines.add("");
         if (template.showSignature()) {
-            lines.add("制单：本地管理员    审核：____________");
-            lines.add("财务：____________    仓管：____________");
+            baseLines.add("制单：本地管理员    审核：____________");
+            baseLines.add("财务：____________    仓管：____________");
         }
         if (template.showSeal()) {
-            lines.add("公司章：________________");
+            baseLines.add("公司章：________________");
         }
-        lines.add("打印日期：" + LocalDate.now());
-        lines.add("归档提示：" + template.footerNote());
+        baseLines.add("打印日期：" + LocalDate.now());
+        baseLines.add("归档提示：" + template.footerNote());
 
-        var content = new StringBuilder();
-        var y = 800;
-        for (var index = 0; index < lines.size(); index += 1) {
-            var fontSize = index == 2 ? 16 : index == 0 ? 12 : 10;
-            var x = index == 2 ? 260 : 42;
-            content.append("BT /F1 ").append(fontSize).append(" Tf 1 0 0 1 ").append(x).append(' ').append(y).append(" Tm <")
-                .append(utf16Hex(lines.get(index)))
-                .append("> Tj ET\n");
-            y -= index == 2 ? 30 : 20;
+        var objects = new ArrayList<String>();
+        objects.add("<< /Type /Catalog /Pages 2 0 R >>");
+        objects.add("PAGES_PLACEHOLDER");
+        objects.add("<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>");
+        objects.add("<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /FontDescriptor 5 0 R >>");
+        objects.add("<< /Type /FontDescriptor /FontName /STSong-Light /Flags 4 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>");
+
+        var pageObjectNumbers = new ArrayList<Integer>();
+        for (var copy = 1; copy <= template.copyCount(); copy += 1) {
+            var content = renderPdfPageContent(title, page, baseLines, copy, template.copyCount());
+            var contentBytes = content.getBytes(StandardCharsets.US_ASCII);
+            var pageObjectNumber = objects.size() + 1;
+            var contentObjectNumber = pageObjectNumber + 1;
+            pageObjectNumbers.add(pageObjectNumber);
+            objects.add("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + page.widthPt() + " " + page.heightPt() + "] /Resources << /Font << /F1 3 0 R >> >> /Contents " + contentObjectNumber + " 0 R >>");
+            objects.add("<< /Length " + contentBytes.length + " >>\nstream\n" + content + "endstream");
         }
 
-        var contentBytes = content.toString().getBytes(StandardCharsets.US_ASCII);
-        var objects = List.of(
-            "<< /Type /Catalog /Pages 2 0 R >>",
-            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
-            "<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [5 0 R] >>",
-            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /FontDescriptor 6 0 R >>",
-            "<< /Type /FontDescriptor /FontName /STSong-Light /Flags 4 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>",
-            "<< /Length " + contentBytes.length + " >>\nstream\n" + content + "endstream"
-        );
+        var kids = new StringBuilder("[");
+        for (var pageObjectNumber : pageObjectNumbers) {
+            kids.append(pageObjectNumber).append(" 0 R ");
+        }
+        kids.append("]");
+        objects.set(1, "<< /Type /Pages /Kids " + kids + " /Count " + pageObjectNumbers.size() + " >>");
 
         var output = new ByteArrayOutputStream();
         writeLatin1(output, "%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n");
@@ -550,6 +634,93 @@ public class DocumentOutputController {
         }
         writeAscii(output, "trailer\n<< /Size " + (objects.size() + 1) + " /Root 1 0 R >>\nstartxref\n" + xrefOffset + "\n%%EOF\n");
         return output.toByteArray();
+    }
+
+    private String renderPdfPageContent(String title, PageSpec page, List<String> baseLines, int copyIndex, int copyCount) {
+        var lines = new ArrayList<String>();
+        lines.add("第" + copyIndex + "联 / 共" + copyCount + "联");
+        lines.addAll(baseLines);
+        var content = new StringBuilder();
+        var y = page.heightPt() - page.marginTopPt();
+        for (var index = 0; index < lines.size(); index += 1) {
+            if (y < page.marginBottomPt() + 20) {
+                break;
+            }
+            var isTitle = title.equals(lines.get(index));
+            var fontSize = isTitle ? 16 : index <= 2 ? 12 : 10;
+            var x = isTitle ? Math.max(page.marginLeftPt(), (page.widthPt() / 2) - 40) : page.marginLeftPt();
+            content.append("BT /F1 ").append(fontSize).append(" Tf 1 0 0 1 ").append(x).append(' ').append(y).append(" Tm <")
+                .append(utf16Hex(lines.get(index)))
+                .append("> Tj ET\n");
+            y -= isTitle ? 30 : 20;
+        }
+        return content.toString();
+    }
+
+    private PageSpec pageSpec(PrintTemplate template) {
+        var baseWidth = "A5".equalsIgnoreCase(template.paperSize()) ? 420 : 595;
+        var baseHeight = "A5".equalsIgnoreCase(template.paperSize()) ? 595 : 842;
+        var landscape = "LANDSCAPE".equalsIgnoreCase(template.pageOrientation());
+        var width = landscape ? baseHeight : baseWidth;
+        var height = landscape ? baseWidth : baseHeight;
+        return new PageSpec(
+            width,
+            height,
+            mmToPt(template.marginTopMm()),
+            mmToPt(template.marginRightMm()),
+            mmToPt(template.marginBottomMm()),
+            mmToPt(template.marginLeftMm()),
+            template.paperSize() + (landscape ? " landscape" : ""),
+            template.marginTopMm() + "mm " + template.marginRightMm() + "mm " + template.marginBottomMm() + "mm " + template.marginLeftMm() + "mm"
+        );
+    }
+
+    private int mmToPt(String value) {
+        return BigDecimal.valueOf(Double.parseDouble(value)).multiply(BigDecimal.valueOf(72)).divide(BigDecimal.valueOf(25.4), 0, java.math.RoundingMode.HALF_UP).intValue();
+    }
+
+    private String normalizePaperSize(String value) {
+        if ("A5".equalsIgnoreCase(value)) {
+            return "A5";
+        }
+        return "A4";
+    }
+
+    private String normalizeOrientation(String value) {
+        if ("LANDSCAPE".equalsIgnoreCase(value)) {
+            return "LANDSCAPE";
+        }
+        return "PORTRAIT";
+    }
+
+    private String orientationLabel(String value) {
+        return "LANDSCAPE".equalsIgnoreCase(value) ? "横向" : "纵向";
+    }
+
+    private BigDecimal clampDecimal(BigDecimal value, int min, int max, BigDecimal fallback) {
+        var actual = value == null ? fallback : value;
+        if (actual.compareTo(BigDecimal.valueOf(min)) < 0) {
+            return BigDecimal.valueOf(min);
+        }
+        if (actual.compareTo(BigDecimal.valueOf(max)) > 0) {
+            return BigDecimal.valueOf(max);
+        }
+        return actual;
+    }
+
+    private int clampInt(Integer value, int min, int max, int fallback) {
+        var actual = value == null ? fallback : value;
+        return Math.max(min, Math.min(max, actual));
+    }
+
+    private String decimalString(Object value, String fallback) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal.stripTrailingZeros().toPlainString();
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue()).stripTrailingZeros().toPlainString();
+        }
+        return fallback;
     }
 
     private String utf16Hex(String value) {
@@ -582,7 +753,26 @@ public class DocumentOutputController {
         boolean showSignature,
         boolean showSeal,
         boolean isDefault,
+        String paperSize,
+        String pageOrientation,
+        String marginTopMm,
+        String marginRightMm,
+        String marginBottomMm,
+        String marginLeftMm,
+        int copyCount,
         boolean enabled
+    ) {
+    }
+
+    private record PageSpec(
+        int widthPt,
+        int heightPt,
+        int marginTopPt,
+        int marginRightPt,
+        int marginBottomPt,
+        int marginLeftPt,
+        String cssSize,
+        String cssMargin
     ) {
     }
 
@@ -595,7 +785,14 @@ public class DocumentOutputController {
         String footerNote,
         Boolean showSignature,
         Boolean showSeal,
-        Boolean isDefault
+        Boolean isDefault,
+        String paperSize,
+        String pageOrientation,
+        BigDecimal marginTopMm,
+        BigDecimal marginRightMm,
+        BigDecimal marginBottomMm,
+        BigDecimal marginLeftMm,
+        Integer copyCount
     ) {
     }
 }

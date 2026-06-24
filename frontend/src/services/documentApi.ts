@@ -55,6 +55,13 @@ export interface PrintTemplateConfig {
   showSignature: boolean;
   showSeal: boolean;
   isDefault: boolean;
+  paperSize: string;
+  pageOrientation: string;
+  marginTopMm: string;
+  marginRightMm: string;
+  marginBottomMm: string;
+  marginLeftMm: string;
+  copyCount: number;
   enabled: boolean;
 }
 
