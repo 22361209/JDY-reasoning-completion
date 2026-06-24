@@ -2,6 +2,7 @@ package com.jdy.erp.sales.api;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -176,7 +177,33 @@ public class SalesOrderController {
             WHERE so.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
-        return Map.of("action", action, "order", orderRows.get(0), "lines", lines);
+        var sourceOrderId = String.valueOf(orderRows.get(0).get("id"));
+        var enrichedLines = lines.stream().map(line -> {
+            var copy = new HashMap<String, Object>(line);
+            copy.put("downstreamDocs", downstreamSalesOutDocs(sourceOrderId, line.get("lineNo")));
+            return copy;
+        }).toList();
+        return Map.of("action", action, "order", orderRows.get(0), "lines", enrichedLines);
+    }
+
+    private List<Map<String, Object>> downstreamSalesOutDocs(String sourceOrderId, Object sourceLineNo) {
+        return jdbcTemplate.queryForList("""
+            SELECT so.bill_no AS "billNo",
+                   'salesOut' AS type,
+                   '销售出库单' AS "typeLabel",
+                   so.status,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
+                   l.line_no AS "downstreamLineNo",
+                   l.qty,
+                   l.amount
+            FROM sales_out_line l
+            JOIN sales_out so ON so.id = l.bill_id
+            WHERE so.source_order_id = ?::uuid
+              AND COALESCE(l.source_line_no, l.line_no) = ?
+              AND so.status = 'AUDITED'
+            ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
+            """, sourceOrderId, sourceLineNo);
     }
 
     private String required(String value, String label) {

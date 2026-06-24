@@ -40,6 +40,18 @@ export type DocumentType = keyof typeof endpointByType;
 export type OpenableDocumentType = keyof typeof detailEndpointByType;
 export type OutputDocumentType = keyof typeof outputTypeByDocumentType;
 
+export interface DownstreamDocumentRef {
+  billNo: string;
+  type: OpenableDocumentType;
+  typeLabel?: string;
+  status?: string;
+  billDate?: string;
+  sourceLineNo?: number | string;
+  downstreamLineNo?: number | string;
+  qty?: number | string;
+  amount?: number | string;
+}
+
 export interface DocumentDetail {
   action?: string;
   document: {
@@ -64,6 +76,7 @@ export interface DocumentDetail {
     shippedQty?: number | string;
     remainingQty?: number | string;
     unitPrice?: number | string;
+    downstreamDocs?: DownstreamDocumentRef[];
   }>;
 }
 

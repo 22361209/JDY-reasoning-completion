@@ -351,7 +351,18 @@
                       <span v-else>-</span>
                     </td>
                     <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" @paste="handleEntryPaste($event, lineIndex)" /></td>
-                    <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">{{ lineExecutedQty(line) }}</td>
+                    <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">
+                      <button
+                        v-if="line.downstreamDocs?.length"
+                        class="source-line-link"
+                        type="button"
+                        :data-testid="lineDownstreamTraceTestId(lineIndex)"
+                        @click="openDownstreamTrace(line, lineIndex)"
+                      >
+                        {{ lineExecutedQty(line) }}
+                      </button>
+                      <span v-else>{{ lineExecutedQty(line) }}</span>
+                    </td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
                     <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" @paste="handleEntryPaste($event, lineIndex)" /></td>
                     <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
@@ -438,6 +449,51 @@
       </div>
     </div>
 
+    <div v-if="downstreamTrace" class="modal-mask" data-testid="downstream-trace-dialog">
+      <div class="dialog downstream-trace-dialog">
+        <h3>{{ downstreamTrace.title }}</h3>
+        <p>源单第 {{ downstreamTrace.lineNo }} 行已执行 {{ downstreamTrace.executedQty }}，以下单据参与了该行执行。</p>
+        <table class="downstream-trace-table">
+          <thead>
+            <tr>
+              <th>单据类型</th>
+              <th>单据编号</th>
+              <th>日期</th>
+              <th>状态</th>
+              <th>源行</th>
+              <th>下游行</th>
+              <th>数量</th>
+              <th>金额</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(doc, docIndex) in downstreamTrace.docs" :key="`${doc.type}-${doc.billNo}-${docIndex}`">
+              <td>{{ doc.typeLabel || downstreamTypeLabel(doc.type) }}</td>
+              <td>
+                <button
+                  class="downstream-doc-link"
+                  type="button"
+                  :data-testid="downstreamDocTestId(docIndex)"
+                  @click="openDownstreamDocument(doc)"
+                >
+                  {{ doc.billNo }}
+                </button>
+              </td>
+              <td>{{ doc.billDate || "-" }}</td>
+              <td>{{ backendStatusLabel(doc.status) }}</td>
+              <td>#{{ doc.sourceLineNo }}</td>
+              <td>#{{ doc.downstreamLineNo }}</td>
+              <td>{{ formatQty(doc.qty) }}</td>
+              <td>{{ formatAmount(doc.amount) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="dialog-actions">
+          <button type="button" data-testid="downstream-trace-close" @click="downstreamTrace = null">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="pendingPushDown" class="modal-mask" data-testid="push-confirm-dialog">
       <div class="dialog push-confirm-dialog">
         <h3>{{ pendingPushDown.title }}</h3>
@@ -520,7 +576,7 @@
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
-import { auditDocument, exportDocument, fetchDocumentDetail, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentDetail, type DocumentType, type OpenableDocumentType, type OutputDocumentType } from "../services/documentApi";
+import { auditDocument, exportDocument, fetchDocumentDetail, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
 import { fetchSystemSession } from "../services/systemApi";
@@ -572,6 +628,14 @@ interface OrderLineForm {
   executedQty?: number;
   remainingQty?: number;
   unitPrice: number;
+  downstreamDocs?: DownstreamDocumentRef[];
+}
+
+interface DownstreamTraceState {
+  title: string;
+  lineNo: number;
+  executedQty: string;
+  docs: DownstreamDocumentRef[];
 }
 
 interface OrderForm {
@@ -622,6 +686,7 @@ const pushConfirmRatio = ref(50);
 const pushConfirmError = ref("");
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
+const downstreamTrace = ref<DownstreamTraceState | null>(null);
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -1004,6 +1069,27 @@ function formatQty(value: number | string | undefined) {
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2);
 }
 
+function formatAmount(value: number | string | undefined) {
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+}
+
+function backendStatusLabel(status: string | undefined) {
+  const labels: Record<string, string> = {
+    DRAFT: "草稿",
+    AUDITED: "已审核",
+    REVERSED: "已反审核",
+    VOID: "已作废",
+    VOIDED: "已作废",
+    RED_REVERSED: "已红冲"
+  };
+  return labels[status ?? ""] ?? status ?? "-";
+}
+
+function downstreamTypeLabel(type: OpenableDocumentType) {
+  return openableDocumentTarget(type).title;
+}
+
 function productInfo(line: OrderLineForm) {
   if (line.productName || line.spec) {
     return { name: line.productName ?? "", spec: line.spec ?? "", unit: "" };
@@ -1037,6 +1123,14 @@ function lineSourceLineNoTestId(index: number) {
 
 function lineSourceTraceTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-source-trace` : `${formTestPrefix.value}-line-source-trace-${index + 1}`;
+}
+
+function lineDownstreamTraceTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-downstream-trace` : `${formTestPrefix.value}-line-downstream-trace-${index + 1}`;
+}
+
+function downstreamDocTestId(index: number) {
+  return index === 0 ? "downstream-doc-open" : `downstream-doc-open-${index + 1}`;
 }
 
 function lineExecutedQtyTestId(index: number) {
@@ -1189,6 +1283,43 @@ async function traceSourceOrder(sourceLineNo?: number) {
   clearActiveDirty();
 }
 
+function openDownstreamTrace(line: OrderLineForm, index: number) {
+  if (!line.downstreamDocs?.length) {
+    return;
+  }
+  downstreamTrace.value = {
+    title: `${currentOrderForm.value.billNo} 第 ${lineLineNo(line, index)} 行执行单据`,
+    lineNo: lineLineNo(line, index),
+    executedQty: lineExecutedQty(line),
+    docs: line.downstreamDocs
+  };
+}
+
+async function openDownstreamDocument(doc: DownstreamDocumentRef) {
+  if (!doc.billNo || !doc.type) {
+    return;
+  }
+  const result = await fetchDocumentDetail(doc.type, doc.billNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "下游单据详情加载失败。";
+    return;
+  }
+  const target = openableDocumentTarget(doc.type);
+  tabs.openTab({
+    id: target.tabId,
+    title: target.title,
+    module: target.module,
+    kind: "form",
+    dirty: false,
+    lockedObjectId: doc.billNo
+  });
+  activeModuleName.value = target.module;
+  fillDocumentForm(target.form, result.data, target.partyType);
+  downstreamTrace.value = null;
+  formMessage.value = `已打开${target.title} ${doc.billNo}`;
+  clearActiveDirty();
+}
+
 function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; form: OrderForm; partyType: "customer" | "supplier" } {
   switch (type) {
     case "salesOut":
@@ -1231,9 +1362,29 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
       qty: Number(line.qty ?? 0),
       executedQty: documentLineExecutedQty(line),
       remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
-      unitPrice: Number(line.unitPrice ?? 0)
+      unitPrice: Number(line.unitPrice ?? 0),
+      downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
     }))
     : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0 }];
+}
+
+function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
+  if (!Array.isArray(docs)) {
+    return [];
+  }
+  return docs
+    .map((doc) => ({
+      billNo: String(doc.billNo ?? ""),
+      type: doc.type,
+      typeLabel: doc.typeLabel ? String(doc.typeLabel) : undefined,
+      status: doc.status ? String(doc.status) : undefined,
+      billDate: doc.billDate ? String(doc.billDate) : undefined,
+      sourceLineNo: doc.sourceLineNo,
+      downstreamLineNo: doc.downstreamLineNo,
+      qty: doc.qty,
+      amount: doc.amount
+    }))
+    .filter((doc) => doc.billNo && doc.type);
 }
 
 function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQty?: number | string }) {

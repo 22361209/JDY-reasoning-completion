@@ -1121,6 +1121,18 @@ td input {
   background: #eaf4ff;
 }
 
+.downstream-doc-link {
+  border: 0;
+  background: transparent;
+  color: #1f67b1;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.downstream-doc-link:hover {
+  text-decoration: underline;
+}
+
 tr.is-dragging td {
   background: #eef6ff;
   opacity: 0.72;
@@ -1230,6 +1242,23 @@ th {
   width: min(860px, calc(100vw - 48px));
   max-height: calc(100vh - 80px);
   overflow: auto;
+}
+
+.downstream-trace-dialog {
+  width: min(760px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+
+.downstream-trace-table {
+  min-width: 720px;
+  margin-top: 12px;
+}
+
+.downstream-trace-table th,
+.downstream-trace-table td {
+  height: 32px;
+  font-size: 12px;
 }
 
 .push-confirm-tools {
