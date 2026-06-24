@@ -277,7 +277,7 @@ interface CreateField {
   options?: string[];
 }
 
-type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn";
+type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn";
 
 const props = defineProps<{
   listKey: string;
@@ -427,7 +427,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "销售出库单",
     subtitle: "销售出库单读取真实单据，审核后减少库存。",
     keywordPlaceholder: "单据编号、客户、仓库",
-    statuses: ["草稿", "已审核"],
+    statuses: ["草稿", "已审核", "已反审核", "已红冲"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "customer", title: "客户", width: 220, visible: true },
@@ -441,7 +441,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "销售出库单",
     subtitle: "销售出库单读取真实单据，审核后减少库存。",
     keywordPlaceholder: "单据编号、客户、仓库",
-    statuses: ["草稿", "已审核"],
+    statuses: ["草稿", "已审核", "已反审核", "已红冲"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "customer", title: "客户", width: 220, visible: true },
@@ -525,6 +525,34 @@ const definitions: Record<string, ListDefinition> = {
       { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
+  "material-issue-form-list": {
+    title: "生产领料单",
+    subtitle: "生产领料单展示来源任务、领料仓库、金额和审核/冲销状态。",
+    keywordPlaceholder: "领料单号、生产任务单、仓库",
+    statuses: ["已审核", "已反审核", "已红冲"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 160, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "生产任务单", width: 170, visible: true },
+      { field: "billDate", title: "日期", width: 120, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "product-in-form-list": {
+    title: "产品入库单",
+    subtitle: "产品入库单展示来源任务、入库仓库、金额和审核/冲销状态。",
+    keywordPlaceholder: "入库单号、生产任务单、仓库",
+    statuses: ["已审核", "已反审核", "已红冲"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 160, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "生产任务单", width: 170, visible: true },
+      { field: "billDate", title: "日期", width: 120, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
   "bom-list": {
     title: "BOM维护",
     subtitle: "BOM 维护展示成品、基准数量和启用状态，明细由后端 BOM 接口维护。",
@@ -584,7 +612,9 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
   "sales-out-form-list": "salesOut",
   "purchase-order-form-list": "purchaseOrder",
   "purchase-in-list": "purchaseIn",
-  "purchase-in-form-list": "purchaseIn"
+  "purchase-in-form-list": "purchaseIn",
+  "material-issue-form-list": "materialIssue",
+  "product-in-form-list": "productIn"
 };
 const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));

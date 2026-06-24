@@ -485,6 +485,30 @@ const salesOutForm = reactive<OrderForm>({
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86 }
   ]
 });
+const materialIssueForm = reactive<OrderForm>({
+  billNo: "SCLL-00001",
+  sourceOrderNo: "SCRW-00001",
+  partyCode: "SCRW-00001",
+  billDate: "2026-06-23",
+  department: "生产部",
+  ownerName: "本地管理员",
+  status: "AUDITED",
+  lines: [
+    { productCode: "WL-001", warehouseCode: "CK-001", qty: 2, unitPrice: 1 }
+  ]
+});
+const productInForm = reactive<OrderForm>({
+  billNo: "CPRK-00001",
+  sourceOrderNo: "SCRW-00001",
+  partyCode: "SCRW-00001",
+  billDate: "2026-06-23",
+  department: "生产部",
+  ownerName: "本地管理员",
+  status: "AUDITED",
+  lines: [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 1 }
+  ]
+});
 const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
@@ -638,9 +662,12 @@ const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order
 const isPurchaseOrderForm = computed(() => tabs.activeTab.value.id === "purchase-order-form");
 const isPurchaseInForm = computed(() => tabs.activeTab.value.id === "purchase-in-form");
 const isSalesOutForm = computed(() => tabs.activeTab.value.id === "sales-out-form");
+const isMaterialIssueForm = computed(() => tabs.activeTab.value.id === "material-issue-form");
+const isProductInForm = computed(() => tabs.activeTab.value.id === "product-in-form");
 const isStockDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
 const isReversibleDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
-const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value);
+const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isProductInForm.value);
+const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value || isProductionDocumentForm.value);
 const currentOrderForm = computed(() => {
   if (isPurchaseOrderForm.value) {
     return purchaseOrderForm;
@@ -650,6 +677,12 @@ const currentOrderForm = computed(() => {
   }
   if (isSalesOutForm.value) {
     return salesOutForm;
+  }
+  if (isMaterialIssueForm.value) {
+    return materialIssueForm;
+  }
+  if (isProductInForm.value) {
+    return productInForm;
   }
   return salesOrderForm;
 });
@@ -663,9 +696,20 @@ const formTestPrefix = computed(() => {
   if (isSalesOutForm.value) {
     return "sales-out";
   }
+  if (isMaterialIssueForm.value) {
+    return "material-issue";
+  }
+  if (isProductInForm.value) {
+    return "product-in";
+  }
   return "sales";
 });
-const partyLabel = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "供应商" : "客户");
+const partyLabel = computed(() => {
+  if (isProductionDocumentForm.value) {
+    return "来源";
+  }
+  return (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "供应商" : "客户";
+});
 const partyType = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "supplier" : "customer");
 const isDraftDocument = computed(() => isDocumentForm.value && currentOrderForm.value.status === "DRAFT");
 const canReverseDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "AUDITED");
@@ -832,6 +876,10 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: "purchase-order-form", title: "采购订单", module: "采购管理", form: purchaseOrderForm, partyType: "supplier" };
     case "purchaseIn":
       return { tabId: "purchase-in-form", title: "采购入库单", module: "采购管理", form: purchaseInForm, partyType: "supplier" };
+    case "materialIssue":
+      return { tabId: "material-issue-form", title: "生产领料单", module: "生产管理", form: materialIssueForm, partyType: "customer" };
+    case "productIn":
+      return { tabId: "product-in-form", title: "产品入库单", module: "生产管理", form: productInForm, partyType: "customer" };
     case "salesOrder":
     default:
       return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", form: salesOrderForm, partyType: "customer" };
@@ -842,7 +890,9 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
   const document = detail.document;
   form.billNo = document.billNo;
   form.sourceOrderNo = document.sourceOrderNo || undefined;
-  form.partyCode = partyKind === "supplier"
+  form.partyCode = document.sourceOrderNo && (document.customerCode === "SC" || document.supplierCode === "SC")
+    ? document.sourceOrderNo
+    : partyKind === "supplier"
     ? document.supplierCode || "GYS-001"
     : document.customerCode || "KH-001";
   form.billDate = document.billDate;

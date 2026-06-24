@@ -140,6 +140,8 @@ public class ListStubController {
             case "payable-list", "ap-payable-list" -> payableRows();
             case "bom-list" -> bomRows();
             case "production-task-list", "production-task-form-list" -> productionTaskRows();
+            case "material-issue-list", "material-issue-form-list" -> materialIssueRows();
+            case "product-in-list", "product-in-form-list" -> productInRows();
             case "role-list", "user-role-list" -> roleRows();
             case "operation-log-list" -> operationLogRows();
             default -> salesRows();
@@ -272,6 +274,7 @@ public class ListStubController {
                    CASE
                        WHEN pi.status = 'DRAFT' THEN '草稿'
                        WHEN pi.status = 'REVERSED' THEN '已反审核'
+                       WHEN pi.status = 'RED_REVERSED' THEN '已红冲'
                        WHEN pi.status = 'VOID' THEN '已作废'
                        ELSE '已审核'
                    END AS status,
@@ -294,6 +297,7 @@ public class ListStubController {
                    CASE
                        WHEN so.status = 'DRAFT' THEN '草稿'
                        WHEN so.status = 'REVERSED' THEN '已反审核'
+                       WHEN so.status = 'RED_REVERSED' THEN '已红冲'
                        WHEN so.status = 'VOID' THEN '已作废'
                        ELSE '已审核'
                    END AS status,
@@ -369,6 +373,66 @@ public class ListStubController {
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
             ORDER BY t.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> materialIssueRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT i.id::text AS id,
+                   i.bill_no AS "billNo",
+                   t.bill_no AS "sourceOrderNo",
+                   to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
+                   CASE
+                       WHEN i.status = 'REVERSED' THEN '已反审核'
+                       WHEN i.status = 'RED_REVERSED' THEN '已红冲'
+                       ELSE '已审核'
+                   END AS status,
+                   trim(to_char(COALESCE((
+                       SELECT SUM(il.amount)
+                       FROM production_material_issue_line il
+                       WHERE il.issue_id = i.id
+                   ), 0), 'FM9999999990.00')) AS amount,
+                   COALESCE((
+                       SELECT w.name
+                       FROM production_material_issue_line il
+                       JOIN md_warehouse w ON w.id = il.warehouse_id
+                       WHERE il.issue_id = i.id
+                       ORDER BY il.line_no
+                       LIMIT 1
+                   ), '') AS warehouse
+            FROM production_material_issue i
+            JOIN production_task t ON t.id = i.task_id
+            ORDER BY i.created_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> productInRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT c.id::text AS id,
+                   c.bill_no AS "billNo",
+                   t.bill_no AS "sourceOrderNo",
+                   to_char(c.created_at, 'YYYY-MM-DD') AS "billDate",
+                   CASE
+                       WHEN c.status = 'REVERSED' THEN '已反审核'
+                       WHEN c.status = 'RED_REVERSED' THEN '已红冲'
+                       ELSE '已审核'
+                   END AS status,
+                   trim(to_char(COALESCE((
+                       SELECT SUM(cl.amount)
+                       FROM production_completion_line cl
+                       WHERE cl.completion_id = c.id
+                   ), 0), 'FM9999999990.00')) AS amount,
+                   COALESCE((
+                       SELECT w.name
+                       FROM production_completion_line cl
+                       JOIN md_warehouse w ON w.id = cl.warehouse_id
+                       WHERE cl.completion_id = c.id
+                       ORDER BY cl.line_no
+                       LIMIT 1
+                   ), '') AS warehouse
+            FROM production_completion c
+            JOIN production_task t ON t.id = c.task_id
+            ORDER BY c.created_at DESC
             """));
     }
 

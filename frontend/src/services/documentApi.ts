@@ -23,7 +23,9 @@ const detailEndpointByType = {
   salesOrder: "/api/sales-orders",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
-  salesOut: "/api/sales-outs"
+  salesOut: "/api/sales-outs",
+  materialIssue: "/api/production/material-issues",
+  productIn: "/api/production/product-ins"
 } as const;
 
 const outputTypeByDocumentType = {

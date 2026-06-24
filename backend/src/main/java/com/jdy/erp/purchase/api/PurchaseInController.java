@@ -239,7 +239,7 @@ public class PurchaseInController {
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
             INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, 'AUDITED', ?, ?)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, 'RED_REVERSED', ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
             """,
             redBillNo,
