@@ -2512,24 +2512,67 @@ function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
   }
   if (event.key === "Enter") {
     event.preventDefault();
-    const option = selectorOptions.value[selectorCursorIndex.value] ?? selectorOptions.value[0];
-    if (selectorId.endsWith("-party")) {
-      selectPartyOption(option);
-    } else if (selectorId.endsWith("-product")) {
-      selectLineProduct(option, lineIndexFromSelector(selectorId));
-    } else if (selectorId.endsWith("-warehouse")) {
-      selectWarehouseOption(option, lineIndexFromSelector(selectorId));
-    }
+    chooseSelectorOption(selectorId);
+    return;
+  }
+  if (event.key === "Tab" && !event.shiftKey) {
+    event.preventDefault();
+    chooseSelectorOption(selectorId);
   }
 }
 
-function selectPartyOption(option: MasterOption) {
+function chooseSelectorOption(selectorId: string) {
+  const option = selectorOptions.value[selectorCursorIndex.value] ?? selectorOptions.value[0];
+  if (!option) {
+    return;
+  }
+  if (selectorId.endsWith("-party")) {
+    selectPartyOption(option);
+  } else if (selectorId.endsWith("-product")) {
+    selectLineProduct(option, lineIndexFromSelector(selectorId));
+  } else if (selectorId.endsWith("-warehouse")) {
+    selectWarehouseOption(option, lineIndexFromSelector(selectorId));
+  }
+}
+
+async function focusFormField(testId: string) {
+  await nextTick();
+  const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+  input?.focus();
+  input?.select();
+}
+
+function focusNextAfterSelector(selectorId: string) {
+  if (selectorId.endsWith("-party")) {
+    void focusFormField(`${formTestPrefix.value}-bill-date`);
+    return;
+  }
+  const lineIndex = lineIndexFromSelector(selectorId);
+  if (selectorId.endsWith("-product")) {
+    void focusLineCell(lineIndex, "warehouse");
+    return;
+  }
+  if (selectorId.endsWith("-warehouse")) {
+    void focusLineCell(lineIndex, "qty");
+  }
+}
+
+function selectorIdForLine(lineIndex: number, field: "product" | "warehouse") {
+  return `${formTestPrefix.value}-line-${lineIndex}-${field}`;
+}
+
+function selectorIdForParty() {
+  return `${formTestPrefix.value}-party`;
+}
+
+function selectPartyOption(option: MasterOption, selectorId = selectorIdForParty()) {
   currentOrderForm.value.partyCode = option.code;
   activeSelector.value = "";
   markActiveDirty();
+  focusNextAfterSelector(selectorId);
 }
 
-function selectWarehouseOption(option: MasterOption, lineIndex = 0) {
+function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "warehouse")) {
   const line = currentOrderForm.value.lines[lineIndex];
   if (!line) {
     return;
@@ -2537,9 +2580,10 @@ function selectWarehouseOption(option: MasterOption, lineIndex = 0) {
   line.warehouseCode = option.code;
   activeSelector.value = "";
   markActiveDirty();
+  focusNextAfterSelector(selectorId);
 }
 
-function selectLineProduct(option: MasterOption, lineIndex = 0) {
+function selectLineProduct(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "product")) {
   const line = currentOrderForm.value.lines[lineIndex];
   if (!line) {
     return;
@@ -2549,6 +2593,7 @@ function selectLineProduct(option: MasterOption, lineIndex = 0) {
   line.spec = option.spec ?? "";
   activeSelector.value = "";
   markActiveDirty();
+  focusNextAfterSelector(selectorId);
 }
 
 function lineIndexFromSelector(selectorId: string) {
