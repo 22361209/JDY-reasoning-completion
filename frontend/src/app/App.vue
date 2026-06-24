@@ -264,6 +264,7 @@
                     <th>商品名称</th>
                     <th>规格型号</th>
                     <th>仓库</th>
+                    <th v-if="showSourceLineColumn">源行号</th>
                     <th>数量</th>
                     <th v-if="showExecutionColumns">已执行</th>
                     <th v-if="showExecutionColumns">剩余</th>
@@ -334,6 +335,7 @@
                         </span>
                       </span>
                     </td>
+                    <td v-if="showSourceLineColumn" class="readonly-qty" :data-testid="lineSourceLineNoTestId(lineIndex)">{{ lineSourceLineNo(line) }}</td>
                     <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" /></td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">{{ lineExecutedQty(line) }}</td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
@@ -528,6 +530,7 @@ interface OrderLineForm {
   productName?: string;
   spec?: string;
   warehouseCode: string;
+  sourceLineNo?: number;
   qty: number;
   executedQty?: number;
   remainingQty?: number;
@@ -809,7 +812,8 @@ const isReversibleDocumentForm = computed(() => isPurchaseInForm.value || isSale
 const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isProductInForm.value);
 const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value || isProductionDocumentForm.value);
 const showExecutionColumns = computed(() => (isSalesOrderForm.value || isPurchaseOrderForm.value) && currentOrderForm.value.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
-const entryTableColspan = computed(() => showExecutionColumns.value ? 10 : 8);
+const showSourceLineColumn = computed(() => isStockDocumentForm.value && Boolean(currentOrderForm.value.sourceOrderNo));
+const entryTableColspan = computed(() => 8 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0));
 const entryTotalColspan = computed(() => entryTableColspan.value - 1);
 const currentOrderForm = computed(() => {
   if (isPurchaseOrderForm.value) {
@@ -907,6 +911,10 @@ function lineRemainingQty(line: OrderLineForm) {
   return formatQty(line.remainingQty ?? Math.max(0, Number(line.qty || 0) - Number(line.executedQty || 0)));
 }
 
+function lineSourceLineNo(line: OrderLineForm) {
+  return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
+}
+
 function formatQty(value: number | string | undefined) {
   const qty = Number(value ?? 0);
   if (!Number.isFinite(qty)) {
@@ -939,6 +947,10 @@ function lineWarehouseTestId(index: number) {
 
 function lineQtyTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-qty` : `${formTestPrefix.value}-line-qty-${index + 1}`;
+}
+
+function lineSourceLineNoTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-source-line-no` : `${formTestPrefix.value}-line-source-line-no-${index + 1}`;
 }
 
 function lineExecutedQtyTestId(index: number) {
@@ -1123,6 +1135,7 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
       qty: Number(line.qty ?? 0),
       executedQty: documentLineExecutedQty(line),
       remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
@@ -1219,6 +1232,7 @@ function confirmPushDown() {
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    sourceLineNo: line.sourceLineNo,
     qty: line.qty,
     unitPrice: Number(line.unitPrice ?? 0)
   }));
@@ -1318,11 +1332,16 @@ function normalizedQty(value: number | string | undefined) {
   return Number.isFinite(qty) ? qty : 0;
 }
 
+function normalizedOptionalInt(value: number | string | undefined) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function roundQty(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function toPendingPushLine(line: { productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
+function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
   const executedQty = normalizedQty(line[executedField]);
   const remainingQty = remainingLineQty(line);
@@ -1331,6 +1350,7 @@ function toPendingPushLine(line: { productCode?: string; productName?: string; s
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    sourceLineNo: normalizedOptionalInt(line.lineNo),
     sourceQty,
     executedQty,
     remainingQty,
@@ -1700,6 +1720,7 @@ function toDocumentLines(lines: OrderLineForm[]) {
   return lines.map((line) => ({
     productCode: line.productCode,
     warehouseCode: line.warehouseCode,
+    sourceLineNo: line.sourceLineNo,
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0)
   }));

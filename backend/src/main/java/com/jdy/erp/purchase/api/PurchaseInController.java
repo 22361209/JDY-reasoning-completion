@@ -52,6 +52,7 @@ public class PurchaseInController {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
+                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
@@ -122,7 +123,7 @@ public class PurchaseInController {
         var billId = String.valueOf(rows.get(0).get("id"));
         var sourceOrderId = rows.get(0).get("sourceOrderId");
         var lines = jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT l.line_no AS "lineNo", COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM purchase_in_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -138,7 +139,7 @@ public class PurchaseInController {
                     WHERE order_id = ?::uuid
                       AND line_no = ?
                       AND received_qty + ? <= qty
-                    """, line.get("qty"), sourceOrderId, line.get("lineNo"), line.get("qty"));
+                    """, line.get("qty"), sourceOrderId, line.get("sourceLineNo"), line.get("qty"));
                 if (updated == 0) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库数量不能超过采购订单剩余可入数量");
                 }
@@ -173,7 +174,7 @@ public class PurchaseInController {
         var billId = String.valueOf(rows.get(0).get("id"));
         var sourceOrderId = rows.get(0).get("sourceOrderId");
         var lines = jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT l.line_no AS "lineNo", COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM purchase_in_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -196,7 +197,7 @@ public class PurchaseInController {
                     UPDATE purchase_order_line
                     SET received_qty = GREATEST(0, received_qty - ?)
                     WHERE order_id = ?::uuid AND line_no = ?
-                    """, line.get("qty"), sourceOrderId, line.get("lineNo"));
+                    """, line.get("qty"), sourceOrderId, line.get("sourceLineNo"));
             }
             refreshPurchaseOrderInStatus(String.valueOf(sourceOrderId));
         }
@@ -257,6 +258,7 @@ public class PurchaseInController {
         );
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
+                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
                    p.code AS "productCode",
                    w.code AS "warehouseCode",
                    l.product_id::text AS "productId",
@@ -274,11 +276,12 @@ public class PurchaseInController {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO purchase_in_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
+                INSERT INTO purchase_in_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
+                line.get("sourceLineNo"),
                 line.get("productId"),
                 line.get("warehouseId"),
                 qty.negate(),
@@ -297,7 +300,7 @@ public class PurchaseInController {
                     UPDATE purchase_order_line
                     SET received_qty = GREATEST(0, received_qty - ?)
                     WHERE order_id = ?::uuid AND line_no = ?
-                    """, qty, source.get("sourceOrderId"), line.get("lineNo"));
+                    """, qty, source.get("sourceOrderId"), line.get("sourceLineNo"));
             }
         }
         if (source.get("sourceOrderId") != null) {
@@ -313,8 +316,8 @@ public class PurchaseInController {
             var productId = lookupId("md_product", line.productCode(), "商品");
             var warehouseId = lookupId("md_warehouse", line.warehouseCode(), "仓库");
             var amount = line.qty().multiply(line.unitPrice());
-            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, product_id, warehouse_id, qty, unit_price, amount) VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)",
-                billId, lineNo, productId, warehouseId, line.qty(), line.unitPrice(), amount);
+            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount) VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?)",
+                billId, lineNo, line.sourceLineNo() == null ? lineNo : line.sourceLineNo(), productId, warehouseId, line.qty(), line.unitPrice(), amount);
             lineNo += 1;
         }
     }
@@ -377,7 +380,7 @@ public class PurchaseInController {
         }
     }
 
-    public record PurchaseInLineRequest(String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitPrice) {
+    public record PurchaseInLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

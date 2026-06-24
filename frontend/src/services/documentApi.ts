@@ -8,6 +8,7 @@ interface DocumentDraftPayload {
   lines: Array<{
     productCode: string;
     warehouseCode: string;
+    sourceLineNo?: number;
     qty: number;
     unitPrice: number;
   }>;
@@ -52,6 +53,8 @@ export interface DocumentDetail {
     status: string;
   };
   lines: Array<{
+    lineNo?: number | string;
+    sourceLineNo?: number | string;
     productCode?: string;
     productName?: string;
     spec?: string;
