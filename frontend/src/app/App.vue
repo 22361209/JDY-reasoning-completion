@@ -1266,15 +1266,21 @@ function closeNavigation() {
 
 async function saveCurrentSalesOrder() {
   formMessage.value = "";
+  const preparedLines = prepareEntryLinesForSave(salesOrderForm.lines);
+  if (!preparedLines.ok) {
+    formMessage.value = preparedLines.message;
+    return;
+  }
+  salesOrderForm.lines = preparedLines.formLines;
   const result = await saveSalesOrderDraft({
     billNo: salesOrderForm.billNo,
     customerCode: salesOrderForm.partyCode,
     billDate: salesOrderForm.billDate,
     department: salesOrderForm.department,
     ownerName: salesOrderForm.ownerName,
-    lines: toDocumentLines(salesOrderForm.lines)
+    lines: preparedLines.documentLines
   });
-  formMessage.value = result.ok ? "草稿已保存" : result.message;
+  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount) : result.message;
   if (result.ok) {
     salesOrderForm.status = "DRAFT";
     const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
@@ -2306,6 +2312,12 @@ async function saveCurrentDocument() {
     return;
   }
   formMessage.value = "";
+  const preparedLines = prepareEntryLinesForSave(currentOrderForm.value.lines);
+  if (!preparedLines.ok) {
+    formMessage.value = preparedLines.message;
+    return;
+  }
+  currentOrderForm.value.lines = preparedLines.formLines;
   const result = await saveDocumentDraft(type, {
     billNo: currentOrderForm.value.billNo,
     sourceOrderNo: currentOrderForm.value.sourceOrderNo,
@@ -2313,9 +2325,9 @@ async function saveCurrentDocument() {
     billDate: currentOrderForm.value.billDate,
     department: currentOrderForm.value.department,
     ownerName: currentOrderForm.value.ownerName,
-    lines: toDocumentLines(currentOrderForm.value.lines)
+    lines: preparedLines.documentLines
   });
-  formMessage.value = result.ok ? "草稿已保存" : result.message;
+  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount) : result.message;
   if (result.ok) {
     currentOrderForm.value.status = "DRAFT";
     clearActiveDirty();
@@ -2454,6 +2466,55 @@ function toDocumentLines(lines: OrderLineForm[]) {
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0)
   }));
+}
+
+function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true; formLines: OrderLineForm[]; documentLines: ReturnType<typeof toDocumentLines>; removedBlankCount: number } | { ok: false; message: string } {
+  const nonBlankLines = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => !isBlankEntryLine(line));
+  if (nonBlankLines.length === 0) {
+    return { ok: false, message: "至少保留一行有效分录。" };
+  }
+  const missingProduct = nonBlankLines.find(({ line }) => !entryLineProductCode(line));
+  if (missingProduct) {
+    return { ok: false, message: `第 ${missingProduct.index + 1} 行商品编码不能为空。` };
+  }
+  const seen = new Map<string, number>();
+  for (const { line, index } of nonBlankLines) {
+    const key = `${entryLineProductCode(line)}@@${entryLineWarehouseCode(line)}`;
+    const firstIndex = seen.get(key);
+    if (firstIndex !== undefined) {
+      return { ok: false, message: `第 ${index + 1} 行与第 ${firstIndex + 1} 行商品和仓库重复，请合并后再保存。` };
+    }
+    seen.set(key, index);
+  }
+  const formLines = nonBlankLines.map(({ line }) => line);
+  return {
+    ok: true,
+    formLines,
+    documentLines: toDocumentLines(formLines),
+    removedBlankCount: lines.length - formLines.length
+  };
+}
+
+function isBlankEntryLine(line: OrderLineForm) {
+  return !entryLineProductCode(line)
+    && !String(line.productName ?? "").trim()
+    && !String(line.spec ?? "").trim()
+    && normalizedQty(line.qty) === 0
+    && normalizedQty(line.unitPrice) === 0;
+}
+
+function entryLineProductCode(line: OrderLineForm) {
+  return String(line.productCode ?? "").trim();
+}
+
+function entryLineWarehouseCode(line: OrderLineForm) {
+  return String(line.warehouseCode ?? "").trim() || "CK-001";
+}
+
+function saveSuccessMessage(removedBlankCount: number) {
+  return removedBlankCount > 0 ? `草稿已保存，已移除 ${removedBlankCount} 行空白分录` : "草稿已保存";
 }
 
 function currentOutputDocumentType(): OutputDocumentType | null {
