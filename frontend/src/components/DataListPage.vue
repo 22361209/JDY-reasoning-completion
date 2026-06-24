@@ -40,6 +40,22 @@
         </select>
       </label>
       <label v-if="filtersExpanded && isOperationLogList">
+        操作人
+        <input
+          v-model="query.operator"
+          data-testid="operation-log-operator"
+          placeholder="操作人"
+          @keydown.enter="reload"
+        />
+      </label>
+      <label v-if="filtersExpanded && isOperationLogList">
+        对象类型
+        <select v-model="query.targetType" data-testid="operation-log-target-type">
+          <option value="">全部</option>
+          <option v-for="targetType in operationLogTargetTypes" :key="targetType" :value="targetType">{{ targetType }}</option>
+        </select>
+      </label>
+      <label v-if="filtersExpanded && isOperationLogList">
         开始日期
         <input v-model="query.dateFrom" type="date" data-testid="operation-log-date-from" />
       </label>
@@ -337,7 +353,18 @@ const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
 const draggingColumnField = ref("");
 const dragOverColumnField = ref("");
-const query = reactive({ keyword: "", status: "", page: 1, pageSize: 200, module: "", action: "", dateFrom: "", dateTo: "" });
+const query = reactive({
+  keyword: "",
+  status: "",
+  page: 1,
+  pageSize: 200,
+  module: "",
+  action: "",
+  operator: "",
+  targetType: "",
+  dateFrom: "",
+  dateTo: ""
+});
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 const operationLogModules = ["SALES", "PURCHASE", "PRODUCTION", "FINANCE", "MASTER", "SYSTEM"];
 const operationLogActions = [
@@ -354,6 +381,18 @@ const operationLogActions = [
   "SAVE_BOM",
   "RECEIVE",
   "PAY"
+];
+const operationLogTargetTypes = [
+  "sales_order",
+  "sales_out",
+  "purchase_order",
+  "purchase_in",
+  "production_task",
+  "production_material_issue",
+  "production_completion",
+  "ar_receivable",
+  "ap_payable",
+  "prod_bom"
 ];
 const masterDataTypeByListKey: Record<string, string> = {
   "product-master-list": "product",
@@ -792,6 +831,8 @@ function resetQuery() {
   query.status = "";
   query.module = "";
   query.action = "";
+  query.operator = "";
+  query.targetType = "";
   query.dateFrom = "";
   query.dateTo = "";
   query.page = 1;

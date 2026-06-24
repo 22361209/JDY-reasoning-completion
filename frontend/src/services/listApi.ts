@@ -7,6 +7,8 @@ export interface ListQuery {
   sortOrder?: "asc" | "desc" | "";
   module?: string;
   action?: string;
+  operator?: string;
+  targetType?: string;
   dateFrom?: string;
   dateTo?: string;
   columnFilters?: Record<string, { operator: string; value: string }>;
@@ -45,6 +47,12 @@ export async function fetchListRows(listKey: string, query: ListQuery): Promise<
   }
   if (query.action) {
     search.set("action", query.action);
+  }
+  if (query.operator) {
+    search.set("operator", query.operator);
+  }
+  if (query.targetType) {
+    search.set("targetType", query.targetType);
   }
   if (query.dateFrom) {
     search.set("dateFrom", query.dateFrom);
