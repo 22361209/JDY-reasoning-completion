@@ -538,6 +538,11 @@
             <span>%</span>
           </label>
           <button type="button" data-testid="push-confirm-apply-ratio" @click="applyPushDownRatio">按比例</button>
+          <label>
+            仓库
+            <input v-model="pushConfirmWarehouseCode" data-testid="push-confirm-warehouse-code" />
+          </label>
+          <button type="button" data-testid="push-confirm-apply-warehouse" @click="applyPushDownWarehouse">应用仓库</button>
           <span class="push-confirm-selection" data-testid="push-confirm-selection-summary">{{ pushConfirmSelectionSummary }}</span>
         </div>
         <div class="push-confirm-table">
@@ -573,7 +578,7 @@
                   <strong>{{ line.productCode }}</strong>
                   <span>{{ line.productName || line.spec }}</span>
                 </td>
-                <td>{{ line.warehouseCode }}</td>
+                <td :data-testid="pushConfirmWarehouseTestId(lineIndex)">{{ line.warehouseCode }}</td>
                 <td>{{ line.sourceQty }}</td>
                 <td>{{ line.executedQty }}</td>
                 <td>{{ line.remainingQty }}</td>
@@ -726,6 +731,7 @@ const batchWarehouseCode = ref("CK-001");
 const draggingLineIndex = ref<number | null>(null);
 const pendingPushDown = ref<PendingPushDown | null>(null);
 const pushConfirmRatio = ref(50);
+const pushConfirmWarehouseCode = ref("CK-001");
 const pushConfirmError = ref("");
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
@@ -1483,6 +1489,7 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
   };
   pushConfirmError.value = "";
   pushConfirmRatio.value = 50;
+  pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
   formMessage.value = `请确认销售订单 ${sourceBillNo} 本次下推数量`;
 }
 
@@ -1596,6 +1603,21 @@ function applyPushDownRatio() {
   pushConfirmError.value = "";
 }
 
+function applyPushDownWarehouse() {
+  if (!pendingPushDown.value) {
+    return;
+  }
+  const warehouseCode = pushConfirmWarehouseCode.value.trim();
+  if (!warehouseCode) {
+    pushConfirmError.value = "仓库编码不能为空。";
+    return;
+  }
+  effectivePushDownLines.value.forEach((line) => {
+    line.warehouseCode = warehouseCode;
+  });
+  pushConfirmError.value = "";
+}
+
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
   if (!sourceBillNo) {
@@ -1633,6 +1655,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   };
   pushConfirmError.value = "";
   pushConfirmRatio.value = 50;
+  pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
   formMessage.value = `请确认采购订单 ${sourceBillNo} 本次下推数量`;
 }
 
@@ -1676,6 +1699,10 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
 
 function pushConfirmQtyTestId(index: number) {
   return index === 0 ? "push-confirm-qty" : `push-confirm-qty-${index + 1}`;
+}
+
+function pushConfirmWarehouseTestId(index: number) {
+  return index === 0 ? "push-confirm-warehouse" : `push-confirm-warehouse-${index + 1}`;
 }
 
 function pushConfirmSelectTestId(index: number) {
