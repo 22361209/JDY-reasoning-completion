@@ -251,26 +251,32 @@
                     <th>数量</th>
                     <th>单价</th>
                     <th>金额</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
+                  <tr
+                    v-for="(line, lineIndex) in currentOrderForm.lines"
+                    :key="lineIndex"
+                    :data-testid="`${formTestPrefix}-entry-row`"
+                  >
                     <td>
                       <span class="master-selector in-cell">
                         <input
-                          v-model="currentOrderForm.lines[0].productCode"
-                          :data-testid="`${formTestPrefix}-line-product`"
-                          @focus="searchMasterOptions('product', currentOrderForm.lines[0].productCode, `${formTestPrefix}-product`)"
-                          @input="handleMasterInput('product', currentOrderForm.lines[0].productCode, `${formTestPrefix}-product`)"
-                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-product`)"
+                          v-model="line.productCode"
+                          :disabled="!isDraftDocument"
+                          :data-testid="lineProductTestId(lineIndex)"
+                          @focus="searchMasterOptions('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
+                          @input="handleMasterInput('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
+                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-line-${lineIndex}-product`)"
                         />
-                        <span v-if="activeSelector === `${formTestPrefix}-product`" class="master-selector__menu">
+                        <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-product`" class="master-selector__menu">
                           <button
                             v-for="(option, optionIndex) in selectorOptions"
                             :key="option.code"
                             type="button"
                             :class="{ selected: selectorCursorIndex === optionIndex }"
-                            @mousedown.prevent="selectLineProduct(option)"
+                            @mousedown.prevent="selectLineProduct(option, lineIndex)"
                           >
                             <strong>{{ option.code }}</strong>
                             <span>{{ option.name }}</span>
@@ -278,24 +284,25 @@
                         </span>
                       </span>
                     </td>
-                    <td>{{ selectedProduct.name }}</td>
-                    <td>{{ selectedProduct.spec }}</td>
+                    <td>{{ productInfo(line).name }}</td>
+                    <td>{{ productInfo(line).spec }}</td>
                     <td>
                       <span class="master-selector in-cell">
                         <input
-                          v-model="currentOrderForm.lines[0].warehouseCode"
-                          :data-testid="`${formTestPrefix}-line-warehouse`"
-                          @focus="searchMasterOptions('warehouse', currentOrderForm.lines[0].warehouseCode, `${formTestPrefix}-warehouse`)"
-                          @input="handleMasterInput('warehouse', currentOrderForm.lines[0].warehouseCode, `${formTestPrefix}-warehouse`)"
-                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-warehouse`)"
+                          v-model="line.warehouseCode"
+                          :disabled="!isDraftDocument"
+                          :data-testid="lineWarehouseTestId(lineIndex)"
+                          @focus="searchMasterOptions('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
+                          @input="handleMasterInput('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
+                          @keydown="handleSelectorKeydown($event, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
                         />
-                        <span v-if="activeSelector === `${formTestPrefix}-warehouse`" class="master-selector__menu">
+                        <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-warehouse`" class="master-selector__menu">
                           <button
                             v-for="(option, optionIndex) in selectorOptions"
                             :key="option.code"
                             type="button"
                             :class="{ selected: selectorCursorIndex === optionIndex }"
-                            @mousedown.prevent="selectWarehouseOption(option)"
+                            @mousedown.prevent="selectWarehouseOption(option, lineIndex)"
                           >
                             <strong>{{ option.code }}</strong>
                             <span>{{ option.name }}</span>
@@ -303,12 +310,29 @@
                         </span>
                       </span>
                     </td>
-                    <td><input v-model.number="currentOrderForm.lines[0].qty" :data-testid="`${formTestPrefix}-line-qty`" @input="markActiveDirty" /></td>
-                    <td><input v-model.number="currentOrderForm.lines[0].unitPrice" :data-testid="`${formTestPrefix}-line-price`" @input="markActiveDirty" /></td>
-                    <td>{{ currentOrderAmount }}</td>
+                    <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" /></td>
+                    <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" /></td>
+                    <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
+                    <td>
+                      <button
+                        class="line-action"
+                        type="button"
+                        :disabled="!isDraftDocument || currentOrderForm.lines.length <= 1"
+                        :data-testid="lineDeleteTestId(lineIndex)"
+                        @click="removeLine(lineIndex)"
+                      >
+                        删除
+                      </button>
+                    </td>
                   </tr>
                   <tr>
-                    <td colspan="7" class="add-line">+ 增加明细行</td>
+                    <td colspan="7" class="total-cell">合计</td>
+                    <td class="amount-cell" data-testid="document-total-amount">{{ currentOrderTotal }}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="8" class="add-line">
+                      <button type="button" :disabled="!isDraftDocument" data-testid="add-document-line" @click="addLine">+ 增加明细行</button>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -389,6 +413,8 @@ interface MasterOption {
 
 interface OrderLineForm {
   productCode: string;
+  productName?: string;
+  spec?: string;
   warehouseCode: string;
   qty: number;
   unitPrice: number;
@@ -665,17 +691,51 @@ const formStatusByBackendStatus: Record<string, OrderForm["status"]> = {
   VOID: "VOIDED",
   RED_REVERSED: "RED_REVERSED"
 };
-const currentOrderAmount = computed(() => (currentOrderForm.value.lines[0].qty * currentOrderForm.value.lines[0].unitPrice).toFixed(2));
-const selectedProduct = computed(() => {
-  const product = selectorOptions.value.find((option) => option.code === currentOrderForm.value.lines[0].productCode);
+const currentOrderTotal = computed(() => currentOrderForm.value.lines
+  .reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0)
+  .toFixed(2));
+
+function lineAmount(line: OrderLineForm) {
+  return (Number(line.qty || 0) * Number(line.unitPrice || 0)).toFixed(2);
+}
+
+function productInfo(line: OrderLineForm) {
+  if (line.productName || line.spec) {
+    return { name: line.productName ?? "", spec: line.spec ?? "", unit: "" };
+  }
+  const product = selectorOptions.value.find((option) => option.code === line.productCode);
   if (product) {
     return { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "" };
   }
-  if (currentOrderForm.value.lines[0].productCode === "CP-001") {
+  if (line.productCode === "CP-001") {
     return { name: "控制臂总成", spec: "左前 / 黑色", unit: "只" };
   }
   return { name: "", spec: "", unit: "" };
-});
+}
+
+function lineProductTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-product` : `${formTestPrefix.value}-line-product-${index + 1}`;
+}
+
+function lineWarehouseTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-warehouse` : `${formTestPrefix.value}-line-warehouse-${index + 1}`;
+}
+
+function lineQtyTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-qty` : `${formTestPrefix.value}-line-qty-${index + 1}`;
+}
+
+function linePriceTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-price` : `${formTestPrefix.value}-line-price-${index + 1}`;
+}
+
+function lineAmountTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-amount` : `${formTestPrefix.value}-line-amount-${index + 1}`;
+}
+
+function lineDeleteTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-delete` : `${formTestPrefix.value}-line-delete-${index + 1}`;
+}
 
 onMounted(async () => {
   const remoteSession = await fetchSystemSession();
@@ -727,7 +787,7 @@ async function saveCurrentSalesOrder() {
     billDate: salesOrderForm.billDate,
     department: salesOrderForm.department,
     ownerName: salesOrderForm.ownerName,
-    lines: salesOrderForm.lines.map((line) => ({ ...line }))
+    lines: toDocumentLines(salesOrderForm.lines)
   });
   formMessage.value = result.ok ? "草稿已保存" : result.message;
   if (result.ok) {
@@ -792,6 +852,8 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
   form.lines = detail.lines.length
     ? detail.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
+      productName: String(line.productName ?? ""),
+      spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       qty: Number(line.qty ?? 0),
       unitPrice: Number(line.unitPrice ?? 0)
@@ -832,6 +894,8 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
   salesOutForm.status = "DRAFT";
   salesOutForm.lines = result.data.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),
+    productName: String(line.productName ?? ""),
+    spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     qty: Number(line.qty ?? 0),
     unitPrice: Number(line.unitPrice ?? 0)
@@ -866,6 +930,31 @@ function startNewCurrentDocument() {
     }
   ];
   formMessage.value = "已生成新单据草稿号";
+  markActiveDirty();
+}
+
+function defaultLine(): OrderLineForm {
+  return {
+    productCode: "CP-001",
+    warehouseCode: "CK-001",
+    qty: 1,
+    unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
+  };
+}
+
+function addLine() {
+  if (!isDraftDocument.value) {
+    return;
+  }
+  currentOrderForm.value.lines.push(defaultLine());
+  markActiveDirty();
+}
+
+function removeLine(index: number) {
+  if (!isDraftDocument.value || currentOrderForm.value.lines.length <= 1) {
+    return;
+  }
+  currentOrderForm.value.lines.splice(index, 1);
   markActiveDirty();
 }
 
@@ -908,7 +997,7 @@ async function saveCurrentDocument() {
     billDate: currentOrderForm.value.billDate,
     department: currentOrderForm.value.department,
     ownerName: currentOrderForm.value.ownerName,
-    lines: currentOrderForm.value.lines.map((line) => ({ ...line }))
+    lines: toDocumentLines(currentOrderForm.value.lines)
   });
   formMessage.value = result.ok ? "草稿已保存" : result.message;
   if (result.ok) {
@@ -1041,6 +1130,15 @@ function currentDocumentType(): DocumentType | null {
   return null;
 }
 
+function toDocumentLines(lines: OrderLineForm[]) {
+  return lines.map((line) => ({
+    productCode: line.productCode,
+    warehouseCode: line.warehouseCode,
+    qty: Number(line.qty || 0),
+    unitPrice: Number(line.unitPrice || 0)
+  }));
+}
+
 function currentOutputDocumentType(): OutputDocumentType | null {
   if (isSalesOrderForm.value) {
     return "salesOrder";
@@ -1120,9 +1218,9 @@ function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
     if (selectorId.endsWith("-party")) {
       selectPartyOption(option);
     } else if (selectorId.endsWith("-product")) {
-      selectLineProduct(option);
+      selectLineProduct(option, lineIndexFromSelector(selectorId));
     } else if (selectorId.endsWith("-warehouse")) {
-      selectWarehouseOption(option);
+      selectWarehouseOption(option, lineIndexFromSelector(selectorId));
     }
   }
 }
@@ -1133,15 +1231,30 @@ function selectPartyOption(option: MasterOption) {
   markActiveDirty();
 }
 
-function selectWarehouseOption(option: MasterOption) {
-  currentOrderForm.value.lines[0].warehouseCode = option.code;
+function selectWarehouseOption(option: MasterOption, lineIndex = 0) {
+  const line = currentOrderForm.value.lines[lineIndex];
+  if (!line) {
+    return;
+  }
+  line.warehouseCode = option.code;
   activeSelector.value = "";
   markActiveDirty();
 }
 
-function selectLineProduct(option: MasterOption) {
-  currentOrderForm.value.lines[0].productCode = option.code;
+function selectLineProduct(option: MasterOption, lineIndex = 0) {
+  const line = currentOrderForm.value.lines[lineIndex];
+  if (!line) {
+    return;
+  }
+  line.productCode = option.code;
+  line.productName = option.name;
+  line.spec = option.spec ?? "";
   activeSelector.value = "";
   markActiveDirty();
+}
+
+function lineIndexFromSelector(selectorId: string) {
+  const match = selectorId.match(/-line-(\d+)-/);
+  return match ? Number(match[1]) : 0;
 }
 </script>

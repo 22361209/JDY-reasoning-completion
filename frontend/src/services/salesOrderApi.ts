@@ -23,6 +23,8 @@ export interface SalesOrderDetail {
   };
   lines: Array<{
     productCode: string;
+    productName?: string;
+    spec?: string;
     warehouseCode: string;
     qty: number | string;
     unitPrice: number | string;
