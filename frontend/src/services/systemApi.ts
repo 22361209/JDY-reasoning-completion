@@ -62,6 +62,12 @@ export interface RolePermissionResult {
   data: RolePermissionMatrix | null;
 }
 
+export interface WriteResult {
+  ok: boolean;
+  status: number;
+  message: string;
+}
+
 export async function fetchSystemSession(): Promise<SystemSession | null> {
   try {
     const response = await fetch("/api/system/session");
@@ -112,6 +118,23 @@ export async function logoutSystemUser(): Promise<boolean> {
   }
 }
 
+export async function changeSystemPassword(payload: { currentPassword: string; newPassword: string }): Promise<WriteResult> {
+  try {
+    const response = await fetch("/api/system/password", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "密码修改失败。" };
+    }
+    return { ok: true, status: response.status, message: "" };
+  } catch {
+    return { ok: false, status: 0, message: "密码修改失败。" };
+  }
+}
+
 export async function fetchManagedUsers(): Promise<ManagedUsersResult> {
   try {
     const response = await fetch("/api/system/managed-users");
@@ -132,7 +155,7 @@ export async function updateManagedUser(username: string, payload: { displayName
   return writeManagedUser(`/api/system/managed-users/${encodeURIComponent(username)}`, "PUT", payload);
 }
 
-export async function resetManagedUserPassword(username: string, password: string): Promise<{ ok: boolean; status: number; message: string }> {
+export async function resetManagedUserPassword(username: string, password: string): Promise<WriteResult> {
   try {
     const response = await fetch(`/api/system/managed-users/${encodeURIComponent(username)}/password`, {
       method: "PUT",

@@ -110,6 +110,7 @@
             <strong data-testid="session-user-name">{{ session.userName.value }}</strong>
             <span data-testid="session-user-role">{{ session.userRole.value }}</span>
           </div>
+          <button type="button" data-testid="session-password-change" @click="openPasswordDialog">修改密码</button>
           <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出</button>
         </div>
       </header>
@@ -677,6 +678,32 @@
       </div>
     </div>
 
+    <div v-if="passwordDialogOpen" class="modal-mask" data-testid="password-change-dialog">
+      <form class="dialog password-dialog" @submit.prevent="submitPasswordChange">
+        <h3>修改密码</h3>
+        <label>
+          <span>当前密码</span>
+          <input v-model="passwordForm.currentPassword" type="password" data-testid="password-current" autocomplete="current-password" />
+        </label>
+        <label>
+          <span>新密码</span>
+          <input v-model="passwordForm.newPassword" type="password" data-testid="password-new" autocomplete="new-password" />
+        </label>
+        <label>
+          <span>确认新密码</span>
+          <input v-model="passwordForm.confirmPassword" type="password" data-testid="password-confirm" autocomplete="new-password" />
+        </label>
+        <div class="password-rules" data-testid="password-rules">
+          <span v-for="rule in passwordStrengthRules" :key="rule.label" :class="{ passed: rule.ok }">{{ rule.label }}</span>
+        </div>
+        <p v-if="passwordMessage" class="form-message" data-testid="password-message">{{ passwordMessage }}</p>
+        <div class="dialog-actions">
+          <button type="button" data-testid="password-cancel" @click="closePasswordDialog">取消</button>
+          <button class="primary-action" type="submit" data-testid="password-submit">保存</button>
+        </div>
+      </form>
+    </div>
+
     <div v-if="pendingZeroEntrySave" class="modal-mask" data-testid="entry-zero-confirm-dialog">
       <div class="dialog entry-zero-confirm-dialog">
         <h3>零值分录确认</h3>
@@ -912,13 +939,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
 import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, logoutSystemUser, resetManagedUserPassword, saveRolePermissions, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, loginSystemUser, logoutSystemUser, resetManagedUserPassword, saveRolePermissions, updateManagedUser, type ManagedRole, type ManagedUser, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1106,6 +1133,13 @@ const loginForm = reactive({
   password: ""
 });
 const loginMessage = ref("");
+const passwordDialogOpen = ref(false);
+const passwordMessage = ref("");
+const passwordForm = reactive({
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: ""
+});
 const printTemplateForm = reactive<PrintTemplateConfig>({
   documentType: "sales-order",
   documentTitle: "销售订单",
@@ -1372,6 +1406,14 @@ const currentDocumentTemplates = computed(() => printTemplates.value.filter((tem
 const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
 const canManagePrintTemplates = computed(() => session.hasPermission("system.print_template.manage"));
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
+const passwordStrengthRules = computed(() => [
+  { label: "至少 8 位", ok: passwordForm.newPassword.length >= 8 },
+  { label: "大写字母", ok: /[A-Z]/.test(passwordForm.newPassword) },
+  { label: "小写字母", ok: /[a-z]/.test(passwordForm.newPassword) },
+  { label: "数字", ok: /\d/.test(passwordForm.newPassword) },
+  { label: "符号", ok: /[^A-Za-z0-9]/.test(passwordForm.newPassword) }
+]);
+const passwordStrengthOk = computed(() => passwordStrengthRules.value.every((rule) => rule.ok));
 const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
 const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
 const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
@@ -1692,11 +1734,17 @@ function lineDragHandleTestId(index: number) {
 }
 
 onMounted(async () => {
+  installSessionExpiryInterceptor();
+  window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
   systemUsers.value = await fetchSystemUsers();
   const remoteSession = await fetchSystemSession();
   if (remoteSession?.authenticated && remoteSession.user) {
     applySystemSession(remoteSession);
   }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
 });
 
 function applySystemSession(remoteSession: SystemSession) {
@@ -1731,14 +1779,85 @@ async function loginCurrentUser() {
 
 async function logoutCurrentUser() {
   await logoutSystemUser();
+  clearLocalSession("");
+}
+
+function clearLocalSession(message: string) {
   isAuthenticated.value = false;
   session.userName.value = "";
   session.userRole.value = "";
   session.userRoleCode.value = "";
   session.permissionCodes.value = [];
   loginForm.password = "";
-  loginMessage.value = "";
+  loginMessage.value = message;
+  passwordDialogOpen.value = false;
+  resetPasswordForm();
   tabs.activeTabId.value = "home";
+}
+
+function openPasswordDialog() {
+  resetPasswordForm();
+  passwordDialogOpen.value = true;
+}
+
+function closePasswordDialog() {
+  passwordDialogOpen.value = false;
+  resetPasswordForm();
+}
+
+function resetPasswordForm() {
+  passwordForm.currentPassword = "";
+  passwordForm.newPassword = "";
+  passwordForm.confirmPassword = "";
+  passwordMessage.value = "";
+}
+
+async function submitPasswordChange() {
+  passwordMessage.value = "";
+  if (!passwordStrengthOk.value) {
+    passwordMessage.value = "新密码需满足全部强度要求。";
+    return;
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    passwordMessage.value = "两次输入的新密码不一致。";
+    return;
+  }
+  const result = await changeSystemPassword({
+    currentPassword: passwordForm.currentPassword,
+    newPassword: passwordForm.newPassword
+  });
+  if (!result.ok) {
+    passwordMessage.value = result.message || "密码修改失败。";
+    return;
+  }
+  closePasswordDialog();
+  await logoutSystemUser();
+  clearLocalSession("密码已修改，请使用新密码重新登录。");
+}
+
+function handleSessionExpired() {
+  clearLocalSession("登录已过期，请重新登录。");
+}
+
+const SESSION_EXPIRED_EVENT = "jdy:session-expired";
+const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/users", "/api/system/login", "/api/system/logout"]);
+
+function installSessionExpiryInterceptor() {
+  const runtimeWindow = window as Window & { __jdyFetchWrapped?: boolean; __jdyOriginalFetch?: typeof window.fetch };
+  if (runtimeWindow.__jdyFetchWrapped) {
+    return;
+  }
+  runtimeWindow.__jdyFetchWrapped = true;
+  runtimeWindow.__jdyOriginalFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await runtimeWindow.__jdyOriginalFetch!(input, init);
+    const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+    const url = new URL(rawUrl, window.location.origin);
+    if (response.status === 401 && url.pathname.startsWith("/api/") && !publicSessionPaths.has(url.pathname)) {
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    }
+    return response;
+  };
 }
 
 function selectModule(name: string) {

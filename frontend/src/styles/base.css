@@ -1778,6 +1778,50 @@ th {
   width: min(560px, calc(100vw - 48px));
 }
 
+.password-dialog {
+  width: min(440px, calc(100vw - 40px));
+  display: grid;
+  gap: 10px;
+}
+
+.password-dialog label {
+  display: grid;
+  gap: 6px;
+  color: #405064;
+  font-size: 13px;
+}
+
+.password-dialog input {
+  height: 32px;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  padding: 0 9px;
+}
+
+.password-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.password-rules span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d3dce8;
+  border-radius: 4px;
+  background: #f7fafc;
+  color: #68798a;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.password-rules span.passed {
+  border-color: #b9dfc3;
+  background: #edf8f0;
+  color: #24723b;
+}
+
 .risky-action-fields {
   display: grid;
   gap: 8px;

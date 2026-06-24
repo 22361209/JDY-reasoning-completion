@@ -3,6 +3,8 @@ package com.jdy.erp.system.api;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -21,9 +23,13 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/system")
 public class UserManagementController {
     private final JdbcTemplate jdbcTemplate;
+    private final CurrentSessionService currentSessionService;
+    private final PasswordPolicy passwordPolicy;
 
-    public UserManagementController(JdbcTemplate jdbcTemplate) {
+    public UserManagementController(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService, PasswordPolicy passwordPolicy) {
         this.jdbcTemplate = jdbcTemplate;
+        this.currentSessionService = currentSessionService;
+        this.passwordPolicy = passwordPolicy;
     }
 
     @GetMapping("/managed-users")
@@ -43,6 +49,7 @@ public class UserManagementController {
         var displayName = required(request.displayName(), "姓名");
         var roleCode = required(request.roleCode(), "角色");
         var password = required(request.password(), "初始密码");
+        passwordPolicy.validate(password);
         var roleId = roleId(roleCode);
         try {
             var user = jdbcTemplate.queryForMap("""
@@ -90,6 +97,7 @@ public class UserManagementController {
     public Map<String, Object> resetPassword(@PathVariable String username, @RequestBody PasswordRequest request) {
         var normalizedUsername = required(username, "用户名");
         var password = required(request.password(), "新密码");
+        passwordPolicy.validate(password);
         var updated = jdbcTemplate.update("""
             UPDATE sys_user
             SET password_hash = ?,
@@ -100,6 +108,19 @@ public class UserManagementController {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
         }
+        return Map.of("ok", true);
+    }
+
+    @PutMapping("/password")
+    public Map<String, Object> changePassword(@RequestBody ChangePasswordRequest request) {
+        var currentPassword = required(request.currentPassword(), "当前密码");
+        var newPassword = required(request.newPassword(), "新密码");
+        passwordPolicy.validate(newPassword);
+        currentSessionService.verifyCurrentPassword(currentPassword);
+        if (currentPassword.equals(newPassword)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新密码不能与当前密码相同");
+        }
+        currentSessionService.changeCurrentPassword(newPassword);
         return Map.of("ok", true);
     }
 
@@ -154,5 +175,8 @@ public class UserManagementController {
     }
 
     public record PasswordRequest(String password) {
+    }
+
+    public record ChangePasswordRequest(String currentPassword, String newPassword) {
     }
 }

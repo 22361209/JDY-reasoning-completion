@@ -124,6 +124,40 @@ public class CurrentSessionService {
         request.getSession(true).setAttribute(SESSION_USERNAME, normalizedUsername);
     }
 
+    public void verifyCurrentPassword(String password) {
+        verifyPassword(currentUsername(), password);
+    }
+
+    public void verifyPassword(String username, String password) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT COALESCE(password_hash, '') AS "passwordHash"
+            FROM sys_user
+            WHERE username = ?
+              AND enabled = TRUE
+            """, username);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
+        }
+        var passwordHash = String.valueOf(rows.get(0).get("passwordHash"));
+        var expected = passwordHash.startsWith("{noop}") ? passwordHash.substring("{noop}".length()) : passwordHash;
+        if (expected.isBlank() || password == null || !expected.equals(password)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前密码不正确");
+        }
+    }
+
+    public void changeCurrentPassword(String newPassword) {
+        var updated = jdbcTemplate.update("""
+            UPDATE sys_user
+            SET password_hash = ?,
+                updated_at = now(),
+                version = version + 1
+            WHERE username = ?
+            """, "{noop}" + newPassword, currentUsername());
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
+        }
+    }
+
     public void logout() {
         var request = currentRequest();
         if (request == null) {
