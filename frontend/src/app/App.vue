@@ -294,6 +294,7 @@
                           @focus="searchMasterOptions('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
                           @input="handleMasterInput('product', line.productCode, `${formTestPrefix}-line-${lineIndex}-product`)"
                           @keydown="handleLineCellKeydown($event, lineIndex, 'product', `${formTestPrefix}-line-${lineIndex}-product`)"
+                          @paste="handleEntryPaste($event, lineIndex)"
                         />
                         <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-product`" class="master-selector__menu">
                           <button
@@ -320,6 +321,7 @@
                           @focus="searchMasterOptions('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
                           @input="handleMasterInput('warehouse', line.warehouseCode, `${formTestPrefix}-line-${lineIndex}-warehouse`)"
                           @keydown="handleLineCellKeydown($event, lineIndex, 'warehouse', `${formTestPrefix}-line-${lineIndex}-warehouse`)"
+                          @paste="handleEntryPaste($event, lineIndex)"
                         />
                         <span v-if="activeSelector === `${formTestPrefix}-line-${lineIndex}-warehouse`" class="master-selector__menu">
                           <button
@@ -336,10 +338,10 @@
                       </span>
                     </td>
                     <td v-if="showSourceLineColumn" class="readonly-qty" :data-testid="lineSourceLineNoTestId(lineIndex)">{{ lineSourceLineNo(line) }}</td>
-                    <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" /></td>
+                    <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" @paste="handleEntryPaste($event, lineIndex)" /></td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">{{ lineExecutedQty(line) }}</td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
-                    <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" /></td>
+                    <td><input v-model.number="line.unitPrice" :disabled="!isDraftDocument" :data-testid="linePriceTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'price')" @paste="handleEntryPaste($event, lineIndex)" /></td>
                     <td class="amount-cell" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</td>
                     <td>
                       <button
@@ -931,8 +933,13 @@ function productInfo(line: OrderLineForm) {
   if (product) {
     return { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "" };
   }
-  if (line.productCode === "CP-001") {
-    return { name: "控制臂总成", spec: "左前 / 黑色", unit: "只" };
+  const knownProducts: Record<string, { name: string; spec: string; unit: string }> = {
+    "CP-001": { name: "控制臂总成", spec: "左前 / 黑色", unit: "只" },
+    "CP-T413874": { name: "验收商品总成", spec: "左前 / 蓝色", unit: "只" },
+    "PJ-014": { name: "衬套", spec: "65mm / 加强", unit: "件" }
+  };
+  if (knownProducts[line.productCode]) {
+    return knownProducts[line.productCode];
   }
   return { name: "", spec: "", unit: "" };
 }
@@ -1496,6 +1503,61 @@ function applyBatchWarehouse() {
   });
   activeSelector.value = "";
   markActiveDirty();
+}
+
+function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
+  if (!isDraftDocument.value) {
+    return;
+  }
+  const text = event.clipboardData?.getData("text/plain") ?? "";
+  const pastedLines = parseEntryClipboard(text);
+  if (pastedLines.length === 0) {
+    return;
+  }
+  event.preventDefault();
+  applyPastedEntryLines(startIndex, pastedLines);
+}
+
+function parseEntryClipboard(text: string): OrderLineForm[] {
+  return text
+    .split(/\r?\n/)
+    .map((row) => row.trim())
+    .filter(Boolean)
+    .map((row) => row.split(/\t|,|;/).map((cell) => cell.trim()))
+    .filter((cells) => Boolean(cells[0]))
+    .map((cells) => {
+      const productCode = cells[0] || "CP-001";
+      const warehouseCode = cells[1] || batchWarehouseCode.value.trim() || "CK-001";
+      const qty = normalizedPositiveNumber(cells[2], 1);
+      const unitPrice = normalizedPositiveNumber(cells[3], isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86);
+      return {
+        productCode,
+        warehouseCode,
+        qty,
+        unitPrice
+      };
+    });
+}
+
+function normalizedPositiveNumber(value: string | undefined, fallback: number) {
+  const parsed = Number(String(value ?? "").replace(/,/g, ""));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[]) {
+  const lines = currentOrderForm.value.lines;
+  pastedLines.forEach((line, offset) => {
+    const targetIndex = startIndex + offset;
+    if (targetIndex < lines.length) {
+      lines.splice(targetIndex, 1, line);
+    } else {
+      lines.push(line);
+    }
+  });
+  activeSelector.value = "";
+  formMessage.value = `已粘贴 ${pastedLines.length} 行分录`;
+  markActiveDirty();
+  void focusLineCell(startIndex + pastedLines.length - 1, "qty");
 }
 
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {
