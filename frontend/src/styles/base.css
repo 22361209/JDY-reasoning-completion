@@ -1106,9 +1106,29 @@ td input {
   background: #f9fbfd;
 }
 
+.source-line-link {
+  height: 22px;
+  min-width: 34px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #1f67b1;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.source-line-link:hover {
+  background: #eaf4ff;
+}
+
 tr.is-dragging td {
   background: #eef6ff;
   opacity: 0.72;
+}
+
+tr.is-source-target td {
+  background: #fff8df;
+  box-shadow: inset 3px 0 0 #2f7fd3;
 }
 
 .drag-handle {

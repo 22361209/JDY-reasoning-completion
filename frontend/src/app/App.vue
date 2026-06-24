@@ -214,7 +214,7 @@
             <section class="form-head-fields">
               <div v-if="isStockDocumentForm" class="source-order-field">
                 <label>源订单号<input v-model="currentOrderForm.sourceOrderNo" :data-testid="`${formTestPrefix}-source-order-no`" @input="markActiveDirty" /></label>
-                <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="traceSourceOrder">追踪源单</button>
+                <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="traceSourceOrder()">追踪源单</button>
               </div>
               <label>
                 {{ partyLabel }}编码
@@ -277,9 +277,10 @@
                   <tr
                     v-for="(line, lineIndex) in currentOrderForm.lines"
                     :key="lineIndex"
-                    :class="{ 'is-dragging': draggingLineIndex === lineIndex }"
+                    :class="{ 'is-dragging': draggingLineIndex === lineIndex, 'is-source-target': isHighlightedSourceLine(line, lineIndex) }"
                     :draggable="isDraftDocument"
                     :data-testid="`${formTestPrefix}-entry-row`"
+                    :data-line-no="lineLineNo(line, lineIndex)"
                     @dragstart="handleLineDragStart($event, lineIndex)"
                     @dragover.prevent="handleLineDragOver($event)"
                     @drop.prevent="handleLineDrop(lineIndex)"
@@ -337,7 +338,18 @@
                         </span>
                       </span>
                     </td>
-                    <td v-if="showSourceLineColumn" class="readonly-qty" :data-testid="lineSourceLineNoTestId(lineIndex)">{{ lineSourceLineNo(line) }}</td>
+                    <td v-if="showSourceLineColumn" class="readonly-qty" :data-testid="lineSourceLineNoTestId(lineIndex)">
+                      <button
+                        v-if="line.sourceLineNo"
+                        class="source-line-link"
+                        type="button"
+                        :data-testid="lineSourceTraceTestId(lineIndex)"
+                        @click="traceSourceOrder(line.sourceLineNo)"
+                      >
+                        {{ lineSourceLineNo(line) }}
+                      </button>
+                      <span v-else>-</span>
+                    </td>
                     <td><input v-model.number="line.qty" :disabled="!isDraftDocument" :data-testid="lineQtyTestId(lineIndex)" @input="markActiveDirty" @keydown="handleLineCellKeydown($event, lineIndex, 'qty')" @paste="handleEntryPaste($event, lineIndex)" /></td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineExecutedQtyTestId(lineIndex)">{{ lineExecutedQty(line) }}</td>
                     <td v-if="showExecutionColumns" class="readonly-qty" :data-testid="lineRemainingQtyTestId(lineIndex)">{{ lineRemainingQty(line) }}</td>
@@ -545,6 +557,7 @@ interface MasterOption {
 }
 
 interface OrderLineForm {
+  lineNo?: number;
   productCode: string;
   productName?: string;
   spec?: string;
@@ -602,6 +615,8 @@ const draggingLineIndex = ref<number | null>(null);
 const pendingPushDown = ref<PendingPushDown | null>(null);
 const pushConfirmRatio = ref(50);
 const pushConfirmError = ref("");
+const highlightedSourceBillNo = ref("");
+const highlightedSourceLineNo = ref<number | null>(null);
 const salesOrderForm = reactive<OrderForm>({
   billNo: "XSDD-00001",
   partyCode: "KH-001",
@@ -945,6 +960,26 @@ function lineSourceLineNo(line: OrderLineForm) {
   return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
 }
 
+function lineLineNo(line: OrderLineForm, index: number) {
+  return line.lineNo ?? index + 1;
+}
+
+function isHighlightedSourceLine(line: OrderLineForm, index: number) {
+  return Boolean(
+    highlightedSourceLineNo.value
+    && currentOrderForm.value.billNo === highlightedSourceBillNo.value
+    && lineLineNo(line, index) === highlightedSourceLineNo.value
+  );
+}
+
+function scrollHighlightedSourceLineIntoView() {
+  if (!highlightedSourceLineNo.value) {
+    return;
+  }
+  const target = document.querySelector<HTMLElement>(`.entry-table tr[data-line-no="${highlightedSourceLineNo.value}"]`);
+  target?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
 function formatQty(value: number | string | undefined) {
   const qty = Number(value ?? 0);
   if (!Number.isFinite(qty)) {
@@ -986,6 +1021,10 @@ function lineQtyTestId(index: number) {
 
 function lineSourceLineNoTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-source-line-no` : `${formTestPrefix.value}-line-source-line-no-${index + 1}`;
+}
+
+function lineSourceTraceTestId(index: number) {
+  return index === 0 ? `${formTestPrefix.value}-line-source-trace` : `${formTestPrefix.value}-line-source-trace-${index + 1}`;
 }
 
 function lineExecutedQtyTestId(index: number) {
@@ -1107,12 +1146,13 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
   clearActiveDirty();
 }
 
-async function traceSourceOrder() {
+async function traceSourceOrder(sourceLineNo?: number) {
   const billNo = currentOrderForm.value.sourceOrderNo?.trim();
   const type = sourceOrderTraceType.value;
   if (!billNo || !type) {
     return;
   }
+  const targetLineNo = sourceLineNo ?? currentOrderForm.value.lines.find((line) => line.sourceLineNo)?.sourceLineNo ?? null;
   const result = await fetchDocumentDetail(type, billNo);
   if (!result.ok || !result.data) {
     formMessage.value = result.message || "源单详情加载失败。";
@@ -1129,7 +1169,11 @@ async function traceSourceOrder() {
   });
   activeModuleName.value = target.module;
   fillDocumentForm(target.form, result.data, target.partyType);
-  formMessage.value = `已追踪打开${target.title} ${billNo}`;
+  highlightedSourceBillNo.value = billNo;
+  highlightedSourceLineNo.value = targetLineNo;
+  await nextTick();
+  scrollHighlightedSourceLineIntoView();
+  formMessage.value = targetLineNo ? `已追踪打开${target.title} ${billNo}，定位到第 ${targetLineNo} 行` : `已追踪打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
 
@@ -1170,6 +1214,7 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      lineNo: normalizedOptionalInt(line.lineNo),
       sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
       qty: Number(line.qty ?? 0),
       executedQty: documentLineExecutedQty(line),
