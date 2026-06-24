@@ -309,7 +309,18 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { createMasterData, deleteMasterData, exportListRows, fetchListRows, setMasterDataStatus, updateMasterData } from "../services/listApi";
+import {
+  createMasterData,
+  deleteListPreset,
+  deleteMasterData,
+  exportListRows,
+  fetchListPresets,
+  fetchListRows,
+  saveListPreset,
+  setMasterDataStatus,
+  updateMasterData,
+  type ListFilterPreset
+} from "../services/listApi";
 
 interface ListColumn {
   field: string;
@@ -332,22 +343,6 @@ interface ListDefinition {
 interface ColumnFilter {
   operator: string;
   value: string;
-}
-
-interface OperationLogPreset {
-  id: string;
-  name: string;
-  query: {
-    keyword: string;
-    status: string;
-    module: string;
-    action: string;
-    operator: string;
-    targetType: string;
-    dateFrom: string;
-    dateTo: string;
-  };
-  columnFilters: Record<string, ColumnFilter>;
 }
 
 interface CreateField {
@@ -389,7 +384,7 @@ const exportMessage = ref("");
 const presetMessage = ref("");
 const presetName = ref("");
 const selectedPresetId = ref("");
-const operationLogPresets = ref<OperationLogPreset[]>([]);
+const operationLogPresets = ref<ListFilterPreset[]>([]);
 const editOriginalCode = ref("");
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
@@ -893,24 +888,39 @@ async function exportCurrentList() {
   exportMessage.value = "引出文件已生成";
 }
 
-function saveCurrentPreset() {
+async function saveCurrentPreset() {
   if (!isOperationLogList.value) {
     return;
   }
   const name = presetName.value.trim() || "未命名预设";
   const existing = operationLogPresets.value.find((preset) => preset.name === name);
-  const preset: OperationLogPreset = {
-    id: existing?.id ?? `operation-log-preset-${Date.now()}`,
+  const preset = {
     name,
     query: snapshotOperationLogQuery(),
-    columnFilters: snapshotColumnFilters()
+    columnFilters: snapshotColumnFilters(),
+    shared: true
+  };
+  const response = await saveListPreset(props.listKey, preset);
+  if (response.ok && response.data) {
+    const savedPreset = response.data;
+    operationLogPresets.value = existing
+      ? operationLogPresets.value.map((item) => item.id === existing.id ? savedPreset : item)
+      : [savedPreset, ...operationLogPresets.value];
+    selectedPresetId.value = savedPreset.id;
+    persistOperationLogPresets();
+    presetMessage.value = "预设已保存";
+    return;
+  }
+  const fallbackPreset: ListFilterPreset = {
+    id: existing?.id ?? `operation-log-preset-${Date.now()}`,
+    ...preset
   };
   operationLogPresets.value = existing
-    ? operationLogPresets.value.map((item) => item.id === existing.id ? preset : item)
-    : [...operationLogPresets.value, preset];
-  selectedPresetId.value = preset.id;
+    ? operationLogPresets.value.map((item) => item.id === existing.id ? fallbackPreset : item)
+    : [...operationLogPresets.value, fallbackPreset];
+  selectedPresetId.value = fallbackPreset.id;
   persistOperationLogPresets();
-  presetMessage.value = "预设已保存";
+  presetMessage.value = "预设已本机保存";
 }
 
 function applySelectedPreset() {
@@ -929,10 +939,17 @@ function applySelectedPreset() {
   reload();
 }
 
-function deleteSelectedPreset() {
+async function deleteSelectedPreset() {
   const preset = operationLogPresets.value.find((item) => item.id === selectedPresetId.value);
   if (!preset) {
     return;
+  }
+  if (!preset.id.startsWith("operation-log-preset-")) {
+    const response = await deleteListPreset(props.listKey, preset.id);
+    if (!response.ok) {
+      presetMessage.value = response.message;
+      return;
+    }
   }
   operationLogPresets.value = operationLogPresets.value.filter((item) => item.id !== preset.id);
   selectedPresetId.value = "";
@@ -941,7 +958,7 @@ function deleteSelectedPreset() {
   presetMessage.value = "预设已删除";
 }
 
-function snapshotOperationLogQuery() {
+function snapshotOperationLogQuery(): Record<string, string> {
   return {
     keyword: query.keyword,
     status: query.status,
@@ -965,15 +982,21 @@ function replaceColumnFilters(nextFilters: Record<string, ColumnFilter>) {
   });
 }
 
-function loadOperationLogPresets() {
+async function loadOperationLogPresets() {
   if (!isOperationLogList.value) {
     operationLogPresets.value = [];
     selectedPresetId.value = "";
     presetName.value = "";
     return;
   }
+  const response = await fetchListPresets(props.listKey);
+  if (response.ok) {
+    operationLogPresets.value = response.data;
+    persistOperationLogPresets();
+    return;
+  }
   try {
-    operationLogPresets.value = JSON.parse(localStorage.getItem(operationLogPresetKey()) || "[]") as OperationLogPreset[];
+    operationLogPresets.value = JSON.parse(localStorage.getItem(operationLogPresetKey()) || "[]") as ListFilterPreset[];
   } catch {
     operationLogPresets.value = [];
   }

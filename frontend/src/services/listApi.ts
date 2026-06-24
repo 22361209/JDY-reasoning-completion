@@ -39,6 +39,30 @@ export interface ListExportResult {
   fileName: string;
 }
 
+export interface ListFilterPreset {
+  id: string;
+  listKey?: string;
+  name: string;
+  query: Record<string, string>;
+  columnFilters: Record<string, { operator: string; value: string }>;
+  shared?: boolean;
+  updatedAt?: string;
+}
+
+export interface ListPresetResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  data: ListFilterPreset[];
+}
+
+export interface ListPresetWriteResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  data: ListFilterPreset | null;
+}
+
 export async function fetchListRows(listKey: string, query: ListQuery): Promise<ListFetchResult> {
   const search = buildListSearch(query);
   try {
@@ -98,6 +122,48 @@ export async function exportListRows(listKey: string, query: ListQuery): Promise
       blob: null,
       fileName: ""
     };
+  }
+}
+
+export async function fetchListPresets(listKey: string): Promise<ListPresetResult> {
+  try {
+    const response = await fetch(`/api/list-presets/${encodeURIComponent(listKey)}`);
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: "筛选预设加载失败。", data: [] };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as ListFilterPreset[] };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，筛选预设加载失败。", data: [] };
+  }
+}
+
+export async function saveListPreset(listKey: string, preset: Omit<ListFilterPreset, "id">): Promise<ListPresetWriteResult> {
+  try {
+    const response = await fetch(`/api/list-presets/${encodeURIComponent(listKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preset)
+    });
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: "筛选预设保存失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as ListFilterPreset };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，筛选预设保存失败。", data: null };
+  }
+}
+
+export async function deleteListPreset(listKey: string, presetId: string): Promise<{ ok: boolean; status: number; message: string }> {
+  try {
+    const response = await fetch(`/api/list-presets/${encodeURIComponent(listKey)}/${encodeURIComponent(presetId)}`, {
+      method: "DELETE"
+    });
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: "筛选预设删除失败。" };
+    }
+    return { ok: true, status: response.status, message: "" };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，筛选预设删除失败。" };
   }
 }
 
