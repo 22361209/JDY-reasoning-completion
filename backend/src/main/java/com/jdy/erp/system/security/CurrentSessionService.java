@@ -19,7 +19,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class CurrentSessionService {
     public static final String SESSION_USERNAME = "jdy.username";
     public static final String SESSION_TOKEN = "jdy.sessionToken";
+    public static final String SESSION_GENERATION = "jdy.sessionGeneration";
     private static final int MAX_FAILED_LOGIN = 5;
+    private static final String REPEATED_LOGIN_POLICY_KEY = "security.repeated_login_policy";
+    private static final String REPEATED_LOGIN_POLICY_SINGLE_ACTIVE = "SINGLE_ACTIVE";
+    private static final String REPEATED_LOGIN_POLICY_ALLOW_CONCURRENT = "ALLOW_CONCURRENT";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -53,8 +57,13 @@ public class CurrentSessionService {
             session.invalidate();
             return null;
         }
+        var sessionGeneration = session.getAttribute(SESSION_GENERATION);
+        if (sessionGeneration == null || !isCurrentSessionGeneration(String.valueOf(username), Number.class.cast(sessionGeneration).intValue())) {
+            session.invalidate();
+            return null;
+        }
         var normalizedUsername = String.valueOf(username);
-        if (!isActiveSessionToken(normalizedUsername, String.valueOf(sessionToken))) {
+        if (isSingleActiveSessionPolicy() && !isActiveSessionToken(normalizedUsername, String.valueOf(sessionToken))) {
             session.invalidate();
             return null;
         }
@@ -125,7 +134,8 @@ public class CurrentSessionService {
                    COALESCE(password_hash, '') AS "passwordHash",
                    failed_login_count AS "failedLoginCount",
                    locked_until AS "lockedUntil",
-                   active_session_token AS "activeSessionToken"
+                   active_session_token AS "activeSessionToken",
+                   session_generation AS "sessionGeneration"
             FROM sys_user
             WHERE username = ?
               AND enabled = TRUE
@@ -173,25 +183,42 @@ public class CurrentSessionService {
         }
         var newSessionToken = UUID.randomUUID().toString();
         var oldSessionToken = rows.get(0).get("activeSessionToken");
-        jdbcTemplate.update("""
-            UPDATE sys_user
-            SET failed_login_count = 0,
-                locked_until = NULL,
-                last_login_at = now(),
-                active_session_token = ?,
-                active_session_started_at = now(),
-                last_session_replaced_at = CASE
-                    WHEN active_session_token IS NOT NULL AND active_session_token <> ? THEN now()
-                    ELSE last_session_replaced_at
-                END,
-                updated_at = now(),
-                version = version + 1
-            WHERE id = ?::uuid
-            """, newSessionToken, newSessionToken, userId);
+        var sessionGeneration = Number.class.cast(rows.get(0).get("sessionGeneration")).intValue();
+        var singleActiveSession = isSingleActiveSessionPolicy();
+        if (singleActiveSession) {
+            jdbcTemplate.update("""
+                UPDATE sys_user
+                SET failed_login_count = 0,
+                    locked_until = NULL,
+                    last_login_at = now(),
+                    active_session_token = ?,
+                    active_session_started_at = now(),
+                    last_session_replaced_at = CASE
+                        WHEN active_session_token IS NOT NULL AND active_session_token <> ? THEN now()
+                        ELSE last_session_replaced_at
+                    END,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = ?::uuid
+                """, newSessionToken, newSessionToken, userId);
+        } else {
+            jdbcTemplate.update("""
+                UPDATE sys_user
+                SET failed_login_count = 0,
+                    locked_until = NULL,
+                    last_login_at = now(),
+                    active_session_token = ?,
+                    active_session_started_at = now(),
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = ?::uuid
+                """, newSessionToken, userId);
+        }
         var session = request.getSession(true);
         session.setAttribute(SESSION_USERNAME, normalizedUsername);
         session.setAttribute(SESSION_TOKEN, newSessionToken);
-        if (oldSessionToken != null && !String.valueOf(oldSessionToken).isBlank()) {
+        session.setAttribute(SESSION_GENERATION, sessionGeneration);
+        if (singleActiveSession && oldSessionToken != null && !String.valueOf(oldSessionToken).isBlank()) {
             logLogin("LOGIN_REPLACED", userId, userId, true, "重复登录，新会话已替换旧会话");
         }
         logLogin("LOGIN", userId, userId, true, null);
@@ -226,6 +253,7 @@ public class CurrentSessionService {
                 active_session_token = NULL,
                 active_session_started_at = NULL,
                 last_session_replaced_at = now(),
+                session_generation = session_generation + 1,
                 updated_at = now(),
                 version = version + 1
             WHERE username = ?
@@ -288,6 +316,62 @@ public class CurrentSessionService {
               AND enabled = TRUE
             """, String.class, username);
         return !activeTokens.isEmpty() && sessionToken.equals(activeTokens.get(0));
+    }
+
+    private boolean isCurrentSessionGeneration(String username, int sessionGeneration) {
+        var generations = jdbcTemplate.queryForList("""
+            SELECT session_generation
+            FROM sys_user
+            WHERE username = ?
+              AND enabled = TRUE
+            """, Integer.class, username);
+        return !generations.isEmpty() && generations.get(0) == sessionGeneration;
+    }
+
+    private boolean isSingleActiveSessionPolicy() {
+        return REPEATED_LOGIN_POLICY_SINGLE_ACTIVE.equals(repeatedLoginPolicy());
+    }
+
+    public String repeatedLoginPolicy() {
+        var policies = jdbcTemplate.queryForList("""
+            SELECT setting_value
+            FROM sys_setting
+            WHERE setting_key = ?
+            """, String.class, REPEATED_LOGIN_POLICY_KEY);
+        if (policies.isEmpty()) {
+            return REPEATED_LOGIN_POLICY_SINGLE_ACTIVE;
+        }
+        var policy = policies.get(0);
+        if (REPEATED_LOGIN_POLICY_ALLOW_CONCURRENT.equals(policy)) {
+            return REPEATED_LOGIN_POLICY_ALLOW_CONCURRENT;
+        }
+        return REPEATED_LOGIN_POLICY_SINGLE_ACTIVE;
+    }
+
+    public void updateRepeatedLoginPolicy(String policy) {
+        var normalizedPolicy = policy == null ? "" : policy.trim().toUpperCase();
+        if (!List.of(REPEATED_LOGIN_POLICY_SINGLE_ACTIVE, REPEATED_LOGIN_POLICY_ALLOW_CONCURRENT).contains(normalizedPolicy)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "重复登录策略不正确");
+        }
+        jdbcTemplate.update("""
+            INSERT INTO sys_setting (setting_key, setting_value, updated_by)
+            VALUES (?, ?, (SELECT id FROM sys_user WHERE username = ?))
+            ON CONFLICT (setting_key) DO UPDATE
+            SET setting_value = EXCLUDED.setting_value,
+                updated_at = now(),
+                updated_by = EXCLUDED.updated_by,
+                version = sys_setting.version + 1
+            """, REPEATED_LOGIN_POLICY_KEY, normalizedPolicy, currentUsername());
+        logSetting("UPDATE_SECURITY_SETTING", normalizedPolicy);
+    }
+
+    private void logSetting(String action, String reason) {
+        jdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, success, failure_reason, operated_by)
+            SELECT 'SYSTEM', ?, 'sys_setting', TRUE, ?, id
+            FROM sys_user
+            WHERE username = ?
+            """, action, reason, currentUsername());
     }
 
     private void logLogin(String action, String targetUserId, String operatedBy, boolean success, String reason) {

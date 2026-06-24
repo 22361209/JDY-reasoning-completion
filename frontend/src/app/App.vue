@@ -211,9 +211,69 @@
           <div class="empty-shell">请选择功能名称、查询小按钮或直达新增入口继续。</div>
         </div>
 
-        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings', 'user-role-list'].includes(tabs.activeTab.value.id)" class="panel-page">
+        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings', 'user-role-list', 'security-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
+        </div>
+
+        <div v-else-if="tabs.activeTab.value.id === 'security-settings'" class="role-permission-page">
+          <section class="role-permission-head">
+            <div>
+              <h2>安全设置</h2>
+              <p>维护登录安全策略，影响同账号在多个浏览器或设备上的在线方式。</p>
+            </div>
+            <div class="role-permission-head__actions">
+              <button type="button" data-testid="security-settings-refresh" @click="loadSecuritySettings">刷新</button>
+              <button class="primary-action" type="button" :disabled="!canManageSecuritySettings" data-testid="security-settings-save" @click="saveSecuritySettingsAction">保存</button>
+            </div>
+          </section>
+          <section class="role-permission-body">
+            <aside class="role-permission-list" aria-label="安全策略">
+              <button
+                type="button"
+                :class="{ active: securitySettingsForm.repeatedLoginPolicy === 'SINGLE_ACTIVE' }"
+                data-testid="security-policy-single-active"
+                @click="securitySettingsForm.repeatedLoginPolicy = 'SINGLE_ACTIVE'"
+              >
+                <strong>后登录踢下线</strong>
+                <span>同账号只保留一个活动会话</span>
+              </button>
+              <button
+                type="button"
+                :class="{ active: securitySettingsForm.repeatedLoginPolicy === 'ALLOW_CONCURRENT' }"
+                data-testid="security-policy-allow-concurrent"
+                @click="securitySettingsForm.repeatedLoginPolicy = 'ALLOW_CONCURRENT'"
+              >
+                <strong>允许多端同时在线</strong>
+                <span>重复登录不踢旧会话，改密仍全部失效</span>
+              </button>
+            </aside>
+            <form class="user-management-form" @submit.prevent="saveSecuritySettingsAction">
+              <div class="role-permission-summary" data-testid="security-settings-summary">
+                <strong>{{ securityPolicyLabel(securitySettingsForm.repeatedLoginPolicy) }}</strong>
+                <span>{{ securitySettingsForm.repeatedLoginPolicy }}</span>
+                <em>{{ securitySettings?.repeatedLoginPolicyLabel || "等待加载" }}</em>
+              </div>
+              <label>
+                <span>重复登录策略</span>
+                <select v-model="securitySettingsForm.repeatedLoginPolicy" data-testid="security-repeated-login-policy">
+                  <option value="SINGLE_ACTIVE">后登录踢下线旧会话</option>
+                  <option value="ALLOW_CONCURRENT">允许同账号多端同时在线</option>
+                </select>
+              </label>
+              <dl class="user-security-summary">
+                <div>
+                  <dt>当前生效</dt>
+                  <dd data-testid="security-current-policy">{{ securitySettings?.repeatedLoginPolicy || "-" }}</dd>
+                </div>
+                <div>
+                  <dt>改密处理</dt>
+                  <dd>无论策略如何，改密后旧会话全部失效</dd>
+                </div>
+              </dl>
+              <p v-if="securitySettingsMessage" class="form-message" data-testid="security-settings-message">{{ securitySettingsMessage }}</p>
+            </form>
+          </section>
         </div>
 
         <div v-else-if="tabs.activeTab.value.id === 'user-role-list'" class="role-permission-page">
@@ -1063,7 +1123,7 @@ import DataListPage from "../components/DataListPage.vue";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
 import { auditSalesOrder, deleteSalesOrder, fetchSalesOrderDetail, saveSalesOrderDraft } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PasswordResetRequestItem, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resetManagedUserPassword, saveRolePermissions, saveSecuritySettings, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1232,6 +1292,11 @@ const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
 const selectedRoleCode = ref("ADMIN");
 const rolePermissionDraft = ref<string[]>([]);
 const rolePermissionMessage = ref("");
+const securitySettings = ref<SecuritySettings | null>(null);
+const securitySettingsMessage = ref("");
+const securitySettingsForm = reactive<{ repeatedLoginPolicy: RepeatedLoginPolicy }>({
+  repeatedLoginPolicy: "SINGLE_ACTIVE"
+});
 const managedUsers = ref<ManagedUser[]>([]);
 const managedRoles = ref<ManagedRole[]>([]);
 const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
@@ -1475,6 +1540,7 @@ const moduleCatalog: ShellModule[] = [
     groups: [
       { title: "系统基础", entries: [
         { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
+        { id: "security-settings", label: "安全设置", module: "系统设置", mode: "shell", permission: "system.security.manage" },
         { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
         { id: "role-permission-settings", label: "权限矩阵", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },
         { id: "operation-log-list", label: "操作日志", module: "系统设置", mode: "list", queryable: true, permission: "system.audit_log.view" },
@@ -1540,6 +1606,7 @@ const currentDocumentTemplates = computed(() => printTemplates.value.filter((tem
 const activePrintTemplateTitle = computed(() => printTemplateDocumentTypes.find((template) => template.documentType === printTemplateForm.documentType)?.documentTitle ?? printTemplateForm.documentTitle);
 const canManagePrintTemplates = computed(() => session.hasPermission("system.print_template.manage"));
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
+const canManageSecuritySettings = computed(() => session.hasPermission("system.security.manage"));
 const passwordStrengthRules = computed(() => [
   { label: "至少 8 位", ok: passwordForm.newPassword.length >= 8 },
   { label: "大写字母", ok: /[A-Z]/.test(passwordForm.newPassword) },
@@ -2109,6 +2176,9 @@ function openEntry(entry: ShellEntry) {
   if (opened && entry.id === "role-permission-settings") {
     void loadRolePermissions();
   }
+  if (opened && entry.id === "security-settings") {
+    void loadSecuritySettings();
+  }
   if (opened && entry.id === "user-role-list") {
     void loadManagedUsers();
   }
@@ -2326,6 +2396,38 @@ async function saveSelectedRolePermissions() {
   rolePermissionMatrix.value = result.data;
   applySelectedRolePermissions();
   rolePermissionMessage.value = "权限矩阵已保存";
+}
+
+async function loadSecuritySettings() {
+  const result = await fetchSecuritySettings();
+  if (!result.ok || !result.data) {
+    securitySettingsMessage.value = result.message || "安全设置加载失败。";
+    return;
+  }
+  securitySettings.value = result.data;
+  securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
+  securitySettingsMessage.value = "";
+}
+
+async function saveSecuritySettingsAction() {
+  if (!canManageSecuritySettings.value) {
+    securitySettingsMessage.value = "当前角色无权维护安全设置。";
+    return;
+  }
+  const result = await saveSecuritySettings({
+    repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy
+  });
+  if (!result.ok || !result.data) {
+    securitySettingsMessage.value = result.message || "安全设置保存失败。";
+    return;
+  }
+  securitySettings.value = result.data;
+  securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
+  securitySettingsMessage.value = "安全设置已保存";
+}
+
+function securityPolicyLabel(policy: RepeatedLoginPolicy) {
+  return policy === "ALLOW_CONCURRENT" ? "允许多端同时在线" : "后登录踢下线旧会话";
 }
 
 async function loadPrintTemplates() {

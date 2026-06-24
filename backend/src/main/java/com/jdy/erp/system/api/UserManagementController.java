@@ -131,6 +131,10 @@ public class UserManagementController {
             SET password_hash = ?,
                 failed_login_count = 0,
                 locked_until = NULL,
+                active_session_token = NULL,
+                active_session_started_at = NULL,
+                last_session_replaced_at = now(),
+                session_generation = session_generation + 1,
                 updated_at = now(),
                 version = version + 1
             WHERE id = ?::uuid

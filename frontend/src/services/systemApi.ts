@@ -83,6 +83,20 @@ export interface RolePermissionResult {
   data: RolePermissionMatrix | null;
 }
 
+export type RepeatedLoginPolicy = "SINGLE_ACTIVE" | "ALLOW_CONCURRENT";
+
+export interface SecuritySettings {
+  repeatedLoginPolicy: RepeatedLoginPolicy;
+  repeatedLoginPolicyLabel: string;
+}
+
+export interface SecuritySettingsResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  data: SecuritySettings | null;
+}
+
 export interface WriteResult {
   ok: boolean;
   status: number;
@@ -285,5 +299,34 @@ export async function saveRolePermissions(roleCode: string, permissionCodes: str
     return { ok: true, status: response.status, message: "", data: await response.json() as RolePermissionMatrix };
   } catch {
     return { ok: false, status: 0, message: "权限保存失败。", data: null };
+  }
+}
+
+export async function fetchSecuritySettings(): Promise<SecuritySettingsResult> {
+  try {
+    const response = await fetch("/api/system/security-settings");
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: response.status === 403 ? "当前角色无权维护安全设置。" : "安全设置加载失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as SecuritySettings };
+  } catch {
+    return { ok: false, status: 0, message: "安全设置加载失败。", data: null };
+  }
+}
+
+export async function saveSecuritySettings(payload: { repeatedLoginPolicy: RepeatedLoginPolicy }): Promise<SecuritySettingsResult> {
+  try {
+    const response = await fetch("/api/system/security-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "安全设置保存失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as SecuritySettings };
+  } catch {
+    return { ok: false, status: 0, message: "安全设置保存失败。", data: null };
   }
 }
