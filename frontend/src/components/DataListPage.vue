@@ -118,6 +118,16 @@
           </template>
           <template #default="{ row }">
             <span v-if="column.field === 'status'" class="status-pill" :class="{ draft: row.status === '草稿' }">{{ row[column.field] }}</span>
+            <button
+              v-else-if="isSalesOrderList && column.field === 'billNo'"
+              class="list-cell-link"
+              type="button"
+              :disabled="locked"
+              :data-testid="`open-sales-order-${row.billNo}`"
+              @click.stop="openSalesOrder(row)"
+            >
+              {{ row[column.field] }}
+            </button>
             <span v-else>{{ row[column.field] }}</span>
           </template>
         </vxe-column>
@@ -273,6 +283,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   pushDownSalesOut: [row: Record<string, unknown>];
+  openSalesOrder: [row: Record<string, unknown>];
 }>();
 
 const tableRef = ref();
@@ -708,6 +719,12 @@ function pushDownSalesOut() {
   const row = selectedRows.value[0];
   if (canPushDownSalesOut.value && row) {
     emit("pushDownSalesOut", row);
+  }
+}
+
+function openSalesOrder(row: Record<string, unknown>) {
+  if (!props.locked && isSalesOrderList.value) {
+    emit("openSalesOrder", row);
   }
 }
 

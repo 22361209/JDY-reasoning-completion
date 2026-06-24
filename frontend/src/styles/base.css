@@ -1071,6 +1071,26 @@ th {
   color: #8a651e;
 }
 
+.list-cell-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #1b66d2;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.list-cell-link:hover {
+  text-decoration: underline;
+}
+
+.list-cell-link:disabled {
+  color: #6b7280;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 .add-line {
   color: #1f72b8;
 }

@@ -178,6 +178,7 @@
           :list-key="tabs.activeTab.value.id"
           :locked="isLockedList"
           @push-down-sales-out="openSalesOutFromSalesOrder"
+          @open-sales-order="openSalesOrderFromList"
         />
 
         <div v-else class="business-page">
@@ -657,6 +658,13 @@ const currentOrderStatusLabel = computed(() => {
   };
   return labels[currentOrderForm.value.status];
 });
+const formStatusByBackendStatus: Record<string, OrderForm["status"]> = {
+  DRAFT: "DRAFT",
+  AUDITED: "AUDITED",
+  REVERSED: "REVERSED",
+  VOID: "VOIDED",
+  RED_REVERSED: "RED_REVERSED"
+};
 const currentOrderAmount = computed(() => (currentOrderForm.value.lines[0].qty * currentOrderForm.value.lines[0].unitPrice).toFixed(2));
 const selectedProduct = computed(() => {
   const product = selectorOptions.value.find((option) => option.code === currentOrderForm.value.lines[0].productCode);
@@ -729,6 +737,48 @@ async function saveCurrentSalesOrder() {
       activeTab.dirty = false;
     }
   }
+}
+
+async function openSalesOrderFromList(row: Record<string, unknown>) {
+  const billNo = String(row.billNo ?? "");
+  if (!billNo) {
+    return;
+  }
+  const result = await fetchSalesOrderDetail(billNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "销售订单详情加载失败。";
+    return;
+  }
+  tabs.openTab({
+    id: "sales-order-form",
+    title: "销售订单",
+    module: "销售管理",
+    kind: "form",
+    dirty: false,
+    lockedObjectId: billNo
+  });
+  activeModuleName.value = "销售管理";
+  fillSalesOrderForm(result.data);
+  formMessage.value = `已打开销售订单 ${billNo}`;
+  clearActiveDirty();
+}
+
+function fillSalesOrderForm(detail: NonNullable<Awaited<ReturnType<typeof fetchSalesOrderDetail>>["data"]>) {
+  salesOrderForm.billNo = detail.order.billNo;
+  salesOrderForm.partyCode = detail.order.customerCode;
+  salesOrderForm.billDate = detail.order.billDate;
+  salesOrderForm.department = detail.order.department || "销售部";
+  salesOrderForm.ownerName = detail.order.ownerName || "本地管理员";
+  salesOrderForm.status = formStatusByBackendStatus[detail.order.status] ?? "DRAFT";
+  salesOrderForm.sourceOrderNo = undefined;
+  salesOrderForm.lines = detail.lines.length
+    ? detail.lines.map((line) => ({
+      productCode: String(line.productCode ?? ""),
+      warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      qty: Number(line.qty ?? 0),
+      unitPrice: Number(line.unitPrice ?? 0)
+    }))
+    : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 86 }];
 }
 
 async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
