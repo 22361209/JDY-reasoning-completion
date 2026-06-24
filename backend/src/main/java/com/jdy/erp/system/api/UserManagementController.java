@@ -3,6 +3,7 @@ package com.jdy.erp.system.api;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.system.application.NotificationProviderService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
@@ -26,11 +27,18 @@ public class UserManagementController {
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final PasswordPolicy passwordPolicy;
+    private final NotificationProviderService notificationProviderService;
 
-    public UserManagementController(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService, PasswordPolicy passwordPolicy) {
+    public UserManagementController(
+        JdbcTemplate jdbcTemplate,
+        CurrentSessionService currentSessionService,
+        PasswordPolicy passwordPolicy,
+        NotificationProviderService notificationProviderService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.passwordPolicy = passwordPolicy;
+        this.notificationProviderService = notificationProviderService;
     }
 
     @GetMapping("/managed-users")
@@ -65,19 +73,20 @@ public class UserManagementController {
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "通知不存在");
         }
+        var providerCode = notificationProviderService.currentProviderCode();
         jdbcTemplate.update("""
             UPDATE sys_notification_outbox
             SET status = 'SENT',
-                provider = 'LOCAL',
+                provider = ?,
                 retry_count = retry_count + 1,
                 last_attempt_at = now(),
                 sent_at = now(),
                 failure_reason = NULL,
                 provider_receipt_status = NULL,
                 provider_receipt_at = NULL,
-                provider_message_id = 'LOCAL-' || replace(id::text, '-', '')
+                provider_message_id = ? || '-' || replace(id::text, '-', '')
             WHERE id = ?::uuid
-            """, normalizedNotificationId);
+            """, providerCode, providerCode, normalizedNotificationId);
         log("SYSTEM", "RESEND_NOTIFICATION", "sys_notification_outbox", normalizedNotificationId, true, "重发给 " + rows.get(0).get("recipientUsername"));
         return Map.of("notificationOutbox", notificationRows(""));
     }
@@ -111,8 +120,7 @@ public class UserManagementController {
         jdbcTemplate.update("""
             UPDATE sys_notification_outbox
             SET status = ?,
-                provider = 'LOCAL',
-                provider_message_id = COALESCE(NULLIF(?, ''), provider_message_id, 'LOCAL-' || replace(id::text, '-', '')),
+                provider_message_id = COALESCE(NULLIF(?, ''), provider_message_id, provider || '-' || replace(id::text, '-', '')),
                 provider_receipt_status = ?,
                 provider_receipt_at = now(),
                 failure_reason = ?,
@@ -485,6 +493,7 @@ public class UserManagementController {
         String sourceType,
         String sourceId
     ) {
+        var providerCode = notificationProviderService.currentProviderCode();
         jdbcTemplate.update("""
             INSERT INTO sys_notification_outbox (
                 channel,
@@ -498,11 +507,12 @@ public class UserManagementController {
                 source_id,
                 status,
                 provider,
+                provider_message_id,
                 retry_count,
                 last_attempt_at,
                 sent_at
             )
-            VALUES ('IN_APP', ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, 'SENT', 'LOCAL', 0, now(), now())
+            VALUES ('IN_APP', ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, 'SENT', ?, ? || '-' || replace(gen_random_uuid()::text, '-', ''), 0, now(), now())
             """,
             templateCode,
             recipientUserId,
@@ -511,7 +521,9 @@ public class UserManagementController {
             title,
             body,
             sourceType,
-            sourceId
+            sourceId,
+            providerCode,
+            providerCode
         );
         log("SYSTEM", "SEND_PASSWORD_RESET_NOTICE", "sys_notification_outbox", null, true, templateCode + "：" + recipientUsername);
     }

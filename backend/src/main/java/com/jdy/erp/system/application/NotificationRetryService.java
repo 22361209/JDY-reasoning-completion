@@ -12,34 +12,37 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationRetryService {
     private static final int MAX_RETRY_COUNT = 3;
     private final JdbcTemplate jdbcTemplate;
+    private final NotificationProviderService notificationProviderService;
 
-    public NotificationRetryService(JdbcTemplate jdbcTemplate) {
+    public NotificationRetryService(JdbcTemplate jdbcTemplate, NotificationProviderService notificationProviderService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.notificationProviderService = notificationProviderService;
     }
 
     @Scheduled(fixedDelayString = "${jdy.notification.retry-fixed-delay-ms:5000}")
     @Transactional
     public void retryDueNotifications() {
         var rows = dueNotificationRows();
+        var providerCode = notificationProviderService.currentProviderCode();
         for (var row : rows) {
             var notificationId = String.valueOf(row.get("id"));
             var recipientUsername = String.valueOf(row.get("recipientUsername"));
             var updated = jdbcTemplate.update("""
                 UPDATE sys_notification_outbox
                 SET status = 'SENT',
-                    provider = 'LOCAL',
+                    provider = ?,
                     retry_count = retry_count + 1,
                     last_attempt_at = now(),
                     sent_at = now(),
                     failure_reason = NULL,
                     provider_receipt_status = NULL,
                     provider_receipt_at = NULL,
-                    provider_message_id = 'LOCAL-' || replace(id::text, '-', '')
+                    provider_message_id = ? || '-' || replace(id::text, '-', '')
                 WHERE id = ?::uuid
                   AND status IN ('FAILED', 'PENDING')
                   AND provider_receipt_status IS NULL
                   AND retry_count < ?
-                """, notificationId, MAX_RETRY_COUNT);
+                """, providerCode, providerCode, notificationId, MAX_RETRY_COUNT);
             if (updated > 0) {
                 logAutoRetry(notificationId, recipientUsername);
             }

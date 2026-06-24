@@ -131,6 +131,24 @@ export interface SecuritySettingsResult {
   data: SecuritySettings | null;
 }
 
+export type NotificationProviderCode = "LOCAL" | "SIMULATED_HTTP" | "SIMULATED_SMTP";
+
+export interface NotificationProviderSettings {
+  providerCode: NotificationProviderCode;
+  providerLabel: string;
+  senderName: string;
+  endpointUrl: string;
+  webhookSecretConfigured: boolean;
+  dryRun: boolean;
+}
+
+export interface NotificationProviderSettingsResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  data: NotificationProviderSettings | null;
+}
+
 export interface WriteResult {
   ok: boolean;
   status: number;
@@ -418,6 +436,42 @@ export async function saveSecuritySettings(payload: {
     return { ok: true, status: response.status, message: "", data: await response.json() as SecuritySettings };
   } catch {
     return { ok: false, status: 0, message: "安全设置保存失败。", data: null };
+  }
+}
+
+export async function fetchNotificationProviderSettings(): Promise<NotificationProviderSettingsResult> {
+  try {
+    const response = await fetch("/api/system/notification-provider-settings");
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: response.status === 403 ? "当前角色无权维护通知供应商。" : "通知供应商设置加载失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as NotificationProviderSettings };
+  } catch {
+    return { ok: false, status: 0, message: "通知供应商设置加载失败。", data: null };
+  }
+}
+
+export async function saveNotificationProviderSettings(payload: {
+  currentPassword: string;
+  providerCode: NotificationProviderCode;
+  senderName: string;
+  endpointUrl: string;
+  webhookSecret: string;
+  dryRun: boolean;
+}): Promise<NotificationProviderSettingsResult> {
+  try {
+    const response = await fetch("/api/system/notification-provider-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseApiErrorMessage(text, "通知供应商设置保存失败。"), data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as NotificationProviderSettings };
+  } catch {
+    return { ok: false, status: 0, message: "通知供应商设置保存失败。", data: null };
   }
 }
 
