@@ -164,126 +164,11 @@
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
         </div>
-        <div v-else-if="tabs.activeTab.value.id === 'security-settings'" class="role-permission-page">
-          <section class="role-permission-head">
-            <div>
-              <h2>安全设置</h2>
-              <p>维护登录安全策略，影响同账号在多个浏览器或设备上的在线方式。</p>
-            </div>
-            <div class="role-permission-head__actions">
-              <button type="button" data-testid="security-settings-refresh" @click="loadSecuritySettings">刷新</button>
-              <button class="primary-action" type="button" :disabled="!canManageSecuritySettings" data-testid="security-settings-save" @click="saveSecuritySettingsAction">保存</button>
-            </div>
-          </section>
-          <section class="role-permission-body">
-            <aside class="role-permission-list" aria-label="安全策略">
-              <button
-                type="button"
-                :class="{ active: securitySettingsForm.repeatedLoginPolicy === 'SINGLE_ACTIVE' }"
-                data-testid="security-policy-single-active"
-                @click="securitySettingsForm.repeatedLoginPolicy = 'SINGLE_ACTIVE'"
-              >
-                <strong>后登录踢下线</strong>
-                <span>同账号只保留一个活动会话</span>
-              </button>
-              <button
-                type="button"
-                :class="{ active: securitySettingsForm.repeatedLoginPolicy === 'ALLOW_CONCURRENT' }"
-                data-testid="security-policy-allow-concurrent"
-                @click="securitySettingsForm.repeatedLoginPolicy = 'ALLOW_CONCURRENT'"
-              >
-                <strong>允许多端同时在线</strong>
-                <span>重复登录不踢旧会话，改密仍全部失效</span>
-              </button>
-            </aside>
-            <form class="user-management-form" @submit.prevent="saveSecuritySettingsAction">
-              <div class="role-permission-summary" data-testid="security-settings-summary">
-                <strong>{{ securityPolicyLabel(securitySettingsForm.repeatedLoginPolicy) }}</strong>
-                <span>{{ securitySettingsForm.repeatedLoginPolicy }}</span>
-                <em>{{ securitySettings?.repeatedLoginPolicyLabel || "等待加载" }}</em>
-              </div>
-              <label>
-                <span>重复登录策略</span>
-                <select v-model="securitySettingsForm.repeatedLoginPolicy" data-testid="security-repeated-login-policy">
-                  <option value="SINGLE_ACTIVE">后登录踢下线旧会话</option>
-                  <option value="ALLOW_CONCURRENT">允许同账号多端同时在线</option>
-                </select>
-              </label>
-              <label>
-                <span>会话超时（分钟）</span>
-                <input
-                  ref="securitySessionTimeoutInput"
-                  v-model.number="securitySettingsForm.sessionTimeoutMinutes"
-                  data-testid="security-session-timeout-minutes"
-                  type="number"
-                  min="5"
-                  max="480"
-                  step="1"
-                  @change="updateSecuritySessionTimeout"
-                />
-              </label>
-              <label>
-                <span>密码最小长度</span>
-                <input
-                  ref="securityPasswordMinLengthInput"
-                  v-model.number="securitySettingsForm.passwordMinLength"
-                  data-testid="security-password-min-length"
-                  type="number"
-                  min="6"
-                  max="64"
-                  step="1"
-                  @change="updateSecurityPasswordMinLength"
-                />
-              </label>
-              <div class="security-toggle-grid" data-testid="security-password-policy-toggles">
-                <label>
-                  <input v-model="securitySettingsForm.passwordRequireUppercase" type="checkbox" data-testid="security-password-require-uppercase" />
-                  <span>大写字母</span>
-                </label>
-                <label>
-                  <input v-model="securitySettingsForm.passwordRequireLowercase" type="checkbox" data-testid="security-password-require-lowercase" />
-                  <span>小写字母</span>
-                </label>
-                <label>
-                  <input v-model="securitySettingsForm.passwordRequireDigit" type="checkbox" data-testid="security-password-require-digit" />
-                  <span>数字</span>
-                </label>
-                <label>
-                  <input v-model="securitySettingsForm.passwordRequireSymbol" type="checkbox" data-testid="security-password-require-symbol" />
-                  <span>符号</span>
-                </label>
-              </div>
-              <label>
-                <span>当前管理员密码</span>
-                <input
-                  v-model="securitySettingsForm.currentPassword"
-                  data-testid="security-current-password"
-                  type="password"
-                  autocomplete="current-password"
-                />
-              </label>
-              <dl class="user-security-summary">
-                <div>
-                  <dt>当前生效</dt>
-                  <dd data-testid="security-current-policy">{{ securitySettings?.repeatedLoginPolicy || "-" }}</dd>
-                </div>
-                <div>
-                  <dt>会话超时</dt>
-                  <dd data-testid="security-current-timeout">{{ securitySettings ? `${securitySettings.sessionTimeoutMinutes} 分钟` : "-" }}</dd>
-                </div>
-                <div>
-                  <dt>密码策略</dt>
-                  <dd data-testid="security-current-password-policy">{{ securitySettings ? passwordPolicySummary(securitySettings.passwordPolicy) : "-" }}</dd>
-                </div>
-                <div>
-                  <dt>改密处理</dt>
-                  <dd>无论策略如何，改密后旧会话全部失效</dd>
-                </div>
-              </dl>
-              <p v-if="securitySettingsMessage" class="form-message" data-testid="security-settings-message">{{ securitySettingsMessage }}</p>
-            </form>
-          </section>
-        </div>
+        <SecuritySettingsPage
+          v-else-if="tabs.activeTab.value.id === 'security-settings'"
+          :can-manage="canManageSecuritySettings"
+          @password-policy-updated="activePasswordPolicy = $event"
+        />
         <div v-else-if="tabs.activeTab.value.id === 'notification-provider-settings'" class="role-permission-page">
           <section class="role-permission-head">
             <div>
@@ -920,9 +805,10 @@ import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
+import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
-import { createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, logoutSystemUser, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, saveSecuritySettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, logoutSystemUser, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -980,37 +866,14 @@ const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
 const selectedRoleCode = ref("ADMIN");
 const rolePermissionDraft = ref<string[]>([]);
 const rolePermissionMessage = ref("");
-const securitySettings = ref<SecuritySettings | null>(null);
-const securitySettingsMessage = ref("");
 const notificationProviderSettings = ref<NotificationProviderSettings | null>(null);
 const notificationProviderMessage = ref("");
-const securitySessionTimeoutInput = ref<HTMLInputElement | null>(null);
-const securityPasswordMinLengthInput = ref<HTMLInputElement | null>(null);
 const activePasswordPolicy = ref<PasswordPolicySettings>({
   minLength: 8,
   requireUppercase: true,
   requireLowercase: true,
   requireDigit: true,
   requireSymbol: true
-});
-const securitySettingsForm = reactive<{
-  currentPassword: string;
-  repeatedLoginPolicy: RepeatedLoginPolicy;
-  sessionTimeoutMinutes: number;
-  passwordMinLength: number;
-  passwordRequireUppercase: boolean;
-  passwordRequireLowercase: boolean;
-  passwordRequireDigit: boolean;
-  passwordRequireSymbol: boolean;
-}>({
-  currentPassword: "",
-  repeatedLoginPolicy: "SINGLE_ACTIVE",
-  sessionTimeoutMinutes: 30,
-  passwordMinLength: 8,
-  passwordRequireUppercase: true,
-  passwordRequireLowercase: true,
-  passwordRequireDigit: true,
-  passwordRequireSymbol: true
 });
 const notificationProviderForm = reactive<{
   currentPassword: string;
@@ -1330,9 +1193,6 @@ function openEntry(entry: ShellEntry) {
   if (opened && entry.id === "role-permission-settings") {
     void loadRolePermissions();
   }
-  if (opened && entry.id === "security-settings") {
-    void loadSecuritySettings();
-  }
   if (opened && entry.id === "notification-provider-settings") {
     void loadNotificationProviderSettings();
   }
@@ -1611,54 +1471,6 @@ async function saveSelectedRolePermissions() {
   applySelectedRolePermissions();
   rolePermissionMessage.value = "权限矩阵已保存";
 }
-async function loadSecuritySettings() {
-  const result = await fetchSecuritySettings();
-  if (!result.ok || !result.data) {
-    securitySettingsMessage.value = result.message || "安全设置加载失败。";
-    return;
-  }
-  securitySettings.value = result.data;
-  securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
-  securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
-  applyPasswordPolicyToSecurityForm(result.data.passwordPolicy);
-  activePasswordPolicy.value = result.data.passwordPolicy;
-  securitySettingsMessage.value = "";
-}
-async function saveSecuritySettingsAction() {
-  if (!canManageSecuritySettings.value) {
-    securitySettingsMessage.value = "当前角色无权维护安全设置。";
-    return;
-  }
-  syncSecuritySessionTimeoutInput();
-  syncSecurityPasswordMinLengthInput();
-  const submittedPolicy = securitySettingsForm.repeatedLoginPolicy;
-  const submittedTimeout = securitySettingsForm.sessionTimeoutMinutes;
-  const result = await saveSecuritySettings({
-    currentPassword: securitySettingsForm.currentPassword,
-    repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy,
-    sessionTimeoutMinutes: securitySettingsForm.sessionTimeoutMinutes,
-    passwordMinLength: securitySettingsForm.passwordMinLength,
-    passwordRequireUppercase: securitySettingsForm.passwordRequireUppercase,
-    passwordRequireLowercase: securitySettingsForm.passwordRequireLowercase,
-    passwordRequireDigit: securitySettingsForm.passwordRequireDigit,
-    passwordRequireSymbol: securitySettingsForm.passwordRequireSymbol
-  });
-  if (!result.ok || !result.data) {
-    securitySettingsMessage.value = result.message || "安全设置保存失败。";
-    return;
-  }
-  securitySettings.value = {
-    ...result.data,
-    repeatedLoginPolicy: submittedPolicy,
-    sessionTimeoutMinutes: submittedTimeout
-  };
-  securitySettingsForm.repeatedLoginPolicy = submittedPolicy;
-  securitySettingsForm.sessionTimeoutMinutes = submittedTimeout;
-  applyPasswordPolicyToSecurityForm(result.data.passwordPolicy);
-  activePasswordPolicy.value = result.data.passwordPolicy;
-  securitySettingsForm.currentPassword = "";
-  securitySettingsMessage.value = "安全设置已保存";
-}
 async function loadNotificationProviderSettings() {
   const result = await fetchNotificationProviderSettings();
   if (!result.ok || !result.data) {
@@ -1705,60 +1517,6 @@ function notificationProviderLabel(providerCode: NotificationProviderCode) {
     return "模拟 SMTP 供应商";
   }
   return "本地通知";
-}
-function securityPolicyLabel(policy: RepeatedLoginPolicy) {
-  return policy === "ALLOW_CONCURRENT" ? "允许多端同时在线" : "后登录踢下线旧会话";
-}
-function updateSecuritySessionTimeout(event: Event) {
-  securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout((event.target as HTMLInputElement).value);
-}
-function syncSecuritySessionTimeoutInput() {
-  securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout(
-    document.querySelector<HTMLInputElement>("[data-testid='security-session-timeout-minutes']")?.value
-      ?? securitySessionTimeoutInput.value?.value
-      ?? securitySettingsForm.sessionTimeoutMinutes
-  );
-}
-function normalizeSecuritySessionTimeout(rawValue: string | number) {
-  const value = Number(rawValue);
-  return Number.isFinite(value) ? value : 30;
-}
-function updateSecurityPasswordMinLength(event: Event) {
-  securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength((event.target as HTMLInputElement).value);
-}
-function syncSecurityPasswordMinLengthInput() {
-  securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength(
-    document.querySelector<HTMLInputElement>("[data-testid='security-password-min-length']")?.value
-      ?? securityPasswordMinLengthInput.value?.value
-      ?? securitySettingsForm.passwordMinLength
-  );
-}
-function normalizeSecurityPasswordMinLength(rawValue: string | number) {
-  const value = Number(rawValue);
-  return Number.isFinite(value) ? value : 8;
-}
-function applyPasswordPolicyToSecurityForm(policy: PasswordPolicySettings) {
-  securitySettingsForm.passwordMinLength = policy.minLength;
-  securitySettingsForm.passwordRequireUppercase = policy.requireUppercase;
-  securitySettingsForm.passwordRequireLowercase = policy.requireLowercase;
-  securitySettingsForm.passwordRequireDigit = policy.requireDigit;
-  securitySettingsForm.passwordRequireSymbol = policy.requireSymbol;
-}
-function passwordPolicySummary(policy: PasswordPolicySettings) {
-  const parts = [`至少 ${policy.minLength} 位`];
-  if (policy.requireUppercase) {
-    parts.push("大写");
-  }
-  if (policy.requireLowercase) {
-    parts.push("小写");
-  }
-  if (policy.requireDigit) {
-    parts.push("数字");
-  }
-  if (policy.requireSymbol) {
-    parts.push("符号");
-  }
-  return parts.join(" / ");
 }
 async function loadPrintTemplates() {
   const result = await fetchPrintTemplates();
