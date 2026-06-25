@@ -8,8 +8,8 @@
     :dirty="dirty"
     :message="document.message.value"
     :form="document.form"
-    test-prefix="sales"
-    party-label="客户"
+    test-prefix="material-issue"
+    party-label="来源"
     party-type="customer"
     :is-document-form="true"
     :is-stock-document-form="false"
@@ -17,7 +17,7 @@
     :can-audit="document.canAudit.value"
     :can-reverse="document.canReverse.value"
     :can-void="document.canVoid.value"
-    :can-delete="false"
+    :can-delete="document.canDelete.value"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="document.showExecutionColumns.value"
@@ -50,7 +50,7 @@
     @search-master-options="document.searchMasterOptions"
     @handle-master-input="document.handleMasterInput"
     @handle-selector-keydown="document.handleSelectorKeydown"
-    @select-party-option="document.selectPartyOption($event, 'sales-party')"
+    @select-party-option="document.selectPartyOption($event, 'material-issue-party')"
     @select-line-product="document.selectLineProduct"
     @select-warehouse-option="document.selectWarehouseOption"
     @entry-paste="document.handleEntryPaste"
@@ -73,7 +73,7 @@ import { computed } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
-import { useSalesOrderDocument } from "./useSalesOrderDocument";
+import { useMaterialIssueDocument } from "./useMaterialIssueDocument";
 
 const props = defineProps<{
   title: string;
@@ -92,7 +92,7 @@ const emit = defineEmits<{
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
 }>();
 
-const document = useSalesOrderDocument({
+const document = useMaterialIssueDocument({
   userName: () => props.userName,
   hasPermission: props.hasPermission,
   markDirty: () => emit("markDirty"),
@@ -151,7 +151,7 @@ const dialogHandlers = {
 
 function noop() {}
 function noopReturn() {
-  return "sales-no-push-dialog";
+  return "material-issue-no-push-dialog";
 }
 
 async function loadByBillNo(billNo: string) {

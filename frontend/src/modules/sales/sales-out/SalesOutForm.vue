@@ -213,8 +213,8 @@ function applyPushDownDraft(draft: Omit<SalesOutPushDownDraft, "lines"> & { line
   document.applyPushDownDraft(draft);
 }
 
-function applyDetail(detail: DocumentDetail, message = "") {
-  document.applyDetail(detail, message);
+function applyDetail(detail: DocumentDetail, message = "", sourceLineNo: number | null = null) {
+  document.applyDetail(detail, message, sourceLineNo);
 }
 
 defineExpose({

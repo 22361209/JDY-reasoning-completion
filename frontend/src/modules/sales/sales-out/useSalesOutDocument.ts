@@ -179,10 +179,15 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     options.clearDirty();
   }
 
-  function applyDetail(detail: DocumentDetail, loadedMessage = "") {
+  function applyDetail(detail: DocumentDetail, loadedMessage = "", sourceLineNo: number | null = null) {
     fillFromDetail(detail);
+    highlightedSourceBillNo.value = sourceLineNo ? form.billNo : "";
+    highlightedSourceLineNo.value = sourceLineNo;
     message.value = loadedMessage;
     options.clearDirty();
+    if (sourceLineNo) {
+      void scrollHighlightedSourceLineIntoView(sourceLineNo);
+    }
   }
 
   function applyPushDownDraft(draft: SalesOutPushDownDraft) {
@@ -1249,6 +1254,12 @@ function focusNextAfterSelector(selectorId: string) {
 function lineIndexFromSelector(selectorId: string) {
   const match = selectorId.match(/-line-(\d+)-/);
   return match ? Number(match[1]) : 0;
+}
+
+async function scrollHighlightedSourceLineIntoView(sourceLineNo: number) {
+  await nextTick();
+  const target = document.querySelector<HTMLElement>(`.entry-table tr[data-line-no="${sourceLineNo}"]`);
+  target?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function downstreamDocTestId(index: number) {

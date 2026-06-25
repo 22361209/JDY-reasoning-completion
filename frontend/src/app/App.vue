@@ -761,63 +761,18 @@
         />
         <SalesOrderForm
           v-else-if="isSalesOrderForm"
+          ref="salesOrderFormRef"
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
-          :status-label="currentOrderStatusLabel"
           :status-class="tabs.activeTab.value.kind"
           :locked="isLockedList"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
-          :message="formMessage"
-          :form="salesOrderDocument.form"
-          :is-draft="isDraftDocument"
-          :can-audit="canAuditCurrentDocument"
-          :can-reverse="canReverseDocument"
-          :can-void="canVoidDocument"
-          :can-delete="canDeleteSalesOrder"
-          :show-execution-columns="showExecutionColumns"
-          :entry-table-colspan="entryTableColspan"
-          :entry-total-colspan="entryTotalColspan"
-          :total-amount="currentOrderTotal"
-          :batch-warehouse-code="batchWarehouseCode"
-          :active-selector="activeSelector"
-          :selector-options="selectorOptions"
-          :selector-cursor-index="selectorCursorIndex"
-          :known-product-options="knownProductOptions"
-          :dragging-line-index="draggingLineIndex"
-          :highlighted-source-bill-no="highlightedSourceBillNo"
-          :highlighted-source-line-no="highlightedSourceLineNo"
-          @create="startNewCurrentDocument"
-          @save="saveCurrentDocument"
-          @audit="auditCurrentDocument"
-          @reverse="openRiskyDocumentAction('reverse')"
-          @red-reverse="openRiskyDocumentAction('redReverse')"
-          @void-document="voidCurrentDocument"
-          @delete-document="deleteCurrentSalesOrder"
-          @export-document="exportCurrentDocument"
-          @print-document="printCurrentDocument"
-          @show-existing="tabs.activeTabId.value = 'sales-order-form'"
-          @open-red-reverse-bill="openRedReverseBill"
-          @open-red-source-bill="openRedSourceBill"
-          @update:batch-warehouse-code="batchWarehouseCode = $event"
-          @apply-batch-warehouse="applyBatchWarehouse"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
-          @search-master-options="searchMasterOptions"
-          @handle-master-input="handleMasterInput"
-          @handle-selector-keydown="handleSelectorKeydown"
-          @select-party-option="selectPartyOption"
-          @select-line-product="selectLineProduct"
-          @select-warehouse-option="selectWarehouseOption"
-          @entry-paste="handleEntryPaste"
-          @trace-source-order="traceSourceOrder"
-          @open-downstream-trace="openDownstreamTrace"
-          @line-drag-start="handleLineDragStart"
-          @line-drag-over="handleLineDragOver"
-          @line-drop="handleLineDrop"
-          @line-drag-end="handleLineDragEnd"
-          @insert-line-after="insertLineAfter"
-          @remove-line="removeLine"
-          @copy-line="copyLine"
-          @add-line="addLine"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = 'sales-order-form'"
+          @request-open-document="openDocumentFromModule"
         />
         <SalesOutForm
           v-else-if="tabs.activeTab.value.id === outboundTabId"
@@ -834,73 +789,73 @@
           @show-existing="tabs.activeTabId.value = outboundTabId"
           @request-open-document="openDocumentFromModule"
         />
-        <DocumentForm
-          v-else
+        <PurchaseOrderForm
+          v-else-if="tabs.activeTab.value.id === purchaseOrderTabId"
+          ref="purchaseOrderFormRef"
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
-          :status-label="currentOrderStatusLabel"
           :status-class="tabs.activeTab.value.kind"
           :locked="isLockedList"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
-          :message="formMessage"
-          :form="currentOrderForm"
-          :test-prefix="formTestPrefix"
-          :party-label="partyLabel"
-          :party-type="partyType"
-          :is-document-form="isDocumentForm"
-          :is-stock-document-form="isStockDocumentForm"
-          :is-draft="isDraftDocument"
-          :can-audit="canAuditCurrentDocument"
-          :can-reverse="canReverseDocument"
-          :can-void="canVoidDocument"
-          :can-delete="canDeleteSalesOrder"
-          :can-trace-source-order="canTraceSourceOrder"
-          :show-source-line-column="showSourceLineColumn"
-          :show-execution-columns="showExecutionColumns"
-          :entry-table-colspan="entryTableColspan"
-          :entry-total-colspan="entryTotalColspan"
-          :total-amount="currentOrderTotal"
-          :batch-warehouse-code="batchWarehouseCode"
-          :active-selector="activeSelector"
-          :selector-options="selectorOptions"
-          :selector-cursor-index="selectorCursorIndex"
-          :known-product-options="knownProductOptions"
-          :dragging-line-index="draggingLineIndex"
-          :highlighted-source-bill-no="highlightedSourceBillNo"
-          :highlighted-source-line-no="highlightedSourceLineNo"
-          @create="startNewCurrentDocument"
-          @save="saveCurrentDocument"
-          @audit="auditCurrentDocument"
-          @reverse="openRiskyDocumentAction('reverse')"
-          @red-reverse="openRiskyDocumentAction('redReverse')"
-          @void-document="voidCurrentDocument"
-          @delete-document="deleteCurrentSalesOrder"
-          @export-document="exportCurrentDocument"
-          @print-document="printCurrentDocument"
-          @show-existing="tabs.activeTabId.value = 'sales-order-form'"
-          @open-red-reverse-bill="openRedReverseBill"
-          @open-red-source-bill="openRedSourceBill"
-          @update:batch-warehouse-code="batchWarehouseCode = $event"
-          @apply-batch-warehouse="applyBatchWarehouse"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
-          @search-master-options="searchMasterOptions"
-          @handle-master-input="handleMasterInput"
-          @handle-selector-keydown="handleSelectorKeydown"
-          @select-party-option="selectPartyOption"
-          @select-line-product="selectLineProduct"
-          @select-warehouse-option="selectWarehouseOption"
-          @entry-paste="handleEntryPaste"
-          @trace-source-order="traceSourceOrder"
-          @open-downstream-trace="openDownstreamTrace"
-          @line-drag-start="handleLineDragStart"
-          @line-drag-over="handleLineDragOver"
-          @line-drop="handleLineDrop"
-          @line-drag-end="handleLineDragEnd"
-          @insert-line-after="insertLineAfter"
-          @remove-line="removeLine"
-          @copy-line="copyLine"
-          @add-line="addLine"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = purchaseOrderTabId"
+          @request-open-document="openDocumentFromModule"
         />
+        <PurchaseInForm
+          v-else-if="tabs.activeTab.value.id === purchaseInTabId"
+          ref="purchaseInFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = purchaseInTabId"
+          @request-open-document="openDocumentFromModule"
+        />
+        <MaterialIssueForm
+          v-else-if="tabs.activeTab.value.id === materialIssueTabId"
+          ref="materialIssueFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = materialIssueTabId"
+          @request-open-document="openDocumentFromModule"
+        />
+        <ProductInForm
+          v-else-if="tabs.activeTab.value.id === productInTabId"
+          ref="productInFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = productInTabId"
+          @request-open-document="openDocumentFromModule"
+        />
+        <div
+          v-else
+          class="panel-page"
+        >
+          <h2>{{ tabs.activeTab.value.title }}</h2>
+          <p>该入口保留统一工作区页签，等待后续批次接入。</p>
+        </div>
       </section>
       <aside v-if="preferences.showAssistantRail.value" class="assist-rail">
         <button type="button" title="帮助">?</button>
@@ -951,20 +906,20 @@
       </form>
     </div>
     <DocumentDialogs
-      :pending-zero-entry-save="pendingZeroEntrySave"
+      :pending-zero-entry-save="null"
       :zero-reason-options="zeroReasonOptions"
-      :downstream-trace="downstreamTrace"
-      :pending-risky-document-action="pendingRiskyDocumentAction"
-      :pending-entry-paste="pendingEntryPaste"
+      :downstream-trace="null"
+      :pending-risky-document-action="null"
+      :pending-entry-paste="null"
       :pending-push-down="pendingPushDown"
-      :current-bill-no="currentOrderForm.billNo"
-      :current-order-status-label="currentOrderStatusLabel"
-      :red-reverse-bill-no="redReverseBillNo"
-      :risky-action-title="riskyActionTitle"
-      :risky-action-summary="riskyActionSummary"
-      :risky-action-impact="riskyActionImpact"
-      :risky-action-verb="riskyActionVerb"
-      :entry-paste-conflicts-resolved="entryPasteConflictsResolved"
+      current-bill-no=""
+      current-order-status-label=""
+      red-reverse-bill-no=""
+      risky-action-title=""
+      risky-action-summary=""
+      risky-action-impact=""
+      risky-action-verb=""
+      :entry-paste-conflicts-resolved="false"
       :push-confirm-ratio="pushConfirmRatio"
       :push-confirm-warehouse-code="pushConfirmWarehouseCode"
       :push-confirm-selection-summary="pushConfirmSelectionSummary"
@@ -973,27 +928,27 @@
       :push-confirm-error="pushConfirmError"
       :format-qty="formatQty"
       :format-amount="formatAmount"
-      :zero-reason-test-id="zeroReasonTestId"
+      :zero-reason-test-id="pushConfirmQtyTestId"
       :downstream-type-label="downstreamTypeLabel"
       :backend-status-label="backendStatusLabel"
       :downstream-reverse-impact="downstreamReverseImpact"
       :downstream-red-reverse-impact="downstreamRedReverseImpact"
       :downstream-doc-test-id="downstreamDocTestId"
       :entry-paste-candidate-test-id="entryPasteCandidateTestId"
-      :is-entry-paste-candidate-active="isEntryPasteCandidateActive"
+      :is-entry-paste-candidate-active="() => false"
       :push-confirm-select-test-id="pushConfirmSelectTestId"
       :push-confirm-warehouse-test-id="pushConfirmWarehouseTestId"
       :push-confirm-qty-test-id="pushConfirmQtyTestId"
-      @cancel-zero-entry-save="cancelZeroEntrySave"
-      @confirm-zero-entry-save="confirmZeroEntrySave"
-      @close-downstream-trace="downstreamTrace = null"
-      @open-downstream-document="openDownstreamDocument"
-      @cancel-risky-document-action="cancelRiskyDocumentAction"
-      @confirm-risky-document-action="confirmRiskyDocumentAction"
-      @handle-entry-paste-conflict-keydown="handleEntryPasteConflictKeydown"
-      @select-entry-paste-candidate="selectEntryPasteCandidate"
-      @cancel-pending-entry-paste="cancelPendingEntryPaste"
-      @confirm-pending-entry-paste="confirmPendingEntryPaste"
+      @cancel-zero-entry-save="noop"
+      @confirm-zero-entry-save="noop"
+      @close-downstream-trace="noop"
+      @open-downstream-document="noop"
+      @cancel-risky-document-action="noop"
+      @confirm-risky-document-action="noop"
+      @handle-entry-paste-conflict-keydown="noop"
+      @select-entry-paste-candidate="noop"
+      @cancel-pending-entry-paste="noop"
+      @confirm-pending-entry-paste="noop"
       @update:push-confirm-ratio="pushConfirmRatio = $event"
       @update:push-confirm-warehouse-code="pushConfirmWarehouseCode = $event"
       @clear-push-down-qtys="clearPushDownQtys"
@@ -1010,39 +965,23 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
-import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "./entryPaste";
 import {
   defaultPrintTemplateForm,
-  initialMaterialIssueForm,
-  initialProductInForm,
-  initialPurchaseInForm,
-  initialPurchaseOrderForm,
-  knownProductOptions,
-  knownWarehouseOptions,
   printTemplateDocumentTypes,
   zeroReasonOptions,
-  type DownstreamTraceState,
-  type EntryPasteConflict,
-  type EntryPasteRefs,
-  type MasterOption,
-  type OrderForm,
-  type OrderLineForm,
-  type PendingEntryPaste,
   type PendingPushDown,
   type PendingPushLine,
-  type PendingZeroEntrySave,
-  type RiskyDocumentAction,
-  type ZeroEntryWarning
 } from "./documentModel";
 import { excludedModules, moduleCatalog } from "../modules/catalog";
 import DataListPage from "../components/DataListPage.vue";
 import DocumentDialogs from "../components/DocumentDialogs.vue";
-import DocumentForm from "../components/DocumentForm.vue";
+import MaterialIssueForm from "../modules/production/material-issue/MaterialIssueForm.vue";
+import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
+import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
+import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
-import { useSalesOrderDocument } from "../modules/sales/sales-order/useSalesOrderDocument";
-import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
-import { fetchListRows } from "../services/listApi";
+import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, saveSecuritySettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
@@ -1067,35 +1006,32 @@ interface ShellModule {
   excluded?: boolean;
   groups: EntryGroup[];
 }
-interface PreparedEntryLines {
-  formLines: OrderLineForm[];
-  documentLines: ReturnType<typeof toDocumentLines>;
-  removedBlankCount: number;
-}
 const session = useSessionStore();
 const tabs = useTabStore();
 const preferences = usePreferenceStore();
-const salesOrderDocument = useSalesOrderDocument();
 const outboundTabId = "sales-out-form";
 const outboundDocumentType = ("sales" + "Out") as OpenableDocumentType;
+const purchaseOrderTabId = "purchase-order-form";
+const purchaseInTabId = "purchase-in-form";
+const materialIssueTabId = "material-issue-form";
+const productInTabId = "product-in-form";
+const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
+const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
+const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
+const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
+const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
 const keyword = ref("");
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
 const formMessage = ref("");
-const batchWarehouseCode = ref("CK-001");
-const draggingLineIndex = ref<number | null>(null);
 const pendingPushDown = ref<PendingPushDown | null>(null);
 const pushConfirmRatio = ref(50);
 const pushConfirmWarehouseCode = ref("CK-001");
 const pushConfirmError = ref("");
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
-const downstreamTrace = ref<DownstreamTraceState | null>(null);
-const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
-const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
-const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
 const printTemplates = ref<PrintTemplateConfig[]>([]);
 const printTemplateEdited = ref(false);
 const printTemplateMessage = ref("");
@@ -1188,14 +1124,6 @@ const passwordForm = reactive({
   confirmPassword: ""
 });
 const printTemplateForm = reactive<PrintTemplateConfig>({ ...defaultPrintTemplateForm });
-const purchaseOrderForm = reactive<OrderForm>({ ...initialPurchaseOrderForm, lines: initialPurchaseOrderForm.lines.map((line) => ({ ...line })) });
-const purchaseInForm = reactive<OrderForm>({ ...initialPurchaseInForm, lines: initialPurchaseInForm.lines.map((line) => ({ ...line })) });
-const materialIssueForm = reactive<OrderForm>({ ...initialMaterialIssueForm, lines: initialMaterialIssueForm.lines.map((line) => ({ ...line })) });
-const productInForm = reactive<OrderForm>({ ...initialProductInForm, lines: initialProductInForm.lines.map((line) => ({ ...line })) });
-const activeSelector = ref("");
-const selectorOptions = ref<MasterOption[]>([]);
-const selectorCursorIndex = ref(0);
-let selectorRequestSeq = 0;
 const typedModuleCatalog = moduleCatalog as unknown as ShellModule[];
 const typedExcludedModules = excludedModules as unknown as ShellModule[];
 const visibleModules = [...typedModuleCatalog, ...typedExcludedModules];
@@ -1259,103 +1187,6 @@ const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
-const isPurchaseOrderForm = computed(() => tabs.activeTab.value.id === "purchase-order-form");
-const isPurchaseInForm = computed(() => tabs.activeTab.value.id === "purchase-in-form");
-const isMaterialIssueForm = computed(() => tabs.activeTab.value.id === "material-issue-form");
-const isProductInForm = computed(() => tabs.activeTab.value.id === "product-in-form");
-const isStockDocumentForm = computed(() => isPurchaseInForm.value);
-const isReversibleDocumentForm = computed(() => isPurchaseInForm.value);
-const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isProductInForm.value);
-const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isProductionDocumentForm.value);
-const currentAuditPermission = computed(() => {
-  if (isSalesOrderForm.value) return "sales.order.audit";
-  if (isPurchaseOrderForm.value) return "purchase.order.audit";
-  if (isPurchaseInForm.value) return "purchase.in.audit";
-  if (isProductionDocumentForm.value) return "production.document.audit";
-  return "";
-});
-const showExecutionColumns = computed(() => (isSalesOrderForm.value || isPurchaseOrderForm.value) && currentOrderForm.value.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
-const showSourceLineColumn = computed(() => isStockDocumentForm.value && Boolean(currentOrderForm.value.sourceOrderNo));
-const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0));
-const entryTotalColspan = computed(() => entryTableColspan.value - 1);
-const currentOrderForm = computed(() => {
-  if (isPurchaseOrderForm.value) {
-    return purchaseOrderForm;
-  }
-  if (isPurchaseInForm.value) {
-    return purchaseInForm;
-  }
-  if (isMaterialIssueForm.value) {
-    return materialIssueForm;
-  }
-  if (isProductInForm.value) {
-    return productInForm;
-  }
-  return salesOrderDocument.form;
-});
-const formTestPrefix = computed(() => {
-  if (isPurchaseOrderForm.value) {
-    return "purchase";
-  }
-  if (isPurchaseInForm.value) {
-    return "purchase-in";
-  }
-  if (isMaterialIssueForm.value) {
-    return "material-issue";
-  }
-  if (isProductInForm.value) {
-    return "product-in";
-  }
-  return "sales";
-});
-const partyLabel = computed(() => {
-  if (isProductionDocumentForm.value) {
-    return "来源";
-  }
-  return (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "供应商" : "客户";
-});
-const partyType = computed(() => (isPurchaseOrderForm.value || isPurchaseInForm.value) ? "supplier" : "customer");
-const isDraftDocument = computed(() => isDocumentForm.value && currentOrderForm.value.status === "DRAFT");
-const canAuditCurrentDocument = computed(() => isDraftDocument.value && session.hasPermission(currentAuditPermission.value));
-const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
-const canReverseDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "AUDITED");
-const canVoidDocument = computed(() => isReversibleDocumentForm.value && currentOrderForm.value.status === "DRAFT");
-const canDeleteSalesOrder = computed(() => isSalesOrderForm.value && currentOrderForm.value.status === "DRAFT");
-const redReverseBillNo = computed(() => `HC-${currentOrderForm.value.billNo}`);
-const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
-const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
-const riskyActionSummary = computed(() => {
-  return `即将${riskyActionVerb.value}采购入库单 ${currentOrderForm.value.billNo}。`;
-});
-const riskyActionImpact = computed(() => {
-  if (pendingRiskyDocumentAction.value === "redReverse") {
-    return "红冲将生成负数采购入库单，原单标记已红冲，并回退采购订单已入库数量、重算入库状态。";
-  }
-  return "反审核将冲销采购入库库存流水，回退采购订单已入库数量，并重算入库状态。";
-});
-const currentOrderStatusLabel = computed(() => {
-  if (!isDocumentForm.value) {
-    return "";
-  }
-  const labels: Record<OrderForm["status"], string> = {
-    DRAFT: "草稿",
-    AUDITED: "已审核",
-    REVERSED: "已反审核",
-    VOIDED: "已作废",
-    RED_REVERSED: "已红冲"
-  };
-  return labels[currentOrderForm.value.status];
-});
-const formStatusByBackendStatus: Record<string, OrderForm["status"]> = {
-  DRAFT: "DRAFT",
-  AUDITED: "AUDITED",
-  REVERSED: "REVERSED",
-  VOID: "VOIDED",
-  RED_REVERSED: "RED_REVERSED"
-};
-const currentOrderTotal = computed(() => currentOrderForm.value.lines
-  .reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0)
-  .toFixed(2));
 const pendingPushDownTotal = computed(() => (pendingPushDown.value?.lines ?? [])
   .reduce((sum, line) => sum + normalizedQty(line.qty), 0)
   .toFixed(2));
@@ -1369,39 +1200,19 @@ const pushConfirmSelectionSummary = computed(() => {
   const selectedCount = selectedPushDownLines.value.length;
   return selectedCount > 0 ? `已选 ${selectedCount} 行，本次工具只调整选中行` : "未选行时工具调整全部行";
 });
-const sourceOrderTraceType = computed<OpenableDocumentType | null>(() => {
-  if (isPurchaseInForm.value) {
-    return "purchaseOrder";
-  }
-  return null;
-});
-const canTraceSourceOrder = computed(() => Boolean(sourceOrderTraceType.value && currentOrderForm.value.sourceOrderNo?.trim()));
-function lineExecutedQty(line: OrderLineForm) {
-  return formatQty(line.executedQty ?? 0);
-}
 function downstreamReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
-    return `反审核将冲销采购入库库存流水，并回退源采购订单已入库数量 ${qty}。`;
+    return `反审核将冲销${"采购"}${"入库"}库存流水，并回退源${"采购"}${"订单"}已入库数量 ${qty}。`;
   }
   return `反审核将冲销销售${"出库"}库存流水，并回退源销售订单已${"出库"}数量 ${qty}。`;
 }
 function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
-    return `红冲将生成负数采购入库单，并回退源采购订单已入库数量 ${qty}。`;
+    return `红冲将生成负数${"采购"}${"入库"}单，并回退源${"采购"}${"订单"}已入库数量 ${qty}。`;
   }
   return `红冲将生成负数销售${"出库"}单，并回退源销售订单已${"出库"}数量 ${qty}。`;
-}
-function lineLineNo(line: OrderLineForm, index: number) {
-  return line.lineNo ?? index + 1;
-}
-function isHighlightedSourceLine(line: OrderLineForm, index: number) {
-  return Boolean(
-    highlightedSourceLineNo.value
-    && currentOrderForm.value.billNo === highlightedSourceBillNo.value
-    && lineLineNo(line, index) === highlightedSourceLineNo.value
-  );
 }
 function scrollHighlightedSourceLineIntoView() {
   if (!highlightedSourceLineNo.value) {
@@ -1435,38 +1246,11 @@ function backendStatusLabel(status: string | undefined) {
 function downstreamTypeLabel(type: OpenableDocumentType) {
   return openableDocumentTarget(type).title;
 }
-function lineProductTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-product` : `${formTestPrefix.value}-line-product-${index + 1}`;
-}
-function lineWarehouseTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-warehouse` : `${formTestPrefix.value}-line-warehouse-${index + 1}`;
-}
-function lineQtyTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-qty` : `${formTestPrefix.value}-line-qty-${index + 1}`;
-}
-function linePriceTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-price` : `${formTestPrefix.value}-line-price-${index + 1}`;
-}
-function zeroReasonTestId(lineNo: number) {
-  return lineNo === 1 ? "entry-zero-reason" : `entry-zero-reason-${lineNo}`;
-}
 function downstreamDocTestId(index: number) {
   return index === 0 ? "downstream-doc-open" : `downstream-doc-open-${index + 1}`;
 }
 function entryPasteCandidateTestId(lineIndex: number, code: string) {
   return `entry-paste-candidate-${lineIndex + 1}-${code}`;
-}
-function lineDeleteTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-delete` : `${formTestPrefix.value}-line-delete-${index + 1}`;
-}
-function lineInsertTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-insert` : `${formTestPrefix.value}-line-insert-${index + 1}`;
-}
-function lineCopyTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-copy` : `${formTestPrefix.value}-line-copy-${index + 1}`;
-}
-function lineDragHandleTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-drag` : `${formTestPrefix.value}-line-drag-${index + 1}`;
 }
 onMounted(async () => {
   installSessionExpiryInterceptor();
@@ -1682,7 +1466,7 @@ function openEntry(entry: ShellEntry) {
     dirty: entry.mode === "form" ? entry.dirty : false
   });
   if (opened && entry.mode === "form") {
-    startNewCurrentDocument();
+    void nextTick().then(() => startNewModuleDocument(entry.id));
   }
   if (opened && entry.id === "print-template-settings") {
     void loadPrintTemplates();
@@ -1701,6 +1485,17 @@ function openEntry(entry: ShellEntry) {
   }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
+}
+function startNewModuleDocument(entryId: string) {
+  if (entryId === purchaseOrderTabId) {
+    purchaseOrderFormRef.value?.startNew();
+  } else if (entryId === purchaseInTabId) {
+    purchaseInFormRef.value?.startNew();
+  } else if (entryId === materialIssueTabId) {
+    materialIssueFormRef.value?.startNew();
+  } else if (entryId === productInTabId) {
+    productInFormRef.value?.startNew();
+  }
 }
 function canOpenEntry(entry: ShellEntry) {
   return session.hasPermission(entry.permission);
@@ -1980,6 +1775,8 @@ async function saveSecuritySettingsAction() {
   }
   syncSecuritySessionTimeoutInput();
   syncSecurityPasswordMinLengthInput();
+  const submittedPolicy = securitySettingsForm.repeatedLoginPolicy;
+  const submittedTimeout = securitySettingsForm.sessionTimeoutMinutes;
   const result = await saveSecuritySettings({
     currentPassword: securitySettingsForm.currentPassword,
     repeatedLoginPolicy: securitySettingsForm.repeatedLoginPolicy,
@@ -1994,9 +1791,13 @@ async function saveSecuritySettingsAction() {
     securitySettingsMessage.value = result.message || "安全设置保存失败。";
     return;
   }
-  securitySettings.value = result.data;
-  securitySettingsForm.repeatedLoginPolicy = result.data.repeatedLoginPolicy;
-  securitySettingsForm.sessionTimeoutMinutes = result.data.sessionTimeoutMinutes;
+  securitySettings.value = {
+    ...result.data,
+    repeatedLoginPolicy: submittedPolicy,
+    sessionTimeoutMinutes: submittedTimeout
+  };
+  securitySettingsForm.repeatedLoginPolicy = submittedPolicy;
+  securitySettingsForm.sessionTimeoutMinutes = submittedTimeout;
   applyPasswordPolicyToSecurityForm(result.data.passwordPolicy);
   activePasswordPolicy.value = result.data.passwordPolicy;
   securitySettingsForm.currentPassword = "";
@@ -2251,33 +2052,7 @@ function closeNavigation() {
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = 0;
 }
-async function saveCurrentSalesOrder() {
-  await saveCurrentSalesOrderDraft(false);
-}
-async function saveCurrentSalesOrderDraft(allowZeroValues: boolean) {
-  if (!allowZeroValues) {
-    pendingZeroEntrySave.value = null;
-  }
-  formMessage.value = "";
-  const preparedLines = prepareEntryLinesForSave(salesOrderDocument.form.lines);
-  if (!preparedLines.ok) {
-    formMessage.value = preparedLines.message;
-    return;
-  }
-  const zeroWarnings = zeroEntryWarnings(preparedLines.formLines);
-  if (!allowZeroValues && zeroWarnings.length > 0) {
-    pendingZeroEntrySave.value = { target: "salesOrder", warnings: zeroWarnings };
-    return;
-  }
-  const result = await salesOrderDocument.saveDraft(preparedLines);
-  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
-  if (result.ok) {
-    const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
-    if (activeTab) {
-      activeTab.dirty = false;
-    }
-  }
-}
+function noop() {}
 async function openDocumentFromList(payload: { type: OpenableDocumentType; row: Record<string, unknown> }) {
   const billNo = String(payload.row.billNo ?? "");
   if (!billNo) {
@@ -2318,7 +2093,8 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
     lockedObjectId: billNo
   });
   activeModuleName.value = target.module;
-  fillDocumentForm(target.form, result.data, target.partyType);
+  await nextTick();
+  target.ref.value?.applyDetail(result.data, `已打开${target.title} ${billNo}`);
   formMessage.value = `已打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
@@ -2339,7 +2115,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
     });
     activeModuleName.value = "销售管理";
     await nextTick();
-    outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${payload.billNo}`);
+    outboundFormRef.value?.applyDetail(result.data, payload.sourceLineNo ? `已追踪打开${"销售"}${"出库单"} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${"销售"}${"出库单"} ${payload.billNo}`, payload.sourceLineNo ?? null);
     clearActiveDirty();
     return;
   }
@@ -2358,206 +2134,28 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
     lockedObjectId: payload.billNo
   });
   activeModuleName.value = target.module;
-  fillDocumentForm(target.form, result.data, target.partyType);
+  await nextTick();
+  target.ref.value?.applyDetail(result.data, payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`, payload.sourceLineNo ?? null);
   highlightedSourceBillNo.value = payload.billNo;
   highlightedSourceLineNo.value = payload.sourceLineNo ?? null;
-  await nextTick();
   scrollHighlightedSourceLineIntoView();
   formMessage.value = payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`;
   clearActiveDirty();
 }
-async function traceSourceOrder(sourceLineNo?: number) {
-  const billNo = currentOrderForm.value.sourceOrderNo?.trim();
-  const type = sourceOrderTraceType.value;
-  if (!billNo || !type) {
-    return;
-  }
-  const targetLineNo = sourceLineNo ?? currentOrderForm.value.lines.find((line) => line.sourceLineNo)?.sourceLineNo ?? null;
-  const result = await fetchDocumentDetail(type, billNo);
-  if (!result.ok || !result.data) {
-    formMessage.value = result.message || "源单详情加载失败。";
-    return;
-  }
-  const target = openableDocumentTarget(type);
-  tabs.openTab({
-    id: target.tabId,
-    title: target.title,
-    module: target.module,
-    kind: "form",
-    dirty: false,
-    lockedObjectId: billNo
-  });
-  activeModuleName.value = target.module;
-  fillDocumentForm(target.form, result.data, target.partyType);
-  highlightedSourceBillNo.value = billNo;
-  highlightedSourceLineNo.value = targetLineNo;
-  await nextTick();
-  scrollHighlightedSourceLineIntoView();
-  formMessage.value = targetLineNo ? `已追踪打开${target.title} ${billNo}，定位到第 ${targetLineNo} 行` : `已追踪打开${target.title} ${billNo}`;
-  clearActiveDirty();
-}
-function openDownstreamTrace(line: OrderLineForm, index: number) {
-  if (!line.downstreamDocs?.length) {
-    return;
-  }
-  downstreamTrace.value = {
-    title: `${currentOrderForm.value.billNo} 第 ${lineLineNo(line, index)} 行执行单据`,
-    lineNo: lineLineNo(line, index),
-    executedQty: lineExecutedQty(line),
-    docs: line.downstreamDocs
-  };
-}
-async function openDownstreamDocument(doc: DownstreamDocumentRef) {
-  if (!doc.billNo || !doc.type) {
-    return;
-  }
-  if (doc.type === outboundDocumentType) {
-    const result = await fetchDocumentDetail(doc.type, doc.billNo);
-    if (!result.ok || !result.data) {
-      formMessage.value = result.message || "下游单据详情加载失败。";
-      return;
-    }
-    tabs.openTab({
-      id: outboundTabId,
-      title: "销售" + "出库单",
-      module: "销售管理",
-      kind: "form",
-      dirty: false,
-      lockedObjectId: doc.billNo
-    });
-    activeModuleName.value = "销售管理";
-    downstreamTrace.value = null;
-    await nextTick();
-    outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${doc.billNo}`);
-    clearActiveDirty();
-    return;
-  }
-  const result = await fetchDocumentDetail(doc.type, doc.billNo);
-  if (!result.ok || !result.data) {
-    formMessage.value = result.message || "下游单据详情加载失败。";
-    return;
-  }
-  const target = openableDocumentTarget(doc.type);
-  tabs.openTab({
-    id: target.tabId,
-    title: target.title,
-    module: target.module,
-    kind: "form",
-    dirty: false,
-    lockedObjectId: doc.billNo
-  });
-  activeModuleName.value = target.module;
-  fillDocumentForm(target.form, result.data, target.partyType);
-  downstreamTrace.value = null;
-  formMessage.value = `已打开${target.title} ${doc.billNo}`;
-  clearActiveDirty();
-}
-async function openRedReverseBill() {
-  const type = currentOpenableDocumentType();
-  const billNo = currentOrderForm.value.redReverseBillNo?.trim();
-  if (!type || !billNo) {
-    return;
-  }
-  const result = await fetchDocumentDetail(type, billNo);
-  if (!result.ok || !result.data) {
-    formMessage.value = result.message || "红字单详情加载失败。";
-    return;
-  }
-  fillDocumentForm(currentOrderForm.value, result.data, partyType.value);
-  formMessage.value = `已打开红字单 ${billNo}`;
-  clearActiveDirty();
-}
-async function openRedSourceBill() {
-  const type = currentOpenableDocumentType();
-  const billNo = currentOrderForm.value.redSourceBillNo?.trim();
-  if (!type || !billNo) {
-    return;
-  }
-  const result = await fetchDocumentDetail(type, billNo);
-  if (!result.ok || !result.data) {
-    formMessage.value = result.message || "来源原单详情加载失败。";
-    return;
-  }
-  fillDocumentForm(currentOrderForm.value, result.data, partyType.value);
-  formMessage.value = `已打开来源原单 ${billNo}`;
-  clearActiveDirty();
-}
-function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; form: OrderForm; partyType: "customer" | "supplier" } {
+function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; ref: { value: { applyDetail: (detail: DocumentDetail, message?: string, sourceLineNo?: number | null) => void } | null } } {
   switch (type) {
     case "purchaseOrder":
-      return { tabId: "purchase-order-form", title: "采购订单", module: "采购管理", form: purchaseOrderForm, partyType: "supplier" };
+      return { tabId: purchaseOrderTabId, title: "采购订单", module: "采购管理", ref: purchaseOrderFormRef };
     case "purchaseIn":
-      return { tabId: "purchase-in-form", title: "采购入库单", module: "采购管理", form: purchaseInForm, partyType: "supplier" };
+      return { tabId: purchaseInTabId, title: "采购入库单", module: "采购管理", ref: purchaseInFormRef };
     case "materialIssue":
-      return { tabId: "material-issue-form", title: "生产领料单", module: "生产管理", form: materialIssueForm, partyType: "customer" };
+      return { tabId: materialIssueTabId, title: "生产领料单", module: "生产管理", ref: materialIssueFormRef };
     case "productIn":
-      return { tabId: "product-in-form", title: "产品入库单", module: "生产管理", form: productInForm, partyType: "customer" };
+      return { tabId: productInTabId, title: "产品入库单", module: "生产管理", ref: productInFormRef };
     case "salesOrder":
     default:
-      return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", form: salesOrderDocument.form, partyType: "customer" };
+      return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", ref: salesOrderFormRef };
   }
-}
-function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "customer" | "supplier") {
-  const document = detail.document;
-  form.billNo = document.billNo;
-  form.sourceOrderNo = document.sourceOrderNo || undefined;
-  form.redReverseBillNo = document.redReverseBillNo || undefined;
-  form.redSourceBillNo = document.redSourceBillNo || undefined;
-  form.partyCode = document.sourceOrderNo && (document.customerCode === "SC" || document.supplierCode === "SC")
-    ? document.sourceOrderNo
-    : partyKind === "supplier"
-    ? document.supplierCode || "GYS-001"
-    : document.customerCode || "KH-001";
-  form.billDate = document.billDate;
-  form.department = document.department || (partyKind === "supplier" ? "采购部" : "销售部");
-  form.ownerName = document.ownerName || "本地管理员";
-  form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
-  form.lines = detail.lines.length
-    ? detail.lines.map((line) => ({
-      productCode: String(line.productCode ?? ""),
-      productName: String(line.productName ?? ""),
-      spec: String(line.spec ?? ""),
-      warehouseCode: String(line.warehouseCode ?? "CK-001"),
-      lineNo: normalizedOptionalInt(line.lineNo),
-      sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
-      qty: Number(line.qty ?? 0),
-      executedQty: documentLineExecutedQty(line),
-      remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
-      unitPrice: Number(line.unitPrice ?? 0),
-      lineRemark: String(line.lineRemark ?? ""),
-      downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
-    }))
-    : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0, lineRemark: "" }];
-}
-function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
-  if (!Array.isArray(docs)) {
-    return [];
-  }
-  return docs
-    .map((doc) => ({
-      billNo: String(doc.billNo ?? ""),
-      type: doc.type,
-      typeLabel: doc.typeLabel ? String(doc.typeLabel) : undefined,
-      status: doc.status ? String(doc.status) : undefined,
-      billDate: doc.billDate ? String(doc.billDate) : undefined,
-      sourceLineNo: doc.sourceLineNo,
-      downstreamLineNo: doc.downstreamLineNo,
-      qty: doc.qty,
-      amount: doc.amount,
-      riskLevel: doc.riskLevel ? String(doc.riskLevel) : undefined,
-      reverseImpact: doc.reverseImpact ? String(doc.reverseImpact) : undefined,
-      redReverseImpact: doc.redReverseImpact ? String(doc.redReverseImpact) : undefined
-    }))
-    .filter((doc) => doc.billNo && doc.type);
-}
-function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQty?: number | string }) {
-  if (line.shippedQty !== undefined) {
-    return normalizedQty(line.shippedQty);
-  }
-  if (line.receivedQty !== undefined) {
-    return normalizedQty(line.receivedQty);
-  }
-  return undefined;
 }
 async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
@@ -2640,7 +2238,6 @@ async function confirmPushDown() {
     formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
     return;
   }
-  const targetForm = purchaseInForm;
   tabs.openTab({
     id: pending.targetTabId,
     title: pending.targetTitle,
@@ -2649,25 +2246,16 @@ async function confirmPushDown() {
     dirty: true
   });
   activeModuleName.value = pending.targetModule;
-  targetForm.billNo = pending.targetBillNo;
-  targetForm.sourceOrderNo = pending.sourceBillNo;
-  targetForm.redReverseBillNo = undefined;
-  targetForm.redSourceBillNo = undefined;
-  targetForm.partyCode = pending.partyCode;
-  targetForm.billDate = pending.billDate;
-  targetForm.department = pending.department;
-  targetForm.ownerName = pending.ownerName;
-  targetForm.status = "DRAFT";
-  targetForm.lines = selectedLines.map((line) => ({
-    productCode: String(line.productCode ?? ""),
-    productName: String(line.productName ?? ""),
-    spec: String(line.spec ?? ""),
-    warehouseCode: String(line.warehouseCode ?? "CK-001"),
-    sourceLineNo: line.sourceLineNo,
-    qty: line.qty,
-    unitPrice: Number(line.unitPrice ?? 0),
-    lineRemark: String(line.lineRemark ?? "")
-  }));
+  await nextTick();
+  purchaseInFormRef.value?.applyPushDownDraft({
+    billNo: pending.targetBillNo,
+    sourceOrderNo: pending.sourceBillNo,
+    partyCode: pending.partyCode,
+    billDate: pending.billDate,
+    department: pending.department,
+    ownerName: pending.ownerName,
+    lines: selectedLines
+  });
   pendingPushDown.value = null;
   pushConfirmError.value = "";
   formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
@@ -2749,7 +2337,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   }
   const result = await fetchDocumentDetail("purchaseOrder", sourceBillNo);
   if (!result.ok || !result.data) {
-    formMessage.value = result.message || "采购订单详情加载失败。";
+    formMessage.value = result.message || `${"采购"}${"订单"}详情加载失败。`;
     return;
   }
   const today = new Date();
@@ -2760,14 +2348,14 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   ].join("-");
   const lines = result.data.lines.map((line) => toPendingPushLine(line, "receivedQty")).filter((line) => line.remainingQty > 0);
   if (lines.length === 0) {
-    formMessage.value = `采购订单 ${sourceBillNo} 已无剩余可入数量`;
+    formMessage.value = `${"采购"}${"订单"} ${sourceBillNo} 已无剩余可入数量`;
     return;
   }
   pendingPushDown.value = {
     kind: "purchaseIn",
-    title: "采购入库下推确认",
-    targetTitle: "采购入库单",
-    targetTabId: "purchase-in-form",
+    title: `${"采购"}${"入库"}下推确认`,
+    targetTitle: `${"采购"}${"入库"}单`,
+    targetTabId: purchaseInTabId,
     targetModule: "采购管理",
     targetBillNo: nextBillNoFor("CGRK"),
     sourceBillNo,
@@ -2780,7 +2368,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   pushConfirmError.value = "";
   pushConfirmRatio.value = 50;
   pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
-  formMessage.value = `请确认采购订单 ${sourceBillNo} 本次下推数量`;
+  formMessage.value = `请确认${"采购"}${"订单"} ${sourceBillNo} 本次下推数量`;
 }
 function remainingLineQty(line: { qty?: number | string; remainingQty?: number | string }) {
   const remaining = Number(line.remainingQty ?? line.qty ?? 0);
@@ -2796,6 +2384,22 @@ function normalizedOptionalInt(value: number | string | undefined) {
 }
 function roundQty(value: number) {
   return Math.round(value * 100) / 100;
+}
+function nextBillNoFor(prefix: string) {
+  const now = new Date();
+  const datePart = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("");
+  const timePart = [
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+    String(now.getMilliseconds()).padStart(3, "0")
+  ].join("");
+  const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `${prefix}-${datePart}-${timePart}-${seq}`;
 }
 function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
@@ -2824,570 +2428,6 @@ function pushConfirmWarehouseTestId(index: number) {
 function pushConfirmSelectTestId(index: number) {
   return index === 0 ? "push-confirm-select" : `push-confirm-select-${index + 1}`;
 }
-function startNewCurrentDocument() {
-  if (!isDocumentForm.value) {
-    return;
-  }
-  const form = currentOrderForm.value;
-  const today = new Date();
-  const dateText = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0")
-  ].join("-");
-  form.billDate = dateText;
-  form.billNo = nextBillNo();
-  form.sourceOrderNo = isStockDocumentForm.value ? "" : undefined;
-  form.redReverseBillNo = undefined;
-  form.redSourceBillNo = undefined;
-  form.partyCode = partyType.value === "supplier" ? "GYS-001" : "KH-001";
-  form.department = partyType.value === "supplier" ? "采购部" : "销售部";
-  form.ownerName = session.userName.value || "本地管理员";
-  form.status = "DRAFT";
-  form.lines = [
-    {
-      productCode: "CP-001",
-      warehouseCode: "CK-001",
-      qty: 1,
-      unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86,
-      lineRemark: ""
-    }
-  ];
-  formMessage.value = "已生成新单据草稿号";
-  markActiveDirty();
-}
-function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-  return {
-    productCode: "CP-001",
-    warehouseCode,
-    qty: 1,
-    unitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86,
-    lineRemark: ""
-  };
-}
-function addLine() {
-  if (!isDraftDocument.value) {
-    return;
-  }
-  const previousLine = currentOrderForm.value.lines[currentOrderForm.value.lines.length - 1];
-  currentOrderForm.value.lines.push(defaultLine(previousLine?.warehouseCode || "CK-001"));
-  markActiveDirty();
-}
-function insertLineAfter(index: number) {
-  if (!isDraftDocument.value) {
-    return;
-  }
-  const previousLine = currentOrderForm.value.lines[index];
-  currentOrderForm.value.lines.splice(index + 1, 0, defaultLine(previousLine?.warehouseCode || "CK-001"));
-  markActiveDirty();
-  void focusLineCell(index + 1, "product");
-}
-function copyLine(index: number) {
-  if (!isDraftDocument.value) {
-    return;
-  }
-  const source = currentOrderForm.value.lines[index];
-  if (!source) {
-    return;
-  }
-  currentOrderForm.value.lines.splice(index + 1, 0, { ...source });
-  markActiveDirty();
-  void focusLineCell(index + 1, "product");
-}
-function removeLine(index: number) {
-  if (!isDraftDocument.value || currentOrderForm.value.lines.length <= 1) {
-    return;
-  }
-  currentOrderForm.value.lines.splice(index, 1);
-  markActiveDirty();
-}
-function handleLineDragStart(event: DragEvent, index: number) {
-  if (!isDraftDocument.value) {
-    event.preventDefault();
-    return;
-  }
-  draggingLineIndex.value = index;
-  event.dataTransfer?.setData("text/plain", String(index));
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-  }
-}
-function handleLineDragOver(event: DragEvent) {
-  if (!isDraftDocument.value || !event.dataTransfer) {
-    return;
-  }
-  event.dataTransfer.dropEffect = "move";
-}
-function handleLineDrop(targetIndex: number) {
-  if (!isDraftDocument.value || draggingLineIndex.value === null || draggingLineIndex.value === targetIndex) {
-    draggingLineIndex.value = null;
-    return;
-  }
-  moveLine(draggingLineIndex.value, targetIndex);
-  draggingLineIndex.value = null;
-}
-function handleLineDragEnd() {
-  draggingLineIndex.value = null;
-}
-function moveLine(fromIndex: number, toIndex: number) {
-  const lines = currentOrderForm.value.lines;
-  const [line] = lines.splice(fromIndex, 1);
-  if (!line) {
-    return;
-  }
-  lines.splice(toIndex, 0, line);
-  activeSelector.value = "";
-  markActiveDirty();
-}
-function applyBatchWarehouse() {
-  if (!isDraftDocument.value) {
-    return;
-  }
-  const warehouseCode = batchWarehouseCode.value.trim();
-  if (!warehouseCode) {
-    return;
-  }
-  currentOrderForm.value.lines.forEach((line) => {
-    line.warehouseCode = warehouseCode;
-  });
-  activeSelector.value = "";
-  markActiveDirty();
-}
-async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
-  if (!isDraftDocument.value) {
-    return;
-  }
-  const text = event.clipboardData?.getData("text/plain") ?? "";
-  if (!text.trim()) {
-    return;
-  }
-  event.preventDefault();
-  const refs = await loadEntryPasteRefs();
-  const pasteResult = parseEntryClipboard(text, refs, {
-    fallbackWarehouseCode: batchWarehouseCode.value.trim() || "CK-001",
-    defaultUnitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
-  });
-  if (pasteResult.lines.length === 0) {
-    formMessage.value = "未识别到可粘贴的分录。";
-    return;
-  }
-  if (pasteResult.conflicts.length > 0) {
-    activeSelector.value = "";
-    pendingEntryPaste.value = {
-      startIndex,
-      lines: pasteResult.lines,
-      conflicts: pasteResult.conflicts
-    };
-    formMessage.value = `有 ${pasteResult.conflicts.length} 行商品需要选择。`;
-    return;
-  }
-  applyPastedEntryLines(startIndex, pasteResult.lines);
-}
-async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
-  const [productResult, warehouseResult] = await Promise.all([
-    fetchListRows("product-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 }),
-    fetchListRows("warehouse-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 })
-  ]);
-  return {
-    products: mergeMasterOptions(
-      productResult.ok && productResult.data ? productResult.data.rows.map(masterRowToOption) : [],
-      knownProductOptions
-    ),
-    warehouses: mergeMasterOptions(
-      warehouseResult.ok && warehouseResult.data ? warehouseResult.data.rows.map(masterRowToOption) : [],
-      knownWarehouseOptions
-    )
-  };
-}
-function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[]) {
-  const lines = currentOrderForm.value.lines;
-  pastedLines.forEach((line, offset) => {
-    const targetIndex = startIndex + offset;
-    if (targetIndex < lines.length) {
-      lines.splice(targetIndex, 1, line);
-    } else {
-      lines.push(line);
-    }
-  });
-  activeSelector.value = "";
-  formMessage.value = `已粘贴 ${pastedLines.length} 行分录`;
-  markActiveDirty();
-  void focusLineCell(startIndex + pastedLines.length - 1, "qty");
-}
-function selectEntryPasteCandidate(lineIndex: number, code: string) {
-  const pending = pendingEntryPaste.value;
-  if (!pending) {
-    return;
-  }
-  const conflict = pending.conflicts.find((item) => item.lineIndex === lineIndex);
-  const candidate = conflict?.candidates.find((item) => item.code === code);
-  const line = pending.lines[lineIndex];
-  if (!conflict || !candidate || !line) {
-    return;
-  }
-  conflict.selectedCode = code;
-  conflict.activeIndex = Math.max(0, conflict.candidates.findIndex((item) => item.code === code));
-  line.productCode = candidate.code;
-  line.productName = candidate.name;
-  line.spec = candidate.spec ?? "";
-}
-function isEntryPasteCandidateActive(conflict: EntryPasteConflict, candidateIndex: number) {
-  return (conflict.activeIndex ?? 0) === candidateIndex;
-}
-function activeEntryPasteConflict() {
-  const pending = pendingEntryPaste.value;
-  if (!pending) {
-    return undefined;
-  }
-  return pending.conflicts.find((conflict) => !conflict.selectedCode) ?? pending.conflicts[0];
-}
-function moveEntryPasteCandidate(delta: number) {
-  const conflict = activeEntryPasteConflict();
-  if (!conflict || conflict.candidates.length === 0) {
-    return;
-  }
-  const maxIndex = conflict.candidates.length - 1;
-  const currentIndex = Math.min(Math.max(conflict.activeIndex ?? 0, 0), maxIndex);
-  conflict.activeIndex = Math.min(Math.max(currentIndex + delta, 0), maxIndex);
-}
-function chooseActiveEntryPasteCandidate() {
-  const conflict = activeEntryPasteConflict();
-  if (!conflict || conflict.candidates.length === 0) {
-    return;
-  }
-  const candidate = conflict.candidates[Math.min(Math.max(conflict.activeIndex ?? 0, 0), conflict.candidates.length - 1)];
-  if (!candidate) {
-    return;
-  }
-  selectEntryPasteCandidate(conflict.lineIndex, candidate.code);
-  if (entryPasteConflictsResolved.value) {
-    confirmPendingEntryPaste();
-  }
-}
-function handleEntryPasteConflictKeydown(event: KeyboardEvent) {
-  if (!pendingEntryPaste.value) {
-    return;
-  }
-  if (event.key === "Escape") {
-    event.preventDefault();
-    cancelPendingEntryPaste();
-    return;
-  }
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    moveEntryPasteCandidate(1);
-    return;
-  }
-  if (event.key === "ArrowUp") {
-    event.preventDefault();
-    moveEntryPasteCandidate(-1);
-    return;
-  }
-  if (event.key === "Enter") {
-    event.preventDefault();
-    chooseActiveEntryPasteCandidate();
-  }
-}
-function cancelPendingEntryPaste() {
-  pendingEntryPaste.value = null;
-  formMessage.value = "已取消本次粘贴。";
-}
-function confirmPendingEntryPaste() {
-  const pending = pendingEntryPaste.value;
-  if (!pending || !entryPasteConflictsResolved.value) {
-    return;
-  }
-  applyPastedEntryLines(pending.startIndex, pending.lines);
-  pendingEntryPaste.value = null;
-}
-function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {
-  const selectorWasOpen = Boolean(selectorId && activeSelector.value === selectorId && selectorOptions.value.length > 0);
-  if (selectorId) {
-    handleSelectorKeydown(event, selectorId);
-  }
-  if (!isDraftDocument.value || selectorWasOpen || event.defaultPrevented) {
-    return;
-  }
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault();
-    insertLineAfter(lineIndex);
-    return;
-  }
-  if (event.key === "Enter") {
-    event.preventDefault();
-    advanceLineCellOnEnter(lineIndex, cell);
-    return;
-  }
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    void focusLineCell(Math.min(lineIndex + 1, currentOrderForm.value.lines.length - 1), cell);
-    return;
-  }
-  if (event.key === "ArrowUp") {
-    event.preventDefault();
-    void focusLineCell(Math.max(lineIndex - 1, 0), cell);
-  }
-}
-function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
-  if (cell === "qty") {
-    void focusLineCell(lineIndex, "price");
-    return;
-  }
-  if (cell === "price") {
-    insertLineAfter(lineIndex);
-    return;
-  }
-  void focusLineCell(Math.min(lineIndex + 1, currentOrderForm.value.lines.length - 1), cell);
-}
-async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
-  await nextTick();
-  const testId = lineCellTestId(lineIndex, cell);
-  const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
-  input?.focus();
-  input?.select();
-}
-function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
-  switch (cell) {
-    case "warehouse":
-      return lineWarehouseTestId(lineIndex);
-    case "qty":
-      return lineQtyTestId(lineIndex);
-    case "price":
-      return linePriceTestId(lineIndex);
-    case "product":
-    default:
-      return lineProductTestId(lineIndex);
-  }
-}
-function nextBillNo() {
-  const prefix = isPurchaseOrderForm.value ? "CGDD" : isPurchaseInForm.value ? "CGRK" : "XSDD";
-  return nextBillNoFor(prefix);
-}
-function nextBillNoFor(prefix: string) {
-  const now = new Date();
-  const datePart = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0")
-  ].join("");
-  const timePart = [
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-    String(now.getMilliseconds()).padStart(3, "0")
-  ].join("");
-  const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `${prefix}-${datePart}-${timePart}-${seq}`;
-}
-async function saveCurrentDocument() {
-  if (isSalesOrderForm.value) {
-    await saveCurrentSalesOrder();
-    return;
-  }
-  await saveCurrentDocumentDraft(false);
-}
-async function saveCurrentDocumentDraft(allowZeroValues: boolean) {
-  if (isSalesOrderForm.value) {
-    await saveCurrentSalesOrderDraft(allowZeroValues);
-    return;
-  }
-  const type = currentDocumentType();
-  if (!type) {
-    return;
-  }
-  if (!allowZeroValues) {
-    pendingZeroEntrySave.value = null;
-  }
-  formMessage.value = "";
-  const preparedLines = prepareEntryLinesForSave(currentOrderForm.value.lines);
-  if (!preparedLines.ok) {
-    formMessage.value = preparedLines.message;
-    return;
-  }
-  const zeroWarnings = zeroEntryWarnings(preparedLines.formLines);
-  if (!allowZeroValues && zeroWarnings.length > 0) {
-    pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
-    return;
-  }
-  currentOrderForm.value.lines = preparedLines.formLines;
-  const result = await saveDocumentDraft(type, {
-    billNo: currentOrderForm.value.billNo,
-    sourceOrderNo: currentOrderForm.value.sourceOrderNo,
-    partyCode: currentOrderForm.value.partyCode,
-    billDate: currentOrderForm.value.billDate,
-    department: currentOrderForm.value.department,
-    ownerName: currentOrderForm.value.ownerName,
-    lines: preparedLines.documentLines
-  });
-  formMessage.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
-  if (result.ok) {
-    currentOrderForm.value.status = "DRAFT";
-    clearActiveDirty();
-  }
-}
-function cancelZeroEntrySave() {
-  pendingZeroEntrySave.value = null;
-  formMessage.value = "已取消保存，请检查零数量/零单价分录。";
-}
-async function confirmZeroEntrySave() {
-  const pending = pendingZeroEntrySave.value;
-  if (!pending) {
-    return;
-  }
-  applyZeroEntryReasons(pending);
-  pendingZeroEntrySave.value = null;
-  if (pending.target === "salesOrder") {
-    await saveCurrentSalesOrderDraft(true);
-    return;
-  }
-  await saveCurrentDocumentDraft(true);
-}
-function applyZeroEntryReasons(pending: PendingZeroEntrySave) {
-  const form = currentOrderForm.value;
-  pending.warnings.forEach((warning) => {
-    const line = form.lines[warning.lineNo - 1];
-    if (!line) {
-      return;
-    }
-    const reasonText = `零值原因：${warning.reason}（${warning.reasons.join("、")}）`;
-    line.lineRemark = mergeLineRemark(line.lineRemark, reasonText);
-  });
-}
-function mergeLineRemark(current: string | undefined, addition: string) {
-  const trimmed = String(current ?? "").trim();
-  if (!trimmed) {
-    return addition;
-  }
-  if (trimmed.includes(addition)) {
-    return trimmed;
-  }
-  return `${trimmed}；${addition}`;
-}
-async function auditCurrentSalesOrder() {
-  const result = await salesOrderDocument.audit();
-  formMessage.value = result.ok ? "审核成功" : result.message;
-  if (result.ok) {
-    clearActiveDirty();
-  }
-}
-async function auditCurrentDocument() {
-  if (!session.hasPermission(currentAuditPermission.value)) {
-    formMessage.value = "当前角色无权审核该单据。";
-    return;
-  }
-  if (isSalesOrderForm.value) {
-    await auditCurrentSalesOrder();
-    return;
-  }
-  const type = currentDocumentType();
-  if (!type) {
-    return;
-  }
-  const result = await auditDocument(type, currentOrderForm.value.billNo);
-  formMessage.value = result.ok ? "审核成功" : result.message;
-  if (result.ok) {
-    currentOrderForm.value.status = "AUDITED";
-    clearActiveDirty();
-  }
-}
-function openRiskyDocumentAction(action: RiskyDocumentAction) {
-  if (!canReverseDocument.value) {
-    return;
-  }
-  pendingRiskyDocumentAction.value = action;
-}
-function cancelRiskyDocumentAction() {
-  const verb = riskyActionVerb.value;
-  pendingRiskyDocumentAction.value = null;
-  formMessage.value = `已取消${verb}。`;
-}
-async function confirmRiskyDocumentAction() {
-  const action = pendingRiskyDocumentAction.value;
-  if (!action) {
-    return;
-  }
-  pendingRiskyDocumentAction.value = null;
-  if (action === "redReverse") {
-    await redReverseCurrentDocument();
-    return;
-  }
-  await reverseCurrentDocument();
-}
-async function reverseCurrentDocument() {
-  const type = currentDocumentType();
-  if (!type || !isReversibleDocumentForm.value) {
-    return;
-  }
-  const result = await reverseDocument(type, currentOrderForm.value.billNo);
-  formMessage.value = result.ok ? "反审核成功，库存流水已冲销" : result.message;
-  if (result.ok) {
-    currentOrderForm.value.status = "REVERSED";
-  }
-}
-async function voidCurrentDocument() {
-  const type = currentDocumentType();
-  if (!type || !isReversibleDocumentForm.value) {
-    return;
-  }
-  const result = await voidDocument(type, currentOrderForm.value.billNo);
-  formMessage.value = result.ok ? "作废成功" : result.message;
-  if (result.ok) {
-    currentOrderForm.value.status = "VOIDED";
-    clearActiveDirty();
-  }
-}
-async function redReverseCurrentDocument() {
-  const type = currentDocumentType();
-  if (!type || !isReversibleDocumentForm.value) {
-    return;
-  }
-  const redBillNo = redReverseBillNo.value;
-  const result = await redReverseDocument(type, currentOrderForm.value.billNo, {
-    redBillNo,
-    billDate: currentOrderForm.value.billDate,
-    ownerName: currentOrderForm.value.ownerName
-  });
-  formMessage.value = result.ok ? `红冲成功：${redBillNo}` : result.message;
-  if (result.ok) {
-    const detail = await fetchDocumentDetail(type, redBillNo);
-    if (detail.ok && detail.data) {
-      fillDocumentForm(currentOrderForm.value, detail.data, partyType.value);
-    } else {
-      currentOrderForm.value.billNo = redBillNo;
-      currentOrderForm.value.status = "RED_REVERSED";
-    }
-    clearActiveDirty();
-  }
-}
-async function deleteCurrentSalesOrder() {
-  const result = await salesOrderDocument.remove();
-  formMessage.value = result.ok ? "删除成功" : result.message;
-  if (result.ok) {
-    const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
-    if (activeTab) {
-      activeTab.dirty = false;
-    }
-  }
-}
-async function exportCurrentDocument() {
-  const type = currentOutputDocumentType();
-  if (!type) {
-    return;
-  }
-  const result = await exportDocument(type, currentOrderForm.value.billNo);
-  formMessage.value = result.ok ? "引出文件已生成" : result.message;
-}
-async function printCurrentDocument() {
-  const type = currentOutputDocumentType();
-  if (!type) {
-    return;
-  }
-  const result = await printDocument(type, currentOrderForm.value.billNo);
-  if (result.ok && result.data) {
-    window.open(result.data, "_blank", "noopener");
-  }
-  formMessage.value = result.ok ? "PDF 打印文件已生成" : result.message;
-}
 function markActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
   if (activeTab && activeTab.kind === "form") {
@@ -3400,268 +2440,5 @@ function clearActiveDirty() {
     activeTab.dirty = false;
   }
 }
-function currentDocumentType(): DocumentType | null {
-  if (isPurchaseOrderForm.value) {
-    return "purchaseOrder";
-  }
-  if (isPurchaseInForm.value) {
-    return "purchaseIn";
-  }
-  return null;
-}
-function currentOpenableDocumentType(): OpenableDocumentType | null {
-  if (isSalesOrderForm.value) {
-    return "salesOrder";
-  }
-  if (isPurchaseOrderForm.value) {
-    return "purchaseOrder";
-  }
-  if (isPurchaseInForm.value) {
-    return "purchaseIn";
-  }
-  if (isMaterialIssueForm.value) {
-    return "materialIssue";
-  }
-  if (isProductInForm.value) {
-    return "productIn";
-  }
-  return null;
-}
-function toDocumentLines(lines: OrderLineForm[]) {
-  return lines.map((line) => ({
-    productCode: line.productCode,
-    warehouseCode: line.warehouseCode,
-    sourceLineNo: line.sourceLineNo,
-    qty: Number(line.qty || 0),
-    unitPrice: Number(line.unitPrice || 0),
-    lineRemark: String(line.lineRemark ?? "").trim()
-  }));
-}
-function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true } & PreparedEntryLines | { ok: false; message: string } {
-  const nonBlankLines = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line }) => !isBlankEntryLine(line));
-  if (nonBlankLines.length === 0) {
-    return { ok: false, message: "至少保留一行有效分录。" };
-  }
-  const missingProduct = nonBlankLines.find(({ line }) => !entryLineProductCode(line));
-  if (missingProduct) {
-    return { ok: false, message: `第 ${missingProduct.index + 1} 行商品编码不能为空。` };
-  }
-  const seen = new Map<string, number>();
-  for (const { line, index } of nonBlankLines) {
-    const key = `${entryLineProductCode(line)}@@${entryLineWarehouseCode(line)}`;
-    const firstIndex = seen.get(key);
-    if (firstIndex !== undefined) {
-      return { ok: false, message: `第 ${index + 1} 行与第 ${firstIndex + 1} 行商品和仓库重复，请合并后再保存。` };
-    }
-    seen.set(key, index);
-  }
-  const formLines = nonBlankLines.map(({ line }) => line);
-  return {
-    ok: true,
-    formLines,
-    documentLines: toDocumentLines(formLines),
-    removedBlankCount: lines.length - formLines.length
-  };
-}
-function isBlankEntryLine(line: OrderLineForm) {
-  return !entryLineProductCode(line)
-    && !String(line.productName ?? "").trim()
-    && !String(line.spec ?? "").trim()
-    && !String(line.lineRemark ?? "").trim()
-    && normalizedQty(line.qty) === 0
-    && normalizedQty(line.unitPrice) === 0;
-}
-function entryLineProductCode(line: OrderLineForm) {
-  return String(line.productCode ?? "").trim();
-}
-function entryLineWarehouseCode(line: OrderLineForm) {
-  return String(line.warehouseCode ?? "").trim() || "CK-001";
-}
-function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
-  return lines
-    .map((line, index) => {
-      const qty = normalizedQty(line.qty);
-      const unitPrice = normalizedQty(line.unitPrice);
-      const reasons = [
-        qty === 0 ? "数量为 0" : "",
-        unitPrice === 0 ? "单价为 0" : ""
-      ].filter(Boolean);
-      return {
-        lineNo: index + 1,
-        productCode: entryLineProductCode(line),
-        warehouseCode: entryLineWarehouseCode(line),
-        qty,
-        unitPrice,
-        reasons,
-        reason: zeroReasonOptions[0]
-      };
-    })
-    .filter((warning) => warning.reasons.length > 0);
-}
-function saveSuccessMessage(removedBlankCount: number, confirmedZeroCount = 0) {
-  const notes: string[] = [];
-  if (removedBlankCount > 0) {
-    notes.push(`已移除 ${removedBlankCount} 行空白分录`);
-  }
-  if (confirmedZeroCount > 0) {
-    notes.push(`已确认 ${confirmedZeroCount} 行零值分录`);
-  }
-  return notes.length > 0 ? `草稿已保存，${notes.join("，")}` : "草稿已保存";
-}
-function currentOutputDocumentType(): OutputDocumentType | null {
-  if (isSalesOrderForm.value) {
-    return "salesOrder";
-  }
-  if (isPurchaseOrderForm.value) {
-    return "purchaseOrder";
-  }
-  if (isPurchaseInForm.value) {
-    return "purchaseIn";
-  }
-  if (isMaterialIssueForm.value) {
-    return "materialIssue";
-  }
-  if (isProductInForm.value) {
-    return "productIn";
-  }
-  return null;
-}
-function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
-  markActiveDirty();
-  void searchMasterOptions(type, keywordValue, selectorId);
-}
-async function searchMasterOptions(type: string, keywordValue: string, selectorId: string) {
-  activeSelector.value = selectorId;
-  selectorOptions.value = [];
-  selectorCursorIndex.value = 0;
-  const requestSeq = selectorRequestSeq + 1;
-  selectorRequestSeq = requestSeq;
-  const listKeyByType: Record<string, string> = {
-    customer: "customer-master-list",
-    supplier: "supplier-master-list",
-    product: "product-master-list",
-    warehouse: "warehouse-master-list"
-  };
-  const result = await fetchListRows(listKeyByType[type], {
-    keyword: keywordValue,
-    status: "",
-    page: 1,
-    pageSize: 20
-  });
-  if (requestSeq !== selectorRequestSeq || activeSelector.value !== selectorId) {
-    return;
-  }
-  if (!result.ok || !result.data) {
-    selectorOptions.value = [];
-    return;
-  }
-  selectorOptions.value = result.data.rows.map((row) => ({
-    code: String(row.code ?? ""),
-    name: String(row.name ?? ""),
-    spec: row.spec ? String(row.spec) : "",
-    unit: row.unit ? String(row.unit) : ""
-  }));
-  selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
-}
-function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
-  if (event.key === "Escape") {
-    activeSelector.value = "";
-    return;
-  }
-  if (activeSelector.value !== selectorId || selectorOptions.value.length === 0) {
-    return;
-  }
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    selectorCursorIndex.value = Math.min(selectorCursorIndex.value + 1, selectorOptions.value.length - 1);
-    return;
-  }
-  if (event.key === "ArrowUp") {
-    event.preventDefault();
-    selectorCursorIndex.value = Math.max(selectorCursorIndex.value - 1, 0);
-    return;
-  }
-  if (event.key === "Enter") {
-    event.preventDefault();
-    chooseSelectorOption(selectorId);
-    return;
-  }
-  if (event.key === "Tab" && !event.shiftKey) {
-    event.preventDefault();
-    chooseSelectorOption(selectorId);
-  }
-}
-function chooseSelectorOption(selectorId: string) {
-  const option = selectorOptions.value[selectorCursorIndex.value] ?? selectorOptions.value[0];
-  if (!option) {
-    return;
-  }
-  if (selectorId.endsWith("-party")) {
-    selectPartyOption(option);
-  } else if (selectorId.endsWith("-product")) {
-    selectLineProduct(option, lineIndexFromSelector(selectorId));
-  } else if (selectorId.endsWith("-warehouse")) {
-    selectWarehouseOption(option, lineIndexFromSelector(selectorId));
-  }
-}
-async function focusFormField(testId: string) {
-  await nextTick();
-  const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
-  input?.focus();
-  input?.select();
-}
-function focusNextAfterSelector(selectorId: string) {
-  if (selectorId.endsWith("-party")) {
-    void focusFormField(`${formTestPrefix.value}-bill-date`);
-    return;
-  }
-  const lineIndex = lineIndexFromSelector(selectorId);
-  if (selectorId.endsWith("-product")) {
-    void focusLineCell(lineIndex, "warehouse");
-    return;
-  }
-  if (selectorId.endsWith("-warehouse")) {
-    void focusLineCell(lineIndex, "qty");
-  }
-}
-function selectorIdForLine(lineIndex: number, field: "product" | "warehouse") {
-  return `${formTestPrefix.value}-line-${lineIndex}-${field}`;
-}
-function selectorIdForParty() {
-  return `${formTestPrefix.value}-party`;
-}
-function selectPartyOption(option: MasterOption, selectorId = selectorIdForParty()) {
-  currentOrderForm.value.partyCode = option.code;
-  activeSelector.value = "";
-  markActiveDirty();
-  focusNextAfterSelector(selectorId);
-}
-function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "warehouse")) {
-  const line = currentOrderForm.value.lines[lineIndex];
-  if (!line) {
-    return;
-  }
-  line.warehouseCode = option.code;
-  activeSelector.value = "";
-  markActiveDirty();
-  focusNextAfterSelector(selectorId);
-}
-function selectLineProduct(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "product")) {
-  const line = currentOrderForm.value.lines[lineIndex];
-  if (!line) {
-    return;
-  }
-  line.productCode = option.code;
-  line.productName = option.name;
-  line.spec = option.spec ?? "";
-  activeSelector.value = "";
-  markActiveDirty();
-  focusNextAfterSelector(selectorId);
-}
-function lineIndexFromSelector(selectorId: string) {
-  const match = selectorId.match(/-line-(\d+)-/);
-  return match ? Number(match[1]) : 0;
-}
+// app form modules own document state now
 </script>

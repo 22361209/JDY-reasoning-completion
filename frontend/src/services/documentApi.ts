@@ -16,9 +16,12 @@ interface DocumentDraftPayload {
 }
 
 const endpointByType = {
+  salesOrder: "/api/sales-orders",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
-  salesOut: "/api/sales-outs"
+  salesOut: "/api/sales-outs",
+  materialIssue: "/api/production/material-issues",
+  productIn: "/api/production/product-ins"
 } as const;
 
 const detailEndpointByType = {
@@ -173,7 +176,7 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     ownerName: payload.ownerName,
     lines: payload.lines
   };
-  if (type === "salesOut") {
+  if (type === "salesOut" || type === "salesOrder") {
     return { ...base, customerCode: payload.partyCode };
   }
   return { ...base, supplierCode: payload.partyCode };
