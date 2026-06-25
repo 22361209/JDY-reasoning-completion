@@ -47,6 +47,7 @@
         <label>
           <span>会话超时（分钟）</span>
           <input
+            :ref="page.setSecuritySessionTimeoutInput"
             v-model.number="page.securitySettingsForm.sessionTimeoutMinutes"
             data-testid="security-session-timeout-minutes"
             type="number"
@@ -59,6 +60,7 @@
         <label>
           <span>密码最小长度</span>
           <input
+            :ref="page.setSecurityPasswordMinLengthInput"
             v-model.number="page.securitySettingsForm.passwordMinLength"
             data-testid="security-password-min-length"
             type="number"

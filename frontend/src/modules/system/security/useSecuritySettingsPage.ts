@@ -1,4 +1,4 @@
-import { onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref, type ComponentPublicInstance } from "vue";
 import {
   fetchSecuritySettings,
   saveSecuritySettings,
@@ -102,8 +102,8 @@ export function useSecuritySettingsPage(options: {
 
   function syncSecuritySessionTimeoutInput() {
     securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout(
-      document.querySelector<HTMLInputElement>("[data-testid='security-session-timeout-minutes']")?.value
-        ?? securitySessionTimeoutInput.value?.value
+      securitySessionTimeoutInput.value?.value
+        ?? document.querySelector<HTMLInputElement>("[data-testid='security-session-timeout-minutes']")?.value
         ?? securitySettingsForm.sessionTimeoutMinutes
     );
   }
@@ -119,8 +119,8 @@ export function useSecuritySettingsPage(options: {
 
   function syncSecurityPasswordMinLengthInput() {
     securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength(
-      document.querySelector<HTMLInputElement>("[data-testid='security-password-min-length']")?.value
-        ?? securityPasswordMinLengthInput.value?.value
+      securityPasswordMinLengthInput.value?.value
+        ?? document.querySelector<HTMLInputElement>("[data-testid='security-password-min-length']")?.value
         ?? securitySettingsForm.passwordMinLength
     );
   }
@@ -138,6 +138,14 @@ export function useSecuritySettingsPage(options: {
     securitySettingsForm.passwordRequireSymbol = policy.requireSymbol;
   }
 
+  function setSecuritySessionTimeoutInput(element: Element | ComponentPublicInstance | null) {
+    securitySessionTimeoutInput.value = element instanceof HTMLInputElement ? element : null;
+  }
+
+  function setSecurityPasswordMinLengthInput(element: Element | ComponentPublicInstance | null) {
+    securityPasswordMinLengthInput.value = element instanceof HTMLInputElement ? element : null;
+  }
+
   return {
     securitySettings,
     securitySettingsMessage,
@@ -147,7 +155,9 @@ export function useSecuritySettingsPage(options: {
     loadSecuritySettings,
     saveSecuritySettingsAction,
     updateSecuritySessionTimeout,
-    updateSecurityPasswordMinLength
+    updateSecurityPasswordMinLength,
+    setSecuritySessionTimeoutInput,
+    setSecurityPasswordMinLengthInput
   };
 }
 
