@@ -11,6 +11,8 @@ export function useSecuritySettingsPage(options: {
   canManage: () => boolean;
   onPasswordPolicyUpdated: (policy: PasswordPolicySettings) => void;
 }) {
+  let settingsRequestVersion = 0;
+  let savingSettings = false;
   const securitySettings = ref<SecuritySettings | null>(null);
   const securitySettingsMessage = ref("");
   const securitySessionTimeoutInput = ref<HTMLInputElement | null>(null);
@@ -38,7 +40,11 @@ export function useSecuritySettingsPage(options: {
   onMounted(loadSecuritySettings);
 
   async function loadSecuritySettings() {
+    const requestVersion = ++settingsRequestVersion;
     const result = await fetchSecuritySettings();
+    if (requestVersion !== settingsRequestVersion || savingSettings) {
+      return;
+    }
     if (!result.ok || !result.data) {
       securitySettingsMessage.value = result.message || "安全设置加载失败。";
       return;
@@ -58,6 +64,8 @@ export function useSecuritySettingsPage(options: {
     }
     syncSecuritySessionTimeoutInput();
     syncSecurityPasswordMinLengthInput();
+    savingSettings = true;
+    settingsRequestVersion += 1;
     const submittedPolicy = securitySettingsForm.repeatedLoginPolicy;
     const submittedTimeout = securitySettingsForm.sessionTimeoutMinutes;
     const result = await saveSecuritySettings({
@@ -70,6 +78,7 @@ export function useSecuritySettingsPage(options: {
       passwordRequireDigit: securitySettingsForm.passwordRequireDigit,
       passwordRequireSymbol: securitySettingsForm.passwordRequireSymbol
     });
+    savingSettings = false;
     if (!result.ok || !result.data) {
       securitySettingsMessage.value = result.message || "安全设置保存失败。";
       return;

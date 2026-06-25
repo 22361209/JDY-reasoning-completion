@@ -245,25 +245,18 @@
       </div>
     </div>
 
-    <div v-if="createDialogOpen || editDialogOpen" class="modal-mask" data-testid="master-create-dialog">
-      <div class="dialog master-create-dialog">
-        <h3>{{ editDialogOpen ? "编辑" : "新增" }}{{ definition.title }}</h3>
-        <div class="master-create-fields">
-          <label v-for="field in createFields" :key="field.name">
-            {{ field.label }}
-            <select v-if="field.options" v-model="createForm[field.name]">
-              <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
-            </select>
-            <input v-else v-model="createForm[field.name]" :placeholder="field.placeholder" />
-          </label>
-        </div>
-        <p v-if="createError" class="form-error" data-testid="master-create-error">{{ createError }}</p>
-        <div class="dialog-actions">
-          <button type="button" @click="closeMasterDialog">取消</button>
-          <button class="primary-action" type="button" data-testid="master-create-save" @click="editDialogOpen ? submitEdit() : submitCreate()">保存</button>
-        </div>
-      </div>
-    </div>
+    <component
+      :is="masterFormComponent"
+      v-if="masterFormComponent"
+      :open="masterDialogOpen"
+      :editing="masterEditing"
+      :title="definition.title"
+      :form="masterForm"
+      :error="masterCreateError"
+      @close="masterMaintenance.closeDialog"
+      @save="masterMaintenance.submitForm"
+      @update-field="masterMaintenance.updateField"
+    />
 
     <div
       v-if="filterDialogOpen && activeFilterColumn"
@@ -312,17 +305,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
-  createMasterData,
   deleteListPreset,
-  deleteMasterData,
   exportListRows,
   fetchListPresets,
   fetchListRows,
   saveListPreset,
-  setMasterDataStatus,
-  updateMasterData,
   type ListFilterPreset
 } from "../services/listApi";
+import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
 import { useSessionStore } from "../stores/session";
 
 interface ListColumn {
@@ -348,13 +338,6 @@ interface ColumnFilter {
   value: string;
 }
 
-interface CreateField {
-  name: string;
-  label: string;
-  placeholder?: string;
-  options?: string[];
-}
-
 type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn";
 
 const props = defineProps<{
@@ -374,21 +357,16 @@ const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
 const stateMessage = ref("");
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
-const createDialogOpen = ref(false);
-const editDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
 const pendingAction = ref("");
 const rows = ref<Record<string, unknown>[]>([]);
 const total = ref(0);
 const selectedRows = ref<Record<string, unknown>[]>([]);
-const createForm = reactive<Record<string, string>>({});
-const createError = ref("");
 const exportMessage = ref("");
 const presetMessage = ref("");
 const presetName = ref("");
 const selectedPresetId = ref("");
 const operationLogPresets = ref<ListFilterPreset[]>([]);
-const editOriginalCode = ref("");
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
@@ -438,13 +416,6 @@ const operationLogTargetTypes = [
   "ap_payable",
   "prod_bom"
 ];
-const masterDataTypeByListKey: Record<string, string> = {
-  "product-master-list": "product",
-  "customer-master-list": "customer",
-  "supplier-master-list": "supplier",
-  "warehouse-master-list": "warehouse"
-};
-
 const definitions: Record<string, ListDefinition> = {
   "product-master-list": {
     title: "商品资料",
@@ -730,7 +701,13 @@ const fallbackDefinition: ListDefinition = {
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
 const session = useSessionStore();
-const isMasterList = computed(() => Boolean(masterDataTypeByListKey[props.listKey]));
+const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
+const isMasterList = masterMaintenance.isMasterList;
+const masterFormComponent = masterMaintenance.formComponent;
+const masterDialogOpen = masterMaintenance.dialogOpen;
+const masterEditing = masterMaintenance.editing;
+const masterForm = masterMaintenance.form;
+const masterCreateError = masterMaintenance.createError;
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
@@ -793,45 +770,6 @@ const canPushDownPurchaseIn = computed(() => {
     row?.status === "已审核" &&
     row?.inStatus !== "全部入库"
   );
-});
-const createFields = computed<CreateField[]>(() => {
-  switch (props.listKey) {
-    case "product-master-list":
-      return [
-        { name: "code", label: "商品编码", placeholder: "如 CP-200" },
-        { name: "name", label: "商品名称", placeholder: "如 前摆臂总成" },
-        { name: "spec", label: "规格型号", placeholder: "规格/颜色/位置" },
-        { name: "category", label: "商品类别", placeholder: "成品总成/零配件" },
-        { name: "unit", label: "单位", placeholder: "只/件" },
-        { name: "status", label: "状态", options: ["启用", "禁用"] }
-      ];
-    case "customer-master-list":
-      return [
-        { name: "code", label: "客户编码", placeholder: "如 KH-010" },
-        { name: "name", label: "客户名称", placeholder: "客户名称" },
-        { name: "contact", label: "联系人", placeholder: "联系人" },
-        { name: "phone", label: "电话", placeholder: "联系电话" },
-        { name: "region", label: "地区", placeholder: "省市" },
-        { name: "status", label: "状态", options: ["启用", "禁用"] }
-      ];
-    case "supplier-master-list":
-      return [
-        { name: "code", label: "供应商编码", placeholder: "如 GYS-010" },
-        { name: "name", label: "供应商名称", placeholder: "供应商名称" },
-        { name: "contact", label: "联系人", placeholder: "联系人" },
-        { name: "phone", label: "电话", placeholder: "联系电话" },
-        { name: "status", label: "状态", options: ["启用", "禁用"] }
-      ];
-    case "warehouse-master-list":
-      return [
-        { name: "code", label: "仓库编码", placeholder: "如 CK-010" },
-        { name: "name", label: "仓库名称", placeholder: "仓库名称" },
-        { name: "stockPolicy", label: "库存策略", options: ["不允许负库存", "允许负库存"] },
-        { name: "status", label: "状态", options: ["启用", "禁用"] }
-      ];
-    default:
-      return [];
-  }
 });
 const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
@@ -1129,109 +1067,21 @@ function openDocument(row: Record<string, unknown>) {
 }
 
 function openCreateDialog() {
-  const masterDataType = masterDataTypeByListKey[props.listKey];
-  if (!masterDataType) {
+  if (!masterMaintenance.openCreateDialog()) {
     pendingAction.value = "新增";
-    return;
   }
-  createError.value = "";
-  Object.keys(createForm).forEach((key) => delete createForm[key]);
-  createFields.value.forEach((field) => {
-    createForm[field.name] = field.options?.[0] ?? "";
-  });
-  editDialogOpen.value = false;
-  createDialogOpen.value = true;
 }
 
 function openEditDialog() {
-  const row = getActionRows()[0];
-  if (!row || !isMasterList.value) {
-    return;
-  }
-  createError.value = "";
-  Object.keys(createForm).forEach((key) => delete createForm[key]);
-  createFields.value.forEach((field) => {
-    createForm[field.name] = String(row[field.name] ?? "");
-  });
-  createForm.status = String(row.status ?? "启用");
-  editOriginalCode.value = String(row.code ?? "");
-  createDialogOpen.value = false;
-  editDialogOpen.value = true;
-}
-
-function closeMasterDialog() {
-  createDialogOpen.value = false;
-  editDialogOpen.value = false;
-}
-
-async function submitCreate() {
-  const masterDataType = masterDataTypeByListKey[props.listKey];
-  if (!masterDataType) {
-    return;
-  }
-  if (!createForm.code?.trim() || !createForm.name?.trim()) {
-    createError.value = "编码和名称不能为空。";
-    return;
-  }
-  const result = await createMasterData(masterDataType, { ...createForm });
-  if (!result.ok) {
-    createError.value = result.message;
-    return;
-  }
-  createDialogOpen.value = false;
-  await reload();
-}
-
-async function submitEdit() {
-  const masterDataType = masterDataTypeByListKey[props.listKey];
-  if (!masterDataType) {
-    return;
-  }
-  if (!createForm.code?.trim() || !createForm.name?.trim()) {
-    createError.value = "编码和名称不能为空。";
-    return;
-  }
-  const result = await updateMasterData(masterDataType, editOriginalCode.value, { ...createForm });
-  if (!result.ok) {
-    createError.value = result.message;
-    return;
-  }
-  editDialogOpen.value = false;
-  await reload();
+  masterMaintenance.openEditDialog();
 }
 
 async function submitMasterStatus(enabled: boolean) {
-  const masterDataType = masterDataTypeByListKey[props.listKey];
-  if (!masterDataType) {
-    return;
-  }
-  for (const row of getActionRows()) {
-    await setMasterDataStatus(masterDataType, String(row.code), enabled);
-  }
-  await reload();
+  await masterMaintenance.submitStatus(enabled);
 }
 
 async function submitMasterDelete() {
-  const masterDataType = masterDataTypeByListKey[props.listKey];
-  if (!masterDataType) {
-    return;
-  }
-  for (const row of getActionRows()) {
-    await deleteMasterData(masterDataType, String(row.code));
-  }
-  await reload();
-}
-
-function getActionRows() {
-  const visibleCodes = new Set(rows.value.map((row) => String(row.code ?? "")));
-  const currentSelections = selectedRows.value.filter((row) => visibleCodes.has(String(row.code ?? "")));
-  if (currentSelections.length) {
-    return currentSelections;
-  }
-  if (rows.value.length === 1 && selectedRows.value.length === 1) {
-    return rows.value;
-  }
-  return currentSelections;
+  await masterMaintenance.submitDelete();
 }
 
 function openColumnFilter(column: ListColumn, event: MouseEvent) {
