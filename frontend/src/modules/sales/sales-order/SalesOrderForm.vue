@@ -16,8 +16,13 @@
     :is-draft="document.isDraft.value"
     :can-audit="document.canAudit.value"
     :can-reverse="document.canReverse.value"
+    :can-red-reverse="false"
     :can-void="document.canVoid.value"
     :can-delete="false"
+    :show-push-down="showPushDownSalesOut"
+    :can-push-down="canPushDownSalesOut"
+    push-down-label="下推销售出库"
+    push-down-test-id="push-sales-out-from-order-detail"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="document.showExecutionColumns.value"
@@ -38,6 +43,7 @@
     @reverse="document.openRiskyAction('reverse')"
     @red-reverse="document.openRiskyAction('redReverse')"
     @void-document="document.voidCurrent"
+    @push-down="emit('pushDownSalesOut', { billNo: document.form.billNo })"
     @delete-document="noop"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -89,6 +95,7 @@ const emit = defineEmits<{
   markDirty: [];
   clearDirty: [];
   showExisting: [];
+  pushDownSalesOut: [row: Record<string, unknown>];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
 }>();
 
@@ -99,6 +106,12 @@ const document = useSalesOrderDocument({
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
+
+const showPushDownSalesOut = computed(() => (
+  document.form.status === "AUDITED" &&
+  document.form.lines.some((line) => Number(line.remainingQty ?? line.qty ?? 0) > 0)
+));
+const canPushDownSalesOut = computed(() => showPushDownSalesOut.value && props.hasPermission("sales.out.audit"));
 
 const dialogBindings = computed(() => ({
   pendingZeroEntrySave: document.pendingZeroEntrySave.value,

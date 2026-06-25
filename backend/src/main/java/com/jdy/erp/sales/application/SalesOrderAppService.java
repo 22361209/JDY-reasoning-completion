@@ -109,6 +109,30 @@ public class SalesOrderAppService {
         );
     }
 
+    @Transactional
+    public Map<String, Object> reverse(String billNo) {
+        var downstreamCount = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM sales_order so
+            JOIN sales_out sout ON sout.source_order_id = so.id
+            WHERE so.bill_no = ? AND sout.status = ?
+            """, Long.class, billNo, BillStatus.AUDITED.name());
+        if (downstreamCount != null && downstreamCount > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售订单已有已审核销售出库单，不能反审核");
+        }
+        return lifecycleService.transition(
+            BILL_TABLE,
+            billNo,
+            BillStatus.AUDITED,
+            BillStatus.REVERSED,
+            "id::text AS id, bill_no AS \"billNo\", status",
+            "SALES",
+            "REVERSE",
+            "sales_order",
+            "销售订单不存在或不能反审核"
+        );
+    }
+
     public Map<String, Object> delete(String billNo) {
         var deleted = jdbcTemplate.queryForList("""
             DELETE FROM sales_order

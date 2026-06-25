@@ -328,6 +328,7 @@
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = 'sales-order-form'"
+          @push-down-sales-out="openOutboundFromSalesOrder"
           @request-open-document="openDocumentFromModule"
         />
         <SalesOutForm

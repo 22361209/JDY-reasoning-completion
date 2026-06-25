@@ -20,6 +20,7 @@
       <button type="button" :disabled="!canReverse" data-testid="reverse-document" @click="$emit('reverse')">反审核</button>
       <button type="button" :disabled="!(canRedReverse ?? canReverse)" data-testid="red-reverse-document" @click="$emit('redReverse')">红冲</button>
       <button type="button" :disabled="!canVoid" data-testid="void-document" @click="$emit('voidDocument')">作废</button>
+      <button v-if="showPushDown" type="button" :disabled="locked || !canPushDown" :data-testid="pushDownTestId" @click="$emit('pushDown')">{{ pushDownLabel }}</button>
       <button type="button" :disabled="!canDelete" data-testid="delete-sales-order" @click="$emit('deleteDocument')">删除</button>
       <button type="button" :disabled="!canOutput" data-testid="export-sales-order" @click="$emit('exportDocument')">引出</button>
       <button type="button" :disabled="!canOutput" data-testid="print-sales-order" @click="$emit('printDocument')">打印</button>
@@ -47,8 +48,16 @@ withDefaults(defineProps<{
   canVoid: boolean;
   canDelete: boolean;
   canOutput: boolean;
+  showPushDown?: boolean;
+  canPushDown?: boolean;
+  pushDownLabel?: string;
+  pushDownTestId?: string;
 }>(), {
-  canRedReverse: undefined
+  canRedReverse: undefined,
+  showPushDown: false,
+  canPushDown: false,
+  pushDownLabel: "下推",
+  pushDownTestId: "push-down-document"
 });
 
 defineEmits<{
@@ -58,6 +67,7 @@ defineEmits<{
   reverse: [];
   redReverse: [];
   voidDocument: [];
+  pushDown: [];
   deleteDocument: [];
   exportDocument: [];
   printDocument: [];

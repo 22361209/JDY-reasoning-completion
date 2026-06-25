@@ -14,12 +14,17 @@
     :can-void="canVoid"
     :can-delete="canDelete"
     :can-output="isDocumentForm"
+    :show-push-down="showPushDown"
+    :can-push-down="canPushDown"
+    :push-down-label="pushDownLabel"
+    :push-down-test-id="pushDownTestId"
     @create="emit('create')"
     @save="emit('save')"
     @audit="emit('audit')"
     @reverse="emit('reverse')"
     @red-reverse="emit('redReverse')"
     @void-document="emit('voidDocument')"
+    @push-down="emit('pushDown')"
     @delete-document="emit('deleteDocument')"
     @export-document="emit('exportDocument')"
     @print-document="emit('printDocument')"
@@ -150,6 +155,10 @@ withDefaults(defineProps<{
   canRedReverse?: boolean;
   canVoid: boolean;
   canDelete: boolean;
+  showPushDown?: boolean;
+  canPushDown?: boolean;
+  pushDownLabel?: string;
+  pushDownTestId?: string;
   canTraceSourceOrder: boolean;
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
@@ -168,7 +177,11 @@ withDefaults(defineProps<{
   highlightedSourceBillNo: string;
   highlightedSourceLineNo: number | null;
 }>(), {
-  canRedReverse: undefined
+  canRedReverse: undefined,
+  showPushDown: false,
+  canPushDown: false,
+  pushDownLabel: "下推",
+  pushDownTestId: "push-down-document"
 });
 
 const emit = defineEmits<{
@@ -178,6 +191,7 @@ const emit = defineEmits<{
   reverse: [];
   redReverse: [];
   voidDocument: [];
+  pushDown: [];
   deleteDocument: [];
   exportDocument: [];
   printDocument: [];

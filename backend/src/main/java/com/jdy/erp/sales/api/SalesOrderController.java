@@ -36,6 +36,12 @@ public class SalesOrderController {
         return appService.audit(billNo);
     }
 
+    @PostMapping("/{billNo}/reverse")
+    @RequirePermission("sales.order.audit")
+    public Map<String, Object> reverse(@PathVariable String billNo) {
+        return appService.reverse(billNo);
+    }
+
     @DeleteMapping("/{billNo}")
     @RequirePermission("sales.order.audit")
     public Map<String, Object> delete(@PathVariable String billNo) {
