@@ -8,6 +8,7 @@ import java.util.Map;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
+import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.OperationLogService;
@@ -160,7 +161,7 @@ public class SalesOutAppService {
             billNo,
             BillStatus.DRAFT,
             BillStatus.AUDITED,
-            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\"",
+            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", customer_id::text AS \"customerId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\"",
             "SALES",
             "AUDIT",
             "sales_out",
@@ -189,6 +190,7 @@ public class SalesOutAppService {
                 "SALES_OUT:" + billNo
             ));
         }
+        postingPipeline.post(financeContext(row, "SALES_OUT"));
         return row;
     }
 
@@ -199,7 +201,7 @@ public class SalesOutAppService {
             billNo,
             BillStatus.AUDITED,
             BillStatus.REVERSED,
-            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\"",
+            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", customer_id::text AS \"customerId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\"",
             "SALES",
             "REVERSE",
             "sales_out",
@@ -228,6 +230,7 @@ public class SalesOutAppService {
             }
             conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, String.valueOf(sourceOrderId));
         }
+        postingPipeline.post(financeContext(row, "SALES_OUT_REVERSE"));
         return row;
     }
 
@@ -318,6 +321,18 @@ public class SalesOutAppService {
         if (source.get("sourceOrderId") != null) {
             conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, String.valueOf(source.get("sourceOrderId")));
         }
+        postingPipeline.post(new PostingContext(
+            FinancePosting.CHANNEL,
+            null,
+            null,
+            null,
+            "SALES_OUT_RED",
+            "SALES_OUT_RED:" + redBillNo,
+            redBillNo,
+            String.valueOf(source.get("customerId")),
+            LocalDate.parse(validationService.required(request.billDate(), "红冲日期")),
+            (BigDecimal) redBill.get("totalAmount")
+        ));
         operationLogService.log("SALES", "RED_REVERSE", "sales_out", String.valueOf(redBill.get("id")), true, null);
         return redBill;
     }
@@ -367,6 +382,31 @@ public class SalesOutAppService {
             WHERE so.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
+    }
+
+    private PostingContext financeContext(Map<String, Object> row, String txnType) {
+        return new PostingContext(
+            FinancePosting.CHANNEL,
+            null,
+            null,
+            null,
+            txnType,
+            txnType + ":" + row.get("billNo"),
+            String.valueOf(row.get("billNo")),
+            String.valueOf(row.get("customerId")),
+            toLocalDate(row.get("billDate")),
+            (BigDecimal) row.get("totalAmount")
+        );
+    }
+
+    private LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate localDate) {
+            return localDate;
+        }
+        if (value instanceof java.sql.Date sqlDate) {
+            return sqlDate.toLocalDate();
+        }
+        return LocalDate.parse(String.valueOf(value));
     }
 
     private List<Map<String, Object>> redSourceLines(String billNo) {

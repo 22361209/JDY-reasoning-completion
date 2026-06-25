@@ -574,7 +574,7 @@ const definitions: Record<string, ListDefinition> = {
   },
   "receivable-list": {
     title: "应收单",
-    subtitle: "销售订单生成应收，收款后按未核销、部分核销、已核销展示。",
+    subtitle: "销售出库审核自动生成应收，收款后按未核销、部分核销、已核销展示。",
     keywordPlaceholder: "应收单号、源单号、客户",
     statuses: ["未核销", "部分核销", "已核销"],
     columns: [
@@ -589,7 +589,7 @@ const definitions: Record<string, ListDefinition> = {
   },
   "payable-list": {
     title: "应付单",
-    subtitle: "采购订单生成应付，付款后按未核销、部分核销、已核销展示。",
+    subtitle: "采购入库审核自动生成应付，付款后按未核销、部分核销、已核销展示。",
     keywordPlaceholder: "应付单号、源单号、供应商",
     statuses: ["未核销", "部分核销", "已核销"],
     columns: [

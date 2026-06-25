@@ -8,6 +8,7 @@ import java.util.Map;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
+import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.OperationLogService;
@@ -163,7 +164,7 @@ public class PurchaseInAppService {
             billNo,
             BillStatus.DRAFT,
             BillStatus.AUDITED,
-            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\"",
+            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\"",
             "PURCHASE",
             "AUDIT",
             "purchase_in",
@@ -192,6 +193,7 @@ public class PurchaseInAppService {
                 "PURCHASE_IN:" + billNo
             ));
         }
+        postingPipeline.post(financeContext(row, "PURCHASE_IN"));
         return row;
     }
 
@@ -202,7 +204,7 @@ public class PurchaseInAppService {
             billNo,
             BillStatus.AUDITED,
             BillStatus.REVERSED,
-            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\"",
+            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\"",
             "PURCHASE",
             "REVERSE",
             "purchase_in",
@@ -231,6 +233,7 @@ public class PurchaseInAppService {
             }
             conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, String.valueOf(sourceOrderId));
         }
+        postingPipeline.post(financeContext(row, "PURCHASE_IN_REVERSE"));
         return row;
     }
 
@@ -338,6 +341,18 @@ public class PurchaseInAppService {
         if (source.get("sourceOrderId") != null) {
             conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, String.valueOf(source.get("sourceOrderId")));
         }
+        postingPipeline.post(new PostingContext(
+            FinancePosting.CHANNEL,
+            null,
+            null,
+            null,
+            "PURCHASE_IN_RED",
+            "PURCHASE_IN_RED:" + redBillNo,
+            redBillNo,
+            String.valueOf(source.get("supplierId")),
+            LocalDate.parse(validationService.required(request.billDate(), "红冲日期")),
+            (BigDecimal) redBill.get("totalAmount")
+        ));
         operationLogService.log("PURCHASE", "RED_REVERSE", "purchase_in", String.valueOf(redBill.get("id")), true, null);
         return redBill;
     }
@@ -375,6 +390,31 @@ public class PurchaseInAppService {
             WHERE pi.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
+    }
+
+    private PostingContext financeContext(Map<String, Object> row, String txnType) {
+        return new PostingContext(
+            FinancePosting.CHANNEL,
+            null,
+            null,
+            null,
+            txnType,
+            txnType + ":" + row.get("billNo"),
+            String.valueOf(row.get("billNo")),
+            String.valueOf(row.get("supplierId")),
+            toLocalDate(row.get("billDate")),
+            (BigDecimal) row.get("totalAmount")
+        );
+    }
+
+    private LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate localDate) {
+            return localDate;
+        }
+        if (value instanceof java.sql.Date sqlDate) {
+            return sqlDate.toLocalDate();
+        }
+        return LocalDate.parse(String.valueOf(value));
     }
 
     public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, List<PurchaseInLineRequest> lines) {

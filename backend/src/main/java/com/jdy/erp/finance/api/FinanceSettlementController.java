@@ -25,41 +25,6 @@ public class FinanceSettlementController {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    @PostMapping("/receivables/from-sales-order/{billNo}")
-    @RequirePermission("finance.settle")
-    @ResponseStatus(HttpStatus.CREATED)
-    @Transactional
-    public Map<String, Object> createReceivable(@PathVariable String billNo) {
-        var orderRows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id, bill_no, customer_id::text AS customer_id, bill_date, total_amount
-            FROM sales_order
-            WHERE bill_no = ? AND status = 'AUDITED'
-            """, billNo);
-        if (orderRows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核销售订单可以生成应收");
-        }
-        var order = orderRows.get(0);
-        var rows = jdbcTemplate.queryForList("""
-            INSERT INTO ar_receivable (bill_no, source_bill_no, customer_id, bill_date, amount, status)
-            VALUES (?, ?, ?::uuid, ?::date, ?, 'OPEN')
-            ON CONFLICT (bill_no) DO UPDATE
-            SET source_bill_no = EXCLUDED.source_bill_no,
-                customer_id = EXCLUDED.customer_id,
-                bill_date = EXCLUDED.bill_date,
-                amount = EXCLUDED.amount,
-                updated_at = now()
-            RETURNING id::text AS id, bill_no AS "billNo", amount, received_amount AS "receivedAmount", status
-            """,
-            "YS-" + billNo,
-            billNo,
-            order.get("customer_id"),
-            order.get("bill_date"),
-            order.get("total_amount")
-        );
-        log("FINANCE", "CREATE_AR", "ar_receivable", String.valueOf(rows.get(0).get("id")), true, null);
-        return rows.get(0);
-    }
-
     @PostMapping("/receivables/{billNo}/receipt")
     @RequirePermission("finance.settle")
     @ResponseStatus(HttpStatus.CREATED)
@@ -100,41 +65,6 @@ public class FinanceSettlementController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "收款金额不能超过应收金额");
         }
         log("FINANCE", "RECEIVE", "ar_receivable", String.valueOf(receivable.get("id")), true, null);
-        return rows.get(0);
-    }
-
-    @PostMapping("/payables/from-purchase-order/{billNo}")
-    @RequirePermission("finance.settle")
-    @ResponseStatus(HttpStatus.CREATED)
-    @Transactional
-    public Map<String, Object> createPayable(@PathVariable String billNo) {
-        var orderRows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id, bill_no, supplier_id::text AS supplier_id, bill_date, total_amount
-            FROM purchase_order
-            WHERE bill_no = ? AND status = 'AUDITED'
-            """, billNo);
-        if (orderRows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核采购订单可以生成应付");
-        }
-        var order = orderRows.get(0);
-        var rows = jdbcTemplate.queryForList("""
-            INSERT INTO ap_payable (bill_no, source_bill_no, supplier_id, bill_date, amount, status)
-            VALUES (?, ?, ?::uuid, ?::date, ?, 'OPEN')
-            ON CONFLICT (bill_no) DO UPDATE
-            SET source_bill_no = EXCLUDED.source_bill_no,
-                supplier_id = EXCLUDED.supplier_id,
-                bill_date = EXCLUDED.bill_date,
-                amount = EXCLUDED.amount,
-                updated_at = now()
-            RETURNING id::text AS id, bill_no AS "billNo", amount, paid_amount AS "paidAmount", status
-            """,
-            "YF-" + billNo,
-            billNo,
-            order.get("supplier_id"),
-            order.get("bill_date"),
-            order.get("total_amount")
-        );
-        log("FINANCE", "CREATE_AP", "ap_payable", String.valueOf(rows.get(0).get("id")), true, null);
         return rows.get(0);
     }
 
