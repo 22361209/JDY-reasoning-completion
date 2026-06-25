@@ -273,155 +273,11 @@
             </form>
           </section>
         </div>
-        <div v-else-if="tabs.activeTab.value.id === 'user-role-list'" class="role-permission-page">
-          <section class="role-permission-head">
-            <div>
-              <h2>用户角色</h2>
-              <p>维护员工账号、启停状态和角色归属，角色权限细项在权限矩阵中维护。</p>
-            </div>
-            <div class="role-permission-head__actions">
-              <button type="button" data-testid="user-management-refresh" @click="loadManagedUsers">刷新</button>
-              <button class="primary-action" type="button" :disabled="!canManageRolePermissions" data-testid="user-management-new" @click="startCreateManagedUser">新增</button>
-              <button class="primary-action" type="button" :disabled="!canManageRolePermissions" data-testid="user-management-save" @click="saveManagedUser">保存</button>
-            </div>
-          </section>
-          <section class="role-permission-body">
-            <aside class="role-permission-list" aria-label="用户">
-              <button
-                v-for="user in managedUsers"
-                :key="user.username"
-                type="button"
-                :class="{ active: user.username === selectedManagedUsername }"
-                :data-testid="`managed-user-${user.username}`"
-                @click="selectManagedUser(user.username)"
-              >
-                <strong>{{ user.displayName }}</strong>
-                <span>{{ user.username }} / {{ user.roleName }} / {{ managedUserStateLabel(user) }}</span>
-              </button>
-            </aside>
-            <div class="user-management-form">
-              <div class="role-permission-summary" data-testid="user-management-summary">
-                <strong>{{ userManagementMode === "create" ? "新增用户" : selectedManagedUser?.displayName || "未选择用户" }}</strong>
-                <span>{{ userManagementMode === "create" ? "CREATE" : selectedManagedUser?.username || "" }}</span>
-                <em>{{ selectedManagedUser ? managedUserStateLabel(selectedManagedUser) : "选择角色后保存" }}</em>
-              </div>
-              <dl v-if="selectedManagedUser && userManagementMode === 'edit'" class="user-security-summary" data-testid="user-security-summary">
-                <div>
-                  <dt>失败次数</dt>
-                  <dd data-testid="managed-user-failed-count">{{ selectedManagedUser.failedLoginCount ?? 0 }}</dd>
-                </div>
-                <div>
-                  <dt>锁定状态</dt>
-                  <dd data-testid="managed-user-lock-state">{{ selectedManagedUser.locked ? `已锁定至 ${selectedManagedUser.lockedUntil}` : "未锁定" }}</dd>
-                </div>
-                <div>
-                  <dt>最近登录</dt>
-                  <dd>{{ selectedManagedUser.lastLoginAt || "-" }}</dd>
-                </div>
-                <div>
-                  <dt>当前会话</dt>
-                  <dd data-testid="managed-user-active-session">{{ selectedManagedUser.activeSession ? `在线：${selectedManagedUser.activeSessionStartedAt || "-"}` : "无活动会话" }}</dd>
-                </div>
-                <div>
-                  <dt>上次替换</dt>
-                  <dd data-testid="managed-user-session-replaced">{{ selectedManagedUser.lastSessionReplacedAt || "-" }}</dd>
-                </div>
-              </dl>
-              <section v-if="pendingPasswordResetRequests.length" class="password-reset-admin-panel" data-testid="password-reset-admin-panel">
-                <div class="password-reset-admin-panel__head">
-                  <strong>待处理找回申请</strong>
-                  <span>{{ pendingPasswordResetRequests.length }} 条</span>
-                </div>
-                <button
-                  v-for="request in pendingPasswordResetRequests"
-                  :key="request.id"
-                  type="button"
-                  class="password-reset-request-row"
-                  :class="{ active: request.id === selectedPasswordResetRequestId }"
-                  :data-testid="`password-reset-request-${request.username}`"
-                  @click="selectPasswordResetRequest(request.id)"
-                >
-                  <strong>{{ request.displayName || request.username }}</strong>
-                  <span>{{ request.username }} / {{ request.requestedAt }}</span>
-                  <em>{{ request.contactNote || "无联系方式说明" }}</em>
-                </button>
-              </section>
-              <section v-if="selectedPasswordResetRequest" class="password-reset-admin-panel password-reset-admin-panel--selected" data-testid="password-reset-selected">
-                <div class="password-reset-admin-panel__head">
-                  <strong>{{ selectedPasswordResetRequest.username }} 的找回申请</strong>
-                  <span>{{ selectedPasswordResetRequest.requestedAt }}</span>
-                </div>
-                <p>{{ selectedPasswordResetRequest.contactNote || "未填写联系方式说明。" }}</p>
-                <label>
-                  <span>处理备注</span>
-                  <input v-model="passwordResetHandleNote" data-testid="password-reset-handle-note" placeholder="如：已电话核验身份" />
-                </label>
-                <div class="role-permission-head__actions">
-                  <button type="button" data-testid="password-reset-select-user" @click="selectManagedUser(selectedPasswordResetRequest.username)">选中该用户</button>
-                  <button type="button" data-testid="password-reset-reject" @click="rejectPasswordResetRequestAction">驳回申请</button>
-                </div>
-              </section>
-              <section v-if="recentPasswordResetNotifications.length" class="password-reset-admin-panel" data-testid="password-reset-notification-panel">
-                <div class="password-reset-admin-panel__head">
-                  <strong>最近通知</strong>
-                  <div class="password-reset-notification-tools">
-                    <select v-model="notificationStatusFilter" data-testid="notification-status-filter" @change="loadNotificationOutboxAction">
-                      <option value="">全部</option>
-                      <option value="FAILED">失败</option>
-                      <option value="PENDING">待发送</option>
-                      <option value="SENT">已发送</option>
-                    </select>
-                    <button type="button" data-testid="notification-refresh" @click="loadNotificationOutboxAction">刷新</button>
-                    <span>{{ recentPasswordResetNotifications.length }} 条</span>
-                  </div>
-                </div>
-                <div
-                  v-for="notice in recentPasswordResetNotifications"
-                  :key="notice.id"
-                  class="password-reset-notice-row"
-                  :data-testid="`password-reset-notice-${notice.recipientUsername}-${notice.templateCode}`"
-                >
-                  <strong>{{ notice.title }}</strong>
-                  <span>{{ notice.recipientUsername }} / {{ notificationStatusLabel(notice) }} / {{ notificationReceiptLabel(notice) }} / 重试 {{ notice.retryCount ?? 0 }} 次 / {{ notice.sentAt || notice.lastAttemptAt || notice.createdAt }}</span>
-                  <em>{{ notice.body }}</em>
-                  <em v-if="notice.failureReason">失败原因：{{ notice.failureReason }}</em>
-                  <div class="password-reset-notice-row__actions">
-                    <button type="button" :data-testid="`notification-resend-${notice.recipientUsername}`" @click="resendNotificationAction(notice.id)">重发</button>
-                    <button type="button" :data-testid="`notification-receipt-delivered-${notice.recipientUsername}`" @click="syncNotificationReceiptAction(notice.id, 'DELIVERED')">回执成功</button>
-                    <button type="button" :data-testid="`notification-receipt-failed-${notice.recipientUsername}`" @click="syncNotificationReceiptAction(notice.id, 'FAILED')">回执失败</button>
-                  </div>
-                </div>
-              </section>
-              <label>
-                <span>用户名</span>
-                <input v-model="managedUserForm.username" :readonly="userManagementMode === 'edit'" data-testid="managed-user-username" />
-              </label>
-              <label>
-                <span>姓名</span>
-                <input v-model="managedUserForm.displayName" data-testid="managed-user-display-name" />
-              </label>
-              <label>
-                <span>角色</span>
-                <select v-model="managedUserForm.roleCode" data-testid="managed-user-role">
-                  <option v-for="role in managedRoles" :key="role.code" :value="role.code">{{ role.name }} / {{ role.code }}</option>
-                </select>
-              </label>
-              <label class="user-management-check">
-                <input v-model="managedUserForm.enabled" type="checkbox" data-testid="managed-user-enabled" />
-                <span>启用</span>
-              </label>
-              <label>
-                <span>{{ userManagementMode === "create" ? "初始密码" : "重置密码" }}</span>
-                <input v-model="managedUserPassword" type="password" data-testid="managed-user-password" />
-              </label>
-              <div class="role-permission-head__actions">
-                <button type="button" :disabled="userManagementMode === 'create' || !canManageRolePermissions" data-testid="managed-user-reset-password" @click="resetManagedUserPasswordAction">重置密码</button>
-                <button type="button" :disabled="userManagementMode === 'create' || !selectedManagedUser?.locked || !canManageRolePermissions" data-testid="managed-user-unlock" @click="unlockManagedUserAction">解除锁定</button>
-              </div>
-              <p v-if="userManagementMessage" class="form-message" data-testid="user-management-message">{{ userManagementMessage }}</p>
-            </div>
-          </section>
-        </div>
+        <UserManagementPage
+          v-else-if="tabs.activeTab.value.id === 'user-role-list'"
+          :can-manage="canManageRolePermissions"
+          @users-changed="systemUsers = $event"
+        />
         <PermissionMatrixPage
           v-else-if="tabs.activeTab.value.id === 'role-permission-settings'"
           :can-manage="canManageRolePermissions"
@@ -761,9 +617,10 @@ import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
+import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
-import { createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, logoutSystemUser, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type SystemSession, type SystemUser } from "../services/systemApi";
+import { fetchNotificationProviderSettings, fetchSystemSession, fetchSystemUsers, logoutSystemUser, saveNotificationProviderSettings, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -841,23 +698,6 @@ const notificationProviderForm = reactive<{
   webhookSecret: "",
   dryRun: true
 });
-const managedUsers = ref<ManagedUser[]>([]);
-const managedRoles = ref<ManagedRole[]>([]);
-const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
-const notificationOutbox = ref<NotificationOutboxItem[]>([]);
-const notificationStatusFilter = ref("");
-const selectedPasswordResetRequestId = ref("");
-const passwordResetHandleNote = ref("");
-const selectedManagedUsername = ref("");
-const userManagementMode = ref<"edit" | "create">("edit");
-const userManagementMessage = ref("");
-const managedUserPassword = ref("");
-const managedUserForm = reactive({
-  username: "",
-  displayName: "",
-  roleCode: "WAREHOUSE",
-  enabled: true
-});
 const systemUsers = ref<SystemUser[]>([]);
 const isAuthenticated = ref(false);
 const printTemplateForm = reactive<PrintTemplateConfig>({ ...defaultPrintTemplateForm });
@@ -903,10 +743,6 @@ const canManagePrintTemplates = computed(() => session.hasPermission("system.pri
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
 const canManageSecuritySettings = computed(() => session.hasPermission("system.security.manage"));
 const canManageNotificationProviderSettings = computed(() => session.hasPermission("system.notification_provider.manage"));
-const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
-const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
-const selectedPasswordResetRequest = computed(() => passwordResetRequests.value.find((request) => request.id === selectedPasswordResetRequestId.value && request.status === "PENDING") ?? null);
-const recentPasswordResetNotifications = computed(() => notificationOutbox.value.slice(0, 6));
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
@@ -1130,9 +966,6 @@ function openEntry(entry: ShellEntry) {
   if (opened && entry.id === "notification-provider-settings") {
     void loadNotificationProviderSettings();
   }
-  if (opened && entry.id === "user-role-list") {
-    void loadManagedUsers();
-  }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
 }
@@ -1149,210 +982,6 @@ function startNewModuleDocument(entryId: string) {
 }
 function canOpenEntry(entry: ShellEntry) {
   return session.hasPermission(entry.permission);
-}
-async function loadManagedUsers() {
-  const result = await fetchManagedUsers();
-  if (!result.ok || !result.data) {
-    userManagementMessage.value = result.message;
-    return;
-  }
-  managedUsers.value = result.data.users;
-  managedRoles.value = result.data.roles;
-  passwordResetRequests.value = result.data.passwordResetRequests ?? [];
-  notificationOutbox.value = result.data.notificationOutbox ?? [];
-  if (!pendingPasswordResetRequests.value.some((request) => request.id === selectedPasswordResetRequestId.value)) {
-    selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
-  }
-  if (userManagementMode.value !== "create" && !managedUsers.value.some((user) => user.username === selectedManagedUsername.value)) {
-    selectedManagedUsername.value = managedUsers.value[0]?.username ?? "";
-  }
-  if (selectedManagedUsername.value) {
-    applySelectedManagedUser();
-  }
-  userManagementMessage.value = "";
-}
-async function loadNotificationOutboxAction() {
-  const result = await fetchNotificationOutbox(notificationStatusFilter.value);
-  if (!result.ok) {
-    userManagementMessage.value = result.message;
-    return;
-  }
-  notificationOutbox.value = result.data;
-}
-function selectManagedUser(username: string) {
-  selectedManagedUsername.value = username;
-  userManagementMode.value = "edit";
-  applySelectedManagedUser();
-  userManagementMessage.value = "";
-  const pendingRequest = pendingPasswordResetRequests.value.find((request) => request.username === username);
-  if (pendingRequest) {
-    selectedPasswordResetRequestId.value = pendingRequest.id;
-  }
-}
-function selectPasswordResetRequest(requestId: string) {
-  selectedPasswordResetRequestId.value = requestId;
-  const request = selectedPasswordResetRequest.value;
-  if (request && managedUsers.value.some((user) => user.username === request.username)) {
-    selectedManagedUsername.value = request.username;
-    userManagementMode.value = "edit";
-    applySelectedManagedUser();
-  }
-  passwordResetHandleNote.value = "";
-  userManagementMessage.value = "";
-}
-function applySelectedManagedUser() {
-  const user = selectedManagedUser.value;
-  if (!user) {
-    return;
-  }
-  managedUserForm.username = user.username;
-  managedUserForm.displayName = user.displayName;
-  managedUserForm.roleCode = user.roleCode;
-  managedUserForm.enabled = user.enabled;
-  managedUserPassword.value = "";
-}
-function managedUserStateLabel(user: ManagedUser) {
-  if (!user.enabled) {
-    return "禁用";
-  }
-  if (user.locked) {
-    return "已锁定";
-  }
-  return "启用";
-}
-function startCreateManagedUser() {
-  userManagementMode.value = "create";
-  selectedManagedUsername.value = "";
-  managedUserForm.username = "";
-  managedUserForm.displayName = "";
-  managedUserForm.roleCode = managedRoles.value.find((role) => role.code === "WAREHOUSE")?.code ?? managedRoles.value[0]?.code ?? "";
-  managedUserForm.enabled = true;
-  managedUserPassword.value = "";
-  userManagementMessage.value = "";
-}
-async function saveManagedUser() {
-  if (!canManageRolePermissions.value) {
-    userManagementMessage.value = "当前角色无权维护用户。";
-    return;
-  }
-  const result = userManagementMode.value === "create"
-    ? await createManagedUser({ ...managedUserForm, password: managedUserPassword.value })
-    : await updateManagedUser(managedUserForm.username, {
-      displayName: managedUserForm.displayName,
-      roleCode: managedUserForm.roleCode,
-      enabled: managedUserForm.enabled
-    });
-  if (!result.ok || !result.data) {
-    userManagementMessage.value = result.message || "用户保存失败。";
-    return;
-  }
-  managedUsers.value = result.data.users;
-  managedRoles.value = result.data.roles;
-  passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
-  notificationOutbox.value = result.data.notificationOutbox ?? notificationOutbox.value;
-  selectedManagedUsername.value = managedUserForm.username;
-  userManagementMode.value = "edit";
-  applySelectedManagedUser();
-  systemUsers.value = await fetchSystemUsers();
-  userManagementMessage.value = "用户已保存";
-}
-async function resetManagedUserPasswordAction() {
-  if (!canManageRolePermissions.value || userManagementMode.value === "create") {
-    return;
-  }
-  const result = await resetManagedUserPassword(managedUserForm.username, managedUserPassword.value);
-  if (!result.ok) {
-    userManagementMessage.value = result.message || "密码重置失败。";
-    return;
-  }
-  managedUserPassword.value = "";
-  await loadManagedUsers();
-  userManagementMessage.value = "密码已重置，待处理找回申请已标记完成";
-}
-async function rejectPasswordResetRequestAction() {
-  if (!canManageRolePermissions.value || !selectedPasswordResetRequest.value) {
-    return;
-  }
-  const result = await handlePasswordResetRequest(selectedPasswordResetRequest.value.id, "REJECTED", passwordResetHandleNote.value || "身份核验未通过");
-  if (!result.ok || !result.data) {
-    userManagementMessage.value = result.message || "找回申请处理失败。";
-    return;
-  }
-  managedUsers.value = result.data.users;
-  managedRoles.value = result.data.roles;
-  passwordResetRequests.value = result.data.passwordResetRequests ?? [];
-  notificationOutbox.value = result.data.notificationOutbox ?? [];
-  selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
-  passwordResetHandleNote.value = "";
-  userManagementMessage.value = "找回申请已驳回";
-}
-async function resendNotificationAction(notificationId: string) {
-  if (!canManageRolePermissions.value) {
-    userManagementMessage.value = "当前角色无权维护通知。";
-    return;
-  }
-  const result = await resendNotification(notificationId);
-  if (!result.ok) {
-    userManagementMessage.value = result.message || "通知重发失败。";
-    return;
-  }
-  notificationStatusFilter.value = "";
-  notificationOutbox.value = result.data;
-  userManagementMessage.value = "通知已重发";
-}
-async function syncNotificationReceiptAction(notificationId: string, providerReceiptStatus: "DELIVERED" | "FAILED") {
-  if (!canManageRolePermissions.value) {
-    userManagementMessage.value = "当前角色无权维护通知。";
-    return;
-  }
-  const result = await syncNotificationReceipt(notificationId, {
-    providerReceiptStatus,
-    failureReason: providerReceiptStatus === "FAILED" ? "本地供应商回执失败" : ""
-  });
-  if (!result.ok) {
-    userManagementMessage.value = result.message || "通知回执同步失败。";
-    return;
-  }
-  notificationStatusFilter.value = "";
-  notificationOutbox.value = result.data;
-  userManagementMessage.value = "通知回执已同步";
-}
-function notificationStatusLabel(notice: NotificationOutboxItem) {
-  if (notice.status === "SENT") {
-    return "已发送";
-  }
-  if (notice.status === "FAILED") {
-    return "失败";
-  }
-  return "待发送";
-}
-function notificationReceiptLabel(notice: NotificationOutboxItem) {
-  if (notice.providerReceiptStatus === "DELIVERED") {
-    return `回执成功${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
-  }
-  if (notice.providerReceiptStatus === "FAILED") {
-    return `回执失败${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
-  }
-  if (notice.providerReceiptStatus === "BOUNCED") {
-    return `回执退回${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
-  }
-  return "未回执";
-}
-async function unlockManagedUserAction() {
-  if (!canManageRolePermissions.value || userManagementMode.value === "create" || !selectedManagedUser.value?.locked) {
-    return;
-  }
-  const result = await unlockManagedUser(managedUserForm.username);
-  if (!result.ok || !result.data) {
-    userManagementMessage.value = result.message || "解除锁定失败。";
-    return;
-  }
-  managedUsers.value = result.data.users;
-  managedRoles.value = result.data.roles;
-  passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
-  selectedManagedUsername.value = managedUserForm.username;
-  applySelectedManagedUser();
-  userManagementMessage.value = "账号锁定已解除";
 }
 async function loadNotificationProviderSettings() {
   const result = await fetchNotificationProviderSettings();
