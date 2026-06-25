@@ -422,56 +422,10 @@
             </div>
           </section>
         </div>
-        <div v-else-if="tabs.activeTab.value.id === 'role-permission-settings'" class="role-permission-page">
-          <section class="role-permission-head">
-            <div>
-              <h2>权限矩阵</h2>
-              <p>按角色维护系统权限，保存后写入后端 RBAC 表。</p>
-            </div>
-            <div class="role-permission-head__actions">
-              <button type="button" data-testid="role-permission-refresh" @click="loadRolePermissions">刷新</button>
-              <button class="primary-action" type="button" :disabled="!canManageRolePermissions" data-testid="role-permission-save" @click="saveSelectedRolePermissions">保存</button>
-            </div>
-          </section>
-          <section class="role-permission-body">
-            <aside class="role-permission-list" aria-label="角色">
-              <button
-                v-for="role in rolePermissionMatrix?.roles ?? []"
-                :key="role.code"
-                type="button"
-                :class="{ active: role.code === selectedRoleCode }"
-                :data-testid="`role-permission-role-${role.code}`"
-                @click="selectRolePermissionRole(role.code)"
-              >
-                <strong>{{ role.name }}</strong>
-                <span>{{ role.code }} / {{ role.enabled ? "启用" : "禁用" }}</span>
-              </button>
-            </aside>
-            <div class="role-permission-matrix">
-              <div class="role-permission-summary" data-testid="role-permission-summary">
-                <strong>{{ selectedRole?.name || "未选择角色" }}</strong>
-                <span>{{ selectedRole?.code || "" }}</span>
-                <em>已勾选 {{ selectedRolePermissionCount }} 项权限</em>
-              </div>
-              <div v-for="group in permissionGroups" :key="group.moduleName" class="permission-group">
-                <h3>{{ group.moduleName }}</h3>
-                <div class="permission-grid">
-                  <label v-for="permission in group.permissions" :key="permission.permissionCode" :data-testid="`permission-cell-${permission.permissionCode}`">
-                    <input
-                      type="checkbox"
-                      :checked="rolePermissionChecked(permission.permissionCode)"
-                      :data-testid="`permission-check-${permission.permissionCode}`"
-                      @change="toggleRolePermission(permission.permissionCode, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <span>{{ permission.permissionName }}</span>
-                    <small>{{ permission.permissionCode }}</small>
-                  </label>
-                </div>
-              </div>
-              <p v-if="rolePermissionMessage" class="form-message" data-testid="role-permission-message">{{ rolePermissionMessage }}</p>
-            </div>
-          </section>
-        </div>
+        <PermissionMatrixPage
+          v-else-if="tabs.activeTab.value.id === 'role-permission-settings'"
+          :can-manage="canManageRolePermissions"
+        />
         <div v-else-if="tabs.activeTab.value.id === 'print-template-settings'" class="print-template-page">
           <section class="print-template-head">
             <div>
@@ -805,10 +759,11 @@ import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
+import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
-import { createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, logoutSystemUser, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RolePermissionMatrix, type SystemSession, type SystemUser } from "../services/systemApi";
+import { createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, logoutSystemUser, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -862,10 +817,6 @@ const highlightedSourceLineNo = ref<number | null>(null);
 const printTemplates = ref<PrintTemplateConfig[]>([]);
 const printTemplateEdited = ref(false);
 const printTemplateMessage = ref("");
-const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
-const selectedRoleCode = ref("ADMIN");
-const rolePermissionDraft = ref<string[]>([]);
-const rolePermissionMessage = ref("");
 const notificationProviderSettings = ref<NotificationProviderSettings | null>(null);
 const notificationProviderMessage = ref("");
 const activePasswordPolicy = ref<PasswordPolicySettings>({
@@ -956,17 +907,6 @@ const selectedManagedUser = computed(() => managedUsers.value.find((user) => use
 const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
 const selectedPasswordResetRequest = computed(() => passwordResetRequests.value.find((request) => request.id === selectedPasswordResetRequestId.value && request.status === "PENDING") ?? null);
 const recentPasswordResetNotifications = computed(() => notificationOutbox.value.slice(0, 6));
-const selectedRole = computed(() => rolePermissionMatrix.value?.roles.find((role) => role.code === selectedRoleCode.value) ?? null);
-const selectedRolePermissionCount = computed(() => rolePermissionDraft.value.length);
-const permissionGroups = computed(() => {
-  const grouped = new Map<string, PermissionCatalogItem[]>();
-  for (const permission of rolePermissionMatrix.value?.permissions ?? []) {
-    const group = grouped.get(permission.moduleName) ?? [];
-    group.push(permission);
-    grouped.set(permission.moduleName, group);
-  }
-  return Array.from(grouped.entries()).map(([moduleName, permissions]) => ({ moduleName, permissions }));
-});
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
@@ -1071,9 +1011,6 @@ function applySystemSession(remoteSession: SystemSession) {
 }
 async function handleLoginSuccess(remoteSession: SystemSession) {
   applySystemSession(remoteSession);
-  if (tabs.activeTab.value.id === "role-permission-settings") {
-    await loadRolePermissions();
-  }
 }
 async function logoutCurrentUser() {
   await logoutSystemUser();
@@ -1189,9 +1126,6 @@ function openEntry(entry: ShellEntry) {
   }
   if (opened && entry.id === "print-template-settings") {
     void loadPrintTemplates();
-  }
-  if (opened && entry.id === "role-permission-settings") {
-    void loadRolePermissions();
   }
   if (opened && entry.id === "notification-provider-settings") {
     void loadNotificationProviderSettings();
@@ -1419,57 +1353,6 @@ async function unlockManagedUserAction() {
   selectedManagedUsername.value = managedUserForm.username;
   applySelectedManagedUser();
   userManagementMessage.value = "账号锁定已解除";
-}
-async function loadRolePermissions() {
-  const result = await fetchRolePermissions();
-  if (!result.ok || !result.data) {
-    rolePermissionMessage.value = result.message;
-    return;
-  }
-  rolePermissionMatrix.value = result.data;
-  if (!result.data.roles.some((role) => role.code === selectedRoleCode.value)) {
-    selectedRoleCode.value = result.data.roles[0]?.code ?? "";
-  }
-  applySelectedRolePermissions();
-  rolePermissionMessage.value = "";
-}
-function selectRolePermissionRole(roleCode: string) {
-  selectedRoleCode.value = roleCode;
-  applySelectedRolePermissions();
-  rolePermissionMessage.value = "";
-}
-function applySelectedRolePermissions() {
-  rolePermissionDraft.value = [...(selectedRole.value?.permissionCodes ?? [])];
-}
-function rolePermissionChecked(permissionCode: string) {
-  return rolePermissionDraft.value.includes(permissionCode);
-}
-function toggleRolePermission(permissionCode: string, checked: boolean) {
-  const current = new Set(rolePermissionDraft.value);
-  if (checked) {
-    current.add(permissionCode);
-  } else {
-    current.delete(permissionCode);
-  }
-  rolePermissionDraft.value = Array.from(current);
-}
-async function saveSelectedRolePermissions() {
-  if (!canManageRolePermissions.value) {
-    rolePermissionMessage.value = "当前角色无权维护权限矩阵。";
-    return;
-  }
-  if (!selectedRoleCode.value) {
-    rolePermissionMessage.value = "请先选择角色。";
-    return;
-  }
-  const result = await saveRolePermissions(selectedRoleCode.value, rolePermissionDraft.value);
-  if (!result.ok || !result.data) {
-    rolePermissionMessage.value = result.message || "权限保存失败。";
-    return;
-  }
-  rolePermissionMatrix.value = result.data;
-  applySelectedRolePermissions();
-  rolePermissionMessage.value = "权限矩阵已保存";
 }
 async function loadNotificationProviderSettings() {
   const result = await fetchNotificationProviderSettings();
