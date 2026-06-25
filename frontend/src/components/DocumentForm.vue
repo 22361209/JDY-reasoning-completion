@@ -81,6 +81,7 @@
         :current-bill-no="form.billNo"
         :show-source-line-column="showSourceLineColumn"
         :show-execution-columns="showExecutionColumns"
+        :show-target-warehouse-column="showTargetWarehouseColumn"
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
@@ -92,6 +93,7 @@
         @handle-selector-keydown="(event, selectorId) => emit('handleSelectorKeydown', event, selectorId)"
         @select-line-product="(option, lineIndex, selectorId) => emit('selectLineProduct', option, lineIndex, selectorId)"
         @select-warehouse-option="(option, lineIndex, selectorId) => emit('selectWarehouseOption', option, lineIndex, selectorId)"
+        @select-target-warehouse-option="(option, lineIndex, selectorId) => emit('selectTargetWarehouseOption', option, lineIndex, selectorId)"
         @entry-paste="(event, lineIndex) => emit('entryPaste', event, lineIndex)"
         @trace-source-order="emit('traceSourceOrder', $event)"
         @open-downstream-trace="(line, lineIndex) => emit('openDownstreamTrace', line, lineIndex)"
@@ -149,6 +151,7 @@ defineProps<{
   canTraceSourceOrder: boolean;
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
+  showTargetWarehouseColumn?: boolean;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
@@ -184,6 +187,7 @@ const emit = defineEmits<{
   selectPartyOption: [option: MasterOption];
   selectLineProduct: [option: MasterOption, lineIndex: number, selectorId: string];
   selectWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
+  selectTargetWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   entryPaste: [event: ClipboardEvent, lineIndex: number];
   traceSourceOrder: [sourceLineNo?: number];
   openDownstreamTrace: [line: EntryLine, lineIndex: number];

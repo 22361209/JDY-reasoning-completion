@@ -268,6 +268,7 @@ public class ListStubController {
             case "sales-out-list", "sales-out-form-list" -> salesOutRows();
             case "other-in-list", "other-in-form-list" -> otherStockInRows();
             case "other-out-list", "other-out-form-list" -> otherStockOutRows();
+            case "stock-transfer-list", "stock-transfer-form-list" -> stockTransferRows();
             case "inventory-query-list" -> realInventoryRows();
             case "receivable-list", "ar-receivable-list" -> receivableRows();
             case "payable-list", "ap-payable-list" -> payableRows();
@@ -496,6 +497,34 @@ public class ListStubController {
             LEFT JOIN other_stock_out_line l ON l.bill_id = b.id AND l.line_no = 1
             LEFT JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            ORDER BY b.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> stockTransferRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT b.id::text AS id,
+                   b.bill_no AS "billNo",
+                   to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   b.business_type AS "businessType",
+                   CASE
+                       WHEN b.status = 'DRAFT' THEN '草稿'
+                       WHEN b.status = 'REVERSED' THEN '已反审核'
+                       WHEN b.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   COALESCE(b.department, '') AS department,
+                   COALESCE(p.code, '') AS "productCode",
+                   COALESCE(p.name, '') AS "productName",
+                   COALESCE(sw.name, '') AS "sourceWarehouse",
+                   COALESCE(tw.name, '') AS "targetWarehouse",
+                   COALESCE(p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty
+            FROM stock_transfer b
+            LEFT JOIN stock_transfer_line l ON l.bill_id = b.id AND l.line_no = 1
+            LEFT JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse sw ON sw.id = l.source_warehouse_id
+            LEFT JOIN md_warehouse tw ON tw.id = l.target_warehouse_id
             ORDER BY b.updated_at DESC
             """));
     }

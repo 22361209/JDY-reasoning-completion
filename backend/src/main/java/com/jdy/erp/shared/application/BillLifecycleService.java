@@ -19,7 +19,8 @@ public class BillLifecycleService {
         "production_material_issue",
         "production_completion",
         "other_stock_in",
-        "other_stock_out"
+        "other_stock_out",
+        "stock_transfer"
     );
 
     private final JdbcTemplate jdbcTemplate;

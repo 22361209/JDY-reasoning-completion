@@ -886,7 +886,8 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     materialIssue: "生产领料单",
     productIn: "产品入库单",
     otherStockIn: "其他入库单",
-    otherStockOut: "其他出库单"
+    otherStockOut: "其他出库单",
+    stockTransfer: "调拨单"
   };
   return labels[type];
 }

@@ -20,6 +20,7 @@
           <th>商品名称</th>
           <th>规格型号</th>
           <th>仓库</th>
+          <th v-if="showTargetWarehouseColumn">目标仓库</th>
           <th v-if="showSourceLineColumn">源行号</th>
           <th>数量</th>
           <th v-if="showExecutionColumns">已执行</th>
@@ -61,6 +62,31 @@
                   type="button"
                   :class="{ selected: selectorCursorIndex === optionIndex }"
                   @mousedown.prevent="emit('selectLineProduct', option, lineIndex, selectorIdForLine(lineIndex, 'product'))"
+                >
+                  <strong>{{ option.code }}</strong>
+                  <span>{{ option.name }}</span>
+                </button>
+              </span>
+            </span>
+          </td>
+          <td v-if="showTargetWarehouseColumn">
+            <span class="master-selector in-cell">
+              <input
+                v-model="line.targetWarehouseCode"
+                :disabled="!isDraft"
+                :data-testid="lineTargetWarehouseTestId(lineIndex)"
+                @focus="emit('searchMasterOptions', 'warehouse', line.targetWarehouseCode || '', selectorIdForLine(lineIndex, 'target-warehouse'))"
+                @input="emit('handleMasterInput', 'warehouse', line.targetWarehouseCode || '', selectorIdForLine(lineIndex, 'target-warehouse'))"
+                @keydown="handleLineCellKeydown($event, lineIndex, 'target-warehouse', selectorIdForLine(lineIndex, 'target-warehouse'))"
+                @paste="emit('entryPaste', $event, lineIndex)"
+              />
+              <span v-if="activeSelector === selectorIdForLine(lineIndex, 'target-warehouse')" class="master-selector__menu">
+                <button
+                  v-for="(option, optionIndex) in selectorOptions"
+                  :key="option.code"
+                  type="button"
+                  :class="{ selected: selectorCursorIndex === optionIndex }"
+                  @mousedown.prevent="emit('selectTargetWarehouseOption', option, lineIndex, selectorIdForLine(lineIndex, 'target-warehouse'))"
                 >
                   <strong>{{ option.code }}</strong>
                   <span>{{ option.name }}</span>
@@ -172,6 +198,7 @@ export interface EntryLine {
   productName?: string;
   spec?: string;
   warehouseCode: string;
+  targetWarehouseCode?: string;
   sourceLineNo?: number;
   qty: number;
   executedQty?: number;
@@ -203,6 +230,7 @@ const props = defineProps<{
   currentBillNo: string;
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
+  showTargetWarehouseColumn?: boolean;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
@@ -217,6 +245,7 @@ const emit = defineEmits<{
   handleSelectorKeydown: [event: KeyboardEvent, selectorId: string];
   selectLineProduct: [option: MasterOption, lineIndex: number, selectorId: string];
   selectWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
+  selectTargetWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   entryPaste: [event: ClipboardEvent, lineIndex: number];
   traceSourceOrder: [sourceLineNo?: number];
   openDownstreamTrace: [line: EntryLine, lineIndex: number];
@@ -230,7 +259,7 @@ const emit = defineEmits<{
   addLine: [];
 }>();
 
-function selectorIdForLine(lineIndex: number, field: "product" | "warehouse") {
+function selectorIdForLine(lineIndex: number, field: "product" | "warehouse" | "target-warehouse") {
   return `${props.testPrefix}-line-${lineIndex}-${field}`;
 }
 
@@ -287,6 +316,10 @@ function lineWarehouseTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-warehouse` : `${props.testPrefix}-line-warehouse-${index + 1}`;
 }
 
+function lineTargetWarehouseTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-target-warehouse` : `${props.testPrefix}-line-target-warehouse-${index + 1}`;
+}
+
 function lineQtyTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-qty` : `${props.testPrefix}-line-qty-${index + 1}`;
 }
@@ -339,7 +372,7 @@ function lineDragHandleTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-drag` : `${props.testPrefix}-line-drag-${index + 1}`;
 }
 
-function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {
+function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price", selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && props.activeSelector === selectorId && props.selectorOptions.length > 0);
   if (selectorId) {
     emit("handleSelectorKeydown", event, selectorId);
@@ -368,7 +401,7 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "p
   }
 }
 
-function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
+function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price") {
   if (cell === "qty") {
     void focusLineCell(lineIndex, "price");
     return;
@@ -380,15 +413,17 @@ function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse"
   void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), cell);
 }
 
-async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
+async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price") {
   await nextTick();
   const input = document.querySelector<HTMLInputElement>(`[data-testid="${lineCellTestId(lineIndex, cell)}"]`);
   input?.focus();
   input?.select();
 }
 
-function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
+function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price") {
   switch (cell) {
+    case "target-warehouse":
+      return lineTargetWarehouseTestId(lineIndex);
     case "warehouse":
       return lineWarehouseTestId(lineIndex);
     case "qty":

@@ -338,7 +338,7 @@ interface ColumnFilter {
   value: string;
 }
 
-type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut";
+type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer";
 
 const props = defineProps<{
   listKey: string;
@@ -688,6 +688,25 @@ const definitions: Record<string, ListDefinition> = {
       { field: "outCost", title: "出库成本", width: 120, align: "right", visible: true }
     ]
   },
+  "stock-transfer-form-list": {
+    title: "调拨单列表",
+    subtitle: "调拨单按库存业务列表范式展示，审核后源仓减少、目标仓增加。",
+    keywordPlaceholder: "单据编号、商品编码、商品名称、源仓、目标仓",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billDate", title: "单据日期", width: 120, visible: true },
+      { field: "billNo", title: "单据编号", width: 220, visible: true },
+      { field: "businessType", title: "业务类型", width: 120, visible: true },
+      { field: "status", title: "审核状态", width: 100, visible: true },
+      { field: "department", title: "部门", width: 120, visible: true },
+      { field: "productCode", title: "商品编码", width: 130, visible: true },
+      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "sourceWarehouse", title: "源仓库", width: 140, visible: true },
+      { field: "targetWarehouse", title: "目标仓库", width: 140, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "数量", width: 100, align: "right", visible: true }
+    ]
+  },
   "bom-list": {
     title: "BOM维护",
     subtitle: "BOM 维护展示成品、基准数量和启用状态，明细由后端 BOM 接口维护。",
@@ -762,7 +781,8 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
   "material-issue-form-list": "production.document.audit",
   "product-in-form-list": "production.document.audit",
   "other-in-form-list": "inventory.other_stock_in.audit",
-  "other-out-form-list": "inventory.other_stock_out.audit"
+  "other-out-form-list": "inventory.other_stock_out.audit",
+  "stock-transfer-form-list": "inventory.stock_transfer.audit"
 };
 const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "product-master-list": "master.data.manage",
@@ -778,7 +798,8 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "material-issue-form-list": "production.document.audit",
   "product-in-form-list": "production.document.audit",
   "other-in-form-list": "inventory.other_stock_in.audit",
-  "other-out-form-list": "inventory.other_stock_out.audit"
+  "other-out-form-list": "inventory.other_stock_out.audit",
+  "stock-transfer-form-list": "inventory.stock_transfer.audit"
 };
 const canAuditCurrentList = computed(() => session.hasPermission(auditPermissionByListKey[props.listKey]));
 const canMaintainCurrentList = computed(() => session.hasPermission(maintainPermissionByListKey[props.listKey]));
@@ -792,7 +813,8 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
   "material-issue-form-list": "materialIssue",
   "product-in-form-list": "productIn",
   "other-in-form-list": "otherStockIn",
-  "other-out-form-list": "otherStockOut"
+  "other-out-form-list": "otherStockOut",
+  "stock-transfer-form-list": "stockTransfer"
 };
 const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));

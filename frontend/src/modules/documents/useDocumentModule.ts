@@ -46,6 +46,8 @@ export interface DocumentModuleOptions {
   defaultDepartment: string;
   defaultPartyCode: string;
   defaultUnitPrice: number;
+  showTargetWarehouseColumn?: boolean;
+  defaultTargetWarehouseCode?: string;
   sourceTraceType?: OpenableDocumentType;
   reversible?: boolean;
   initialForm: OrderForm;
@@ -67,6 +69,7 @@ type PreparedEntryLines = {
   documentLines: {
     productCode: string;
     warehouseCode: string;
+    targetWarehouseCode?: string;
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
@@ -111,7 +114,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo?.trim()));
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo));
   const showExecutionColumns = computed(() => form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
-  const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0));
+  const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
+  const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0).toFixed(2));
   const statusLabel = computed(() => {
@@ -169,6 +173,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         productName: String(line.productName ?? ""),
         spec: String(line.spec ?? ""),
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
+        targetWarehouseCode: String(line.targetWarehouseCode ?? config.defaultTargetWarehouseCode ?? "CK-002"),
         lineNo: normalizedOptionalInt(line.lineNo),
         sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
         qty: Number(line.qty ?? 0),
@@ -501,6 +506,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     form.lines.forEach((line) => {
       line.warehouseCode = warehouseCode;
+      if (showTargetWarehouseColumn.value && !line.targetWarehouseCode) {
+        line.targetWarehouseCode = config.defaultTargetWarehouseCode ?? "CK-002";
+      }
     });
     activeSelector.value = "";
     runtime.markDirty();
@@ -629,6 +637,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       selectPartyOption(option, selectorId);
     } else if (selectorId.endsWith("-product")) {
       selectLineProduct(option, lineIndexFromSelector(selectorId), selectorId);
+    } else if (selectorId.endsWith("-target-warehouse")) {
+      selectTargetWarehouseOption(option, lineIndexFromSelector(selectorId), selectorId);
     } else if (selectorId.endsWith("-warehouse")) {
       selectWarehouseOption(option, lineIndexFromSelector(selectorId), selectorId);
     }
@@ -647,6 +657,17 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       return;
     }
     line.warehouseCode = option.code;
+    activeSelector.value = "";
+    runtime.markDirty();
+    focusNextAfterSelector(selectorId);
+  }
+
+  function selectTargetWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "target-warehouse", config.testPrefix)) {
+    const line = form.lines[lineIndex];
+    if (!line) {
+      return;
+    }
+    line.targetWarehouseCode = option.code;
     activeSelector.value = "";
     runtime.markDirty();
     focusNextAfterSelector(selectorId);
@@ -774,7 +795,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     return pending.conflicts.find((conflict) => !conflict.selectedCode) ?? pending.conflicts[0];
   }
 
-  function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {
+  function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price", selectorId = "") {
     const selectorWasOpen = Boolean(selectorId && activeSelector.value === selectorId && selectorOptions.value.length > 0);
     if (selectorId) {
       handleSelectorKeydown(event, selectorId);
@@ -815,6 +836,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 
   function lineWarehouseTestId(index: number) {
     return index === 0 ? `${config.testPrefix}-line-warehouse` : `${config.testPrefix}-line-warehouse-${index + 1}`;
+  }
+
+  function lineTargetWarehouseTestId(index: number) {
+    return index === 0 ? `${config.testPrefix}-line-target-warehouse` : `${config.testPrefix}-line-target-warehouse-${index + 1}`;
   }
 
   function lineQtyTestId(index: number) {
@@ -860,6 +885,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     canTraceSourceOrder,
     showSourceLineColumn,
     showExecutionColumns,
+    showTargetWarehouseColumn,
     entryTableColspan,
     entryTotalColspan,
     totalAmount,
@@ -904,6 +930,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     handleSelectorKeydown,
     selectPartyOption,
     selectWarehouseOption,
+    selectTargetWarehouseOption,
     selectLineProduct,
     cancelZeroEntrySave,
     confirmZeroEntrySave,
@@ -928,6 +955,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     return {
       productCode: "CP-001",
       warehouseCode,
+      targetWarehouseCode: config.showTargetWarehouseColumn ? config.defaultTargetWarehouseCode ?? "CK-002" : undefined,
       qty: 1,
       unitPrice: config.defaultUnitPrice,
       lineRemark: ""
@@ -945,9 +973,15 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (missingProduct) {
       return { ok: false, message: `第 ${missingProduct.index + 1} 行商品编码不能为空。` };
     }
+    const missingTargetWarehouse = config.showTargetWarehouseColumn
+      ? nonBlankLines.find(({ line }) => !String(line.targetWarehouseCode ?? "").trim())
+      : undefined;
+    if (missingTargetWarehouse) {
+      return { ok: false, message: `第 ${missingTargetWarehouse.index + 1} 行目标仓库不能为空。` };
+    }
     const seen = new Map<string, number>();
     for (const { line, index } of nonBlankLines) {
-      const key = `${entryLineProductCode(line)}@@${entryLineWarehouseCode(line)}`;
+      const key = `${entryLineProductCode(line)}@@${entryLineWarehouseCode(line)}@@${config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : ""}`;
       const firstIndex = seen.get(key);
       if (firstIndex !== undefined) {
         return { ok: false, message: `第 ${index + 1} 行与第 ${firstIndex + 1} 行商品和仓库重复，请合并后再保存。` };
@@ -961,6 +995,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       documentLines: formLines.map((line) => ({
         productCode: line.productCode,
         warehouseCode: line.warehouseCode,
+        targetWarehouseCode: config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : undefined,
         sourceLineNo: line.sourceLineNo,
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
@@ -1083,7 +1118,8 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     materialIssue: "生产领料单",
     productIn: "产品入库单",
     otherStockIn: "其他入库单",
-    otherStockOut: "其他出库单"
+    otherStockOut: "其他出库单",
+    stockTransfer: "调拨单"
   };
   return labels[type];
 }
@@ -1119,6 +1155,10 @@ function entryLineProductCode(line: OrderLineForm) {
 
 function entryLineWarehouseCode(line: OrderLineForm) {
   return String(line.warehouseCode ?? "").trim() || "CK-001";
+}
+
+function entryLineTargetWarehouseCode(line: OrderLineForm) {
+  return String(line.targetWarehouseCode ?? "").trim() || "CK-002";
 }
 
 function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
@@ -1177,7 +1217,7 @@ function lineIndexFromSelector(selectorId: string) {
   return match ? Number(match[1]) : 0;
 }
 
-function selectorIdForLine(lineIndex: number, field: "product" | "warehouse", testPrefix = "") {
+function selectorIdForLine(lineIndex: number, field: "product" | "warehouse" | "target-warehouse", testPrefix = "") {
   return `${testPrefix}-line-${lineIndex}-${field}`;
 }
 
@@ -1185,10 +1225,10 @@ function selectorIdForParty(testPrefix = "") {
   return `${testPrefix}-party`;
 }
 
-async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", testPrefix = "") {
+async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price", testPrefix = "") {
   await nextTick();
   const suffix = lineIndex === 0 ? "" : `-${lineIndex + 1}`;
-  const field = cell === "product" ? "product" : cell === "warehouse" ? "warehouse" : cell;
+  const field = cell === "product" ? "product" : cell === "warehouse" ? "warehouse" : cell === "target-warehouse" ? "target-warehouse" : cell;
   const input = document.querySelector<HTMLInputElement>(`[data-testid="${testPrefix}-line-${field}${suffix}"]`);
   input?.focus();
   input?.select();
@@ -1199,13 +1239,18 @@ function focusNextAfterSelector(selectorId: string) {
     void focusFormField(`${selectorId.replace(/-party$/, "")}-bill-date`);
     return;
   }
-  const linePrefix = selectorId.match(/^(.*)-line-\d+-(product|warehouse)$/)?.[1] ?? "";
+  const linePrefix = selectorId.match(/^(.*)-line-\d+-(product|warehouse|target-warehouse)$/)?.[1] ?? "";
   const lineIndex = lineIndexFromSelector(selectorId);
   if (selectorId.endsWith("-product")) {
     void focusLineCell(lineIndex, "warehouse", linePrefix);
     return;
   }
+  if (selectorId.endsWith("-target-warehouse")) {
+    void focusLineCell(lineIndex, "qty", linePrefix);
+    return;
+  }
   if (selectorId.endsWith("-warehouse")) {
     void focusLineCell(lineIndex, "qty", linePrefix);
+    return;
   }
 }
