@@ -2,17 +2,13 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   createManagedUser,
   fetchManagedUsers,
-  fetchNotificationOutbox,
   fetchSystemUsers,
   handlePasswordResetRequest,
-  resendNotification,
   resetManagedUserPassword,
-  syncNotificationReceipt,
   unlockManagedUser,
   updateManagedUser,
   type ManagedRole,
   type ManagedUser,
-  type NotificationOutboxItem,
   type PasswordResetRequestItem,
   type SystemUser
 } from "../../../services/systemApi";
@@ -20,12 +16,11 @@ import {
 export function useUserManagementPage(options: {
   canManage: () => boolean;
   onUsersChanged: (users: SystemUser[]) => void;
+  onNotificationsChanged: () => void;
 }) {
   const managedUsers = ref<ManagedUser[]>([]);
   const managedRoles = ref<ManagedRole[]>([]);
   const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
-  const notificationOutbox = ref<NotificationOutboxItem[]>([]);
-  const notificationStatusFilter = ref("");
   const selectedPasswordResetRequestId = ref("");
   const passwordResetHandleNote = ref("");
   const selectedManagedUsername = ref("");
@@ -41,7 +36,6 @@ export function useUserManagementPage(options: {
   const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
   const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
   const selectedPasswordResetRequest = computed(() => passwordResetRequests.value.find((request) => request.id === selectedPasswordResetRequestId.value && request.status === "PENDING") ?? null);
-  const recentPasswordResetNotifications = computed(() => notificationOutbox.value.slice(0, 6));
 
   onMounted(loadManagedUsers);
 
@@ -54,7 +48,6 @@ export function useUserManagementPage(options: {
     managedUsers.value = result.data.users;
     managedRoles.value = result.data.roles;
     passwordResetRequests.value = result.data.passwordResetRequests ?? [];
-    notificationOutbox.value = result.data.notificationOutbox ?? [];
     if (!pendingPasswordResetRequests.value.some((request) => request.id === selectedPasswordResetRequestId.value)) {
       selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
     }
@@ -65,15 +58,6 @@ export function useUserManagementPage(options: {
       applySelectedManagedUser();
     }
     userManagementMessage.value = "";
-  }
-
-  async function loadNotificationOutboxAction() {
-    const result = await fetchNotificationOutbox(notificationStatusFilter.value);
-    if (!result.ok) {
-      userManagementMessage.value = result.message;
-      return;
-    }
-    notificationOutbox.value = result.data;
   }
 
   function selectManagedUser(username: string) {
@@ -151,7 +135,6 @@ export function useUserManagementPage(options: {
     managedUsers.value = result.data.users;
     managedRoles.value = result.data.roles;
     passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
-    notificationOutbox.value = result.data.notificationOutbox ?? notificationOutbox.value;
     selectedManagedUsername.value = managedUserForm.username;
     userManagementMode.value = "edit";
     applySelectedManagedUser();
@@ -170,6 +153,7 @@ export function useUserManagementPage(options: {
     }
     managedUserPassword.value = "";
     await loadManagedUsers();
+    options.onNotificationsChanged();
     userManagementMessage.value = "密码已重置，待处理找回申请已标记完成";
   }
 
@@ -185,43 +169,10 @@ export function useUserManagementPage(options: {
     managedUsers.value = result.data.users;
     managedRoles.value = result.data.roles;
     passwordResetRequests.value = result.data.passwordResetRequests ?? [];
-    notificationOutbox.value = result.data.notificationOutbox ?? [];
     selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
     passwordResetHandleNote.value = "";
+    options.onNotificationsChanged();
     userManagementMessage.value = "找回申请已驳回";
-  }
-
-  async function resendNotificationAction(notificationId: string) {
-    if (!options.canManage()) {
-      userManagementMessage.value = "当前角色无权维护通知。";
-      return;
-    }
-    const result = await resendNotification(notificationId);
-    if (!result.ok) {
-      userManagementMessage.value = result.message || "通知重发失败。";
-      return;
-    }
-    notificationStatusFilter.value = "";
-    notificationOutbox.value = result.data;
-    userManagementMessage.value = "通知已重发";
-  }
-
-  async function syncNotificationReceiptAction(notificationId: string, providerReceiptStatus: "DELIVERED" | "FAILED") {
-    if (!options.canManage()) {
-      userManagementMessage.value = "当前角色无权维护通知。";
-      return;
-    }
-    const result = await syncNotificationReceipt(notificationId, {
-      providerReceiptStatus,
-      failureReason: providerReceiptStatus === "FAILED" ? "本地供应商回执失败" : ""
-    });
-    if (!result.ok) {
-      userManagementMessage.value = result.message || "通知回执同步失败。";
-      return;
-    }
-    notificationStatusFilter.value = "";
-    notificationOutbox.value = result.data;
-    userManagementMessage.value = "通知回执已同步";
   }
 
   async function unlockManagedUserAction() {
@@ -241,12 +192,14 @@ export function useUserManagementPage(options: {
     userManagementMessage.value = "账号锁定已解除";
   }
 
+  function setUserManagementMessage(message: string) {
+    userManagementMessage.value = message;
+  }
+
   return {
     managedUsers,
     managedRoles,
     passwordResetRequests,
-    notificationOutbox,
-    notificationStatusFilter,
     selectedPasswordResetRequestId,
     passwordResetHandleNote,
     selectedManagedUsername,
@@ -257,9 +210,7 @@ export function useUserManagementPage(options: {
     selectedManagedUser,
     pendingPasswordResetRequests,
     selectedPasswordResetRequest,
-    recentPasswordResetNotifications,
     loadManagedUsers,
-    loadNotificationOutboxAction,
     selectManagedUser,
     selectPasswordResetRequest,
     managedUserStateLabel,
@@ -267,31 +218,7 @@ export function useUserManagementPage(options: {
     saveManagedUser,
     resetManagedUserPasswordAction,
     rejectPasswordResetRequestAction,
-    resendNotificationAction,
-    syncNotificationReceiptAction,
-    unlockManagedUserAction
+    unlockManagedUserAction,
+    setUserManagementMessage
   };
-}
-
-export function notificationStatusLabel(notice: NotificationOutboxItem) {
-  if (notice.status === "SENT") {
-    return "已发送";
-  }
-  if (notice.status === "FAILED") {
-    return "失败";
-  }
-  return "待发送";
-}
-
-export function notificationReceiptLabel(notice: NotificationOutboxItem) {
-  if (notice.providerReceiptStatus === "DELIVERED") {
-    return `回执成功${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
-  }
-  if (notice.providerReceiptStatus === "FAILED") {
-    return `回执失败${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
-  }
-  if (notice.providerReceiptStatus === "BOUNCED") {
-    return `回执退回${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
-  }
-  return "未回执";
 }

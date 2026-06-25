@@ -169,110 +169,10 @@
           :can-manage="canManageSecuritySettings"
           @password-policy-updated="activePasswordPolicy = $event"
         />
-        <div v-else-if="tabs.activeTab.value.id === 'notification-provider-settings'" class="role-permission-page">
-          <section class="role-permission-head">
-            <div>
-              <h2>通知供应商</h2>
-              <p>维护通知 outbox 的供应商参数，影响找回密码通知的发送标记、重发和自动重试。</p>
-            </div>
-            <div class="role-permission-head__actions">
-              <button type="button" data-testid="notification-provider-refresh" @click="loadNotificationProviderSettings">刷新</button>
-              <button class="primary-action" type="button" :disabled="!canManageNotificationProviderSettings" data-testid="notification-provider-save" @click="saveNotificationProviderSettingsAction">保存</button>
-            </div>
-          </section>
-          <section class="role-permission-body">
-            <aside class="role-permission-list" aria-label="通知供应商">
-              <button
-                type="button"
-                :class="{ active: notificationProviderForm.providerCode === 'LOCAL' }"
-                data-testid="notification-provider-local"
-                @click="notificationProviderForm.providerCode = 'LOCAL'"
-              >
-                <strong>本地通知</strong>
-                <span>只写 outbox 与审计，不请求外部网络</span>
-              </button>
-              <button
-                type="button"
-                :class="{ active: notificationProviderForm.providerCode === 'SIMULATED_HTTP' }"
-                data-testid="notification-provider-simulated-http"
-                @click="notificationProviderForm.providerCode = 'SIMULATED_HTTP'"
-              >
-                <strong>模拟 HTTP</strong>
-                <span>保存接口地址与密钥，发送仍走本地 dry-run</span>
-              </button>
-              <button
-                type="button"
-                :class="{ active: notificationProviderForm.providerCode === 'SIMULATED_SMTP' }"
-                data-testid="notification-provider-simulated-smtp"
-                @click="notificationProviderForm.providerCode = 'SIMULATED_SMTP'"
-              >
-                <strong>模拟 SMTP</strong>
-                <span>为邮件供应商预留参数，不暴露真实密钥</span>
-              </button>
-            </aside>
-            <form class="user-management-form" @submit.prevent="saveNotificationProviderSettingsAction">
-              <div class="role-permission-summary" data-testid="notification-provider-summary">
-                <strong>{{ notificationProviderSettings?.providerLabel || notificationProviderLabel(notificationProviderForm.providerCode) }}</strong>
-                <span>{{ notificationProviderForm.providerCode }}</span>
-                <em>{{ notificationProviderForm.dryRun ? "Dry-run" : "待接真实供应商" }}</em>
-              </div>
-              <label>
-                <span>供应商类型</span>
-                <select v-model="notificationProviderForm.providerCode" data-testid="notification-provider-code">
-                  <option value="LOCAL">本地通知</option>
-                  <option value="SIMULATED_HTTP">模拟 HTTP 供应商</option>
-                  <option value="SIMULATED_SMTP">模拟 SMTP 供应商</option>
-                </select>
-              </label>
-              <label>
-                <span>发送方名称</span>
-                <input v-model="notificationProviderForm.senderName" data-testid="notification-provider-sender-name" />
-              </label>
-              <label>
-                <span>接口地址</span>
-                <input v-model="notificationProviderForm.endpointUrl" data-testid="notification-provider-endpoint-url" placeholder="https://provider.example/send" />
-              </label>
-              <label>
-                <span>回调密钥</span>
-                <input v-model="notificationProviderForm.webhookSecret" data-testid="notification-provider-webhook-secret" type="password" placeholder="留空则保持现有密钥" />
-              </label>
-              <div class="security-toggle-grid" data-testid="notification-provider-toggles">
-                <label>
-                  <input v-model="notificationProviderForm.dryRun" type="checkbox" data-testid="notification-provider-dry-run" />
-                  <span>Dry-run</span>
-                </label>
-              </div>
-              <label>
-                <span>当前管理员密码</span>
-                <input
-                  v-model="notificationProviderForm.currentPassword"
-                  data-testid="notification-provider-current-password"
-                  type="password"
-                  autocomplete="current-password"
-                />
-              </label>
-              <dl class="user-security-summary">
-                <div>
-                  <dt>当前供应商</dt>
-                  <dd data-testid="notification-provider-current-code">{{ notificationProviderSettings?.providerCode || "-" }}</dd>
-                </div>
-                <div>
-                  <dt>发送方</dt>
-                  <dd data-testid="notification-provider-current-sender">{{ notificationProviderSettings?.senderName || "-" }}</dd>
-                </div>
-                <div>
-                  <dt>接口地址</dt>
-                  <dd data-testid="notification-provider-current-endpoint">{{ notificationProviderSettings?.endpointUrl || "-" }}</dd>
-                </div>
-                <div>
-                  <dt>密钥状态</dt>
-                  <dd data-testid="notification-provider-secret-state">{{ notificationProviderSettings?.webhookSecretConfigured ? "已配置" : "未配置" }}</dd>
-                </div>
-              </dl>
-              <p v-if="notificationProviderMessage" class="form-message" data-testid="notification-provider-message">{{ notificationProviderMessage }}</p>
-            </form>
-          </section>
-        </div>
+        <NotificationProviderSettingsPage
+          v-else-if="tabs.activeTab.value.id === 'notification-provider-settings'"
+          :can-manage="canManageNotificationProviderSettings"
+        />
         <UserManagementPage
           v-else-if="tabs.activeTab.value.id === 'user-role-list'"
           :can-manage="canManageRolePermissions"
@@ -615,12 +515,13 @@ import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
+import NotificationProviderSettingsPage from "../modules/system/notification/NotificationProviderSettingsPage.vue";
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
-import { fetchNotificationProviderSettings, fetchSystemSession, fetchSystemUsers, logoutSystemUser, saveNotificationProviderSettings, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { fetchSystemSession, fetchSystemUsers, logoutSystemUser, type PasswordPolicySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -674,29 +575,12 @@ const highlightedSourceLineNo = ref<number | null>(null);
 const printTemplates = ref<PrintTemplateConfig[]>([]);
 const printTemplateEdited = ref(false);
 const printTemplateMessage = ref("");
-const notificationProviderSettings = ref<NotificationProviderSettings | null>(null);
-const notificationProviderMessage = ref("");
 const activePasswordPolicy = ref<PasswordPolicySettings>({
   minLength: 8,
   requireUppercase: true,
   requireLowercase: true,
   requireDigit: true,
   requireSymbol: true
-});
-const notificationProviderForm = reactive<{
-  currentPassword: string;
-  providerCode: NotificationProviderCode;
-  senderName: string;
-  endpointUrl: string;
-  webhookSecret: string;
-  dryRun: boolean;
-}>({
-  currentPassword: "",
-  providerCode: "LOCAL",
-  senderName: "本地通知",
-  endpointUrl: "",
-  webhookSecret: "",
-  dryRun: true
 });
 const systemUsers = ref<SystemUser[]>([]);
 const isAuthenticated = ref(false);
@@ -963,9 +847,6 @@ function openEntry(entry: ShellEntry) {
   if (opened && entry.id === "print-template-settings") {
     void loadPrintTemplates();
   }
-  if (opened && entry.id === "notification-provider-settings") {
-    void loadNotificationProviderSettings();
-  }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
 }
@@ -982,53 +863,6 @@ function startNewModuleDocument(entryId: string) {
 }
 function canOpenEntry(entry: ShellEntry) {
   return session.hasPermission(entry.permission);
-}
-async function loadNotificationProviderSettings() {
-  const result = await fetchNotificationProviderSettings();
-  if (!result.ok || !result.data) {
-    notificationProviderMessage.value = result.message || "通知供应商设置加载失败。";
-    return;
-  }
-  applyNotificationProviderSettings(result.data);
-  notificationProviderMessage.value = "";
-}
-async function saveNotificationProviderSettingsAction() {
-  if (!canManageNotificationProviderSettings.value) {
-    notificationProviderMessage.value = "当前角色无权维护通知供应商。";
-    return;
-  }
-  const result = await saveNotificationProviderSettings({
-    currentPassword: notificationProviderForm.currentPassword,
-    providerCode: notificationProviderForm.providerCode,
-    senderName: notificationProviderForm.senderName,
-    endpointUrl: notificationProviderForm.endpointUrl,
-    webhookSecret: notificationProviderForm.webhookSecret,
-    dryRun: notificationProviderForm.dryRun
-  });
-  if (!result.ok || !result.data) {
-    notificationProviderMessage.value = result.message || "通知供应商设置保存失败。";
-    return;
-  }
-  applyNotificationProviderSettings(result.data);
-  notificationProviderForm.currentPassword = "";
-  notificationProviderForm.webhookSecret = "";
-  notificationProviderMessage.value = "通知供应商设置已保存";
-}
-function applyNotificationProviderSettings(settings: NotificationProviderSettings) {
-  notificationProviderSettings.value = settings;
-  notificationProviderForm.providerCode = settings.providerCode;
-  notificationProviderForm.senderName = settings.senderName;
-  notificationProviderForm.endpointUrl = settings.endpointUrl;
-  notificationProviderForm.dryRun = settings.dryRun;
-}
-function notificationProviderLabel(providerCode: NotificationProviderCode) {
-  if (providerCode === "SIMULATED_HTTP") {
-    return "模拟 HTTP 供应商";
-  }
-  if (providerCode === "SIMULATED_SMTP") {
-    return "模拟 SMTP 供应商";
-  }
-  return "本地通知";
 }
 async function loadPrintTemplates() {
   const result = await fetchPrintTemplates();
