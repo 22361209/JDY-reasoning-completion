@@ -31,6 +31,7 @@ import {
   type DownstreamDocumentRef,
   type OpenableDocumentType
 } from "../../../services/documentApi";
+import { fetchSalesOrderDetail, fetchSelectableSalesOrderLines, type SelectableSalesOrderLine, type SalesOrderDetail } from "../../../services/salesOrderApi";
 
 interface SalesOutDocumentOptions {
   userName: () => string;
@@ -89,6 +90,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const downstreamTrace = ref<DownstreamTraceState | null>(null);
   const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
   const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
+  const sourceSelectorOpen = ref(false);
+  const sourceSelectorLoading = ref(false);
+  const sourceSelectorLines = ref<SelectableSalesOrderLine[]>([]);
+  const sourceSelectorSelected = ref<Record<string, boolean>>({});
+  const sourceSelectorMessage = ref("");
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
   let selectorRequestSeq = 0;
@@ -224,7 +230,117 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "")
     }));
-    message.value = `已由${draft.sourceOrderNo}按确认数量生成销售出库单草稿`;
+    message.value = `已由${draft.sourceOrderNo}按剩余数量生成销售出库单草稿`;
+    options.markDirty();
+  }
+
+  function applySalesOrderLines(order: SalesOrderDetail["order"], lines: PendingPushLine[], loadedMessage: string) {
+    const today = new Date();
+    form.sourceOrderNo = order.billNo;
+    form.partyCode = order.customerCode || "";
+    form.partyName = order.customer || "";
+    form.billDate = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0")
+    ].join("-");
+    form.department = order.department || "销售部";
+    form.ownerName = options.userName() || order.ownerName || "本地管理员";
+    form.lines = lines.map((line) => ({
+      productCode: String(line.productCode ?? ""),
+      productName: String(line.productName ?? ""),
+      spec: String(line.spec ?? ""),
+      warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceLineNo: line.sourceLineNo,
+      qty: normalizedQty(line.remainingQty),
+      unitPrice: Number(line.unitPrice ?? 0),
+      lineRemark: String(line.lineRemark ?? ""),
+      planDeliveryDate: String(line.planDeliveryDate ?? "")
+    }));
+    message.value = loadedMessage;
+    options.markDirty();
+  }
+
+  async function loadSourceOrderNo() {
+    if (!isDraft.value) {
+      return;
+    }
+    const sourceOrderNo = form.sourceOrderNo?.trim();
+    if (!sourceOrderNo) {
+      message.value = "请先填写源订单号。";
+      return;
+    }
+    const result = await fetchSalesOrderDetail(sourceOrderNo);
+    if (!result.ok || !result.data) {
+      message.value = result.message || "销售订单详情加载失败。";
+      return;
+    }
+    const lines = result.data.lines.map((line) => salesOrderLineToPendingPushLine(line)).filter((line) => line.remainingQty > 0);
+    if (lines.length === 0) {
+      message.value = `销售订单 ${sourceOrderNo} 已无剩余可出数量。`;
+      return;
+    }
+    applySalesOrderLines(result.data.order, lines, `已按源订单 ${sourceOrderNo} 拉入剩余可出分录`);
+  }
+
+  async function openCustomerSourceSelector() {
+    if (!isDraft.value) {
+      return;
+    }
+    const customerCode = form.partyCode.trim();
+    if (!customerCode) {
+      message.value = "请先选择客户。";
+      return;
+    }
+    sourceSelectorOpen.value = true;
+    sourceSelectorLoading.value = true;
+    sourceSelectorMessage.value = "";
+    sourceSelectorSelected.value = {};
+    const result = await fetchSelectableSalesOrderLines(customerCode);
+    sourceSelectorLoading.value = false;
+    if (!result.ok) {
+      sourceSelectorLines.value = [];
+      sourceSelectorMessage.value = result.message || "销售订单选单列表加载失败。";
+      return;
+    }
+    sourceSelectorLines.value = result.data;
+    if (result.data.length === 0) {
+      sourceSelectorMessage.value = "该客户暂无已审核且有剩余可出数量的销售订单。";
+    }
+  }
+
+  function closeCustomerSourceSelector() {
+    sourceSelectorOpen.value = false;
+    sourceSelectorMessage.value = "";
+  }
+
+  function toggleSourceSelectorLine(line: SelectableSalesOrderLine, checked: boolean) {
+    sourceSelectorSelected.value[sourceSelectorLineKey(line)] = checked;
+  }
+
+  async function confirmCustomerSourceSelector() {
+    const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected.value[sourceSelectorLineKey(line)]);
+    if (selectedLines.length === 0) {
+      sourceSelectorMessage.value = "请至少勾选一条销售订单明细。";
+      return;
+    }
+    const sourceOrderNos = Array.from(new Set(selectedLines.map((line) => line.billNo)));
+    if (sourceOrderNos.length > 1) {
+      sourceSelectorMessage.value = "当前单头只支持一张源销售订单，请先选择同一订单的多行明细。";
+      return;
+    }
+    const first = selectedLines[0];
+    if (!first) {
+      return;
+    }
+    form.sourceOrderNo = first.billNo;
+    form.partyCode = first.customerCode;
+    form.partyName = first.customer || form.partyName || "";
+    form.department = first.department || form.department || "销售部";
+    form.lines = selectedLines.map((line) => selectableLineToFormLine(line));
+    sourceSelectorOpen.value = false;
+    sourceSelectorMessage.value = "";
+    message.value = `已从${first.billNo}选入 ${selectedLines.length} 行剩余可出明细`;
     options.markDirty();
   }
 
@@ -737,6 +853,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     activeSelector.value = "";
     options.markDirty();
     focusNextAfterSelector(selectorId);
+    void openCustomerSourceSelector();
   }
 
   function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "warehouse")) {
@@ -794,6 +911,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     selectorOptions,
     selectorCursorIndex,
     draggingLineIndex,
+    sourceSelectorOpen,
+    sourceSelectorLoading,
+    sourceSelectorLines,
+    sourceSelectorSelected,
+    sourceSelectorMessage,
     pendingZeroEntrySave,
     downstreamTrace,
     pendingRiskyDocumentAction,
@@ -821,6 +943,12 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     loadByBillNo,
     applyDetail,
     applyPushDownDraft,
+    loadSourceOrderNo,
+    openCustomerSourceSelector,
+    closeCustomerSourceSelector,
+    toggleSourceSelectorLine,
+    confirmCustomerSourceSelector,
+    sourceSelectorLineKey,
     save,
     audit,
     openRiskyAction,
@@ -953,6 +1081,44 @@ function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
 
 function lineLineNo(line: OrderLineForm, index: number) {
   return line.lineNo ?? index + 1;
+}
+
+function sourceSelectorLineKey(line: SelectableSalesOrderLine) {
+  return `${line.billNo}:${line.lineNo}`;
+}
+
+function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]): PendingPushLine {
+  const sourceQty = normalizedQty(line.qty);
+  const executedQty = normalizedQty(line.shippedQty);
+  const remainingQty = normalizedQty(line.remainingQty ?? sourceQty - executedQty);
+  return {
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName ?? ""),
+    spec: String(line.spec ?? ""),
+    warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    sourceLineNo: normalizedOptionalInt(line.lineNo),
+    sourceQty,
+    executedQty,
+    remainingQty,
+    qty: remainingQty,
+    unitPrice: Number(line.unitPrice ?? 0),
+    lineRemark: String(line.lineRemark ?? ""),
+    planDeliveryDate: String(line.planDeliveryDate ?? "")
+  };
+}
+
+function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm {
+  return {
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName ?? ""),
+    spec: String(line.spec ?? ""),
+    warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    sourceLineNo: normalizedOptionalInt(line.lineNo),
+    qty: normalizedQty(line.remainingQty),
+    unitPrice: Number(line.unitPrice ?? 0),
+    lineRemark: String(line.lineRemark ?? ""),
+    planDeliveryDate: String(line.planDeliveryDate ?? "")
+  };
 }
 
 function normalizedQty(value: number | string | undefined) {

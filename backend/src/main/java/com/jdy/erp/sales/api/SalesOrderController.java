@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -51,6 +52,11 @@ public class SalesOrderController {
     @GetMapping("/{billNo}")
     public Map<String, Object> detail(@PathVariable String billNo) {
         return appService.detail(billNo);
+    }
+
+    @GetMapping("/selectable-lines")
+    public Map<String, Object> selectableLines(@RequestParam String customerCode) {
+        return appService.selectableLines(customerCode);
     }
 
     @GetMapping("/{billNo}/export")

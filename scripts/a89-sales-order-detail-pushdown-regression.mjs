@@ -109,8 +109,6 @@ async function runFrontendFlow() {
     screenshots.push(`verification/playwright/${detailShot}`);
 
     await page.getByTestId("push-sales-out-from-order-detail").click();
-    await page.getByTestId("push-confirm-dialog").waitFor({ state: "visible" });
-    await page.getByTestId("push-confirm-ok").click();
     await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
     generatedSalesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
     assert(/^XSCKD\d{6}$/.test(generatedSalesOutNo), `expected generated sales out bill no, got ${generatedSalesOutNo}`);

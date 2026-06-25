@@ -168,6 +168,38 @@ public class SalesOrderAppService {
         return orderPayload(billNo, "PRINT");
     }
 
+    public Map<String, Object> selectableLines(String customerCode) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT so.bill_no AS "billNo",
+                   c.code AS "customerCode",
+                   c.name AS customer,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   so.department,
+                   so.owner_name AS "ownerName",
+                   l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.code AS "warehouseCode",
+                   l.qty AS "sourceQty",
+                   l.shipped_qty AS "shippedQty",
+                   GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
+                   l.unit_price AS "unitPrice",
+                   COALESCE(l.line_remark, '') AS "lineRemark",
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
+            FROM sales_order so
+            JOIN md_customer c ON c.id = so.customer_id
+            JOIN sales_order_line l ON l.order_id = so.id
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            WHERE c.code = ?
+              AND so.status = ?
+              AND GREATEST(0, l.qty - l.shipped_qty) > 0
+            ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
+            """, customerCode == null ? "" : customerCode.trim(), BillStatus.AUDITED.name());
+        return Map.of("customerCode", customerCode == null ? "" : customerCode.trim(), "lines", rows);
+    }
+
     private Map<String, Object> orderPayload(String billNo, String action) {
         var orderRows = jdbcTemplate.queryForList("""
             SELECT so.id::text AS id,

@@ -31,33 +31,37 @@
           <button v-if="document.form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="document.openRedSourceBill">来源原单 {{ document.form.redSourceBillNo }}</button>
         </div>
         <div class="source-order-field">
-          <label>源订单号<input v-model="document.form.sourceOrderNo" data-testid="sales-out-source-order-no" @input="document.markDirty" /></label>
+          <label>源订单号<input v-model="document.form.sourceOrderNo" data-testid="sales-out-source-order-no" @input="document.markDirty" @change="document.loadSourceOrderNo" @keydown.enter.prevent="document.loadSourceOrderNo" /></label>
+          <button type="button" data-testid="sales-out-load-source-order" @click="document.loadSourceOrderNo">拉入明细</button>
           <button type="button" :disabled="!document.canTraceSourceOrder.value" data-testid="trace-source-order" @click="document.traceSourceOrder()">{{ document.form.sourceOrderNo || "追踪源单" }}</button>
         </div>
-        <label>
-          客户编码
-          <span class="master-selector">
-            <input
-              v-model="document.form.partyCode"
-              data-testid="sales-out-party-code"
-              @focus="document.searchMasterOptions('customer', document.form.partyCode, 'sales-out-party')"
-              @input="document.handleMasterInput('customer', document.form.partyCode, 'sales-out-party')"
-              @keydown="document.handleSelectorKeydown($event, 'sales-out-party')"
-            />
-            <span v-if="document.activeSelector.value === 'sales-out-party'" class="master-selector__menu">
-              <button
-                v-for="(option, optionIndex) in document.selectorOptions.value"
-                :key="option.code"
-                type="button"
-                :class="{ selected: document.selectorCursorIndex.value === optionIndex }"
-                @mousedown.prevent="document.selectPartyOption(option, 'sales-out-party')"
-              >
-                <strong>{{ option.code }}</strong>
-                <span>{{ option.name }}</span>
-              </button>
+        <div class="form-head-field form-head-field-with-action">
+          <label>
+            客户编码
+            <span class="master-selector">
+              <input
+                v-model="document.form.partyCode"
+                data-testid="sales-out-party-code"
+                @focus="document.searchMasterOptions('customer', document.form.partyCode, 'sales-out-party')"
+                @input="document.handleMasterInput('customer', document.form.partyCode, 'sales-out-party')"
+                @keydown="document.handleSelectorKeydown($event, 'sales-out-party')"
+              />
+              <span v-if="document.activeSelector.value === 'sales-out-party'" class="master-selector__menu">
+                <button
+                  v-for="(option, optionIndex) in document.selectorOptions.value"
+                  :key="option.code"
+                  type="button"
+                  :class="{ selected: document.selectorCursorIndex.value === optionIndex }"
+                  @mousedown.prevent="document.selectPartyOption(option, 'sales-out-party')"
+                >
+                  <strong>{{ option.code }}</strong>
+                  <span>{{ option.name }}</span>
+                </button>
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+          <button class="inline-pick-button" type="button" data-testid="sales-out-open-source-selector" @click="document.openCustomerSourceSelector">选单</button>
+        </div>
         <label>客户名称<input :value="document.form.partyName || ''" data-testid="sales-out-party-name" readonly /></label>
         <label>业务日期<input v-model="document.form.billDate" data-testid="sales-out-bill-date" @input="document.markDirty" /></label>
         <label>单据编号<input v-model="document.form.billNo" data-testid="sales-out-bill-no" @input="document.markDirty" /></label>
@@ -110,6 +114,73 @@
       />
     </div>
   </StandardDocument>
+
+  <div v-if="document.sourceSelectorOpen.value" class="modal-mask" data-testid="sales-out-source-selector-dialog">
+    <div class="dialog source-selector-dialog">
+      <h3>选择销售订单</h3>
+      <p>{{ document.form.partyCode }} {{ document.form.partyName || '' }} 已下单且有剩余可出数量的销售订单明细。</p>
+      <div class="source-selector-toolbar">
+        <span>勾选同一张销售订单的一行或多行明细，确认后带入销售出库单。</span>
+        <strong data-testid="sales-out-source-selector-count">{{ selectedSourceLineCount }}</strong>
+      </div>
+      <div class="source-selector-table">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>销售订单</th>
+              <th>行号</th>
+              <th>日期</th>
+              <th>商品编码</th>
+              <th>商品名称</th>
+              <th>仓库</th>
+              <th>订单数量</th>
+              <th>已出库</th>
+              <th>剩余可出</th>
+              <th>单价</th>
+              <th>交期</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="document.sourceSelectorLoading.value">
+              <td colspan="12">加载中...</td>
+            </tr>
+            <tr v-else-if="document.sourceSelectorLines.value.length === 0">
+              <td colspan="12">暂无可选明细</td>
+            </tr>
+            <template v-else>
+              <tr v-for="line in document.sourceSelectorLines.value" :key="document.sourceSelectorLineKey(line)">
+                <td>
+                  <input
+                    type="checkbox"
+                    :checked="Boolean(document.sourceSelectorSelected.value[document.sourceSelectorLineKey(line)])"
+                    :data-testid="`sales-out-source-line-${document.sourceSelectorLineKey(line)}`"
+                    @change="document.toggleSourceSelectorLine(line, ($event.target as HTMLInputElement).checked)"
+                  />
+                </td>
+                <td>{{ line.billNo }}</td>
+                <td>#{{ line.lineNo }}</td>
+                <td>{{ line.billDate }}</td>
+                <td>{{ line.productCode }}</td>
+                <td>{{ line.productName || line.spec || '-' }}</td>
+                <td>{{ line.warehouseCode }}</td>
+                <td>{{ document.formatQty(line.sourceQty) }}</td>
+                <td>{{ document.formatQty(line.shippedQty) }}</td>
+                <td>{{ document.formatQty(line.remainingQty) }}</td>
+                <td>{{ document.formatAmount(line.unitPrice) }}</td>
+                <td>{{ line.planDeliveryDate || '-' }}</td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <p v-if="document.sourceSelectorMessage.value" class="form-error" data-testid="sales-out-source-selector-message">{{ document.sourceSelectorMessage.value }}</p>
+      <div class="dialog-actions">
+        <button type="button" data-testid="sales-out-source-selector-cancel" @click="document.closeCustomerSourceSelector">取消</button>
+        <button class="primary-action" type="button" data-testid="sales-out-source-selector-ok" @click="document.confirmCustomerSourceSelector">确定</button>
+      </div>
+    </div>
+  </div>
 
   <DocumentDialogs
     :pending-zero-entry-save="document.pendingZeroEntrySave.value"
@@ -175,6 +246,7 @@ import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import { useSalesOutDocument, type SalesOutPushDownDraft } from "./useSalesOutDocument";
+import { computed } from "vue";
 
 const props = defineProps<{
   title: string;
@@ -200,6 +272,8 @@ const document = useSalesOutDocument({
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
+
+const selectedSourceLineCount = computed(() => `${Object.values(document.sourceSelectorSelected.value).filter(Boolean).length} 行已选`);
 
 function noop() {
 }

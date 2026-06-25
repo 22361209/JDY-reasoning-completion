@@ -1196,25 +1196,28 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     formMessage.value = nextBillNo.message || "销售出库单号生成失败。";
     return;
   }
-  pendingPushDown.value = {
-    kind: outboundDocumentType as PendingPushDown["kind"],
-    title: "销售" + "出库下推确认",
-    targetTitle: "销售" + "出库单",
-    targetTabId: outboundTabId,
-    targetModule: "销售管理",
-    targetBillNo: nextBillNo.billNo,
-    sourceBillNo,
+  tabs.openTab({
+    id: outboundTabId,
+    title: "销售" + "出库单",
+    module: "销售管理",
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = "销售管理";
+  await nextTick();
+  outboundFormRef.value?.applyPushDownDraft({
+    billNo: nextBillNo.billNo,
+    sourceOrderNo: sourceBillNo,
     partyCode: result.data.order.customerCode || "",
     partyName: result.data.order.customer || "",
     billDate: dateText,
     department: result.data.order.department || "销售部",
     ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
     lines
-  };
+  });
+  pendingPushDown.value = null;
   pushConfirmError.value = "";
-  pushConfirmRatio.value = 50;
-  pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
-  formMessage.value = `请确认销售订单 ${sourceBillNo} 本次下推数量`;
+  formMessage.value = `已由销售订单 ${sourceBillNo} 按剩余数量生成销售出库单草稿`;
 }
 async function confirmPushDown() {
   const pending = pendingPushDown.value;

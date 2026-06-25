@@ -116,8 +116,6 @@ async function pushOrderFromList(page, billNo) {
   await row.waitFor({ state: "visible" });
   await row.locator(".vxe-checkbox--icon").first().click();
   await page.getByTestId("push-sales-out").click();
-  await page.getByTestId("push-confirm-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("push-confirm-ok").click();
   await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
 }
 
@@ -142,8 +140,6 @@ try {
   screenshots.push(`verification/playwright/${orderScreenshot}`);
 
   await page.getByTestId("push-sales-out-from-order-detail").click();
-  await page.getByTestId("push-confirm-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("push-confirm-ok").click();
   await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
   const pushed = {
     sourceOrderNo: await page.getByTestId("sales-out-source-order-no").inputValue(),

@@ -5,6 +5,7 @@ export interface SalesOrderDraftPayload {
   department: string;
   ownerName: string;
   lines: Array<{
+    lineNo?: number | string;
     productCode: string;
     warehouseCode: string;
     qty: number;
@@ -26,6 +27,7 @@ export interface SalesOrderDetail {
     status: string;
   };
   lines: Array<{
+    lineNo?: number | string;
     productCode: string;
     productName?: string;
     spec?: string;
@@ -37,6 +39,26 @@ export interface SalesOrderDetail {
     lineRemark?: string;
     planDeliveryDate?: string;
   }>;
+}
+
+export interface SelectableSalesOrderLine {
+  billNo: string;
+  customerCode: string;
+  customer?: string;
+  billDate: string;
+  department?: string;
+  ownerName?: string;
+  lineNo: number | string;
+  productCode: string;
+  productName?: string;
+  spec?: string;
+  warehouseCode: string;
+  sourceQty: number | string;
+  shippedQty?: number | string;
+  remainingQty: number | string;
+  unitPrice: number | string;
+  lineRemark?: string;
+  planDeliveryDate?: string;
 }
 
 export async function saveSalesOrderDraft(payload: SalesOrderDraftPayload): Promise<{ ok: boolean; message: string }> {
@@ -66,6 +88,14 @@ export async function fetchSalesOrderDetail(billNo: string): Promise<{ ok: boole
     message: result.message,
     data: result.data as SalesOrderDetail | undefined
   };
+}
+
+export async function fetchSelectableSalesOrderLines(customerCode: string): Promise<{ ok: boolean; message: string; data: SelectableSalesOrderLine[] }> {
+  const result = await callSalesOrder(`/api/sales-orders/selectable-lines?customerCode=${encodeURIComponent(customerCode)}`, "GET");
+  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
+    return { ok: false, message: result.message || "销售订单选单列表加载失败。", data: [] };
+  }
+  return { ok: true, message: "", data: (result.data as { lines: SelectableSalesOrderLine[] }).lines };
 }
 
 export async function deleteSalesOrder(billNo: string) {

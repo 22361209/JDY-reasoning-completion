@@ -182,6 +182,10 @@ async function openListAndPush(page, moduleName, entryId, listId, billNo, pushTe
   await row.waitFor({ state: "visible" });
   await row.locator(".vxe-checkbox--icon").first().click();
   await page.getByTestId(pushTestId).click();
+  if (pushTestId === "push-sales-out") {
+    await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
+    return;
+  }
   await page.getByTestId("push-confirm-ok").waitFor({ state: "visible" });
   await page.getByTestId("push-confirm-ok").click();
 }
