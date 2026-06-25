@@ -32,6 +32,33 @@ public class BillLifecycleService {
         return transition(table, billNo, from, to, null, table, to.name(), table, null);
     }
 
+
+    public Map<String, Object> transitionAny(
+        String table,
+        String billNo,
+        BillStatus to,
+        String returning,
+        String module,
+        String action,
+        String targetType,
+        String notFoundMessage
+    ) {
+        guardTable(table);
+        var returningClause = returning == null || returning.isBlank()
+            ? "id::text AS id, bill_no AS \"billNo\", status"
+            : returning;
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE %s
+            SET status = ?, updated_at = now(), version = version + 1
+            WHERE bill_no = ?
+            RETURNING %s
+            """.formatted(table, returningClause), to.name(), billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, notFoundMessage);
+        }
+        operationLogService.log(module, action, targetType, String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
+    }
     public Map<String, Object> transition(
         String table,
         String billNo,
