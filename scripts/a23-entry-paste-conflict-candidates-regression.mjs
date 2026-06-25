@@ -94,8 +94,8 @@ async function readLines(page) {
     const suffix = index === 0 ? "" : `-${index + 1}`;
     lines.push({
       productCode: await page.getByTestId(`sales-line-product${suffix}`).inputValue(),
-      productName: (await page.getByTestId("sales-entry-row").nth(index).locator("td").nth(1).innerText()).trim(),
-      spec: (await page.getByTestId("sales-entry-row").nth(index).locator("td").nth(2).innerText()).trim(),
+      productName: (await page.getByTestId("sales-entry-row").nth(index).locator("td").nth(2).innerText()).trim(),
+      spec: (await page.getByTestId("sales-entry-row").nth(index).locator("td").nth(3).innerText()).trim(),
       warehouseCode: await page.getByTestId(`sales-line-warehouse${suffix}`).inputValue(),
       qty: Number(await page.getByTestId(`sales-line-qty${suffix}`).inputValue()),
       unitPrice: Number(await page.getByTestId(`sales-line-price${suffix}`).inputValue()),
