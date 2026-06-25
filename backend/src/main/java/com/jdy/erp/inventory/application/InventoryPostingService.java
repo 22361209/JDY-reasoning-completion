@@ -3,6 +3,7 @@ package com.jdy.erp.inventory.application;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.LookupService;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,15 +14,17 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class InventoryPostingService {
     private final JdbcTemplate jdbcTemplate;
+    private final LookupService lookupService;
 
-    public InventoryPostingService(JdbcTemplate jdbcTemplate) {
+    public InventoryPostingService(JdbcTemplate jdbcTemplate, LookupService lookupService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.lookupService = lookupService;
     }
 
     @Transactional
     public Map<String, Object> post(String productCode, String warehouseCode, BigDecimal qtyDelta, String txnType, String sourceBillType) {
-        var productId = lookupId("md_product", productCode, "商品");
-        var warehouseId = lookupId("md_warehouse", warehouseCode, "仓库");
+        var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
+        var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
         if (qtyDelta == null || BigDecimal.ZERO.compareTo(qtyDelta) == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "数量不能为 0");
         }
@@ -63,16 +66,5 @@ public class InventoryPostingService {
             sourceBillType == null || sourceBillType.isBlank() ? "MANUAL_ADJUSTMENT" : sourceBillType
         );
         return updated;
-    }
-
-    private String lookupId(String table, String code, String label) {
-        if (code == null || code.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "编码不能为空");
-        }
-        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ? AND enabled = TRUE", code.trim());
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在或已禁用");
-        }
-        return String.valueOf(rows.get(0).get("id"));
     }
 }
