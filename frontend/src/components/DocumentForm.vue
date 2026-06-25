@@ -128,7 +128,7 @@ interface DocumentFormState {
   lines: EntryLine[];
 }
 
-defineProps<{
+withDefaults(defineProps<{
   title: string;
   subtitle: string;
   statusLabel: string;
@@ -163,7 +163,9 @@ defineProps<{
   draggingLineIndex: number | null;
   highlightedSourceBillNo: string;
   highlightedSourceLineNo: number | null;
-}>();
+}>(), {
+  canRedReverse: undefined
+});
 
 const emit = defineEmits<{
   create: [];

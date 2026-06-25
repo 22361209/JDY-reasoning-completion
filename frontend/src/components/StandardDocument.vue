@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+withDefaults(defineProps<{
   title: string;
   subtitle: string;
   statusLabel: string;
@@ -47,7 +47,9 @@ defineProps<{
   canVoid: boolean;
   canDelete: boolean;
   canOutput: boolean;
-}>();
+}>(), {
+  canRedReverse: undefined
+});
 
 defineEmits<{
   create: [];
