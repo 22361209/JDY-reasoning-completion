@@ -8,6 +8,7 @@ interface DocumentDraftPayload {
   lines: Array<{
     productCode: string;
     warehouseCode: string;
+    targetWarehouseCode?: string;
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
@@ -22,7 +23,8 @@ const endpointByType = {
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
   productIn: "/api/production/product-ins",
-  otherStockIn: "/api/other-stock-ins"
+  otherStockIn: "/api/other-stock-ins",
+  otherStockOut: "/api/other-stock-outs"
 } as const;
 
 const detailEndpointByType = {
@@ -32,7 +34,8 @@ const detailEndpointByType = {
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
   productIn: "/api/production/product-ins",
-  otherStockIn: "/api/other-stock-ins"
+  otherStockIn: "/api/other-stock-ins",
+  otherStockOut: "/api/other-stock-outs"
 } as const;
 
 const outputTypeByDocumentType = {
@@ -42,7 +45,8 @@ const outputTypeByDocumentType = {
   salesOut: "sales-out",
   materialIssue: "material-issue",
   productIn: "product-in",
-  otherStockIn: "other-stock-in"
+  otherStockIn: "other-stock-in",
+  otherStockOut: "other-stock-out"
 } as const;
 
 export type DocumentType = keyof typeof endpointByType;
@@ -107,6 +111,7 @@ export interface DocumentDetail {
     productName?: string;
     spec?: string;
     warehouseCode?: string;
+    targetWarehouseCode?: string;
     qty?: number | string;
     receivedQty?: number | string;
     shippedQty?: number | string;
@@ -179,7 +184,7 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     ownerName: payload.ownerName,
     lines: payload.lines
   };
-  if (type === "salesOut" || type === "salesOrder") {
+  if (type === "salesOut" || type === "salesOrder" || type === "otherStockOut") {
     return { ...base, customerCode: payload.partyCode };
   }
   return { ...base, supplierCode: payload.partyCode };

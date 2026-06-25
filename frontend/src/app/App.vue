@@ -420,6 +420,21 @@
           @show-existing="tabs.activeTabId.value = otherStockInTabId"
           @request-open-document="openDocumentFromModule"
         />
+        <OtherStockOutForm
+          v-else-if="tabs.activeTab.value.id === otherStockOutTabId"
+          ref="otherStockOutFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = otherStockOutTabId"
+          @request-open-document="openDocumentFromModule"
+        />
         <div
           v-else
           class="panel-page"
@@ -523,6 +538,7 @@ import { excludedModules, moduleCatalog } from "../modules/catalog";
 import DataListPage from "../components/DataListPage.vue";
 import DocumentDialogs from "../components/DocumentDialogs.vue";
 import OtherStockInForm from "../modules/inventory/other-stock-in/OtherStockInForm.vue";
+import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOutForm.vue";
 import MaterialIssueForm from "../modules/production/material-issue/MaterialIssueForm.vue";
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
@@ -571,6 +587,7 @@ const purchaseInTabId = "purchase-in-form";
 const materialIssueTabId = "material-issue-form";
 const productInTabId = "product-in-form";
 const otherStockInTabId = "other-in-form";
+const otherStockOutTabId = "other-out-form";
 const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
@@ -578,6 +595,7 @@ const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
 const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
 const otherStockInFormRef = ref<InstanceType<typeof OtherStockInForm> | null>(null);
+const otherStockOutFormRef = ref<InstanceType<typeof OtherStockOutForm> | null>(null);
 const loginPageRef = ref<InstanceType<typeof LoginPage> | null>(null);
 const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | null>(null);
 const shellSession = useShellSession({ loginPageRef, passwordChangeDialogRef });
@@ -733,6 +751,8 @@ function startNewModuleDocument(entryId: string) {
     productInFormRef.value?.startNew();
   } else if (entryId === otherStockInTabId) {
     otherStockInFormRef.value?.startNew();
+  } else if (entryId === otherStockOutTabId) {
+    otherStockOutFormRef.value?.startNew();
   }
 }
 function canOpenEntry(entry: ShellEntry) {
@@ -972,6 +992,8 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: productInTabId, title: "产品入库单", module: "生产管理", ref: productInFormRef };
     case "otherStockIn":
       return { tabId: otherStockInTabId, title: "其他入库单", module: "库存管理", ref: otherStockInFormRef };
+    case "otherStockOut":
+      return { tabId: otherStockOutTabId, title: "其他出库单", module: "库存管理", ref: otherStockOutFormRef };
     case "salesOrder":
     default:
       return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", ref: salesOrderFormRef };

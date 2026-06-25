@@ -277,6 +277,8 @@ public class DocumentOutputController {
             case "sales-out" -> stockBillPayload("sales_out", "sales_out_line", "md_customer", "客户", billNo);
             case "material-issue" -> productionBillPayload("production_material_issue", "production_material_issue_line", "issue_id", "生产领料单", billNo);
             case "product-in" -> productionBillPayload("production_completion", "production_completion_line", "completion_id", "产品入库单", billNo);
+            case "other-stock-in" -> inventoryBillPayload("other_stock_in", "other_stock_in_line", "其他入库单", billNo);
+            case "other-stock-out" -> inventoryBillPayload("other_stock_out", "other_stock_out_line", "其他出库单", billNo);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据输出");
         };
     }
@@ -358,6 +360,39 @@ public class DocumentOutputController {
         return new DocumentPayload(header.get(0), lines);
     }
 
+    private DocumentPayload inventoryBillPayload(String table, String lineTable, String documentLabel, String billNo) {
+        var header = jdbcTemplate.queryForList("""
+            SELECT b.bill_no AS "billNo",
+                   COALESCE(b.department, ?) AS counterparty,
+                   to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   b.status,
+                   b.total_amount AS "totalAmount"
+            FROM %s b
+            WHERE b.bill_no = ?
+            """.formatted(table), documentLabel, billNo);
+        if (header.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, documentLabel + "不存在");
+        }
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.name AS warehouse,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
+            FROM %s l
+            JOIN %s b ON b.id = l.bill_id
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            WHERE b.bill_no = ?
+            ORDER BY l.line_no
+            """.formatted(lineTable, table), billNo);
+        return new DocumentPayload(header.get(0), lines);
+    }
+
     private DocumentPayload productionBillPayload(String table, String lineTable, String billColumn, String documentLabel, String billNo) {
         var header = jdbcTemplate.queryForList("""
             SELECT b.bill_no AS "billNo",
@@ -404,12 +439,14 @@ public class DocumentOutputController {
             case "sales-out" -> "销售出库单";
             case "material-issue" -> "生产领料单";
             case "product-in" -> "产品入库单";
+            case "other-stock-in" -> "其他入库单";
+            case "other-stock-out" -> "其他出库单";
             default -> "业务单据";
         };
     }
 
     private List<String> supportedDocumentTypes() {
-        return List.of("sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in");
+        return List.of("sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in", "other-stock-in", "other-stock-out");
     }
 
     private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {

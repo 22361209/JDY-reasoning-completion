@@ -26,6 +26,7 @@ export interface OrderLineForm {
   productName?: string;
   spec?: string;
   warehouseCode: string;
+  targetWarehouseCode?: string;
   sourceLineNo?: number;
   qty: number;
   executedQty?: number;
@@ -109,7 +110,8 @@ export const printTemplateDocumentTypes = [
   { documentType: "purchase-in", documentTitle: "采购入库单" },
   { documentType: "material-issue", documentTitle: "生产领料单" },
   { documentType: "product-in", documentTitle: "产品入库单" },
-  { documentType: "other-stock-in", documentTitle: "其他入库单" }
+  { documentType: "other-stock-in", documentTitle: "其他入库单" },
+  { documentType: "other-stock-out", documentTitle: "其他出库单" }
 ];
 
 export const defaultPrintTemplateForm: PrintTemplateConfig = {
@@ -206,6 +208,16 @@ export const initialOtherStockInForm: OrderForm = {
   ownerName: "本地管理员",
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 0 }]
+};
+
+export const initialOtherStockOutForm: OrderForm = {
+  billNo: "QTCK-00001",
+  partyCode: "KH-001",
+  billDate: "2026-06-25",
+  department: "仓储部",
+  ownerName: "本地管理员",
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 0 }]
 };
 
 export const knownProductOptions: MasterOption[] = [

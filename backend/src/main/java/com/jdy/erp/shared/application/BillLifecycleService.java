@@ -18,7 +18,8 @@ public class BillLifecycleService {
         "purchase_in",
         "production_material_issue",
         "production_completion",
-        "other_stock_in"
+        "other_stock_in",
+        "other_stock_out"
     );
 
     private final JdbcTemplate jdbcTemplate;
