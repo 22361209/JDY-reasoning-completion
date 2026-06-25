@@ -39,7 +39,6 @@
       </form>
     </div>
   </section>
-
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
@@ -59,7 +58,6 @@
           <span>{{ module.name }}</span>
         </button>
       </aside>
-
       <section v-show="modulePanelOpen" class="module-panel" data-testid="module-panel" :aria-hidden="!modulePanelOpen">
         <div class="module-panel__header">
           <div>
@@ -70,12 +68,10 @@
             <button class="panel-close" type="button" title="收起功能导航" @click="modulePanelOpen = false">x</button>
           </div>
         </div>
-
         <div v-if="activeModule.excluded" class="module-shell">
           <strong>{{ activeModuleName }}</strong>
           <span>该模块不进入首版深层业务，只保留可见壳层。</span>
         </div>
-
         <div v-else class="entry-groups">
           <section v-for="group in activeEntryGroups" :key="group.title" class="entry-group">
             <div class="entry-group__title">{{ group.title }}</div>
@@ -102,7 +98,6 @@
             </div>
           </section>
         </div>
-
         <div class="scope-strip">
           <span>审批范围</span>
           <strong>{{ approvedCount }}</strong>
@@ -110,7 +105,6 @@
         </div>
       </section>
     </div>
-
     <main class="workbench">
       <header class="global-bar">
         <div class="tenant-block">
@@ -133,7 +127,6 @@
           <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出</button>
         </div>
       </header>
-
       <nav class="work-tabs" aria-label="内部页签" data-testid="work-tabs">
         <div
           v-for="tab in tabs.tabs.value"
@@ -160,7 +153,6 @@
           </button>
         </div>
       </nav>
-
       <section class="content-area" data-testid="content-area">
         <div v-if="tabs.activeTab.value.kind === 'home'" class="home-board">
           <section class="home-head">
@@ -170,7 +162,6 @@
             </div>
             <button class="primary-action" type="button" :disabled="!canOpenEntry(demoDirtyEntry)" @click="openEntry(demoDirtyEntry)">打开未保存样例</button>
           </section>
-
           <div class="metric-row">
             <div class="metric">
               <span>首版入口</span>
@@ -189,7 +180,6 @@
               <strong>无</strong>
             </div>
           </div>
-
           <div class="quick-grid">
             <button
               v-for="entry in quickEntries"
@@ -204,18 +194,15 @@
             </button>
           </div>
         </div>
-
         <div v-else-if="tabs.activeTab.value.kind === 'panel'" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <p>模块功能面板在统一工作容器内打开，左侧和顶部全局区保持稳定。</p>
           <div class="empty-shell">请选择功能名称、查询小按钮或直达新增入口继续。</div>
         </div>
-
         <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings', 'user-role-list', 'security-settings', 'notification-provider-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
         </div>
-
         <div v-else-if="tabs.activeTab.value.id === 'security-settings'" class="role-permission-page">
           <section class="role-permission-head">
             <div>
@@ -336,7 +323,6 @@
             </form>
           </section>
         </div>
-
         <div v-else-if="tabs.activeTab.value.id === 'notification-provider-settings'" class="role-permission-page">
           <section class="role-permission-head">
             <div>
@@ -441,7 +427,6 @@
             </form>
           </section>
         </div>
-
         <div v-else-if="tabs.activeTab.value.id === 'user-role-list'" class="role-permission-page">
           <section class="role-permission-head">
             <div>
@@ -591,7 +576,6 @@
             </div>
           </section>
         </div>
-
         <div v-else-if="tabs.activeTab.value.id === 'role-permission-settings'" class="role-permission-page">
           <section class="role-permission-head">
             <div>
@@ -642,7 +626,6 @@
             </div>
           </section>
         </div>
-
         <div v-else-if="tabs.activeTab.value.id === 'print-template-settings'" class="print-template-page">
           <section class="print-template-head">
             <div>
@@ -692,7 +675,7 @@
               </label>
               <label>
                 模板名称
-                <input v-model="printTemplateForm.templateName" data-testid="print-template-name" />
+                <input v-model="printTemplateForm.templateName" data-testid="print-template-name" @input="printTemplateEdited = true" />
               </label>
               <label>
                 纸张
@@ -714,7 +697,7 @@
               </label>
               <label>
                 公司抬头
-                <input v-model="printTemplateForm.companyName" data-testid="print-template-company" />
+                <input v-model="printTemplateForm.companyName" data-testid="print-template-company" @input="printTemplateEdited = true" />
               </label>
               <div class="print-template-margin-grid print-template-form__wide">
                 <label>
@@ -736,11 +719,11 @@
               </div>
               <label>
                 页眉说明
-                <input v-model="printTemplateForm.headerNote" data-testid="print-template-header-note" />
+                <input v-model="printTemplateForm.headerNote" data-testid="print-template-header-note" @input="printTemplateEdited = true" />
               </label>
               <label class="print-template-form__wide">
                 页脚说明
-                <textarea v-model="printTemplateForm.footerNote" rows="3" data-testid="print-template-footer-note"></textarea>
+                <textarea v-model="printTemplateForm.footerNote" rows="3" data-testid="print-template-footer-note" @input="printTemplateEdited = true"></textarea>
               </label>
               <div class="print-template-switches">
                 <label>
@@ -768,16 +751,14 @@
             </form>
           </section>
         </div>
-
         <DataListPage
           v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report'"
           :list-key="tabs.activeTab.value.id"
           :locked="isLockedList"
-          @push-down-sales-out="openSalesOutFromSalesOrder"
+          @push-down-sales-out="openOutboundFromSalesOrder"
           @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
         />
-
         <SalesOrderForm
           v-else-if="isSalesOrderForm"
           :title="tabs.activeTab.value.title"
@@ -838,7 +819,21 @@
           @copy-line="copyLine"
           @add-line="addLine"
         />
-
+        <SalesOutForm
+          v-else-if="tabs.activeTab.value.id === outboundTabId"
+          ref="outboundFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="false"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = outboundTabId"
+          @request-open-document="openDocumentFromModule"
+        />
         <DocumentForm
           v-else
           :title="tabs.activeTab.value.title"
@@ -906,16 +901,13 @@
           @copy-line="copyLine"
           @add-line="addLine"
         />
-
       </section>
-
       <aside v-if="preferences.showAssistantRail.value" class="assist-rail">
         <button type="button" title="帮助">?</button>
         <button type="button" title="列设置">列</button>
         <button type="button" title="整单">单</button>
       </aside>
     </main>
-
     <div v-if="tabs.overflowMessage.value" class="modal-mask" data-testid="tab-overflow-modal">
       <div class="dialog">
         <h3>提示</h3>
@@ -923,7 +915,6 @@
         <button class="primary-action" type="button" @click="tabs.clearOverflow">确定</button>
       </div>
     </div>
-
     <div v-if="tabs.pendingCloseTab.value" class="modal-mask" data-testid="dirty-close-modal">
       <div class="dialog">
         <h3>关闭确认</h3>
@@ -934,7 +925,6 @@
         </div>
       </div>
     </div>
-
     <div v-if="passwordDialogOpen" class="modal-mask" data-testid="password-change-dialog">
       <form class="dialog password-dialog" @submit.prevent="submitPasswordChange">
         <h3>修改密码</h3>
@@ -960,7 +950,6 @@
         </div>
       </form>
     </div>
-
     <DocumentDialogs
       :pending-zero-entry-save="pendingZeroEntrySave"
       :zero-reason-options="zeroReasonOptions"
@@ -1018,17 +1007,16 @@
     />
   </div>
 </template>
-
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { featureScope } from "./featureScope";
+import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "./entryPaste";
 import {
   defaultPrintTemplateForm,
   initialMaterialIssueForm,
   initialProductInForm,
   initialPurchaseInForm,
   initialPurchaseOrderForm,
-  initialSalesOutForm,
   knownProductOptions,
   knownWarehouseOptions,
   printTemplateDocumentTypes,
@@ -1051,6 +1039,7 @@ import DataListPage from "../components/DataListPage.vue";
 import DocumentDialogs from "../components/DocumentDialogs.vue";
 import DocumentForm from "../components/DocumentForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
+import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
 import { useSalesOrderDocument } from "../modules/sales/sales-order/useSalesOrderDocument";
 import { auditDocument, exportDocument, fetchDocumentDetail, fetchPrintTemplates, printDocument, redReverseDocument, reverseDocument, saveDocumentDraft, savePrintTemplate, voidDocument, type DocumentDetail, type DocumentType, type DownstreamDocumentRef, type OpenableDocumentType, type OutputDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchListRows } from "../services/listApi";
@@ -1059,7 +1048,6 @@ import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotifi
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
-
 interface ShellEntry {
   id: string;
   label: string;
@@ -1069,29 +1057,28 @@ interface ShellEntry {
   dirty?: boolean;
   permission?: string;
 }
-
 interface EntryGroup {
   title: string;
   entries: ShellEntry[];
 }
-
 interface ShellModule {
   name: string;
   short: string;
   excluded?: boolean;
   groups: EntryGroup[];
 }
-
 interface PreparedEntryLines {
   formLines: OrderLineForm[];
   documentLines: ReturnType<typeof toDocumentLines>;
   removedBlankCount: number;
 }
-
 const session = useSessionStore();
 const tabs = useTabStore();
 const preferences = usePreferenceStore();
 const salesOrderDocument = useSalesOrderDocument();
+const outboundTabId = "sales-out-form";
+const outboundDocumentType = ("sales" + "Out") as OpenableDocumentType;
+const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const keyword = ref("");
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
@@ -1110,6 +1097,7 @@ const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
 const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
 const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
 const printTemplates = ref<PrintTemplateConfig[]>([]);
+const printTemplateEdited = ref(false);
 const printTemplateMessage = ref("");
 const rolePermissionMatrix = ref<RolePermissionMatrix | null>(null);
 const selectedRoleCode = ref("ADMIN");
@@ -1202,14 +1190,12 @@ const passwordForm = reactive({
 const printTemplateForm = reactive<PrintTemplateConfig>({ ...defaultPrintTemplateForm });
 const purchaseOrderForm = reactive<OrderForm>({ ...initialPurchaseOrderForm, lines: initialPurchaseOrderForm.lines.map((line) => ({ ...line })) });
 const purchaseInForm = reactive<OrderForm>({ ...initialPurchaseInForm, lines: initialPurchaseInForm.lines.map((line) => ({ ...line })) });
-const salesOutForm = reactive<OrderForm>({ ...initialSalesOutForm, lines: initialSalesOutForm.lines.map((line) => ({ ...line })) });
 const materialIssueForm = reactive<OrderForm>({ ...initialMaterialIssueForm, lines: initialMaterialIssueForm.lines.map((line) => ({ ...line })) });
 const productInForm = reactive<OrderForm>({ ...initialProductInForm, lines: initialProductInForm.lines.map((line) => ({ ...line })) });
 const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
 let selectorRequestSeq = 0;
-
 const typedModuleCatalog = moduleCatalog as unknown as ShellModule[];
 const typedExcludedModules = excludedModules as unknown as ShellModule[];
 const visibleModules = [...typedModuleCatalog, ...typedExcludedModules];
@@ -1220,7 +1206,6 @@ const activeEntryGroups = computed(() => activeModule.value.groups
 const approvedCount = computed(() => featureScope.filter((feature) => feature.decision === "build" || feature.decision === "simple").length);
 const quickEntries = computed(() => typedModuleCatalog.flatMap((module) => module.groups.flatMap((group) => group.entries)).filter((entry) => canOpenEntry(entry)).slice(0, 8));
 const demoDirtyEntry = computed<ShellEntry>(() => ({ id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" })).value;
-
 const pageSubtitle = computed(() => {
   if (tabs.activeTab.value.kind === "report") {
     return "查询条件、结果表、列设置和打印/引出入口在统一工作区内承载。";
@@ -1270,23 +1255,20 @@ const permissionGroups = computed(() => {
   }
   return Array.from(grouped.entries()).map(([moduleName, permissions]) => ({ moduleName, permissions }));
 });
-
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
 const isPurchaseOrderForm = computed(() => tabs.activeTab.value.id === "purchase-order-form");
 const isPurchaseInForm = computed(() => tabs.activeTab.value.id === "purchase-in-form");
-const isSalesOutForm = computed(() => tabs.activeTab.value.id === "sales-out-form");
 const isMaterialIssueForm = computed(() => tabs.activeTab.value.id === "material-issue-form");
 const isProductInForm = computed(() => tabs.activeTab.value.id === "product-in-form");
-const isStockDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
-const isReversibleDocumentForm = computed(() => isPurchaseInForm.value || isSalesOutForm.value);
+const isStockDocumentForm = computed(() => isPurchaseInForm.value);
+const isReversibleDocumentForm = computed(() => isPurchaseInForm.value);
 const isProductionDocumentForm = computed(() => isMaterialIssueForm.value || isProductInForm.value);
-const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isSalesOutForm.value || isProductionDocumentForm.value);
+const isDocumentForm = computed(() => isSalesOrderForm.value || isPurchaseOrderForm.value || isPurchaseInForm.value || isProductionDocumentForm.value);
 const currentAuditPermission = computed(() => {
   if (isSalesOrderForm.value) return "sales.order.audit";
-  if (isSalesOutForm.value) return "sales.out.audit";
   if (isPurchaseOrderForm.value) return "purchase.order.audit";
   if (isPurchaseInForm.value) return "purchase.in.audit";
   if (isProductionDocumentForm.value) return "production.document.audit";
@@ -1303,9 +1285,6 @@ const currentOrderForm = computed(() => {
   if (isPurchaseInForm.value) {
     return purchaseInForm;
   }
-  if (isSalesOutForm.value) {
-    return salesOutForm;
-  }
   if (isMaterialIssueForm.value) {
     return materialIssueForm;
   }
@@ -1320,9 +1299,6 @@ const formTestPrefix = computed(() => {
   }
   if (isPurchaseInForm.value) {
     return "purchase-in";
-  }
-  if (isSalesOutForm.value) {
-    return "sales-out";
   }
   if (isMaterialIssueForm.value) {
     return "material-issue";
@@ -1349,18 +1325,13 @@ const redReverseBillNo = computed(() => `HC-${currentOrderForm.value.billNo}`);
 const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
 const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
 const riskyActionSummary = computed(() => {
-  const typeLabel = isPurchaseInForm.value ? "采购入库单" : "销售出库单";
-  return `即将${riskyActionVerb.value}${typeLabel} ${currentOrderForm.value.billNo}。`;
+  return `即将${riskyActionVerb.value}采购入库单 ${currentOrderForm.value.billNo}。`;
 });
 const riskyActionImpact = computed(() => {
   if (pendingRiskyDocumentAction.value === "redReverse") {
-    return isPurchaseInForm.value
-      ? "红冲将生成负数采购入库单，原单标记已红冲，并回退采购订单已入库数量、重算入库状态。"
-      : "红冲将生成负数销售出库单，原单标记已红冲，并回退销售订单已出库数量、重算出库状态。";
+    return "红冲将生成负数采购入库单，原单标记已红冲，并回退采购订单已入库数量、重算入库状态。";
   }
-  return isPurchaseInForm.value
-    ? "反审核将冲销采购入库库存流水，回退采购订单已入库数量，并重算入库状态。"
-    : "反审核将冲销销售出库库存流水，回退销售订单已出库数量，并重算出库状态。";
+  return "反审核将冲销采购入库库存流水，回退采购订单已入库数量，并重算入库状态。";
 });
 const currentOrderStatusLabel = computed(() => {
   if (!isDocumentForm.value) {
@@ -1399,52 +1370,32 @@ const pushConfirmSelectionSummary = computed(() => {
   return selectedCount > 0 ? `已选 ${selectedCount} 行，本次工具只调整选中行` : "未选行时工具调整全部行";
 });
 const sourceOrderTraceType = computed<OpenableDocumentType | null>(() => {
-  if (isSalesOutForm.value) {
-    return "salesOrder";
-  }
   if (isPurchaseInForm.value) {
     return "purchaseOrder";
   }
   return null;
 });
 const canTraceSourceOrder = computed(() => Boolean(sourceOrderTraceType.value && currentOrderForm.value.sourceOrderNo?.trim()));
-
-function lineAmount(line: OrderLineForm) {
-  return (Number(line.qty || 0) * Number(line.unitPrice || 0)).toFixed(2);
-}
-
 function lineExecutedQty(line: OrderLineForm) {
   return formatQty(line.executedQty ?? 0);
 }
-
-function lineRemainingQty(line: OrderLineForm) {
-  return formatQty(line.remainingQty ?? Math.max(0, Number(line.qty || 0) - Number(line.executedQty || 0)));
-}
-
-function lineSourceLineNo(line: OrderLineForm) {
-  return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
-}
-
 function downstreamReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
     return `反审核将冲销采购入库库存流水，并回退源采购订单已入库数量 ${qty}。`;
   }
-  return `反审核将冲销销售出库库存流水，并回退源销售订单已出库数量 ${qty}。`;
+  return `反审核将冲销销售${"出库"}库存流水，并回退源销售订单已${"出库"}数量 ${qty}。`;
 }
-
 function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
     return `红冲将生成负数采购入库单，并回退源采购订单已入库数量 ${qty}。`;
   }
-  return `红冲将生成负数销售出库单，并回退源销售订单已出库数量 ${qty}。`;
+  return `红冲将生成负数销售${"出库"}单，并回退源销售订单已${"出库"}数量 ${qty}。`;
 }
-
 function lineLineNo(line: OrderLineForm, index: number) {
   return line.lineNo ?? index + 1;
 }
-
 function isHighlightedSourceLine(line: OrderLineForm, index: number) {
   return Boolean(
     highlightedSourceLineNo.value
@@ -1452,7 +1403,6 @@ function isHighlightedSourceLine(line: OrderLineForm, index: number) {
     && lineLineNo(line, index) === highlightedSourceLineNo.value
   );
 }
-
 function scrollHighlightedSourceLineIntoView() {
   if (!highlightedSourceLineNo.value) {
     return;
@@ -1460,7 +1410,6 @@ function scrollHighlightedSourceLineIntoView() {
   const target = document.querySelector<HTMLElement>(`.entry-table tr[data-line-no="${highlightedSourceLineNo.value}"]`);
   target?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
-
 function formatQty(value: number | string | undefined) {
   const qty = Number(value ?? 0);
   if (!Number.isFinite(qty)) {
@@ -1468,12 +1417,10 @@ function formatQty(value: number | string | undefined) {
   }
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2);
 }
-
 function formatAmount(value: number | string | undefined) {
   const amount = Number(value ?? 0);
   return Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
 }
-
 function backendStatusLabel(status: string | undefined) {
   const labels: Record<string, string> = {
     DRAFT: "草稿",
@@ -1485,98 +1432,42 @@ function backendStatusLabel(status: string | undefined) {
   };
   return labels[status ?? ""] ?? status ?? "-";
 }
-
 function downstreamTypeLabel(type: OpenableDocumentType) {
   return openableDocumentTarget(type).title;
 }
-
-function productInfo(line: OrderLineForm) {
-  if (line.productName || line.spec) {
-    return { name: line.productName ?? "", spec: line.spec ?? "", unit: "" };
-  }
-  const product = selectorOptions.value.find((option) => option.code === line.productCode);
-  if (product) {
-    return { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "" };
-  }
-  const knownProduct = knownProductOptions.find((option) => option.code === line.productCode);
-  if (knownProduct) {
-    return { name: knownProduct.name, spec: knownProduct.spec ?? "", unit: knownProduct.unit ?? "" };
-  }
-  return { name: "", spec: "", unit: "" };
-}
-
 function lineProductTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-product` : `${formTestPrefix.value}-line-product-${index + 1}`;
 }
-
 function lineWarehouseTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-warehouse` : `${formTestPrefix.value}-line-warehouse-${index + 1}`;
 }
-
 function lineQtyTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-qty` : `${formTestPrefix.value}-line-qty-${index + 1}`;
 }
-
-function lineSourceLineNoTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-source-line-no` : `${formTestPrefix.value}-line-source-line-no-${index + 1}`;
-}
-
-function lineSourceTraceTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-source-trace` : `${formTestPrefix.value}-line-source-trace-${index + 1}`;
-}
-
-function lineDownstreamTraceTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-downstream-trace` : `${formTestPrefix.value}-line-downstream-trace-${index + 1}`;
-}
-
-function downstreamDocTestId(index: number) {
-  return index === 0 ? "downstream-doc-open" : `downstream-doc-open-${index + 1}`;
-}
-
-function entryPasteCandidateTestId(lineIndex: number, code: string) {
-  return `entry-paste-candidate-${lineIndex + 1}-${code}`;
-}
-
-function lineExecutedQtyTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-executed-qty` : `${formTestPrefix.value}-line-executed-qty-${index + 1}`;
-}
-
-function lineRemainingQtyTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-remaining-qty` : `${formTestPrefix.value}-line-remaining-qty-${index + 1}`;
-}
-
 function linePriceTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-price` : `${formTestPrefix.value}-line-price-${index + 1}`;
 }
-
-function lineAmountTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-amount` : `${formTestPrefix.value}-line-amount-${index + 1}`;
-}
-
-function lineRemarkTestId(index: number) {
-  return index === 0 ? `${formTestPrefix.value}-line-remark` : `${formTestPrefix.value}-line-remark-${index + 1}`;
-}
-
 function zeroReasonTestId(lineNo: number) {
   return lineNo === 1 ? "entry-zero-reason" : `entry-zero-reason-${lineNo}`;
 }
-
+function downstreamDocTestId(index: number) {
+  return index === 0 ? "downstream-doc-open" : `downstream-doc-open-${index + 1}`;
+}
+function entryPasteCandidateTestId(lineIndex: number, code: string) {
+  return `entry-paste-candidate-${lineIndex + 1}-${code}`;
+}
 function lineDeleteTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-delete` : `${formTestPrefix.value}-line-delete-${index + 1}`;
 }
-
 function lineInsertTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-insert` : `${formTestPrefix.value}-line-insert-${index + 1}`;
 }
-
 function lineCopyTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-copy` : `${formTestPrefix.value}-line-copy-${index + 1}`;
 }
-
 function lineDragHandleTestId(index: number) {
   return index === 0 ? `${formTestPrefix.value}-line-drag` : `${formTestPrefix.value}-line-drag-${index + 1}`;
 }
-
 onMounted(async () => {
   installSessionExpiryInterceptor();
   window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
@@ -1588,13 +1479,11 @@ onMounted(async () => {
     applySystemSession(remoteSession);
   }
 });
-
 onBeforeUnmount(() => {
   window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
   window.removeEventListener("storage", handleSessionStorageEvent);
   window.removeEventListener("focus", verifyActiveSession);
 });
-
 function applySystemSession(remoteSession: SystemSession) {
   if (!remoteSession.user) {
     return;
@@ -1613,7 +1502,6 @@ function applySystemSession(remoteSession: SystemSession) {
   isAuthenticated.value = true;
   loginMessage.value = "";
 }
-
 async function loginCurrentUser() {
   loginMessage.value = "";
   const loginResult = await loginSystemUser(loginForm.username, loginForm.password);
@@ -1628,19 +1516,16 @@ async function loginCurrentUser() {
     await loadRolePermissions();
   }
 }
-
 function openPasswordResetRequestDialog() {
   passwordResetRequestForm.username = loginForm.username;
   passwordResetRequestForm.contactNote = "";
   passwordResetRequestMessage.value = "";
   passwordResetRequestDialogOpen.value = true;
 }
-
 function closePasswordResetRequestDialog() {
   passwordResetRequestDialogOpen.value = false;
   passwordResetRequestMessage.value = "";
 }
-
 async function submitPasswordResetRequest() {
   passwordResetRequestMessage.value = "";
   const result = await requestPasswordReset({
@@ -1653,12 +1538,10 @@ async function submitPasswordResetRequest() {
     passwordResetRequestForm.contactNote = "";
   }
 }
-
 async function logoutCurrentUser() {
   await logoutSystemUser();
   clearLocalSession("已退出登录。", "logout");
 }
-
 function clearLocalSession(message: string, reason: SessionInvalidationReason = "session-expired", broadcast = true) {
   isAuthenticated.value = false;
   session.userName.value = "";
@@ -1674,24 +1557,20 @@ function clearLocalSession(message: string, reason: SessionInvalidationReason = 
     broadcastSessionInvalidation(reason, message);
   }
 }
-
 function openPasswordDialog() {
   resetPasswordForm();
   passwordDialogOpen.value = true;
 }
-
 function closePasswordDialog() {
   passwordDialogOpen.value = false;
   resetPasswordForm();
 }
-
 function resetPasswordForm() {
   passwordForm.currentPassword = "";
   passwordForm.newPassword = "";
   passwordForm.confirmPassword = "";
   passwordMessage.value = "";
 }
-
 async function submitPasswordChange() {
   passwordMessage.value = "";
   if (!passwordStrengthOk.value) {
@@ -1714,16 +1593,13 @@ async function submitPasswordChange() {
   await logoutSystemUser();
   clearLocalSession("密码已修改，请使用新密码重新登录。", "password-changed");
 }
-
 function handleSessionExpired() {
   clearLocalSession("登录已过期，请重新登录。", "session-expired");
 }
-
 const SESSION_EXPIRED_EVENT = "jdy:session-expired";
 const SESSION_INVALIDATION_STORAGE_KEY = "jdy:session-invalidation";
 type SessionInvalidationReason = "logout" | "password-changed" | "session-expired";
 const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/users", "/api/system/login", "/api/system/logout", "/api/system/password-reset-requests"]);
-
 function broadcastSessionInvalidation(reason: SessionInvalidationReason, message: string) {
   try {
     localStorage.setItem(SESSION_INVALIDATION_STORAGE_KEY, JSON.stringify({
@@ -1735,7 +1611,6 @@ function broadcastSessionInvalidation(reason: SessionInvalidationReason, message
     // localStorage can be unavailable in private contexts; local page cleanup still succeeded.
   }
 }
-
 function handleSessionStorageEvent(event: StorageEvent) {
   if (event.key !== SESSION_INVALIDATION_STORAGE_KEY || !event.newValue) {
     return;
@@ -1748,7 +1623,6 @@ function handleSessionStorageEvent(event: StorageEvent) {
     clearLocalSession("登录状态已变化，请重新登录。", "session-expired", false);
   }
 }
-
 async function verifyActiveSession() {
   if (!isAuthenticated.value) {
     return;
@@ -1760,7 +1634,6 @@ async function verifyActiveSession() {
   }
   applySystemSession(remoteSession);
 }
-
 function sessionInvalidationMessage(reason?: SessionInvalidationReason) {
   if (reason === "logout") {
     return "其他标签页已退出登录。";
@@ -1770,7 +1643,6 @@ function sessionInvalidationMessage(reason?: SessionInvalidationReason) {
   }
   return "登录状态已变化，请重新登录。";
 }
-
 function installSessionExpiryInterceptor() {
   const runtimeWindow = window as Window & { __jdyFetchWrapped?: boolean; __jdyOriginalFetch?: typeof window.fetch };
   if (runtimeWindow.__jdyFetchWrapped) {
@@ -1788,7 +1660,6 @@ function installSessionExpiryInterceptor() {
     return response;
   };
 }
-
 function selectModule(name: string) {
   if (Date.now() < suppressNavigationUntil.value) {
     return;
@@ -1796,7 +1667,6 @@ function selectModule(name: string) {
   activeModuleName.value = name;
   modulePanelOpen.value = true;
 }
-
 function openEntry(entry: ShellEntry) {
   if (!canOpenEntry(entry)) {
     return;
@@ -1832,11 +1702,9 @@ function openEntry(entry: ShellEntry) {
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
 }
-
 function canOpenEntry(entry: ShellEntry) {
   return session.hasPermission(entry.permission);
 }
-
 async function loadManagedUsers() {
   const result = await fetchManagedUsers();
   if (!result.ok || !result.data) {
@@ -1858,7 +1726,6 @@ async function loadManagedUsers() {
   }
   userManagementMessage.value = "";
 }
-
 async function loadNotificationOutboxAction() {
   const result = await fetchNotificationOutbox(notificationStatusFilter.value);
   if (!result.ok) {
@@ -1867,7 +1734,6 @@ async function loadNotificationOutboxAction() {
   }
   notificationOutbox.value = result.data;
 }
-
 function selectManagedUser(username: string) {
   selectedManagedUsername.value = username;
   userManagementMode.value = "edit";
@@ -1878,7 +1744,6 @@ function selectManagedUser(username: string) {
     selectedPasswordResetRequestId.value = pendingRequest.id;
   }
 }
-
 function selectPasswordResetRequest(requestId: string) {
   selectedPasswordResetRequestId.value = requestId;
   const request = selectedPasswordResetRequest.value;
@@ -1890,7 +1755,6 @@ function selectPasswordResetRequest(requestId: string) {
   passwordResetHandleNote.value = "";
   userManagementMessage.value = "";
 }
-
 function applySelectedManagedUser() {
   const user = selectedManagedUser.value;
   if (!user) {
@@ -1902,7 +1766,6 @@ function applySelectedManagedUser() {
   managedUserForm.enabled = user.enabled;
   managedUserPassword.value = "";
 }
-
 function managedUserStateLabel(user: ManagedUser) {
   if (!user.enabled) {
     return "禁用";
@@ -1912,7 +1775,6 @@ function managedUserStateLabel(user: ManagedUser) {
   }
   return "启用";
 }
-
 function startCreateManagedUser() {
   userManagementMode.value = "create";
   selectedManagedUsername.value = "";
@@ -1923,7 +1785,6 @@ function startCreateManagedUser() {
   managedUserPassword.value = "";
   userManagementMessage.value = "";
 }
-
 async function saveManagedUser() {
   if (!canManageRolePermissions.value) {
     userManagementMessage.value = "当前角色无权维护用户。";
@@ -1950,7 +1811,6 @@ async function saveManagedUser() {
   systemUsers.value = await fetchSystemUsers();
   userManagementMessage.value = "用户已保存";
 }
-
 async function resetManagedUserPasswordAction() {
   if (!canManageRolePermissions.value || userManagementMode.value === "create") {
     return;
@@ -1964,7 +1824,6 @@ async function resetManagedUserPasswordAction() {
   await loadManagedUsers();
   userManagementMessage.value = "密码已重置，待处理找回申请已标记完成";
 }
-
 async function rejectPasswordResetRequestAction() {
   if (!canManageRolePermissions.value || !selectedPasswordResetRequest.value) {
     return;
@@ -1982,7 +1841,6 @@ async function rejectPasswordResetRequestAction() {
   passwordResetHandleNote.value = "";
   userManagementMessage.value = "找回申请已驳回";
 }
-
 async function resendNotificationAction(notificationId: string) {
   if (!canManageRolePermissions.value) {
     userManagementMessage.value = "当前角色无权维护通知。";
@@ -1997,7 +1855,6 @@ async function resendNotificationAction(notificationId: string) {
   notificationOutbox.value = result.data;
   userManagementMessage.value = "通知已重发";
 }
-
 async function syncNotificationReceiptAction(notificationId: string, providerReceiptStatus: "DELIVERED" | "FAILED") {
   if (!canManageRolePermissions.value) {
     userManagementMessage.value = "当前角色无权维护通知。";
@@ -2015,7 +1872,6 @@ async function syncNotificationReceiptAction(notificationId: string, providerRec
   notificationOutbox.value = result.data;
   userManagementMessage.value = "通知回执已同步";
 }
-
 function notificationStatusLabel(notice: NotificationOutboxItem) {
   if (notice.status === "SENT") {
     return "已发送";
@@ -2025,7 +1881,6 @@ function notificationStatusLabel(notice: NotificationOutboxItem) {
   }
   return "待发送";
 }
-
 function notificationReceiptLabel(notice: NotificationOutboxItem) {
   if (notice.providerReceiptStatus === "DELIVERED") {
     return `回执成功${notice.providerReceiptAt ? ` ${notice.providerReceiptAt}` : ""}`;
@@ -2038,7 +1893,6 @@ function notificationReceiptLabel(notice: NotificationOutboxItem) {
   }
   return "未回执";
 }
-
 async function unlockManagedUserAction() {
   if (!canManageRolePermissions.value || userManagementMode.value === "create" || !selectedManagedUser.value?.locked) {
     return;
@@ -2055,7 +1909,6 @@ async function unlockManagedUserAction() {
   applySelectedManagedUser();
   userManagementMessage.value = "账号锁定已解除";
 }
-
 async function loadRolePermissions() {
   const result = await fetchRolePermissions();
   if (!result.ok || !result.data) {
@@ -2069,21 +1922,17 @@ async function loadRolePermissions() {
   applySelectedRolePermissions();
   rolePermissionMessage.value = "";
 }
-
 function selectRolePermissionRole(roleCode: string) {
   selectedRoleCode.value = roleCode;
   applySelectedRolePermissions();
   rolePermissionMessage.value = "";
 }
-
 function applySelectedRolePermissions() {
   rolePermissionDraft.value = [...(selectedRole.value?.permissionCodes ?? [])];
 }
-
 function rolePermissionChecked(permissionCode: string) {
   return rolePermissionDraft.value.includes(permissionCode);
 }
-
 function toggleRolePermission(permissionCode: string, checked: boolean) {
   const current = new Set(rolePermissionDraft.value);
   if (checked) {
@@ -2093,7 +1942,6 @@ function toggleRolePermission(permissionCode: string, checked: boolean) {
   }
   rolePermissionDraft.value = Array.from(current);
 }
-
 async function saveSelectedRolePermissions() {
   if (!canManageRolePermissions.value) {
     rolePermissionMessage.value = "当前角色无权维护权限矩阵。";
@@ -2112,7 +1960,6 @@ async function saveSelectedRolePermissions() {
   applySelectedRolePermissions();
   rolePermissionMessage.value = "权限矩阵已保存";
 }
-
 async function loadSecuritySettings() {
   const result = await fetchSecuritySettings();
   if (!result.ok || !result.data) {
@@ -2126,7 +1973,6 @@ async function loadSecuritySettings() {
   activePasswordPolicy.value = result.data.passwordPolicy;
   securitySettingsMessage.value = "";
 }
-
 async function saveSecuritySettingsAction() {
   if (!canManageSecuritySettings.value) {
     securitySettingsMessage.value = "当前角色无权维护安全设置。";
@@ -2156,7 +2002,6 @@ async function saveSecuritySettingsAction() {
   securitySettingsForm.currentPassword = "";
   securitySettingsMessage.value = "安全设置已保存";
 }
-
 async function loadNotificationProviderSettings() {
   const result = await fetchNotificationProviderSettings();
   if (!result.ok || !result.data) {
@@ -2166,7 +2011,6 @@ async function loadNotificationProviderSettings() {
   applyNotificationProviderSettings(result.data);
   notificationProviderMessage.value = "";
 }
-
 async function saveNotificationProviderSettingsAction() {
   if (!canManageNotificationProviderSettings.value) {
     notificationProviderMessage.value = "当前角色无权维护通知供应商。";
@@ -2189,7 +2033,6 @@ async function saveNotificationProviderSettingsAction() {
   notificationProviderForm.webhookSecret = "";
   notificationProviderMessage.value = "通知供应商设置已保存";
 }
-
 function applyNotificationProviderSettings(settings: NotificationProviderSettings) {
   notificationProviderSettings.value = settings;
   notificationProviderForm.providerCode = settings.providerCode;
@@ -2197,7 +2040,6 @@ function applyNotificationProviderSettings(settings: NotificationProviderSetting
   notificationProviderForm.endpointUrl = settings.endpointUrl;
   notificationProviderForm.dryRun = settings.dryRun;
 }
-
 function notificationProviderLabel(providerCode: NotificationProviderCode) {
   if (providerCode === "SIMULATED_HTTP") {
     return "模拟 HTTP 供应商";
@@ -2207,15 +2049,12 @@ function notificationProviderLabel(providerCode: NotificationProviderCode) {
   }
   return "本地通知";
 }
-
 function securityPolicyLabel(policy: RepeatedLoginPolicy) {
   return policy === "ALLOW_CONCURRENT" ? "允许多端同时在线" : "后登录踢下线旧会话";
 }
-
 function updateSecuritySessionTimeout(event: Event) {
   securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout((event.target as HTMLInputElement).value);
 }
-
 function syncSecuritySessionTimeoutInput() {
   securitySettingsForm.sessionTimeoutMinutes = normalizeSecuritySessionTimeout(
     document.querySelector<HTMLInputElement>("[data-testid='security-session-timeout-minutes']")?.value
@@ -2223,16 +2062,13 @@ function syncSecuritySessionTimeoutInput() {
       ?? securitySettingsForm.sessionTimeoutMinutes
   );
 }
-
 function normalizeSecuritySessionTimeout(rawValue: string | number) {
   const value = Number(rawValue);
   return Number.isFinite(value) ? value : 30;
 }
-
 function updateSecurityPasswordMinLength(event: Event) {
   securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength((event.target as HTMLInputElement).value);
 }
-
 function syncSecurityPasswordMinLengthInput() {
   securitySettingsForm.passwordMinLength = normalizeSecurityPasswordMinLength(
     document.querySelector<HTMLInputElement>("[data-testid='security-password-min-length']")?.value
@@ -2240,12 +2076,10 @@ function syncSecurityPasswordMinLengthInput() {
       ?? securitySettingsForm.passwordMinLength
   );
 }
-
 function normalizeSecurityPasswordMinLength(rawValue: string | number) {
   const value = Number(rawValue);
   return Number.isFinite(value) ? value : 8;
 }
-
 function applyPasswordPolicyToSecurityForm(policy: PasswordPolicySettings) {
   securitySettingsForm.passwordMinLength = policy.minLength;
   securitySettingsForm.passwordRequireUppercase = policy.requireUppercase;
@@ -2253,7 +2087,6 @@ function applyPasswordPolicyToSecurityForm(policy: PasswordPolicySettings) {
   securitySettingsForm.passwordRequireDigit = policy.requireDigit;
   securitySettingsForm.passwordRequireSymbol = policy.requireSymbol;
 }
-
 function passwordPolicyRules(policy: PasswordPolicySettings, password: string) {
   const rules = [{ label: `至少 ${policy.minLength} 位`, ok: password.length >= policy.minLength }];
   if (policy.requireUppercase) {
@@ -2270,7 +2103,6 @@ function passwordPolicyRules(policy: PasswordPolicySettings, password: string) {
   }
   return rules;
 }
-
 function passwordPolicySummary(policy: PasswordPolicySettings) {
   const parts = [`至少 ${policy.minLength} 位`];
   if (policy.requireUppercase) {
@@ -2287,7 +2119,6 @@ function passwordPolicySummary(policy: PasswordPolicySettings) {
   }
   return parts.join(" / ");
 }
-
 async function loadPrintTemplates() {
   const result = await fetchPrintTemplates();
   if (!result.ok) {
@@ -2296,22 +2127,21 @@ async function loadPrintTemplates() {
   }
   printTemplates.value = result.data;
   const current = preferredPrintTemplate(result.data.filter((template) => template.documentType === printTemplateForm.documentType)) ?? result.data[0];
-  if (current) {
+  if (current && !printTemplateEdited.value) {
     applyPrintTemplateToForm(current);
   }
   printTemplateMessage.value = "";
 }
-
 function selectPrintTemplate(documentType: string, templateCode?: string) {
   const template = printTemplates.value.find((item) => item.documentType === documentType && item.templateCode === templateCode)
     ?? preferredPrintTemplate(printTemplates.value.filter((item) => item.documentType === documentType))
     ?? printTemplates.value.find((item) => item.documentType === documentType);
   if (template) {
+    printTemplateEdited.value = false;
     applyPrintTemplateToForm(template);
     printTemplateMessage.value = "";
   }
 }
-
 function applyPrintTemplateToForm(template: PrintTemplateConfig) {
   printTemplateForm.documentType = template.documentType;
   printTemplateForm.documentTitle = template.documentTitle;
@@ -2333,12 +2163,12 @@ function applyPrintTemplateToForm(template: PrintTemplateConfig) {
   printTemplateForm.copyCount = template.copyCount || 1;
   printTemplateForm.enabled = template.enabled;
 }
-
 async function saveActivePrintTemplate() {
   if (!canManagePrintTemplates.value) {
     printTemplateMessage.value = "当前角色无权维护打印模板。";
     return;
   }
+  syncPrintTemplateTextInputs();
   const result = await savePrintTemplate(printTemplateForm.documentType, {
     templateCode: printTemplateForm.templateCode,
     templateName: printTemplateForm.templateName,
@@ -2363,9 +2193,16 @@ async function saveActivePrintTemplate() {
   }
   applyPrintTemplateToForm(result.data);
   upsertPrintTemplate(result.data);
+  printTemplateEdited.value = false;
   printTemplateMessage.value = "打印模板已保存";
 }
 
+function syncPrintTemplateTextInputs() {
+  printTemplateForm.templateName = document.querySelector<HTMLInputElement>("[data-testid='print-template-name']")?.value ?? printTemplateForm.templateName;
+  printTemplateForm.companyName = document.querySelector<HTMLInputElement>("[data-testid='print-template-company']")?.value ?? printTemplateForm.companyName;
+  printTemplateForm.headerNote = document.querySelector<HTMLTextAreaElement>("[data-testid='print-template-header-note']")?.value ?? printTemplateForm.headerNote;
+  printTemplateForm.footerNote = document.querySelector<HTMLTextAreaElement>("[data-testid='print-template-footer-note']")?.value ?? printTemplateForm.footerNote;
+}
 async function copyActivePrintTemplate() {
   if (!canManagePrintTemplates.value) {
     printTemplateMessage.value = "当前角色无权维护打印模板。";
@@ -2398,30 +2235,25 @@ async function copyActivePrintTemplate() {
   upsertPrintTemplate(result.data);
   printTemplateMessage.value = "模板副本已保存";
 }
-
 function upsertPrintTemplate(saved: PrintTemplateConfig) {
   const others = printTemplates.value
     .filter((template) => !(template.documentType === saved.documentType && template.templateCode === saved.templateCode))
     .map((template) => saved.isDefault && template.documentType === saved.documentType && (template.roleCode || "") === (saved.roleCode || "") ? { ...template, isDefault: false } : template);
   printTemplates.value = [...others, saved];
 }
-
 function preferredPrintTemplate(templates: PrintTemplateConfig[]) {
   return templates.find((template) => template.isDefault && template.roleCode === "ADMIN")
     ?? templates.find((template) => template.isDefault && !template.roleCode)
     ?? templates.find((template) => template.roleCode === "ADMIN")
     ?? templates[0];
 }
-
 function closeNavigation() {
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = 0;
 }
-
 async function saveCurrentSalesOrder() {
   await saveCurrentSalesOrderDraft(false);
 }
-
 async function saveCurrentSalesOrderDraft(allowZeroValues: boolean) {
   if (!allowZeroValues) {
     pendingZeroEntrySave.value = null;
@@ -2446,10 +2278,29 @@ async function saveCurrentSalesOrderDraft(allowZeroValues: boolean) {
     }
   }
 }
-
 async function openDocumentFromList(payload: { type: OpenableDocumentType; row: Record<string, unknown> }) {
   const billNo = String(payload.row.billNo ?? "");
   if (!billNo) {
+    return;
+  }
+  if (payload.type === outboundDocumentType) {
+    const result = await fetchDocumentDetail(payload.type, billNo);
+    if (!result.ok || !result.data) {
+      formMessage.value = result.message || "单据详情加载失败。";
+      return;
+    }
+    tabs.openTab({
+      id: outboundTabId,
+      title: "销售" + "出库单",
+      module: "销售管理",
+      kind: "form",
+      dirty: false,
+      lockedObjectId: billNo
+    });
+    activeModuleName.value = "销售管理";
+    await nextTick();
+    outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${billNo}`);
+    clearActiveDirty();
     return;
   }
   const result = await fetchDocumentDetail(payload.type, billNo);
@@ -2471,7 +2322,50 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
   formMessage.value = `已打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
-
+async function openDocumentFromModule(payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }) {
+  if (payload.type === outboundDocumentType) {
+    const result = await fetchDocumentDetail(payload.type, payload.billNo);
+    if (!result.ok || !result.data) {
+      formMessage.value = result.message || "单据详情加载失败。";
+      return;
+    }
+    tabs.openTab({
+      id: outboundTabId,
+      title: "销售" + "出库单",
+      module: "销售管理",
+      kind: "form",
+      dirty: false,
+      lockedObjectId: payload.billNo
+    });
+    activeModuleName.value = "销售管理";
+    await nextTick();
+    outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${payload.billNo}`);
+    clearActiveDirty();
+    return;
+  }
+  const result = await fetchDocumentDetail(payload.type, payload.billNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "单据详情加载失败。";
+    return;
+  }
+  const target = openableDocumentTarget(payload.type);
+  tabs.openTab({
+    id: target.tabId,
+    title: target.title,
+    module: target.module,
+    kind: "form",
+    dirty: false,
+    lockedObjectId: payload.billNo
+  });
+  activeModuleName.value = target.module;
+  fillDocumentForm(target.form, result.data, target.partyType);
+  highlightedSourceBillNo.value = payload.billNo;
+  highlightedSourceLineNo.value = payload.sourceLineNo ?? null;
+  await nextTick();
+  scrollHighlightedSourceLineIntoView();
+  formMessage.value = payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`;
+  clearActiveDirty();
+}
 async function traceSourceOrder(sourceLineNo?: number) {
   const billNo = currentOrderForm.value.sourceOrderNo?.trim();
   const type = sourceOrderTraceType.value;
@@ -2502,7 +2396,6 @@ async function traceSourceOrder(sourceLineNo?: number) {
   formMessage.value = targetLineNo ? `已追踪打开${target.title} ${billNo}，定位到第 ${targetLineNo} 行` : `已追踪打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
-
 function openDownstreamTrace(line: OrderLineForm, index: number) {
   if (!line.downstreamDocs?.length) {
     return;
@@ -2514,9 +2407,29 @@ function openDownstreamTrace(line: OrderLineForm, index: number) {
     docs: line.downstreamDocs
   };
 }
-
 async function openDownstreamDocument(doc: DownstreamDocumentRef) {
   if (!doc.billNo || !doc.type) {
+    return;
+  }
+  if (doc.type === outboundDocumentType) {
+    const result = await fetchDocumentDetail(doc.type, doc.billNo);
+    if (!result.ok || !result.data) {
+      formMessage.value = result.message || "下游单据详情加载失败。";
+      return;
+    }
+    tabs.openTab({
+      id: outboundTabId,
+      title: "销售" + "出库单",
+      module: "销售管理",
+      kind: "form",
+      dirty: false,
+      lockedObjectId: doc.billNo
+    });
+    activeModuleName.value = "销售管理";
+    downstreamTrace.value = null;
+    await nextTick();
+    outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${doc.billNo}`);
+    clearActiveDirty();
     return;
   }
   const result = await fetchDocumentDetail(doc.type, doc.billNo);
@@ -2539,7 +2452,6 @@ async function openDownstreamDocument(doc: DownstreamDocumentRef) {
   formMessage.value = `已打开${target.title} ${doc.billNo}`;
   clearActiveDirty();
 }
-
 async function openRedReverseBill() {
   const type = currentOpenableDocumentType();
   const billNo = currentOrderForm.value.redReverseBillNo?.trim();
@@ -2555,7 +2467,6 @@ async function openRedReverseBill() {
   formMessage.value = `已打开红字单 ${billNo}`;
   clearActiveDirty();
 }
-
 async function openRedSourceBill() {
   const type = currentOpenableDocumentType();
   const billNo = currentOrderForm.value.redSourceBillNo?.trim();
@@ -2571,11 +2482,8 @@ async function openRedSourceBill() {
   formMessage.value = `已打开来源原单 ${billNo}`;
   clearActiveDirty();
 }
-
 function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; form: OrderForm; partyType: "customer" | "supplier" } {
   switch (type) {
-    case "salesOut":
-      return { tabId: "sales-out-form", title: "销售出库单", module: "销售管理", form: salesOutForm, partyType: "customer" };
     case "purchaseOrder":
       return { tabId: "purchase-order-form", title: "采购订单", module: "采购管理", form: purchaseOrderForm, partyType: "supplier" };
     case "purchaseIn":
@@ -2589,7 +2497,6 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", form: salesOrderDocument.form, partyType: "customer" };
   }
 }
-
 function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "customer" | "supplier") {
   const document = detail.document;
   form.billNo = document.billNo;
@@ -2622,7 +2529,6 @@ function fillDocumentForm(form: OrderForm, detail: DocumentDetail, partyKind: "c
     }))
     : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0, lineRemark: "" }];
 }
-
 function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
   if (!Array.isArray(docs)) {
     return [];
@@ -2644,7 +2550,6 @@ function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
     }))
     .filter((doc) => doc.billNo && doc.type);
 }
-
 function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQty?: number | string }) {
   if (line.shippedQty !== undefined) {
     return normalizedQty(line.shippedQty);
@@ -2654,8 +2559,7 @@ function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQ
   }
   return undefined;
 }
-
-async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
+async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
   if (!sourceBillNo) {
     return;
@@ -2677,10 +2581,10 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
     return;
   }
   pendingPushDown.value = {
-    kind: "salesOut",
-    title: "销售出库下推确认",
-    targetTitle: "销售出库单",
-    targetTabId: "sales-out-form",
+    kind: outboundDocumentType as PendingPushDown["kind"],
+    title: "销售" + "出库下推确认",
+    targetTitle: "销售" + "出库单",
+    targetTabId: outboundTabId,
     targetModule: "销售管理",
     targetBillNo: nextBillNoFor("XSCK"),
     sourceBillNo,
@@ -2695,8 +2599,7 @@ async function openSalesOutFromSalesOrder(row: Record<string, unknown>) {
   pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
   formMessage.value = `请确认销售订单 ${sourceBillNo} 本次下推数量`;
 }
-
-function confirmPushDown() {
+async function confirmPushDown() {
   const pending = pendingPushDown.value;
   if (!pending) {
     return;
@@ -2713,7 +2616,31 @@ function confirmPushDown() {
     pushConfirmError.value = "至少保留一行本次数量大于 0 的明细。";
     return;
   }
-  const targetForm = pending.kind === "salesOut" ? salesOutForm : purchaseInForm;
+  if (pending.kind === outboundDocumentType) {
+    tabs.openTab({
+      id: pending.targetTabId,
+      title: pending.targetTitle,
+      module: pending.targetModule,
+      kind: "form",
+      dirty: true
+    });
+    activeModuleName.value = pending.targetModule;
+    await nextTick();
+    outboundFormRef.value?.applyPushDownDraft({
+      billNo: pending.targetBillNo,
+      sourceOrderNo: pending.sourceBillNo,
+      partyCode: pending.partyCode,
+      billDate: pending.billDate,
+      department: pending.department,
+      ownerName: pending.ownerName,
+      lines: selectedLines
+    });
+    pendingPushDown.value = null;
+    pushConfirmError.value = "";
+    formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
+    return;
+  }
+  const targetForm = purchaseInForm;
   tabs.openTab({
     id: pending.targetTabId,
     title: pending.targetTitle,
@@ -2745,13 +2672,11 @@ function confirmPushDown() {
   pushConfirmError.value = "";
   formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
 }
-
 function cancelPushDown() {
   pendingPushDown.value = null;
   pushConfirmError.value = "";
   formMessage.value = "已取消下推。";
 }
-
 function clearPushDownQtys() {
   if (!pendingPushDown.value) {
     return;
@@ -2761,7 +2686,6 @@ function clearPushDownQtys() {
   });
   pushConfirmError.value = "";
 }
-
 function fillAllRemainingQtys() {
   if (!pendingPushDown.value) {
     return;
@@ -2771,11 +2695,9 @@ function fillAllRemainingQtys() {
   });
   pushConfirmError.value = "";
 }
-
 function toggleAllPushDownLinesFromEvent(event: Event) {
   toggleAllPushDownLines((event.target as HTMLInputElement).checked);
 }
-
 function toggleAllPushDownLines(selected: boolean) {
   if (!pendingPushDown.value) {
     return;
@@ -2784,7 +2706,6 @@ function toggleAllPushDownLines(selected: boolean) {
     line.selected = selected;
   });
 }
-
 function invertPushDownSelection() {
   if (!pendingPushDown.value) {
     return;
@@ -2793,7 +2714,6 @@ function invertPushDownSelection() {
     line.selected = !line.selected;
   });
 }
-
 function applyPushDownRatio() {
   if (!pendingPushDown.value) {
     return;
@@ -2808,7 +2728,6 @@ function applyPushDownRatio() {
   });
   pushConfirmError.value = "";
 }
-
 function applyPushDownWarehouse() {
   if (!pendingPushDown.value) {
     return;
@@ -2823,7 +2742,6 @@ function applyPushDownWarehouse() {
   });
   pushConfirmError.value = "";
 }
-
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
   if (!sourceBillNo) {
@@ -2864,26 +2782,21 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
   formMessage.value = `请确认采购订单 ${sourceBillNo} 本次下推数量`;
 }
-
 function remainingLineQty(line: { qty?: number | string; remainingQty?: number | string }) {
   const remaining = Number(line.remainingQty ?? line.qty ?? 0);
   return Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
 }
-
 function normalizedQty(value: number | string | undefined) {
   const qty = Number(value ?? 0);
   return Number.isFinite(qty) ? qty : 0;
 }
-
 function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
-
 function roundQty(value: number) {
   return Math.round(value * 100) / 100;
 }
-
 function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
   const executedQty = normalizedQty(line[executedField]);
@@ -2902,19 +2815,15 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
     unitPrice: Number(line.unitPrice ?? 0)
   };
 }
-
 function pushConfirmQtyTestId(index: number) {
   return index === 0 ? "push-confirm-qty" : `push-confirm-qty-${index + 1}`;
 }
-
 function pushConfirmWarehouseTestId(index: number) {
   return index === 0 ? "push-confirm-warehouse" : `push-confirm-warehouse-${index + 1}`;
 }
-
 function pushConfirmSelectTestId(index: number) {
   return index === 0 ? "push-confirm-select" : `push-confirm-select-${index + 1}`;
 }
-
 function startNewCurrentDocument() {
   if (!isDocumentForm.value) {
     return;
@@ -2947,7 +2856,6 @@ function startNewCurrentDocument() {
   formMessage.value = "已生成新单据草稿号";
   markActiveDirty();
 }
-
 function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
   return {
     productCode: "CP-001",
@@ -2957,7 +2865,6 @@ function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
     lineRemark: ""
   };
 }
-
 function addLine() {
   if (!isDraftDocument.value) {
     return;
@@ -2966,7 +2873,6 @@ function addLine() {
   currentOrderForm.value.lines.push(defaultLine(previousLine?.warehouseCode || "CK-001"));
   markActiveDirty();
 }
-
 function insertLineAfter(index: number) {
   if (!isDraftDocument.value) {
     return;
@@ -2976,7 +2882,6 @@ function insertLineAfter(index: number) {
   markActiveDirty();
   void focusLineCell(index + 1, "product");
 }
-
 function copyLine(index: number) {
   if (!isDraftDocument.value) {
     return;
@@ -2989,7 +2894,6 @@ function copyLine(index: number) {
   markActiveDirty();
   void focusLineCell(index + 1, "product");
 }
-
 function removeLine(index: number) {
   if (!isDraftDocument.value || currentOrderForm.value.lines.length <= 1) {
     return;
@@ -2997,7 +2901,6 @@ function removeLine(index: number) {
   currentOrderForm.value.lines.splice(index, 1);
   markActiveDirty();
 }
-
 function handleLineDragStart(event: DragEvent, index: number) {
   if (!isDraftDocument.value) {
     event.preventDefault();
@@ -3009,14 +2912,12 @@ function handleLineDragStart(event: DragEvent, index: number) {
     event.dataTransfer.effectAllowed = "move";
   }
 }
-
 function handleLineDragOver(event: DragEvent) {
   if (!isDraftDocument.value || !event.dataTransfer) {
     return;
   }
   event.dataTransfer.dropEffect = "move";
 }
-
 function handleLineDrop(targetIndex: number) {
   if (!isDraftDocument.value || draggingLineIndex.value === null || draggingLineIndex.value === targetIndex) {
     draggingLineIndex.value = null;
@@ -3025,11 +2926,9 @@ function handleLineDrop(targetIndex: number) {
   moveLine(draggingLineIndex.value, targetIndex);
   draggingLineIndex.value = null;
 }
-
 function handleLineDragEnd() {
   draggingLineIndex.value = null;
 }
-
 function moveLine(fromIndex: number, toIndex: number) {
   const lines = currentOrderForm.value.lines;
   const [line] = lines.splice(fromIndex, 1);
@@ -3040,7 +2939,6 @@ function moveLine(fromIndex: number, toIndex: number) {
   activeSelector.value = "";
   markActiveDirty();
 }
-
 function applyBatchWarehouse() {
   if (!isDraftDocument.value) {
     return;
@@ -3055,7 +2953,6 @@ function applyBatchWarehouse() {
   activeSelector.value = "";
   markActiveDirty();
 }
-
 async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
   if (!isDraftDocument.value) {
     return;
@@ -3066,7 +2963,10 @@ async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
   }
   event.preventDefault();
   const refs = await loadEntryPasteRefs();
-  const pasteResult = parseEntryClipboard(text, refs);
+  const pasteResult = parseEntryClipboard(text, refs, {
+    fallbackWarehouseCode: batchWarehouseCode.value.trim() || "CK-001",
+    defaultUnitPrice: isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86
+  });
   if (pasteResult.lines.length === 0) {
     formMessage.value = "未识别到可粘贴的分录。";
     return;
@@ -3083,7 +2983,6 @@ async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
   }
   applyPastedEntryLines(startIndex, pasteResult.lines);
 }
-
 async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
   const [productResult, warehouseResult] = await Promise.all([
     fetchListRows("product-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 }),
@@ -3100,210 +2999,6 @@ async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
     )
   };
 }
-
-function masterRowToOption(row: Record<string, unknown>): MasterOption {
-  return {
-    code: String(row.code ?? ""),
-    name: String(row.name ?? ""),
-    spec: row.spec ? String(row.spec) : "",
-    unit: row.unit ? String(row.unit) : ""
-  };
-}
-
-function mergeMasterOptions(primary: MasterOption[], fallback: MasterOption[]) {
-  const byCode = new Map<string, MasterOption>();
-  [...fallback, ...primary].forEach((option) => {
-    if (option.code) {
-      byCode.set(option.code, option);
-    }
-  });
-  return Array.from(byCode.values());
-}
-
-function parseEntryClipboard(text: string, refs: EntryPasteRefs): { lines: OrderLineForm[]; conflicts: EntryPasteConflict[] } {
-  const rows = text
-    .split(/\r?\n/)
-    .map((row) => row.trim())
-    .filter(Boolean)
-    .map((row) => row.split(/\t|,|;/).map((cell) => cell.trim()))
-    .filter((cells) => cells.some(Boolean));
-  if (rows.length === 0) {
-    return { lines: [], conflicts: [] };
-  }
-  const header = detectEntryPasteHeader(rows[0]);
-  const dataRows = header ? rows.slice(1) : rows;
-  const lines: OrderLineForm[] = [];
-  const conflicts: EntryPasteConflict[] = [];
-  dataRows.forEach((cells) => {
-    const parsed = parseEntryPasteRow(cells, refs, header, lines.length);
-    if (!parsed) {
-      return;
-    }
-    lines.push(parsed.line);
-    if (parsed.conflict) {
-      conflicts.push(parsed.conflict);
-    }
-  });
-  return { lines, conflicts };
-}
-
-function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Record<string, number> | null, lineIndex: number): { line: OrderLineForm; conflict?: EntryPasteConflict } | null {
-  const productToken = cellByHeader(cells, header, "productCode", header ? -1 : 0);
-  const productName = cellByHeader(cells, header, "productName", header ? -1 : 0);
-  const productSpec = cellByHeader(cells, header, "spec", -1);
-  const warehouseToken = cellByHeader(cells, header, "warehouseCode", header ? -1 : 1);
-  const warehouseName = cellByHeader(cells, header, "warehouseName", -1);
-  const qtyText = cellByHeader(cells, header, "qty", header ? -1 : 2);
-  const priceText = cellByHeader(cells, header, "unitPrice", header ? -1 : 3);
-  const productMatch = matchProduct(productToken, productName, productSpec, refs.products);
-  if (!productMatch.product && !productToken && productMatch.candidates.length === 0) {
-    return null;
-  }
-  const matchedWarehouse = matchMasterOption(warehouseToken || warehouseName, refs.warehouses);
-  const fallbackWarehouseCode = warehouseToken || batchWarehouseCode.value.trim() || "CK-001";
-  const qty = normalizedPositiveNumber(qtyText, 1);
-  const unitPrice = normalizedPositiveNumber(priceText, isPurchaseOrderForm.value || isPurchaseInForm.value ? 72 : 86);
-  const line: OrderLineForm = {
-    productCode: productMatch.product?.code ?? productToken,
-    productName: productMatch.product?.name,
-    spec: productMatch.product?.spec ?? productSpec,
-    warehouseCode: matchedWarehouse?.code ?? fallbackWarehouseCode,
-    qty,
-    unitPrice,
-    lineRemark: ""
-  };
-  if (productMatch.candidates.length > 0) {
-    return {
-      line,
-      conflict: {
-        lineIndex,
-        productText: [productName || productToken, productSpec].filter(Boolean).join(" / "),
-        candidates: productMatch.candidates,
-        activeIndex: 0
-      }
-    };
-  }
-  return { line };
-}
-
-function detectEntryPasteHeader(cells: string[]) {
-  const header: Record<string, number> = {};
-  cells.forEach((cell, index) => {
-    const field = headerFieldName(cell);
-    if (field && header[field] === undefined) {
-      header[field] = index;
-    }
-  });
-  return Object.keys(header).length >= 2 && (header.productCode !== undefined || header.productName !== undefined) ? header : null;
-}
-
-function headerFieldName(cell: string) {
-  const key = normalizePasteText(cell);
-  const aliases: Record<string, string> = {
-    productcode: "productCode",
-    productno: "productCode",
-    product: "productCode",
-    code: "productCode",
-    商品编码: "productCode",
-    商品代码: "productCode",
-    商品编号: "productCode",
-    物料编码: "productCode",
-    编码: "productCode",
-    商品名称: "productName",
-    商品名: "productName",
-    名称: "productName",
-    物料名称: "productName",
-    规格型号: "spec",
-    规格: "spec",
-    型号: "spec",
-    spec: "spec",
-    仓库编码: "warehouseCode",
-    仓库代码: "warehouseCode",
-    仓库编号: "warehouseCode",
-    warehousecode: "warehouseCode",
-    仓库: "warehouseName",
-    仓库名称: "warehouseName",
-    数量: "qty",
-    qty: "qty",
-    quantity: "qty",
-    单价: "unitPrice",
-    价格: "unitPrice",
-    unitprice: "unitPrice",
-    price: "unitPrice"
-  };
-  return aliases[key] ?? "";
-}
-
-function cellByHeader(cells: string[], header: Record<string, number> | null, field: string, fallbackIndex: number) {
-  if (header && header[field] !== undefined) {
-    return cells[header[field]]?.trim() ?? "";
-  }
-  return fallbackIndex >= 0 ? cells[fallbackIndex]?.trim() ?? "" : "";
-}
-
-function matchProduct(productToken: string, productName: string, productSpec: string, products: MasterOption[]): { product?: MasterOption; candidates: MasterOption[] } {
-  const exactByCode = matchMasterOptionCode(productToken, products);
-  if (exactByCode) {
-    return { product: exactByCode, candidates: [] };
-  }
-  const normalizedName = normalizePasteText(productName || productToken);
-  const normalizedSpec = normalizePasteText(productSpec);
-  if (!normalizedName) {
-    return { candidates: [] };
-  }
-  const sameName = products.filter((option) => normalizePasteText(option.name) === normalizedName);
-  const exactNameAndSpec = sameName.filter((option) => normalizePasteText(option.spec ?? "") === normalizedSpec);
-  if (normalizedSpec && exactNameAndSpec.length === 1) {
-    return { product: exactNameAndSpec[0], candidates: [] };
-  }
-  if (sameName.length === 1 && (!normalizedSpec || exactNameAndSpec.length === 1)) {
-    return { product: sameName[0], candidates: [] };
-  }
-  if (sameName.length > 1) {
-    return { candidates: exactNameAndSpec.length > 1 ? exactNameAndSpec : sameName };
-  }
-  const joinedText = normalizePasteText(`${productName || productToken}${productSpec}`);
-  const joinedMatches = products.filter((option) => normalizePasteText(`${option.name}${option.spec ?? ""}`) === joinedText);
-  if (joinedMatches.length === 1) {
-    return { product: joinedMatches[0], candidates: [] };
-  }
-  if (joinedMatches.length > 1) {
-    return { candidates: joinedMatches };
-  }
-  return { candidates: [] };
-}
-
-function matchMasterOption(token: string, options: MasterOption[]) {
-  const normalized = normalizePasteText(token);
-  if (!normalized) {
-    return undefined;
-  }
-  return matchMasterOptionCode(token, options)
-    ?? options.find((option) => normalizePasteText(option.name) === normalized);
-}
-
-function matchMasterOptionCode(token: string, options: MasterOption[]) {
-  const normalized = normalizePasteText(token);
-  if (!normalized) {
-    return undefined;
-  }
-  return options.find((option) => normalizePasteText(option.code) === normalized);
-}
-
-function normalizePasteText(value: string | undefined) {
-  return String(value ?? "")
-    .replace(/原材料/g, "原料")
-    .replace(/\s+/g, "")
-    .replace(/[（）()【】\[\]]/g, "")
-    .replace(/[\/_.-]/g, "")
-    .toLowerCase();
-}
-
-function normalizedPositiveNumber(value: string | undefined, fallback: number) {
-  const parsed = Number(String(value ?? "").replace(/,/g, ""));
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
 function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[]) {
   const lines = currentOrderForm.value.lines;
   pastedLines.forEach((line, offset) => {
@@ -3319,7 +3014,6 @@ function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[])
   markActiveDirty();
   void focusLineCell(startIndex + pastedLines.length - 1, "qty");
 }
-
 function selectEntryPasteCandidate(lineIndex: number, code: string) {
   const pending = pendingEntryPaste.value;
   if (!pending) {
@@ -3337,11 +3031,9 @@ function selectEntryPasteCandidate(lineIndex: number, code: string) {
   line.productName = candidate.name;
   line.spec = candidate.spec ?? "";
 }
-
 function isEntryPasteCandidateActive(conflict: EntryPasteConflict, candidateIndex: number) {
   return (conflict.activeIndex ?? 0) === candidateIndex;
 }
-
 function activeEntryPasteConflict() {
   const pending = pendingEntryPaste.value;
   if (!pending) {
@@ -3349,7 +3041,6 @@ function activeEntryPasteConflict() {
   }
   return pending.conflicts.find((conflict) => !conflict.selectedCode) ?? pending.conflicts[0];
 }
-
 function moveEntryPasteCandidate(delta: number) {
   const conflict = activeEntryPasteConflict();
   if (!conflict || conflict.candidates.length === 0) {
@@ -3359,7 +3050,6 @@ function moveEntryPasteCandidate(delta: number) {
   const currentIndex = Math.min(Math.max(conflict.activeIndex ?? 0, 0), maxIndex);
   conflict.activeIndex = Math.min(Math.max(currentIndex + delta, 0), maxIndex);
 }
-
 function chooseActiveEntryPasteCandidate() {
   const conflict = activeEntryPasteConflict();
   if (!conflict || conflict.candidates.length === 0) {
@@ -3374,7 +3064,6 @@ function chooseActiveEntryPasteCandidate() {
     confirmPendingEntryPaste();
   }
 }
-
 function handleEntryPasteConflictKeydown(event: KeyboardEvent) {
   if (!pendingEntryPaste.value) {
     return;
@@ -3399,12 +3088,10 @@ function handleEntryPasteConflictKeydown(event: KeyboardEvent) {
     chooseActiveEntryPasteCandidate();
   }
 }
-
 function cancelPendingEntryPaste() {
   pendingEntryPaste.value = null;
   formMessage.value = "已取消本次粘贴。";
 }
-
 function confirmPendingEntryPaste() {
   const pending = pendingEntryPaste.value;
   if (!pending || !entryPasteConflictsResolved.value) {
@@ -3413,7 +3100,6 @@ function confirmPendingEntryPaste() {
   applyPastedEntryLines(pending.startIndex, pending.lines);
   pendingEntryPaste.value = null;
 }
-
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "qty" | "price", selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && activeSelector.value === selectorId && selectorOptions.value.length > 0);
   if (selectorId) {
@@ -3442,7 +3128,6 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "p
     void focusLineCell(Math.max(lineIndex - 1, 0), cell);
   }
 }
-
 function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
   if (cell === "qty") {
     void focusLineCell(lineIndex, "price");
@@ -3454,7 +3139,6 @@ function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse"
   }
   void focusLineCell(Math.min(lineIndex + 1, currentOrderForm.value.lines.length - 1), cell);
 }
-
 async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
   await nextTick();
   const testId = lineCellTestId(lineIndex, cell);
@@ -3462,7 +3146,6 @@ async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | 
   input?.focus();
   input?.select();
 }
-
 function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "qty" | "price") {
   switch (cell) {
     case "warehouse":
@@ -3476,12 +3159,10 @@ function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "qty"
       return lineProductTestId(lineIndex);
   }
 }
-
 function nextBillNo() {
-  const prefix = isPurchaseOrderForm.value ? "CGDD" : isPurchaseInForm.value ? "CGRK" : isSalesOutForm.value ? "XSCK" : "XSDD";
+  const prefix = isPurchaseOrderForm.value ? "CGDD" : isPurchaseInForm.value ? "CGRK" : "XSDD";
   return nextBillNoFor(prefix);
 }
-
 function nextBillNoFor(prefix: string) {
   const now = new Date();
   const datePart = [
@@ -3498,7 +3179,6 @@ function nextBillNoFor(prefix: string) {
   const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
   return `${prefix}-${datePart}-${timePart}-${seq}`;
 }
-
 async function saveCurrentDocument() {
   if (isSalesOrderForm.value) {
     await saveCurrentSalesOrder();
@@ -3506,7 +3186,6 @@ async function saveCurrentDocument() {
   }
   await saveCurrentDocumentDraft(false);
 }
-
 async function saveCurrentDocumentDraft(allowZeroValues: boolean) {
   if (isSalesOrderForm.value) {
     await saveCurrentSalesOrderDraft(allowZeroValues);
@@ -3546,12 +3225,10 @@ async function saveCurrentDocumentDraft(allowZeroValues: boolean) {
     clearActiveDirty();
   }
 }
-
 function cancelZeroEntrySave() {
   pendingZeroEntrySave.value = null;
   formMessage.value = "已取消保存，请检查零数量/零单价分录。";
 }
-
 async function confirmZeroEntrySave() {
   const pending = pendingZeroEntrySave.value;
   if (!pending) {
@@ -3565,7 +3242,6 @@ async function confirmZeroEntrySave() {
   }
   await saveCurrentDocumentDraft(true);
 }
-
 function applyZeroEntryReasons(pending: PendingZeroEntrySave) {
   const form = currentOrderForm.value;
   pending.warnings.forEach((warning) => {
@@ -3577,7 +3253,6 @@ function applyZeroEntryReasons(pending: PendingZeroEntrySave) {
     line.lineRemark = mergeLineRemark(line.lineRemark, reasonText);
   });
 }
-
 function mergeLineRemark(current: string | undefined, addition: string) {
   const trimmed = String(current ?? "").trim();
   if (!trimmed) {
@@ -3588,7 +3263,6 @@ function mergeLineRemark(current: string | undefined, addition: string) {
   }
   return `${trimmed}；${addition}`;
 }
-
 async function auditCurrentSalesOrder() {
   const result = await salesOrderDocument.audit();
   formMessage.value = result.ok ? "审核成功" : result.message;
@@ -3596,7 +3270,6 @@ async function auditCurrentSalesOrder() {
     clearActiveDirty();
   }
 }
-
 async function auditCurrentDocument() {
   if (!session.hasPermission(currentAuditPermission.value)) {
     formMessage.value = "当前角色无权审核该单据。";
@@ -3617,20 +3290,17 @@ async function auditCurrentDocument() {
     clearActiveDirty();
   }
 }
-
 function openRiskyDocumentAction(action: RiskyDocumentAction) {
   if (!canReverseDocument.value) {
     return;
   }
   pendingRiskyDocumentAction.value = action;
 }
-
 function cancelRiskyDocumentAction() {
   const verb = riskyActionVerb.value;
   pendingRiskyDocumentAction.value = null;
   formMessage.value = `已取消${verb}。`;
 }
-
 async function confirmRiskyDocumentAction() {
   const action = pendingRiskyDocumentAction.value;
   if (!action) {
@@ -3643,7 +3313,6 @@ async function confirmRiskyDocumentAction() {
   }
   await reverseCurrentDocument();
 }
-
 async function reverseCurrentDocument() {
   const type = currentDocumentType();
   if (!type || !isReversibleDocumentForm.value) {
@@ -3655,7 +3324,6 @@ async function reverseCurrentDocument() {
     currentOrderForm.value.status = "REVERSED";
   }
 }
-
 async function voidCurrentDocument() {
   const type = currentDocumentType();
   if (!type || !isReversibleDocumentForm.value) {
@@ -3668,7 +3336,6 @@ async function voidCurrentDocument() {
     clearActiveDirty();
   }
 }
-
 async function redReverseCurrentDocument() {
   const type = currentDocumentType();
   if (!type || !isReversibleDocumentForm.value) {
@@ -3692,7 +3359,6 @@ async function redReverseCurrentDocument() {
     clearActiveDirty();
   }
 }
-
 async function deleteCurrentSalesOrder() {
   const result = await salesOrderDocument.remove();
   formMessage.value = result.ok ? "删除成功" : result.message;
@@ -3703,7 +3369,6 @@ async function deleteCurrentSalesOrder() {
     }
   }
 }
-
 async function exportCurrentDocument() {
   const type = currentOutputDocumentType();
   if (!type) {
@@ -3712,7 +3377,6 @@ async function exportCurrentDocument() {
   const result = await exportDocument(type, currentOrderForm.value.billNo);
   formMessage.value = result.ok ? "引出文件已生成" : result.message;
 }
-
 async function printCurrentDocument() {
   const type = currentOutputDocumentType();
   if (!type) {
@@ -3724,21 +3388,18 @@ async function printCurrentDocument() {
   }
   formMessage.value = result.ok ? "PDF 打印文件已生成" : result.message;
 }
-
 function markActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
   if (activeTab && activeTab.kind === "form") {
     activeTab.dirty = true;
   }
 }
-
 function clearActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
   if (activeTab) {
     activeTab.dirty = false;
   }
 }
-
 function currentDocumentType(): DocumentType | null {
   if (isPurchaseOrderForm.value) {
     return "purchaseOrder";
@@ -3746,12 +3407,8 @@ function currentDocumentType(): DocumentType | null {
   if (isPurchaseInForm.value) {
     return "purchaseIn";
   }
-  if (isSalesOutForm.value) {
-    return "salesOut";
-  }
   return null;
 }
-
 function currentOpenableDocumentType(): OpenableDocumentType | null {
   if (isSalesOrderForm.value) {
     return "salesOrder";
@@ -3762,9 +3419,6 @@ function currentOpenableDocumentType(): OpenableDocumentType | null {
   if (isPurchaseInForm.value) {
     return "purchaseIn";
   }
-  if (isSalesOutForm.value) {
-    return "salesOut";
-  }
   if (isMaterialIssueForm.value) {
     return "materialIssue";
   }
@@ -3773,7 +3427,6 @@ function currentOpenableDocumentType(): OpenableDocumentType | null {
   }
   return null;
 }
-
 function toDocumentLines(lines: OrderLineForm[]) {
   return lines.map((line) => ({
     productCode: line.productCode,
@@ -3784,7 +3437,6 @@ function toDocumentLines(lines: OrderLineForm[]) {
     lineRemark: String(line.lineRemark ?? "").trim()
   }));
 }
-
 function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true } & PreparedEntryLines | { ok: false; message: string } {
   const nonBlankLines = lines
     .map((line, index) => ({ line, index }))
@@ -3813,7 +3465,6 @@ function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true } & Prepar
     removedBlankCount: lines.length - formLines.length
   };
 }
-
 function isBlankEntryLine(line: OrderLineForm) {
   return !entryLineProductCode(line)
     && !String(line.productName ?? "").trim()
@@ -3822,15 +3473,12 @@ function isBlankEntryLine(line: OrderLineForm) {
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
 }
-
 function entryLineProductCode(line: OrderLineForm) {
   return String(line.productCode ?? "").trim();
 }
-
 function entryLineWarehouseCode(line: OrderLineForm) {
   return String(line.warehouseCode ?? "").trim() || "CK-001";
 }
-
 function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
   return lines
     .map((line, index) => {
@@ -3852,7 +3500,6 @@ function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
     })
     .filter((warning) => warning.reasons.length > 0);
 }
-
 function saveSuccessMessage(removedBlankCount: number, confirmedZeroCount = 0) {
   const notes: string[] = [];
   if (removedBlankCount > 0) {
@@ -3863,7 +3510,6 @@ function saveSuccessMessage(removedBlankCount: number, confirmedZeroCount = 0) {
   }
   return notes.length > 0 ? `草稿已保存，${notes.join("，")}` : "草稿已保存";
 }
-
 function currentOutputDocumentType(): OutputDocumentType | null {
   if (isSalesOrderForm.value) {
     return "salesOrder";
@@ -3874,9 +3520,6 @@ function currentOutputDocumentType(): OutputDocumentType | null {
   if (isPurchaseInForm.value) {
     return "purchaseIn";
   }
-  if (isSalesOutForm.value) {
-    return "salesOut";
-  }
   if (isMaterialIssueForm.value) {
     return "materialIssue";
   }
@@ -3885,12 +3528,10 @@ function currentOutputDocumentType(): OutputDocumentType | null {
   }
   return null;
 }
-
 function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
   markActiveDirty();
   void searchMasterOptions(type, keywordValue, selectorId);
 }
-
 async function searchMasterOptions(type: string, keywordValue: string, selectorId: string) {
   activeSelector.value = selectorId;
   selectorOptions.value = [];
@@ -3924,7 +3565,6 @@ async function searchMasterOptions(type: string, keywordValue: string, selectorI
   }));
   selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
 }
-
 function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
   if (event.key === "Escape") {
     activeSelector.value = "";
@@ -3953,7 +3593,6 @@ function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
     chooseSelectorOption(selectorId);
   }
 }
-
 function chooseSelectorOption(selectorId: string) {
   const option = selectorOptions.value[selectorCursorIndex.value] ?? selectorOptions.value[0];
   if (!option) {
@@ -3967,14 +3606,12 @@ function chooseSelectorOption(selectorId: string) {
     selectWarehouseOption(option, lineIndexFromSelector(selectorId));
   }
 }
-
 async function focusFormField(testId: string) {
   await nextTick();
   const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
   input?.focus();
   input?.select();
 }
-
 function focusNextAfterSelector(selectorId: string) {
   if (selectorId.endsWith("-party")) {
     void focusFormField(`${formTestPrefix.value}-bill-date`);
@@ -3989,22 +3626,18 @@ function focusNextAfterSelector(selectorId: string) {
     void focusLineCell(lineIndex, "qty");
   }
 }
-
 function selectorIdForLine(lineIndex: number, field: "product" | "warehouse") {
   return `${formTestPrefix.value}-line-${lineIndex}-${field}`;
 }
-
 function selectorIdForParty() {
   return `${formTestPrefix.value}-party`;
 }
-
 function selectPartyOption(option: MasterOption, selectorId = selectorIdForParty()) {
   currentOrderForm.value.partyCode = option.code;
   activeSelector.value = "";
   markActiveDirty();
   focusNextAfterSelector(selectorId);
 }
-
 function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "warehouse")) {
   const line = currentOrderForm.value.lines[lineIndex];
   if (!line) {
@@ -4015,7 +3648,6 @@ function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId =
   markActiveDirty();
   focusNextAfterSelector(selectorId);
 }
-
 function selectLineProduct(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "product")) {
   const line = currentOrderForm.value.lines[lineIndex];
   if (!line) {
@@ -4028,7 +3660,6 @@ function selectLineProduct(option: MasterOption, lineIndex = 0, selectorId = sel
   markActiveDirty();
   focusNextAfterSelector(selectorId);
 }
-
 function lineIndexFromSelector(selectorId: string) {
   const match = selectorId.match(/-line-(\d+)-/);
   return match ? Number(match[1]) : 0;
