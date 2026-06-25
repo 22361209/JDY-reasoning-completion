@@ -10,6 +10,7 @@
     :can-save="isDraft"
     :can-audit="canAudit"
     :can-reverse="canReverse"
+    :can-red-reverse="canRedReverse"
     :can-void="canVoid"
     :can-delete="canDelete"
     :can-output="isDocumentForm"
@@ -142,6 +143,7 @@ defineProps<{
   isDraft: boolean;
   canAudit: boolean;
   canReverse: boolean;
+  canRedReverse?: boolean;
   canVoid: boolean;
   canDelete: boolean;
   canTraceSourceOrder: boolean;

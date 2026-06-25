@@ -1081,7 +1081,8 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",
     materialIssue: "生产领料单",
-    productIn: "产品入库单"
+    productIn: "产品入库单",
+    otherStockIn: "其他入库单"
   };
   return labels[type];
 }

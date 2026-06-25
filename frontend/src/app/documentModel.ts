@@ -108,7 +108,8 @@ export const printTemplateDocumentTypes = [
   { documentType: "sales-out", documentTitle: "销售出库单" },
   { documentType: "purchase-in", documentTitle: "采购入库单" },
   { documentType: "material-issue", documentTitle: "生产领料单" },
-  { documentType: "product-in", documentTitle: "产品入库单" }
+  { documentType: "product-in", documentTitle: "产品入库单" },
+  { documentType: "other-stock-in", documentTitle: "其他入库单" }
 ];
 
 export const defaultPrintTemplateForm: PrintTemplateConfig = {
@@ -195,6 +196,16 @@ export const initialProductInForm: OrderForm = {
   ownerName: "本地管理员",
   status: "AUDITED",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 1 }]
+};
+
+export const initialOtherStockInForm: OrderForm = {
+  billNo: "QTRK-00001",
+  partyCode: "GYS-001",
+  billDate: "2026-06-25",
+  department: "仓储部",
+  ownerName: "本地管理员",
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 0 }]
 };
 
 export const knownProductOptions: MasterOption[] = [

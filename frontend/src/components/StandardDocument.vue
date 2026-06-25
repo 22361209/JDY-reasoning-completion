@@ -18,7 +18,7 @@
       <button type="button" :disabled="!canSave" data-testid="save-sales-order" @click="$emit('save')">保存</button>
       <button type="button" :disabled="!canAudit" data-testid="audit-sales-order" @click="$emit('audit')">审核</button>
       <button type="button" :disabled="!canReverse" data-testid="reverse-document" @click="$emit('reverse')">反审核</button>
-      <button type="button" :disabled="!canReverse" data-testid="red-reverse-document" @click="$emit('redReverse')">红冲</button>
+      <button type="button" :disabled="!(canRedReverse ?? canReverse)" data-testid="red-reverse-document" @click="$emit('redReverse')">红冲</button>
       <button type="button" :disabled="!canVoid" data-testid="void-document" @click="$emit('voidDocument')">作废</button>
       <button type="button" :disabled="!canDelete" data-testid="delete-sales-order" @click="$emit('deleteDocument')">删除</button>
       <button type="button" :disabled="!canOutput" data-testid="export-sales-order" @click="$emit('exportDocument')">引出</button>
@@ -43,6 +43,7 @@ defineProps<{
   canSave: boolean;
   canAudit: boolean;
   canReverse: boolean;
+  canRedReverse?: boolean;
   canVoid: boolean;
   canDelete: boolean;
   canOutput: boolean;

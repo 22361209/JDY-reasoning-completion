@@ -266,6 +266,7 @@ public class ListStubController {
             case "purchase-order-form-list" -> purchaseOrderRows();
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
             case "sales-out-list", "sales-out-form-list" -> salesOutRows();
+            case "other-in-list", "other-in-form-list" -> otherStockInRows();
             case "inventory-query-list" -> realInventoryRows();
             case "receivable-list", "ar-receivable-list" -> receivableRows();
             case "payable-list", "ap-payable-list" -> payableRows();
@@ -442,6 +443,34 @@ public class ListStubController {
             """));
     }
 
+    private List<Map<String, ?>> otherStockInRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT b.id::text AS id,
+                   b.bill_no AS "billNo",
+                   to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   b.business_type AS "businessType",
+                   CASE
+                       WHEN b.status = 'DRAFT' THEN '草稿'
+                       WHEN b.status = 'REVERSED' THEN '已反审核'
+                       WHEN b.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   COALESCE(b.department, '') AS department,
+                   COALESCE(p.code, '') AS "productCode",
+                   COALESCE(p.name, '') AS "productName",
+                   COALESCE(w.name, '') AS warehouse,
+                   COALESCE(p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(l.unit_price, 0), 'FM9999999990.00')) AS "unitCost",
+                   trim(to_char(COALESCE(l.amount, 0), 'FM9999999990.00')) AS "inCost"
+            FROM other_stock_in b
+            LEFT JOIN other_stock_in_line l ON l.bill_id = b.id AND l.line_no = 1
+            LEFT JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            ORDER BY b.updated_at DESC
+            """));
+    }
+
     private List<Map<String, ?>> receivableRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT ar.id::text AS id,
@@ -601,7 +630,7 @@ public class ListStubController {
                    l.module_code AS module,
                    l.action_code AS action,
                    l.target_type AS "targetType",
-                   COALESCE(so.bill_no, pi.bill_no, sor.bill_no, po.bill_no, pt.bill_no, pmi.bill_no, pc.bill_no, ar.bill_no, ap.bill_no, b.code, tu.username, '') AS "targetNo",
+                   COALESCE(so.bill_no, pi.bill_no, osi.bill_no, sor.bill_no, po.bill_no, pt.bill_no, pmi.bill_no, pc.bill_no, ar.bill_no, ap.bill_no, b.code, tu.username, '') AS "targetNo",
                    COALESCE(l.target_id::text, '') AS "targetId",
                    COALESCE(u.display_name, '本地管理员') AS operator,
                    CASE WHEN l.success THEN '成功' ELSE '失败' END AS status,
@@ -610,6 +639,7 @@ public class ListStubController {
             FROM sys_operation_log l
             LEFT JOIN sales_out so ON l.target_type = 'sales_out' AND so.id = l.target_id
             LEFT JOIN purchase_in pi ON l.target_type = 'purchase_in' AND pi.id = l.target_id
+            LEFT JOIN other_stock_in osi ON l.target_type = 'other_stock_in' AND osi.id = l.target_id
             LEFT JOIN sales_order sor ON l.target_type = 'sales_order' AND sor.id = l.target_id
             LEFT JOIN purchase_order po ON l.target_type = 'purchase_order' AND po.id = l.target_id
             LEFT JOIN production_task pt ON l.target_type = 'production_task' AND pt.id = l.target_id

@@ -338,7 +338,7 @@ interface ColumnFilter {
   value: string;
 }
 
-type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn";
+type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn";
 
 const props = defineProps<{
   listKey: string;
@@ -388,7 +388,7 @@ const query = reactive({
   dateTo: ""
 });
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
-const operationLogModules = ["SALES", "PURCHASE", "PRODUCTION", "FINANCE", "MASTER", "SYSTEM"];
+const operationLogModules = ["SALES", "PURCHASE", "INVENTORY", "PRODUCTION", "FINANCE", "MASTER", "SYSTEM"];
 const operationLogActions = [
   "AUDIT",
   "REVERSE",
@@ -409,6 +409,7 @@ const operationLogTargetTypes = [
   "sales_out",
   "purchase_order",
   "purchase_in",
+  "other_stock_in",
   "production_task",
   "production_material_issue",
   "production_completion",
@@ -647,6 +648,26 @@ const definitions: Record<string, ListDefinition> = {
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
+  "other-in-form-list": {
+    title: "其他入库单列表",
+    subtitle: "其他入库单按库存业务列表范式展示，审核后只增加库存数量。",
+    keywordPlaceholder: "单据编号、商品编码、商品名称、仓库",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billDate", title: "单据日期", width: 120, visible: true },
+      { field: "billNo", title: "单据编号", width: 220, visible: true },
+      { field: "businessType", title: "业务类型", width: 120, visible: true },
+      { field: "status", title: "审核状态", width: 100, visible: true },
+      { field: "department", title: "部门", width: 120, visible: true },
+      { field: "productCode", title: "商品编码", width: 130, visible: true },
+      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "数量", width: 100, align: "right", visible: true },
+      { field: "unitCost", title: "单位成本", width: 110, align: "right", visible: true },
+      { field: "inCost", title: "入库成本", width: 120, align: "right", visible: true }
+    ]
+  },
   "bom-list": {
     title: "BOM维护",
     subtitle: "BOM 维护展示成品、基准数量和启用状态，明细由后端 BOM 接口维护。",
@@ -719,7 +740,8 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
   "purchase-in-list": "purchase.in.audit",
   "purchase-in-form-list": "purchase.in.audit",
   "material-issue-form-list": "production.document.audit",
-  "product-in-form-list": "production.document.audit"
+  "product-in-form-list": "production.document.audit",
+  "other-in-form-list": "inventory.other_stock_in.audit"
 };
 const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "product-master-list": "master.data.manage",
@@ -733,7 +755,8 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "purchase-in-list": "purchase.in.audit",
   "purchase-in-form-list": "purchase.in.audit",
   "material-issue-form-list": "production.document.audit",
-  "product-in-form-list": "production.document.audit"
+  "product-in-form-list": "production.document.audit",
+  "other-in-form-list": "inventory.other_stock_in.audit"
 };
 const canAuditCurrentList = computed(() => session.hasPermission(auditPermissionByListKey[props.listKey]));
 const canMaintainCurrentList = computed(() => session.hasPermission(maintainPermissionByListKey[props.listKey]));
@@ -745,7 +768,8 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
   "purchase-in-list": "purchaseIn",
   "purchase-in-form-list": "purchaseIn",
   "material-issue-form-list": "materialIssue",
-  "product-in-form-list": "productIn"
+  "product-in-form-list": "productIn",
+  "other-in-form-list": "otherStockIn"
 };
 const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));

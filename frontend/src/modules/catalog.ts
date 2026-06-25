@@ -35,7 +35,7 @@ export const moduleCatalog = [
       { title: "库存业务", entries: [
         { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" },
         { id: "stock-transfer-form", label: "调拨单", module: "库存管理", mode: "form", queryable: true },
-        { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form" }
+        { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_in.audit" }
       ] },
       { title: "流水报表", entries: [
         { id: "stock-flow-report", label: "商品收发明细表", module: "库存管理", mode: "report", queryable: true },
@@ -128,4 +128,3 @@ export const excludedModules = excludedModuleNames.map((name) => ({
   excluded: true,
   groups: []
 }));
-

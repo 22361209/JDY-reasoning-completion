@@ -21,7 +21,8 @@ const endpointByType = {
   purchaseIn: "/api/purchase-ins",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
-  productIn: "/api/production/product-ins"
+  productIn: "/api/production/product-ins",
+  otherStockIn: "/api/other-stock-ins"
 } as const;
 
 const detailEndpointByType = {
@@ -30,7 +31,8 @@ const detailEndpointByType = {
   purchaseIn: "/api/purchase-ins",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
-  productIn: "/api/production/product-ins"
+  productIn: "/api/production/product-ins",
+  otherStockIn: "/api/other-stock-ins"
 } as const;
 
 const outputTypeByDocumentType = {
@@ -39,7 +41,8 @@ const outputTypeByDocumentType = {
   purchaseIn: "purchase-in",
   salesOut: "sales-out",
   materialIssue: "material-issue",
-  productIn: "product-in"
+  productIn: "product-in",
+  otherStockIn: "other-stock-in"
 } as const;
 
 export type DocumentType = keyof typeof endpointByType;
