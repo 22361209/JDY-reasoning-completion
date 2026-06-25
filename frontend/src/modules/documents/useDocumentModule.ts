@@ -47,6 +47,8 @@ export interface DocumentModuleOptions {
   defaultPartyCode: string;
   defaultUnitPrice: number;
   showTargetWarehouseColumn?: boolean;
+  executionQtyLabel?: string;
+  remainingQtyLabel?: string;
   defaultTargetWarehouseCode?: string;
   sourceTraceType?: OpenableDocumentType;
   reversible?: boolean;
@@ -113,7 +115,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const canDelete = computed(() => false);
   const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo?.trim()));
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo));
-  const showExecutionColumns = computed(() => form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
+  const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
   const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
@@ -178,7 +180,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
         qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
-        remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
+        remainingQty: documentLineRemainingQty(line),
         unitPrice: Number(line.unitPrice ?? 0),
         lineRemark: String(line.lineRemark ?? ""),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
@@ -886,6 +888,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showSourceLineColumn,
     showExecutionColumns,
     showTargetWarehouseColumn,
+    executionQtyLabel: config.executionQtyLabel ?? "已执行",
+    remainingQtyLabel: config.remainingQtyLabel ?? "剩余",
     entryTableColspan,
     entryTotalColspan,
     totalAmount,
@@ -1070,7 +1074,10 @@ function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {
     .filter((doc) => doc.billNo && doc.type);
 }
 
-function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQty?: number | string }) {
+function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQty?: number | string; systemQty?: number | string }) {
+  if (line.systemQty !== undefined) {
+    return normalizedQty(line.systemQty);
+  }
   if (line.shippedQty !== undefined) {
     return normalizedQty(line.shippedQty);
   }
@@ -1078,6 +1085,13 @@ function documentLineExecutedQty(line: { shippedQty?: number | string; receivedQ
     return normalizedQty(line.receivedQty);
   }
   return undefined;
+}
+
+function documentLineRemainingQty(line: { remainingQty?: number | string; diffQty?: number | string }) {
+  if (line.diffQty !== undefined) {
+    return normalizedQty(line.diffQty);
+  }
+  return line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty);
 }
 
 function lineLineNo(line: OrderLineForm, index: number) {
@@ -1119,7 +1133,10 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     productIn: "产品入库单",
     otherStockIn: "其他入库单",
     otherStockOut: "其他出库单",
-    stockTransfer: "调拨单"
+    stockTransfer: "调拨单",
+    stockCount: "盘点单",
+    stockCountGain: "盘盈单",
+    stockCountLoss: "盘亏单"
   };
   return labels[type];
 }

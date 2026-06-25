@@ -23,8 +23,8 @@
           <th v-if="showTargetWarehouseColumn">目标仓库</th>
           <th v-if="showSourceLineColumn">源行号</th>
           <th>数量</th>
-          <th v-if="showExecutionColumns">已执行</th>
-          <th v-if="showExecutionColumns">剩余</th>
+          <th v-if="showExecutionColumns">{{ executionQtyLabel || "已执行" }}</th>
+          <th v-if="showExecutionColumns">{{ remainingQtyLabel || "剩余" }}</th>
           <th>单价</th>
           <th>金额</th>
           <th>备注</th>
@@ -231,6 +231,8 @@ const props = defineProps<{
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
+  executionQtyLabel?: string;
+  remainingQtyLabel?: string;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;

@@ -112,7 +112,10 @@ export const printTemplateDocumentTypes = [
   { documentType: "product-in", documentTitle: "产品入库单" },
   { documentType: "other-stock-in", documentTitle: "其他入库单" },
   { documentType: "other-stock-out", documentTitle: "其他出库单" },
-  { documentType: "stock-transfer", documentTitle: "调拨单" }
+  { documentType: "stock-transfer", documentTitle: "调拨单" },
+  { documentType: "stock-count", documentTitle: "盘点单" },
+  { documentType: "stock-count-gain", documentTitle: "盘盈单" },
+  { documentType: "stock-count-loss", documentTitle: "盘亏单" }
 ];
 
 export const defaultPrintTemplateForm: PrintTemplateConfig = {
@@ -229,6 +232,38 @@ export const initialStockTransferForm: OrderForm = {
   ownerName: "本地管理员",
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", targetWarehouseCode: "CK-002", qty: 5, unitPrice: 0 }]
+};
+
+export const initialStockCountForm: OrderForm = {
+  billNo: "PD-00001",
+  partyCode: "CK-001",
+  billDate: "2026-06-26",
+  department: "仓储部",
+  ownerName: "本地管理员",
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 0 }]
+};
+
+export const initialStockCountGainForm: OrderForm = {
+  billNo: "PY-00001",
+  sourceOrderNo: "PD-00001",
+  partyCode: "CK-001",
+  billDate: "2026-06-26",
+  department: "仓储部",
+  ownerName: "本地管理员",
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceLineNo: 1, qty: 1, unitPrice: 0 }]
+};
+
+export const initialStockCountLossForm: OrderForm = {
+  billNo: "PK-00001",
+  sourceOrderNo: "PD-00001",
+  partyCode: "CK-001",
+  billDate: "2026-06-26",
+  department: "仓储部",
+  ownerName: "本地管理员",
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceLineNo: 1, qty: 1, unitPrice: 0 }]
 };
 
 export const knownProductOptions: MasterOption[] = [

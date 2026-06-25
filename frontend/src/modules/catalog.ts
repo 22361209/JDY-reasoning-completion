@@ -35,6 +35,9 @@ export const moduleCatalog = [
       { title: "库存业务", entries: [
         { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" },
         { id: "stock-transfer-form", label: "调拨单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_transfer.audit" },
+        { id: "stock-count-form", label: "盘点单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count.audit" },
+        { id: "stock-count-gain-form", label: "盘盈单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count_gain.audit" },
+        { id: "stock-count-loss-form", label: "盘亏单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count_loss.audit" },
         { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_in.audit" },
         { id: "other-out-form", label: "其他出库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_out.audit" }
       ] },

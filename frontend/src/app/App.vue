@@ -450,6 +450,54 @@
           @show-existing="tabs.activeTabId.value = stockTransferTabId"
           @request-open-document="openDocumentFromModule"
         />
+        <StockCountForm
+          v-else-if="tabs.activeTab.value.id === stockCountTabId"
+          ref="stockCountFormRef"
+          variant="count"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = stockCountTabId"
+          @request-open-document="openDocumentFromModule"
+        />
+        <StockCountForm
+          v-else-if="tabs.activeTab.value.id === stockCountGainTabId"
+          ref="stockCountGainFormRef"
+          variant="gain"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = stockCountGainTabId"
+          @request-open-document="openDocumentFromModule"
+        />
+        <StockCountForm
+          v-else-if="tabs.activeTab.value.id === stockCountLossTabId"
+          ref="stockCountLossFormRef"
+          variant="loss"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="isLockedList"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = stockCountLossTabId"
+          @request-open-document="openDocumentFromModule"
+        />
         <div
           v-else
           class="panel-page"
@@ -554,6 +602,7 @@ import DataListPage from "../components/DataListPage.vue";
 import DocumentDialogs from "../components/DocumentDialogs.vue";
 import OtherStockInForm from "../modules/inventory/other-stock-in/OtherStockInForm.vue";
 import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOutForm.vue";
+import StockCountForm from "../modules/inventory/stock-count/StockCountForm.vue";
 import StockTransferForm from "../modules/inventory/stock-transfer/StockTransferForm.vue";
 import MaterialIssueForm from "../modules/production/material-issue/MaterialIssueForm.vue";
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
@@ -605,6 +654,9 @@ const productInTabId = "product-in-form";
 const otherStockInTabId = "other-in-form";
 const otherStockOutTabId = "other-out-form";
 const stockTransferTabId = "stock-transfer-form";
+const stockCountTabId = "stock-count-form";
+const stockCountGainTabId = "stock-count-gain-form";
+const stockCountLossTabId = "stock-count-loss-form";
 const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
@@ -614,6 +666,9 @@ const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
 const otherStockInFormRef = ref<InstanceType<typeof OtherStockInForm> | null>(null);
 const otherStockOutFormRef = ref<InstanceType<typeof OtherStockOutForm> | null>(null);
 const stockTransferFormRef = ref<InstanceType<typeof StockTransferForm> | null>(null);
+const stockCountFormRef = ref<InstanceType<typeof StockCountForm> | null>(null);
+const stockCountGainFormRef = ref<InstanceType<typeof StockCountForm> | null>(null);
+const stockCountLossFormRef = ref<InstanceType<typeof StockCountForm> | null>(null);
 const loginPageRef = ref<InstanceType<typeof LoginPage> | null>(null);
 const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | null>(null);
 const shellSession = useShellSession({ loginPageRef, passwordChangeDialogRef });
@@ -773,6 +828,12 @@ function startNewModuleDocument(entryId: string) {
     otherStockOutFormRef.value?.startNew();
   } else if (entryId === stockTransferTabId) {
     stockTransferFormRef.value?.startNew();
+  } else if (entryId === stockCountTabId) {
+    stockCountFormRef.value?.startNew();
+  } else if (entryId === stockCountGainTabId) {
+    stockCountGainFormRef.value?.startNew();
+  } else if (entryId === stockCountLossTabId) {
+    stockCountLossFormRef.value?.startNew();
   }
 }
 function canOpenEntry(entry: ShellEntry) {
@@ -1016,6 +1077,12 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: otherStockOutTabId, title: "其他出库单", module: "库存管理", ref: otherStockOutFormRef };
     case "stockTransfer":
       return { tabId: stockTransferTabId, title: "调拨单", module: "库存管理", ref: stockTransferFormRef };
+    case "stockCount":
+      return { tabId: stockCountTabId, title: "盘点单", module: "库存管理", ref: stockCountFormRef };
+    case "stockCountGain":
+      return { tabId: stockCountGainTabId, title: "盘盈单", module: "库存管理", ref: stockCountGainFormRef };
+    case "stockCountLoss":
+      return { tabId: stockCountLossTabId, title: "盘亏单", module: "库存管理", ref: stockCountLossFormRef };
     case "salesOrder":
     default:
       return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", ref: salesOrderFormRef };

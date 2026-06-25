@@ -887,7 +887,10 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     productIn: "产品入库单",
     otherStockIn: "其他入库单",
     otherStockOut: "其他出库单",
-    stockTransfer: "调拨单"
+    stockTransfer: "调拨单",
+    stockCount: "盘点单",
+    stockCountGain: "盘盈单",
+    stockCountLoss: "盘亏单"
   };
   return labels[type];
 }

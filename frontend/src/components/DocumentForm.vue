@@ -82,6 +82,8 @@
         :show-source-line-column="showSourceLineColumn"
         :show-execution-columns="showExecutionColumns"
         :show-target-warehouse-column="showTargetWarehouseColumn"
+        :execution-qty-label="executionQtyLabel"
+        :remaining-qty-label="remainingQtyLabel"
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
@@ -152,6 +154,8 @@ withDefaults(defineProps<{
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
+  executionQtyLabel?: string;
+  remainingQtyLabel?: string;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;

@@ -25,7 +25,10 @@ const endpointByType = {
   productIn: "/api/production/product-ins",
   otherStockIn: "/api/other-stock-ins",
   otherStockOut: "/api/other-stock-outs",
-  stockTransfer: "/api/stock-transfers"
+  stockTransfer: "/api/stock-transfers",
+  stockCount: "/api/stock-counts",
+  stockCountGain: "/api/stock-count-gains",
+  stockCountLoss: "/api/stock-count-losses"
 } as const;
 
 const detailEndpointByType = {
@@ -37,7 +40,10 @@ const detailEndpointByType = {
   productIn: "/api/production/product-ins",
   otherStockIn: "/api/other-stock-ins",
   otherStockOut: "/api/other-stock-outs",
-  stockTransfer: "/api/stock-transfers"
+  stockTransfer: "/api/stock-transfers",
+  stockCount: "/api/stock-counts",
+  stockCountGain: "/api/stock-count-gains",
+  stockCountLoss: "/api/stock-count-losses"
 } as const;
 
 const outputTypeByDocumentType = {
@@ -49,7 +55,10 @@ const outputTypeByDocumentType = {
   productIn: "product-in",
   otherStockIn: "other-stock-in",
   otherStockOut: "other-stock-out",
-  stockTransfer: "stock-transfer"
+  stockTransfer: "stock-transfer",
+  stockCount: "stock-count",
+  stockCountGain: "stock-count-gain",
+  stockCountLoss: "stock-count-loss"
 } as const;
 
 export type DocumentType = keyof typeof endpointByType;
@@ -120,6 +129,8 @@ export interface DocumentDetail {
     shippedQty?: number | string;
     remainingQty?: number | string;
     unitPrice?: number | string;
+    systemQty?: number | string;
+    diffQty?: number | string;
     lineRemark?: string;
     downstreamDocs?: DownstreamDocumentRef[];
   }>;

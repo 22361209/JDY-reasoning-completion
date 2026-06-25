@@ -20,7 +20,10 @@ public class BillLifecycleService {
         "production_completion",
         "other_stock_in",
         "other_stock_out",
-        "stock_transfer"
+        "stock_transfer",
+        "stock_count",
+        "stock_count_gain",
+        "stock_count_loss"
     );
 
     private final JdbcTemplate jdbcTemplate;

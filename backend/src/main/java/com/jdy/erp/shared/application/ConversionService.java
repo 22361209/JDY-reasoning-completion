@@ -82,6 +82,124 @@ public class ConversionService {
             ), sourceId, spec.notStartedStatus(), sourceId, spec.allExecutedStatus(), spec.partExecutedStatus(), sourceId);
     }
 
+    public ConversionResult createStockCountAdjustments(String stockCountBillNo) {
+        var billRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   bill_no,
+                   bill_date,
+                   department,
+                   owner_name
+            FROM stock_count
+            WHERE bill_no = ?
+            """, stockCountBillNo);
+        if (billRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "盘点单不存在");
+        }
+        var bill = billRows.get(0);
+        var sourceId = String.valueOf(bill.get("id"));
+        var gainNo = "PY-" + stockCountBillNo;
+        var lossNo = "PK-" + stockCountBillNo;
+        var gainCount = createStockCountAdjustment(
+            "stock_count_gain",
+            "stock_count_gain_line",
+            gainNo,
+            "STK_StockCountGain",
+            "盘盈单",
+            sourceId,
+            bill,
+            true
+        );
+        var lossCount = createStockCountAdjustment(
+            "stock_count_loss",
+            "stock_count_loss_line",
+            lossNo,
+            "STK_StockCountLoss",
+            "盘亏单",
+            sourceId,
+            bill,
+            false
+        );
+        return new ConversionResult(gainNo, lossNo, gainCount, lossCount);
+    }
+
+    private int createStockCountAdjustment(
+        String headerTable,
+        String lineTable,
+        String billNo,
+        String documentType,
+        String businessType,
+        String sourceId,
+        java.util.Map<String, Object> sourceBill,
+        boolean gain
+    ) {
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no,
+                   l.product_id::text AS product_id,
+                   l.warehouse_id::text AS warehouse_id,
+                   l.diff_qty,
+                   l.unit_price,
+                   l.line_remark
+            FROM stock_count_line l
+            WHERE l.bill_id = ?::uuid
+              AND %s
+            ORDER BY l.line_no
+            """.formatted(gain ? "l.diff_qty > 0" : "l.diff_qty < 0"), sourceId);
+        if (lines.isEmpty()) {
+            return 0;
+        }
+        var header = jdbcTemplate.queryForMap("""
+            INSERT INTO %s (bill_no, bill_date, department, document_type, business_type, status, total_amount, owner_name, source_bill_id)
+            VALUES (?, ?, ?, ?, ?, 'DRAFT', 0, ?, ?::uuid)
+            ON CONFLICT (bill_no) DO UPDATE
+            SET bill_date = EXCLUDED.bill_date,
+                department = EXCLUDED.department,
+                owner_name = EXCLUDED.owner_name,
+                source_bill_id = EXCLUDED.source_bill_id,
+                updated_at = now(),
+                version = %s.version + 1
+            WHERE %s.status = 'DRAFT'
+            RETURNING id::text AS id
+            """.formatted(headerTable, headerTable, headerTable),
+            billNo,
+            sourceBill.get("bill_date"),
+            sourceBill.get("department"),
+            documentType,
+            businessType,
+            sourceBill.get("owner_name"),
+            sourceId
+        );
+        var headerId = String.valueOf(header.get("id"));
+        jdbcTemplate.update("DELETE FROM %s WHERE bill_id = ?::uuid".formatted(lineTable), headerId);
+        var count = 0;
+        for (var line : lines) {
+            var qty = ((BigDecimal) line.get("diff_qty")).abs();
+            var unitPrice = (BigDecimal) line.get("unit_price");
+            jdbcTemplate.update("""
+                INSERT INTO %s (bill_id, line_no, product_id, warehouse_id, source_bill_id, source_line_no, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+                """.formatted(lineTable),
+                headerId,
+                line.get("line_no"),
+                line.get("product_id"),
+                line.get("warehouse_id"),
+                sourceId,
+                line.get("line_no"),
+                qty,
+                unitPrice,
+                qty.multiply(unitPrice),
+                line.get("line_remark")
+            );
+            count += 1;
+        }
+        jdbcTemplate.update("""
+            UPDATE %s
+            SET total_amount = (SELECT COALESCE(sum(amount), 0) FROM %s WHERE bill_id = ?::uuid),
+                updated_at = now()
+            WHERE id = ?::uuid
+            """.formatted(headerTable, lineTable), headerId, headerId);
+        return count;
+    }
+
     private void guard(SourceExecutionSpec spec) {
         if (!TABLES.contains(spec.headerTable()) || !TABLES.contains(spec.lineTable())) {
             throw new IllegalArgumentException("Unsupported conversion table");
@@ -122,5 +240,8 @@ public class ConversionService {
         ) {
             this(headerTable, lineTable, lineOwnerColumn, lineNoColumn, executedQtyColumn, totalQtyColumn, statusColumn, overQuantityMessage, "NOT_OUT", "PART_OUT", "ALL_OUT");
         }
+    }
+
+    public record ConversionResult(String gainBillNo, String lossBillNo, int gainCount, int lossCount) {
     }
 }
