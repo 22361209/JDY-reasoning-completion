@@ -9,7 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class LookupService {
-    private static final Set<String> ENABLED_LOOKUP_TABLES = Set.of("md_customer", "md_product", "md_warehouse");
+    private static final Set<String> ENABLED_LOOKUP_TABLES = Set.of("md_customer", "md_supplier", "md_product", "md_warehouse");
 
     private final JdbcTemplate jdbcTemplate;
     private final ValidationService validationService;

@@ -11,7 +11,14 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class BillLifecycleService {
-    private static final Set<String> BILL_TABLES = Set.of("sales_out");
+    private static final Set<String> BILL_TABLES = Set.of(
+        "sales_order",
+        "sales_out",
+        "purchase_order",
+        "purchase_in",
+        "production_material_issue",
+        "production_completion"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final OperationLogService operationLogService;
