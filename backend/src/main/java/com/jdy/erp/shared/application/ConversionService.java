@@ -10,9 +10,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class ConversionService {
-    private static final Set<String> TABLES = Set.of("sales_order", "sales_order_line");
-    private static final Set<String> QUANTITY_COLUMNS = Set.of("shipped_qty", "qty");
-    private static final Set<String> STATUS_COLUMNS = Set.of("out_status");
+    private static final Set<String> TABLES = Set.of("sales_order", "sales_order_line", "purchase_order", "purchase_order_line");
+    private static final Set<String> QUANTITY_COLUMNS = Set.of("shipped_qty", "received_qty", "qty");
+    private static final Set<String> STATUS_COLUMNS = Set.of("out_status", "in_status");
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -62,9 +62,9 @@ public class ConversionService {
         jdbcTemplate.update("""
             UPDATE %s
             SET %s = CASE
-                    WHEN NOT EXISTS (SELECT 1 FROM %s WHERE %s = ?::uuid AND %s > 0) THEN 'NOT_OUT'
-                    WHEN NOT EXISTS (SELECT 1 FROM %s WHERE %s = ?::uuid AND %s < %s) THEN 'ALL_OUT'
-                    ELSE 'PART_OUT'
+                    WHEN NOT EXISTS (SELECT 1 FROM %s WHERE %s = ?::uuid AND %s > 0) THEN ?
+                    WHEN NOT EXISTS (SELECT 1 FROM %s WHERE %s = ?::uuid AND %s < %s) THEN ?
+                    ELSE ?
                 END,
                 updated_at = now(),
                 version = version + 1
@@ -79,7 +79,7 @@ public class ConversionService {
                 spec.lineOwnerColumn(),
                 spec.executedQtyColumn(),
                 spec.totalQtyColumn()
-            ), sourceId, sourceId, sourceId);
+            ), sourceId, spec.notStartedStatus(), sourceId, spec.allExecutedStatus(), spec.partExecutedStatus(), sourceId);
     }
 
     private void guard(SourceExecutionSpec spec) {
@@ -105,7 +105,22 @@ public class ConversionService {
         String executedQtyColumn,
         String totalQtyColumn,
         String statusColumn,
-        String overQuantityMessage
+        String overQuantityMessage,
+        String notStartedStatus,
+        String partExecutedStatus,
+        String allExecutedStatus
     ) {
+        public SourceExecutionSpec(
+            String headerTable,
+            String lineTable,
+            String lineOwnerColumn,
+            String lineNoColumn,
+            String executedQtyColumn,
+            String totalQtyColumn,
+            String statusColumn,
+            String overQuantityMessage
+        ) {
+            this(headerTable, lineTable, lineOwnerColumn, lineNoColumn, executedQtyColumn, totalQtyColumn, statusColumn, overQuantityMessage, "NOT_OUT", "PART_OUT", "ALL_OUT");
+        }
     }
 }
