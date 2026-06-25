@@ -5,6 +5,7 @@ interface DocumentDraftPayload {
   billDate: string;
   department: string;
   ownerName: string;
+  remark?: string;
   lines: Array<{
     productCode: string;
     warehouseCode: string;
@@ -13,6 +14,7 @@ interface DocumentDraftPayload {
     qty: number;
     unitPrice: number;
     lineRemark?: string;
+    planDeliveryDate?: string;
   }>;
 }
 
@@ -109,9 +111,13 @@ export interface DocumentDetail {
     sourceOrderNo?: string;
     customerCode?: string;
     supplierCode?: string;
+    customer?: string;
+    supplier?: string;
     billDate: string;
     department?: string;
     ownerName?: string;
+    createdByName?: string;
+    remark?: string;
     status: string;
     redReverseBillNo?: string;
     redSourceBillNo?: string;
@@ -132,6 +138,7 @@ export interface DocumentDetail {
     systemQty?: number | string;
     diffQty?: number | string;
     lineRemark?: string;
+    planDeliveryDate?: string;
     downstreamDocs?: DownstreamDocumentRef[];
   }>;
 }
@@ -205,6 +212,7 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     billDate: payload.billDate,
     department: payload.department,
     ownerName: payload.ownerName,
+    remark: payload.remark,
     lines: payload.lines
   };
   if (type === "salesOut" || type === "salesOrder" || type === "otherStockOut") {

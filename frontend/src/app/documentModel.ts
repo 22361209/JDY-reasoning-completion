@@ -33,6 +33,7 @@ export interface OrderLineForm {
   remainingQty?: number;
   unitPrice: number;
   lineRemark?: string;
+  planDeliveryDate?: string;
   downstreamDocs?: DownstreamDocumentRef[];
 }
 
@@ -72,9 +73,11 @@ export interface OrderForm {
   redReverseBillNo?: string;
   redSourceBillNo?: string;
   partyCode: string;
+  partyName?: string;
   billDate: string;
   department: string;
   ownerName: string;
+  remark?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   lines: OrderLineForm[];
 }
@@ -95,6 +98,7 @@ export interface PendingPushDown {
   targetBillNo: string;
   sourceBillNo: string;
   partyCode: string;
+  partyName?: string;
   billDate: string;
   department: string;
   ownerName: string;

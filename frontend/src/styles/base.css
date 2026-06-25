@@ -1590,6 +1590,10 @@ input:disabled {
   gap: 4px;
 }
 
+.form-head-field-wide {
+  grid-column: span 2;
+}
+
 .form-head-fields input {
   min-width: 0;
   height: 30px;
@@ -1738,6 +1742,16 @@ td input {
 
 .remark-cell {
   min-width: 210px;
+}
+
+.entry-selection-cell {
+  text-align: center;
+}
+
+.entry-selection-cell input {
+  min-width: 16px;
+  width: 16px;
+  height: 16px;
 }
 
 .entry-cell-text {

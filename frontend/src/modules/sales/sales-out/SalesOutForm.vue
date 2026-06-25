@@ -58,9 +58,12 @@
             </span>
           </span>
         </label>
+        <label>客户名称<input :value="document.form.partyName || ''" data-testid="sales-out-party-name" readonly /></label>
         <label>业务日期<input v-model="document.form.billDate" data-testid="sales-out-bill-date" @input="document.markDirty" /></label>
         <label>单据编号<input v-model="document.form.billNo" data-testid="sales-out-bill-no" @input="document.markDirty" /></label>
         <label>部门<input v-model="document.form.department" data-testid="sales-out-department" @input="document.markDirty" /></label>
+        <label>录入人<input :value="document.form.ownerName" data-testid="sales-out-owner-name" readonly /></label>
+        <label class="form-head-field-wide">单据备注<input v-model="document.form.remark" data-testid="sales-out-remark" @input="document.markDirty" /></label>
       </section>
 
       <EntryTable
@@ -68,6 +71,7 @@
         test-prefix="sales-out"
         :is-draft="document.isDraft.value"
         :batch-warehouse-code="document.batchWarehouseCode.value"
+        :batch-plan-delivery-date="document.batchPlanDeliveryDate.value"
         :active-selector="document.activeSelector.value"
         :selector-options="document.selectorOptions.value"
         :selector-cursor-index="document.selectorCursorIndex.value"
@@ -78,11 +82,14 @@
         :current-bill-no="document.form.billNo"
         :show-source-line-column="document.showSourceLineColumn.value"
         :show-execution-columns="false"
+        :show-plan-delivery-date-column="true"
         :entry-table-colspan="document.entryTableColspan.value"
         :entry-total-colspan="document.entryTotalColspan.value"
         :total-amount="document.totalAmount.value"
         @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
+        @update:batch-plan-delivery-date="document.batchPlanDeliveryDate.value = $event"
         @apply-batch-warehouse="document.applyBatchWarehouse"
+        @apply-batch-plan-delivery-date="document.applyBatchPlanDeliveryDate"
         @mark-dirty="document.markDirty"
         @search-master-options="document.searchMasterOptions"
         @handle-master-input="document.handleMasterInput"

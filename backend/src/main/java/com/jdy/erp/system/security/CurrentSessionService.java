@@ -127,6 +127,23 @@ public class CurrentSessionService {
         return String.valueOf(currentUser().get("roleCode"));
     }
 
+    public String currentUserId() {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM sys_user
+            WHERE username = ?
+              AND enabled = TRUE
+            """, currentUsername());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
+        }
+        return String.valueOf(rows.get(0).get("id"));
+    }
+
+    public String currentDisplayName() {
+        return String.valueOf(currentUser().get("name"));
+    }
+
     public void login(String username) {
         login(username, null);
     }

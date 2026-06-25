@@ -77,6 +77,7 @@ type PreparedEntryLines = {
     qty: number;
     unitPrice: number;
     lineRemark: string;
+    planDeliveryDate?: string;
   }[];
   removedBlankCount: number;
 };
@@ -97,6 +98,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   });
   const message = ref("");
   const batchWarehouseCode = ref("CK-001");
+  const batchPlanDeliveryDate = ref("");
   const activeSelector = ref("");
   const selectorOptions = ref<MasterOption[]>([]);
   const selectorCursorIndex = ref(0);
@@ -118,7 +120,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo));
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
-  const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0));
+  const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder");
+  const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0).toFixed(2));
   const statusLabel = computed(() => {
@@ -149,8 +152,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = "";
+    form.partyName = "";
     form.department = config.defaultDepartment;
     form.ownerName = runtime.userName() || "本地管理员";
+    form.remark = "";
     form.status = "DRAFT";
     form.lines = [defaultLine()];
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
@@ -168,9 +173,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       : config.partyKind === "supplier"
       ? document.supplierCode || config.defaultPartyCode
       : document.customerCode || config.defaultPartyCode;
+    form.partyName = config.partyKind === "supplier" ? document.supplier || "" : document.customer || "";
     form.billDate = document.billDate;
     form.department = document.department || config.defaultDepartment;
-    form.ownerName = document.ownerName || "本地管理员";
+    form.ownerName = document.createdByName || document.ownerName || "本地管理员";
+    form.remark = document.remark || "";
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
@@ -186,6 +193,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         remainingQty: documentLineRemainingQty(line),
         unitPrice: Number(line.unitPrice ?? 0),
         lineRemark: String(line.lineRemark ?? ""),
+        planDeliveryDate: String(line.planDeliveryDate ?? ""),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
       }))
       : [defaultLine()];
@@ -232,9 +240,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = draft.partyCode;
+    form.partyName = "";
     form.billDate = draft.billDate;
     form.department = draft.department;
     form.ownerName = draft.ownerName;
+    form.remark = "";
     form.status = "DRAFT";
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
@@ -244,7 +254,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
-      lineRemark: String(line.lineRemark ?? "")
+      lineRemark: String(line.lineRemark ?? ""),
+      planDeliveryDate: String(line.planDeliveryDate ?? "")
     }));
     message.value = `已由${draft.sourceOrderNo}按确认数量生成${config.title}草稿`;
     runtime.markDirty();
@@ -277,6 +288,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       billDate: form.billDate,
       department: form.department,
       ownerName: form.ownerName,
+      remark: form.remark,
       lines: preparedLines.documentLines
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
@@ -523,6 +535,24 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     runtime.markDirty();
   }
 
+  function applyBatchPlanDeliveryDate(lineIndexes: number[]) {
+    if (!isDraft.value || !showPlanDeliveryDateColumn.value) {
+      return;
+    }
+    const planDate = batchPlanDeliveryDate.value.trim();
+    if (!planDate) {
+      return;
+    }
+    const targetIndexes = lineIndexes.length > 0 ? lineIndexes : form.lines.map((_, index) => index);
+    targetIndexes.forEach((index) => {
+      const line = form.lines[index];
+      if (line) {
+        line.planDeliveryDate = planDate;
+      }
+    });
+    runtime.markDirty();
+  }
+
   async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
     if (!isDraft.value) {
       return;
@@ -655,6 +685,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 
   function selectPartyOption(option: MasterOption, selectorId = selectorIdForParty(config.testPrefix)) {
     form.partyCode = option.code;
+    form.partyName = option.name;
     activeSelector.value = "";
     runtime.markDirty();
     focusNextAfterSelector(selectorId);
@@ -875,6 +906,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form,
     message,
     batchWarehouseCode,
+    batchPlanDeliveryDate,
     activeSelector,
     selectorOptions,
     selectorCursorIndex,
@@ -895,6 +927,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showSourceLineColumn,
     showExecutionColumns,
     showTargetWarehouseColumn,
+    showPlanDeliveryDateColumn,
     executionQtyLabel: config.executionQtyLabel ?? "已执行",
     remainingQtyLabel: config.remainingQtyLabel ?? "剩余",
     entryTableColspan,
@@ -935,6 +968,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     handleLineDragOver,
     handleLineDrop,
     applyBatchWarehouse,
+    applyBatchPlanDeliveryDate,
     handleEntryPaste,
     handleMasterInput,
     searchMasterOptions,
@@ -969,7 +1003,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       targetWarehouseCode: config.showTargetWarehouseColumn ? config.defaultTargetWarehouseCode ?? "CK-002" : undefined,
       qty: 1,
       unitPrice: config.defaultUnitPrice,
-      lineRemark: ""
+      lineRemark: "",
+      planDeliveryDate: ""
     };
   }
 
@@ -990,15 +1025,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (missingTargetWarehouse) {
       return { ok: false, message: `第 ${missingTargetWarehouse.index + 1} 行目标仓库不能为空。` };
     }
-    const seen = new Map<string, number>();
-    for (const { line, index } of nonBlankLines) {
-      const key = `${entryLineProductCode(line)}@@${entryLineWarehouseCode(line)}@@${config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : ""}`;
-      const firstIndex = seen.get(key);
-      if (firstIndex !== undefined) {
-        return { ok: false, message: `第 ${index + 1} 行与第 ${firstIndex + 1} 行商品和仓库重复，请合并后再保存。` };
-      }
-      seen.set(key, index);
-    }
     const formLines = nonBlankLines.map(({ line }) => line);
     return {
       ok: true,
@@ -1010,7 +1036,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         sourceLineNo: line.sourceLineNo,
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
-        lineRemark: String(line.lineRemark ?? "").trim()
+        lineRemark: String(line.lineRemark ?? "").trim(),
+        planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
       })),
       removedBlankCount: lines.length - formLines.length
     };
@@ -1152,6 +1179,7 @@ function isBlankEntryLine(line: OrderLineForm) {
     && !String(line.productName ?? "").trim()
     && !String(line.spec ?? "").trim()
     && !String(line.lineRemark ?? "").trim()
+    && !String(line.planDeliveryDate ?? "").trim()
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
 }

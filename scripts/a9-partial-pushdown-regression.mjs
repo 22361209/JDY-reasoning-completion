@@ -12,9 +12,9 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
 const salesLines = [
-  { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94 },
-  { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12 }
+  { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86, lineRemark: "A9 销售第一行", planDeliveryDate: "2026-07-01" },
+  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94, lineRemark: "A9 销售第二行", planDeliveryDate: "2026-07-02" },
+  { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12, lineRemark: "A9 销售第三行", planDeliveryDate: "2026-07-03" }
 ];
 const salesFirstOutLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 86 },
@@ -199,6 +199,18 @@ async function assertQtys(page, prefix, expectedQtys) {
   return actual;
 }
 
+async function assertInputValues(page, prefix, field, expectedValues) {
+  const actual = [];
+  for (let index = 0; index < expectedValues.length; index += 1) {
+    const testId = index === 0 ? `${prefix}-line-${field}` : `${prefix}-line-${field}-${index + 1}`;
+    actual.push(await page.getByTestId(testId).inputValue());
+  }
+  if (JSON.stringify(actual) !== JSON.stringify(expectedValues)) {
+    throw new Error(`${prefix} ${field} expected ${expectedValues.join(",")}, got ${actual.join(",")}`);
+  }
+  return actual;
+}
+
 const data = await createData();
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
@@ -213,6 +225,8 @@ try {
     throw new Error(`sales source order expected ${data.salesOrderNo}, got ${salesSource}`);
   }
   const salesQtys = await assertQtys(page, "sales-out", data.expectedSalesRemaining);
+  const salesRemarks = await assertInputValues(page, "sales-out", "remark", salesLines.map((line) => line.lineRemark));
+  const salesPlanDates = await assertInputValues(page, "sales-out", "plan-delivery-date", salesLines.map((line) => line.planDeliveryDate));
   const salesScreenshot = `a9-sales-remaining-pushdown-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
@@ -236,6 +250,8 @@ try {
     salesOrderNo: data.salesOrderNo,
     purchaseOrderNo: data.purchaseOrderNo,
     salesRemainingQtys: salesQtys,
+    salesRemarks,
+    salesPlanDates,
     purchaseRemainingQtys: purchaseQtys,
     overChecks: data.overChecks,
     screenshots

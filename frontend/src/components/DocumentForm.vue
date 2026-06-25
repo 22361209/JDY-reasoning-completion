@@ -66,9 +66,15 @@
             </span>
           </span>
         </label>
+        <label>
+          {{ partyLabel }}名称
+          <input :value="form.partyName || ''" :data-testid="`${testPrefix}-party-name`" readonly />
+        </label>
         <label>业务日期<input v-model="form.billDate" :data-testid="`${testPrefix}-bill-date`" @input="emit('markDirty')" /></label>
         <label>单据编号<input v-model="form.billNo" :data-testid="`${testPrefix}-bill-no`" @input="emit('markDirty')" /></label>
         <label>部门<input v-model="form.department" :data-testid="`${testPrefix}-department`" @input="emit('markDirty')" /></label>
+        <label>录入人<input :value="form.ownerName" :data-testid="`${testPrefix}-owner-name`" readonly /></label>
+        <label class="form-head-field-wide">单据备注<input v-model="form.remark" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
       </section>
 
       <EntryTable
@@ -76,6 +82,7 @@
         :test-prefix="testPrefix"
         :is-draft="isDraft"
         :batch-warehouse-code="batchWarehouseCode"
+        :batch-plan-delivery-date="batchPlanDeliveryDate"
         :active-selector="activeSelector"
         :selector-options="selectorOptions"
         :selector-cursor-index="selectorCursorIndex"
@@ -87,13 +94,16 @@
         :show-source-line-column="showSourceLineColumn"
         :show-execution-columns="showExecutionColumns"
         :show-target-warehouse-column="showTargetWarehouseColumn"
+        :show-plan-delivery-date-column="showPlanDeliveryDateColumn"
         :execution-qty-label="executionQtyLabel"
         :remaining-qty-label="remainingQtyLabel"
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
         @update:batch-warehouse-code="emit('update:batchWarehouseCode', $event)"
+        @update:batch-plan-delivery-date="emit('update:batchPlanDeliveryDate', $event)"
         @apply-batch-warehouse="emit('applyBatchWarehouse')"
+        @apply-batch-plan-delivery-date="emit('applyBatchPlanDeliveryDate', $event)"
         @mark-dirty="emit('markDirty')"
         @search-master-options="(type, keyword, selectorId) => emit('searchMasterOptions', type, keyword, selectorId)"
         @handle-master-input="(type, keyword, selectorId) => emit('handleMasterInput', type, keyword, selectorId)"
@@ -128,9 +138,11 @@ interface DocumentFormState {
   redReverseBillNo?: string;
   redSourceBillNo?: string;
   partyCode: string;
+  partyName?: string;
   billDate: string;
   department: string;
   ownerName: string;
+  remark?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   lines: EntryLine[];
 }
@@ -163,12 +175,14 @@ withDefaults(defineProps<{
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
+  showPlanDeliveryDateColumn?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
   batchWarehouseCode: string;
+  batchPlanDeliveryDate?: string;
   activeSelector: string;
   selectorOptions: MasterOption[];
   selectorCursorIndex: number;
@@ -199,7 +213,9 @@ const emit = defineEmits<{
   openRedReverseBill: [];
   openRedSourceBill: [];
   "update:batchWarehouseCode": [value: string];
+  "update:batchPlanDeliveryDate": [value: string];
   applyBatchWarehouse: [];
+  applyBatchPlanDeliveryDate: [lineIndexes: number[]];
   markDirty: [];
   searchMasterOptions: [type: string, keyword: string, selectorId: string];
   handleMasterInput: [type: string, keyword: string, selectorId: string];

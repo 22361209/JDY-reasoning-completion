@@ -12,6 +12,7 @@ import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.security.CurrentSessionService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,19 +27,22 @@ public class SalesOrderAppService {
     private final ValidationService validationService;
     private final BillLifecycleService lifecycleService;
     private final NumberingService numberingService;
+    private final CurrentSessionService currentSessionService;
 
     public SalesOrderAppService(
         JdbcTemplate jdbcTemplate,
         LookupService lookupService,
         ValidationService validationService,
         BillLifecycleService lifecycleService,
-        NumberingService numberingService
+        NumberingService numberingService,
+        CurrentSessionService currentSessionService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.lifecycleService = lifecycleService;
         this.numberingService = numberingService;
+        this.currentSessionService = currentSessionService;
     }
 
     @Transactional
@@ -48,9 +52,11 @@ public class SalesOrderAppService {
         var totalAmount = request.lines().stream()
             .map(line -> line.qty().multiply(line.unitPrice()))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var ownerName = currentSessionService.currentDisplayName();
+        var createdBy = currentSessionService.currentUserId();
         var order = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
@@ -59,6 +65,7 @@ public class SalesOrderAppService {
                 out_status = 'NOT_OUT',
                 total_amount = EXCLUDED.total_amount,
                 owner_name = EXCLUDED.owner_name,
+                remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = sales_order.version + 1
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
@@ -69,7 +76,9 @@ public class SalesOrderAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            request.ownerName()
+            ownerName,
+            validationService.optionalText(request.remark()),
+            createdBy
         );
         var orderId = order.get("id");
         jdbcTemplate.update("DELETE FROM sales_order_line WHERE order_id = ?::uuid", orderId);
@@ -79,8 +88,8 @@ public class SalesOrderAppService {
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amount = line.qty().multiply(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
+                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -89,7 +98,8 @@ public class SalesOrderAppService {
                 line.qty(),
                 line.unitPrice(),
                 amount,
-                validationService.optionalText(line.lineRemark())
+                validationService.optionalText(line.lineRemark()),
+                optionalDate(line.planDeliveryDate())
             );
             lineNo += 1;
         }
@@ -168,9 +178,12 @@ public class SalesOrderAppService {
                    so.department,
                    so.status,
                    so.total_amount AS "totalAmount",
-                   so.owner_name AS "ownerName"
+                   so.owner_name AS "ownerName",
+                   COALESCE(creator.display_name, so.owner_name, '') AS "createdByName",
+                   COALESCE(so.remark, '') AS remark
             FROM sales_order so
             JOIN md_customer c ON c.id = so.customer_id
+            LEFT JOIN sys_user creator ON creator.id = so.created_by
             WHERE so.bill_no = ?
             """, billNo);
         if (orderRows.isEmpty()) {
@@ -187,7 +200,8 @@ public class SalesOrderAppService {
                    GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
                    l.amount,
-                   COALESCE(l.line_remark, '') AS "lineRemark"
+                   COALESCE(l.line_remark, '') AS "lineRemark",
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM sales_order_line l
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -239,6 +253,7 @@ public class SalesOrderAppService {
         String billDate,
         String department,
         String ownerName,
+        String remark,
         List<SalesOrderLineRequest> lines
     ) {
         public SalesOrderDraftRequest {
@@ -253,7 +268,12 @@ public class SalesOrderAppService {
         String warehouseCode,
         BigDecimal qty,
         BigDecimal unitPrice,
-        String lineRemark
+        String lineRemark,
+        String planDeliveryDate
     ) {
+    }
+
+    private LocalDate optionalDate(String value) {
+        return value == null || value.isBlank() ? null : LocalDate.parse(value);
     }
 }

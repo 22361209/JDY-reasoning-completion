@@ -17,6 +17,7 @@ import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.security.CurrentSessionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,7 @@ public class SalesOutAppService {
     private final ConversionService conversionService;
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
+    private final CurrentSessionService currentSessionService;
 
     public SalesOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -54,7 +56,8 @@ public class SalesOutAppService {
         PostingPipeline postingPipeline,
         ConversionService conversionService,
         OperationLogService operationLogService,
-        NumberingService numberingService
+        NumberingService numberingService,
+        CurrentSessionService currentSessionService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -64,6 +67,7 @@ public class SalesOutAppService {
         this.conversionService = conversionService;
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
+        this.currentSessionService = currentSessionService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -78,6 +82,8 @@ public class SalesOutAppService {
                    so.status,
                    so.total_amount AS "totalAmount",
                    so.owner_name AS "ownerName",
+                   COALESCE(creator.display_name, so.owner_name, '') AS "createdByName",
+                   COALESCE(so.remark, '') AS remark,
                    (
                        SELECT red.bill_no
                        FROM sales_out red
@@ -94,6 +100,7 @@ public class SalesOutAppService {
                    ) AS "redSourceBillNo"
             FROM sales_out so
             JOIN md_customer c ON c.id = so.customer_id
+            LEFT JOIN sys_user creator ON creator.id = so.created_by
             LEFT JOIN sales_order src ON src.id = so.source_order_id
             WHERE so.bill_no = ?
             """, BillStatus.RED_REVERSED.name(), BillStatus.RED_REVERSED.name(), billNo);
@@ -110,7 +117,8 @@ public class SalesOutAppService {
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount,
-                   COALESCE(l.line_remark, '') AS "lineRemark"
+                   COALESCE(l.line_remark, '') AS "lineRemark",
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM sales_out_line l
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -129,9 +137,11 @@ public class SalesOutAppService {
         var totalAmount = request.lines().stream()
             .map(line -> line.qty().multiply(line.unitPrice()))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var ownerName = currentSessionService.currentDisplayName();
+        var createdBy = currentSessionService.currentUserId();
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
                 customer_id = EXCLUDED.customer_id,
@@ -140,6 +150,7 @@ public class SalesOutAppService {
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
                 owner_name = EXCLUDED.owner_name,
+                remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = sales_out.version + 1
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
@@ -151,7 +162,9 @@ public class SalesOutAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            request.ownerName()
+            ownerName,
+            validationService.optionalText(request.remark()),
+            createdBy
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM sales_out_line WHERE bill_id = ?::uuid", billId);
@@ -293,8 +306,8 @@ public class SalesOutAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
@@ -304,7 +317,8 @@ public class SalesOutAppService {
                 qty.negate(),
                 line.get("unitPrice"),
                 ((BigDecimal) line.get("amount")).negate(),
-                line.get("lineRemark")
+                line.get("lineRemark"),
+                line.get("planDeliveryDate")
             );
             postingPipeline.post(new PostingContext(
                 InventoryPostingHook.CHANNEL,
@@ -349,8 +363,8 @@ public class SalesOutAppService {
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amount = line.qty().multiply(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
@@ -360,7 +374,8 @@ public class SalesOutAppService {
                 line.qty(),
                 line.unitPrice(),
                 amount,
-                validationService.optionalText(line.lineRemark())
+                validationService.optionalText(line.lineRemark()),
+                optionalDate(line.planDeliveryDate())
             );
             lineNo += 1;
         }
@@ -425,7 +440,8 @@ public class SalesOutAppService {
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount,
-                   COALESCE(l.line_remark, '') AS "lineRemark"
+                   COALESCE(l.line_remark, '') AS "lineRemark",
+                   l.plan_delivery_date AS "planDeliveryDate"
             FROM sales_out_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -435,7 +451,7 @@ public class SalesOutAppService {
             """, billNo);
     }
 
-    public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, List<SalesOutLineRequest> lines) {
+    public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<SalesOutLineRequest> lines) {
         public SalesOutDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -443,9 +459,13 @@ public class SalesOutAppService {
         }
     }
 
-    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
+    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark, String planDeliveryDate) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {
+    }
+
+    private LocalDate optionalDate(String value) {
+        return value == null || value.isBlank() ? null : LocalDate.parse(value);
     }
 }

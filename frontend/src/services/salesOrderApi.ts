@@ -17,9 +17,12 @@ export interface SalesOrderDetail {
   order: {
     billNo: string;
     customerCode: string;
+    customer?: string;
     billDate: string;
     department: string;
     ownerName: string;
+    createdByName?: string;
+    remark?: string;
     status: string;
   };
   lines: Array<{
@@ -32,6 +35,7 @@ export interface SalesOrderDetail {
     remainingQty?: number | string;
     unitPrice: number | string;
     lineRemark?: string;
+    planDeliveryDate?: string;
   }>;
 }
 

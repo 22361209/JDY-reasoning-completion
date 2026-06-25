@@ -13,9 +13,9 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 
 const salesLines = [
-  { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94 },
-  { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12 }
+  { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86, lineRemark: "A16 销售源一", planDeliveryDate: "2026-07-11" },
+  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94, lineRemark: "A16 销售源二", planDeliveryDate: "2026-07-12" },
+  { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12, lineRemark: "A16 销售源三", planDeliveryDate: "2026-07-13" }
 ];
 const purchaseLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 11, unitPrice: 72 },
@@ -154,10 +154,13 @@ function numberArray(lines, field) {
 
 const data = await createData();
 const salesDetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.salesOrderNo)}`, { method: "GET" });
+const salesOutDetail = await requireApi(`/api/sales-outs/${encodeURIComponent(data.salesOutNo)}`, { method: "GET" });
 const purchaseDetail = await requireApi(`/api/purchase-orders/${encodeURIComponent(data.purchaseOrderNo)}`, { method: "GET" });
 const salesShipped = numberArray(salesDetail.lines, "shippedQty");
 const purchaseReceived = numberArray(purchaseDetail.lines, "receivedQty");
 assertArray("sales shipped by source line", salesShipped, [4, 0, 2]);
+assertArray("sales out carried remarks", salesOutDetail.lines.map((line) => line.lineRemark), ["A16 销售源三", "A16 销售源一"]);
+assertArray("sales out carried plan dates", salesOutDetail.lines.map((line) => line.planDeliveryDate), ["2026-07-13", "2026-07-11"]);
 assertArray("purchase received by source line", purchaseReceived, [5, 0, 3]);
 
 const browser = await chromium.launch({ headless: true });
@@ -190,6 +193,8 @@ try {
     salesOutNo: data.salesOutNo,
     salesOutSourceLines,
     salesShipped,
+    salesOutCarriedRemarks: salesOutDetail.lines.map((line) => line.lineRemark),
+    salesOutCarriedPlanDates: salesOutDetail.lines.map((line) => line.planDeliveryDate),
     purchaseOrderNo: data.purchaseOrderNo,
     purchaseInNo: data.purchaseInNo,
     purchaseInSourceLines,

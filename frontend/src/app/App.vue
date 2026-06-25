@@ -1205,6 +1205,7 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     targetBillNo: nextBillNo.billNo,
     sourceBillNo,
     partyCode: result.data.order.customerCode || "",
+    partyName: result.data.order.customer || "",
     billDate: dateText,
     department: result.data.order.department || "销售部",
     ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
@@ -1246,6 +1247,7 @@ async function confirmPushDown() {
       billNo: pending.targetBillNo,
       sourceOrderNo: pending.sourceBillNo,
       partyCode: pending.partyCode,
+      partyName: pending.partyName,
       billDate: pending.billDate,
       department: pending.department,
       ownerName: pending.ownerName,
@@ -1383,6 +1385,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     targetBillNo: nextBillNo.billNo,
     sourceBillNo,
     partyCode: result.data.document.supplierCode || "",
+    partyName: result.data.document.supplier || "",
     billDate: dateText,
     department: result.data.document.department || "采购部",
     ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
@@ -1408,7 +1411,7 @@ function normalizedOptionalInt(value: number | string | undefined) {
 function roundQty(value: number) {
   return Math.round(value * 100) / 100;
 }
-function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
+function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
   const executedQty = normalizedQty(line[executedField]);
   const remainingQty = remainingLineQty(line);
@@ -1423,7 +1426,9 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
     remainingQty,
     selected: false,
     qty: remainingQty,
-    unitPrice: Number(line.unitPrice ?? 0)
+    unitPrice: Number(line.unitPrice ?? 0),
+    lineRemark: String(line.lineRemark ?? ""),
+    planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
 }
 function pushConfirmQtyTestId(index: number) {

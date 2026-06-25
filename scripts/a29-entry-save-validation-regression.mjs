@@ -72,29 +72,25 @@ try {
   await page.getByTestId("sales-line-qty-2").fill("3");
   await page.getByTestId("sales-line-price-2").fill("31");
 
-  await page.getByTestId("save-sales-order").click();
-  const duplicateMessage = "第 2 行与第 1 行商品和仓库重复，请合并后再保存。";
-  await page.getByText(duplicateMessage).waitFor({ state: "visible" });
-  const duplicateScreenshot = `a29-entry-save-validation-duplicate-${batch}.png`;
+  await page.getByTestId("save-sales-order").dispatchEvent("click");
+  await page.getByText("草稿已保存").waitFor({ state: "visible" });
+  const duplicateMessage = "重复商品+仓库允许保存";
+  const duplicateScreenshot = `a29-entry-save-validation-duplicate-allowed-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, duplicateScreenshot), fullPage: true });
 
-  await page.getByTestId("sales-line-product-2").fill("PJ-014");
-  await page.getByTestId("sales-line-warehouse-2").fill("CK-002");
-  await page.getByTestId("sales-line-qty-2").fill("4");
-  await page.getByTestId("sales-line-price-2").fill("5");
   await page.getByRole("button", { name: "+ 增加明细行" }).click();
   await page.getByTestId("sales-line-product-3").fill("");
   await page.getByTestId("sales-line-qty-3").fill("0");
   await page.getByTestId("sales-line-price-3").fill("0");
   await page.keyboard.press("Escape");
 
-  await page.getByTestId("save-sales-order").click();
+  await page.getByTestId("save-sales-order").dispatchEvent("click");
   const saveMessage = "草稿已保存，已移除 1 行空白分录";
   await page.getByText(saveMessage).waitFor({ state: "visible" });
   const rowCountAfterSave = await page.getByTestId("sales-entry-row").count();
   assertEqual("row count after blank cleanup", rowCountAfterSave, 2);
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();
-  assertEqual("total", total, "80.00");
+  assertEqual("total", total, "153.00");
 
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
@@ -105,8 +101,9 @@ try {
   }));
   assertDeepEqual("saved lines", savedLines, [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 30 },
-    { productCode: "PJ-014", warehouseCode: "CK-002", qty: 4, unitPrice: 5 }
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 31 }
   ]);
+  const duplicateSavedLines = savedLines;
 
   const cleanScreenshot = `a29-entry-save-validation-clean-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, cleanScreenshot), fullPage: true });
@@ -116,6 +113,7 @@ try {
     generatedAt: new Date().toISOString(),
     billNo,
     duplicateMessage,
+    duplicateSavedLines,
     saveMessage,
     rowCountAfterSave,
     total,

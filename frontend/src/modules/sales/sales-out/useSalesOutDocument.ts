@@ -44,6 +44,7 @@ export interface SalesOutPushDownDraft {
   billNo: string;
   sourceOrderNo: string;
   partyCode: string;
+  partyName?: string;
   billDate: string;
   department: string;
   ownerName: string;
@@ -59,6 +60,7 @@ type PreparedEntryLines = {
     qty: number;
     unitPrice: number;
     lineRemark: string;
+    planDeliveryDate?: string;
   }[];
   removedBlankCount: number;
 };
@@ -78,6 +80,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   });
   const message = ref("");
   const batchWarehouseCode = ref("");
+  const batchPlanDeliveryDate = ref("");
   const activeSelector = ref("");
   const selectorOptions = ref<MasterOption[]>([]);
   const selectorCursorIndex = ref(0);
@@ -108,7 +111,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   });
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0).toFixed(2));
   const showSourceLineColumn = computed(() => Boolean(form.sourceOrderNo));
-  const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0));
+  const entryTableColspan = computed(() => 11 + (showSourceLineColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const redReverseBillNo = computed(() => `HC-${form.billNo}`);
   const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
@@ -133,8 +136,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = "";
+    form.partyName = "";
     form.department = "销售部";
     form.ownerName = options.userName() || "本地管理员";
+    form.remark = "";
     form.status = "DRAFT";
     form.lines = [defaultLine()];
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
@@ -148,9 +153,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.redReverseBillNo = document.redReverseBillNo || undefined;
     form.redSourceBillNo = document.redSourceBillNo || undefined;
     form.partyCode = document.sourceOrderNo && document.customerCode === "SC" ? document.sourceOrderNo : document.customerCode || "";
+    form.partyName = document.customer || "";
     form.billDate = document.billDate;
     form.department = document.department || "销售部";
-    form.ownerName = document.ownerName || "本地管理员";
+    form.ownerName = document.createdByName || document.ownerName || "本地管理员";
+    form.remark = document.remark || "";
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
@@ -165,6 +172,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
         unitPrice: Number(line.unitPrice ?? 0),
         lineRemark: String(line.lineRemark ?? ""),
+        planDeliveryDate: String(line.planDeliveryDate ?? ""),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
       }))
       : [defaultLine()];
@@ -199,9 +207,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = draft.partyCode;
+    form.partyName = draft.partyName || "";
     form.billDate = draft.billDate;
     form.department = draft.department;
     form.ownerName = draft.ownerName;
+    form.remark = "";
     form.status = "DRAFT";
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
@@ -211,7 +221,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
-      lineRemark: String(line.lineRemark ?? "")
+      lineRemark: String(line.lineRemark ?? ""),
+      planDeliveryDate: String(line.planDeliveryDate ?? "")
     }));
     message.value = `已由${draft.sourceOrderNo}按确认数量生成销售出库单草稿`;
     options.markDirty();
@@ -240,6 +251,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       billDate: form.billDate,
       department: form.department,
       ownerName: form.ownerName,
+      remark: form.remark,
       lines: preparedLines.documentLines
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
@@ -384,7 +396,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-    return { productCode: "CP-001", warehouseCode, qty: 1, unitPrice: 86, lineRemark: "" };
+    return { productCode: "CP-001", warehouseCode, qty: 1, unitPrice: 86, lineRemark: "", planDeliveryDate: "" };
   }
 
   function addLine() {
@@ -471,6 +483,24 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       line.warehouseCode = warehouseCode;
     });
     activeSelector.value = "";
+    options.markDirty();
+  }
+
+  function applyBatchPlanDeliveryDate(lineIndexes: number[]) {
+    if (!isDraft.value) {
+      return;
+    }
+    const planDate = batchPlanDeliveryDate.value.trim();
+    if (!planDate) {
+      return;
+    }
+    const targetIndexes = lineIndexes.length > 0 ? lineIndexes : form.lines.map((_, index) => index);
+    targetIndexes.forEach((index) => {
+      const line = form.lines[index];
+      if (line) {
+        line.planDeliveryDate = planDate;
+      }
+    });
     options.markDirty();
   }
 
@@ -703,6 +733,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
 
   function selectPartyOption(option: MasterOption, selectorId = "sales-out-party") {
     form.partyCode = option.code;
+    form.partyName = option.name;
     activeSelector.value = "";
     options.markDirty();
     focusNextAfterSelector(selectorId);
@@ -758,6 +789,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form,
     message,
     batchWarehouseCode,
+    batchPlanDeliveryDate,
     activeSelector,
     selectorOptions,
     selectorCursorIndex,
@@ -810,6 +842,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     handleLineDragOver,
     handleLineDrop,
     applyBatchWarehouse,
+    applyBatchPlanDeliveryDate,
     handleEntryPaste,
     cancelPendingEntryPaste,
     confirmPendingEntryPaste,
@@ -939,7 +972,8 @@ function toDocumentLines(lines: OrderLineForm[]) {
     sourceLineNo: line.sourceLineNo,
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0),
-    lineRemark: String(line.lineRemark ?? "").trim()
+    lineRemark: String(line.lineRemark ?? "").trim(),
+    planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
   }));
 }
 
@@ -952,15 +986,6 @@ function prepareEntryLinesForSave(lines: OrderLineForm[]): ({ ok: true } & Prepa
   if (missingProduct) {
     return { ok: false, message: `第 ${missingProduct.index + 1} 行商品编码不能为空。` };
   }
-  const seen = new Map<string, number>();
-  for (const { line, index } of nonBlankLines) {
-    const key = `${entryLineProductCode(line)}@@${entryLineWarehouseCode(line)}`;
-    const firstIndex = seen.get(key);
-    if (firstIndex !== undefined) {
-      return { ok: false, message: `第 ${index + 1} 行与第 ${firstIndex + 1} 行商品和仓库重复，请合并后再保存。` };
-    }
-    seen.set(key, index);
-  }
   const formLines = nonBlankLines.map(({ line }) => line);
   return { ok: true, formLines, documentLines: toDocumentLines(formLines), removedBlankCount: lines.length - formLines.length };
 }
@@ -970,6 +995,7 @@ function isBlankEntryLine(line: OrderLineForm) {
     && !String(line.productName ?? "").trim()
     && !String(line.spec ?? "").trim()
     && !String(line.lineRemark ?? "").trim()
+    && !String(line.planDeliveryDate ?? "").trim()
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
 }

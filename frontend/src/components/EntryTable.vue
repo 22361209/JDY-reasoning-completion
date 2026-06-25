@@ -11,6 +11,20 @@
       />
     </label>
     <button type="button" :disabled="!isDraft" data-testid="apply-batch-warehouse" @click="emit('applyBatchWarehouse')">应用</button>
+    <template v-if="showPlanDeliveryDateColumn">
+      <label>
+        批量交期
+        <input
+          :value="batchPlanDeliveryDate"
+          :disabled="!isDraft"
+          type="date"
+          data-testid="batch-plan-delivery-date"
+          @input="emit('update:batchPlanDeliveryDate', ($event.target as HTMLInputElement).value)"
+          @keydown.enter="emit('applyBatchPlanDeliveryDate', selectedLineIndexes())"
+        />
+      </label>
+      <button type="button" :disabled="!isDraft" data-testid="apply-batch-plan-delivery-date" @click="emit('applyBatchPlanDeliveryDate', selectedLineIndexes())">应用交期</button>
+    </template>
     <button type="button" data-testid="entry-column-settings" @click="columnDialogOpen = true">列设置</button>
   </div>
   <div class="entry-table">
@@ -62,6 +76,14 @@
                   </button>
                 </span>
               </span>
+            </template>
+            <template v-else-if="column.key === 'selection'">
+              <input
+                v-model="selectedLines[lineIndex]"
+                type="checkbox"
+                :disabled="!isDraft"
+                :data-testid="lineSelectTestId(lineIndex)"
+              />
             </template>
             <span v-else-if="column.key === 'productName'" class="entry-cell-text">{{ productInfo(line).name }}</span>
             <span v-else-if="column.key === 'spec'" class="entry-cell-text">{{ productInfo(line).spec }}</span>
@@ -161,6 +183,14 @@
               @paste="emit('entryPaste', $event, lineIndex)"
             />
             <span v-else-if="column.key === 'amount'" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</span>
+            <input
+              v-else-if="column.key === 'planDeliveryDate'"
+              v-model="line.planDeliveryDate"
+              type="date"
+              :disabled="!isDraft"
+              :data-testid="linePlanDeliveryDateTestId(lineIndex)"
+              @input="emit('markDirty')"
+            />
             <input v-else-if="column.key === 'remark'" v-model="line.lineRemark" :disabled="!isDraft" :data-testid="lineRemarkTestId(lineIndex)" @input="emit('markDirty')" />
             <div v-else-if="column.key === 'actions'" class="entry-row-actions">
               <button class="line-action line-menu-trigger" type="button" :disabled="!isDraft" :data-testid="lineMenuTestId(lineIndex)" title="行操作" @click="toggleRowMenu(lineIndex, $event)">⋮</button>
@@ -224,6 +254,7 @@ export interface EntryLine {
   remainingQty?: number;
   unitPrice: number;
   lineRemark?: string;
+  planDeliveryDate?: string;
   downstreamDocs?: any[];
 }
 
@@ -234,7 +265,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "amount" | "remark" | "actions";
+type EntryColumnKey = "selection" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "amount" | "planDeliveryDate" | "remark" | "actions";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -249,6 +280,7 @@ const props = defineProps<{
   testPrefix: string;
   isDraft: boolean;
   batchWarehouseCode: string;
+  batchPlanDeliveryDate?: string;
   activeSelector: string;
   selectorOptions: MasterOption[];
   selectorCursorIndex: number;
@@ -260,6 +292,7 @@ const props = defineProps<{
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
+  showPlanDeliveryDateColumn?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   entryTableColspan: number;
@@ -269,7 +302,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:batchWarehouseCode": [value: string];
+  "update:batchPlanDeliveryDate": [value: string];
   applyBatchWarehouse: [];
+  applyBatchPlanDeliveryDate: [lineIndexes: number[]];
   markDirty: [];
   searchMasterOptions: [type: string, keyword: string, selectorId: string];
   handleMasterInput: [type: string, keyword: string, selectorId: string];
@@ -295,9 +330,11 @@ const openMenuLineIndex = ref<number | null>(null);
 const rowMenuLeft = ref(0);
 const rowMenuTop = ref(0);
 const columns = ref<EntryColumn[]>([]);
+const selectedLines = ref<Record<number, boolean>>({});
 const numericColumns = new Set<EntryColumnKey>(["qty", "executedQty", "remainingQty", "unitPrice", "amount"]);
 
 const defaultColumns = computed<EntryColumn[]>(() => [
+  { key: "selection", title: "选", width: 48, visible: Boolean(props.showPlanDeliveryDateColumn), configurable: false },
   { key: "productCode", title: "商品编码", width: 140, visible: true },
   { key: "productName", title: "商品名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
@@ -309,6 +346,7 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "unitPrice", title: "单价", width: 104, visible: true, numeric: true },
   { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
+  { key: "planDeliveryDate", title: "交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn) },
   { key: "remark", title: "备注", width: 210, visible: true },
   { key: "actions", title: "操作", width: 56, visible: true, configurable: false }
 ]);
@@ -324,6 +362,7 @@ watch(() => [
   props.showSourceLineColumn,
   props.showExecutionColumns,
   props.showTargetWarehouseColumn,
+  props.showPlanDeliveryDateColumn,
   props.executionQtyLabel,
   props.remainingQtyLabel
 ], resetColumns, { immediate: true });
@@ -363,6 +402,9 @@ function resetColumns() {
 function isColumnAvailable(column: EntryColumn) {
   if (column.key === "targetWarehouse") {
     return Boolean(props.showTargetWarehouseColumn);
+  }
+  if (column.key === "selection" || column.key === "planDeliveryDate") {
+    return Boolean(props.showPlanDeliveryDateColumn);
   }
   if (column.key === "sourceLineNo") {
     return props.showSourceLineColumn;
@@ -422,8 +464,15 @@ function columnClass(column: EntryColumn) {
     "readonly-qty": ["sourceLineNo", "executedQty", "remainingQty"].includes(column.key),
     "amount-cell": column.key === "amount",
     "entry-actions-cell": column.key === "actions",
-    "remark-cell": column.key === "remark"
+    "remark-cell": column.key === "remark",
+    "entry-selection-cell": column.key === "selection"
   };
+}
+
+function selectedLineIndexes() {
+  return props.lines
+    .map((_, index) => index)
+    .filter((index) => selectedLines.value[index]);
 }
 
 function openRowMenu(lineIndex: number, event: MouseEvent) {
@@ -557,6 +606,14 @@ function lineAmountTestId(index: number) {
 
 function lineRemarkTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-remark` : `${props.testPrefix}-line-remark-${index + 1}`;
+}
+
+function linePlanDeliveryDateTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-plan-delivery-date` : `${props.testPrefix}-line-plan-delivery-date-${index + 1}`;
+}
+
+function lineSelectTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-select` : `${props.testPrefix}-line-select-${index + 1}`;
 }
 
 function lineDeleteTestId(index: number) {
