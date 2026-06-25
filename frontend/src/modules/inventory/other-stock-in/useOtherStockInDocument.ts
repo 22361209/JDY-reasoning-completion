@@ -13,7 +13,7 @@ export function useOtherStockInDocument(options: Parameters<typeof useDocumentMo
     auditPermission: "inventory.other_stock_in.audit",
     billPrefix: "QTRK",
     defaultDepartment: "仓储部",
-    defaultPartyCode: "GYS-001",
+    defaultPartyCode: "",
     defaultUnitPrice: 0,
     reversible: true,
     initialForm: initialOtherStockInForm,

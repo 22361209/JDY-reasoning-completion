@@ -6,6 +6,7 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -24,13 +25,15 @@ public class ProductInAppService {
     private final ValidationService validationService;
     private final PostingPipeline postingPipeline;
     private final OperationLogService operationLogService;
+    private final NumberingService numberingService;
 
-    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService) {
+    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.postingPipeline = postingPipeline;
         this.operationLogService = operationLogService;
+        this.numberingService = numberingService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -80,6 +83,7 @@ public class ProductInAppService {
 
     @Transactional
     public Map<String, Object> complete(String billNo, CompleteRequest request) {
+        var productInBillNo = numberingService.assignBillNo("productIn", request.billNo());
         var taskRows = jdbcTemplate.queryForList("""
             SELECT t.id::text AS id, p.code AS product_code, w.code AS warehouse_code, t.qty, t.completed_qty
             FROM production_task t
@@ -101,7 +105,7 @@ public class ProductInAppService {
             INSERT INTO production_completion (bill_no, task_id, qty, status)
             VALUES (?, ?::uuid, ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", qty, status
-            """, validationService.required(request.billNo(), "完工单号"), task.get("id"), qty, BillStatus.AUDITED.name());
+            """, productInBillNo, task.get("id"), qty, BillStatus.AUDITED.name());
         var completionId = String.valueOf(completionRows.get(0).get("id"));
         var lineNo = 1;
         for (var line : requestLines) {
@@ -110,7 +114,7 @@ public class ProductInAppService {
             var lineQty = positive(line.qty(), "完工数量");
             var unitPrice = line.unitPrice() == null ? BigDecimal.ONE : line.unitPrice();
             insertCompletionLine(completionId, lineNo, lookupService.lookupEnabledId("md_product", productCode, "完工商品"), lookupService.lookupEnabledId("md_warehouse", warehouseCode, "完工仓库"), lineQty, unitPrice);
-            post(productCode, warehouseCode, lineQty, "PRODUCTION_COMPLETE", "PRODUCTION_COMPLETE:" + request.billNo());
+            post(productCode, warehouseCode, lineQty, "PRODUCTION_COMPLETE", "PRODUCTION_COMPLETE:" + productInBillNo);
             lineNo += 1;
         }
         var rows = jdbcTemplate.queryForList("""

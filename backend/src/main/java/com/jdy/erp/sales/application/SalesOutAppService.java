@@ -11,6 +11,7 @@ import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -43,6 +44,7 @@ public class SalesOutAppService {
     private final PostingPipeline postingPipeline;
     private final ConversionService conversionService;
     private final OperationLogService operationLogService;
+    private final NumberingService numberingService;
 
     public SalesOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -51,7 +53,8 @@ public class SalesOutAppService {
         BillLifecycleService lifecycleService,
         PostingPipeline postingPipeline,
         ConversionService conversionService,
-        OperationLogService operationLogService
+        OperationLogService operationLogService,
+        NumberingService numberingService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -60,6 +63,7 @@ public class SalesOutAppService {
         this.postingPipeline = postingPipeline;
         this.conversionService = conversionService;
         this.operationLogService = operationLogService;
+        this.numberingService = numberingService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -119,6 +123,7 @@ public class SalesOutAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(SalesOutDraftRequest request) {
+        var billNo = numberingService.assignBillNo("salesOut", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
         var sourceOrderId = sourceOrderId(request.sourceOrderNo());
         var totalAmount = request.lines().stream()
@@ -139,7 +144,7 @@ public class SalesOutAppService {
                 version = sales_out.version + 1
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
             """,
-            validationService.required(request.billNo(), "单据编号"),
+            billNo,
             sourceOrderId,
             customerId,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),

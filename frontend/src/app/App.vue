@@ -619,7 +619,7 @@ import NotificationProviderSettingsPage from "../modules/system/notification/Not
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
-import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
+import { fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -1110,15 +1110,20 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可出数量`;
     return;
   }
+  const nextBillNo = await fetchNextBillNo("salesOut");
+  if (!nextBillNo.ok || !nextBillNo.billNo) {
+    formMessage.value = nextBillNo.message || "销售出库单号生成失败。";
+    return;
+  }
   pendingPushDown.value = {
     kind: outboundDocumentType as PendingPushDown["kind"],
     title: "销售" + "出库下推确认",
     targetTitle: "销售" + "出库单",
     targetTabId: outboundTabId,
     targetModule: "销售管理",
-    targetBillNo: nextBillNoFor("XSCK"),
+    targetBillNo: nextBillNo.billNo,
     sourceBillNo,
-    partyCode: result.data.order.customerCode || "KH-001",
+    partyCode: result.data.order.customerCode || "",
     billDate: dateText,
     department: result.data.order.department || "销售部",
     ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
@@ -1283,15 +1288,20 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     formMessage.value = `${"采购"}${"订单"} ${sourceBillNo} 已无剩余可入数量`;
     return;
   }
+  const nextBillNo = await fetchNextBillNo("purchaseIn");
+  if (!nextBillNo.ok || !nextBillNo.billNo) {
+    formMessage.value = nextBillNo.message || "采购入库单号生成失败。";
+    return;
+  }
   pendingPushDown.value = {
     kind: "purchaseIn",
     title: `${"采购"}${"入库"}下推确认`,
     targetTitle: `${"采购"}${"入库"}单`,
     targetTabId: purchaseInTabId,
     targetModule: "采购管理",
-    targetBillNo: nextBillNoFor("CGRK"),
+    targetBillNo: nextBillNo.billNo,
     sourceBillNo,
-    partyCode: result.data.document.supplierCode || "GYS-001",
+    partyCode: result.data.document.supplierCode || "",
     billDate: dateText,
     department: result.data.document.department || "采购部",
     ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
@@ -1316,22 +1326,6 @@ function normalizedOptionalInt(value: number | string | undefined) {
 }
 function roundQty(value: number) {
   return Math.round(value * 100) / 100;
-}
-function nextBillNoFor(prefix: string) {
-  const now = new Date();
-  const datePart = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0")
-  ].join("");
-  const timePart = [
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-    String(now.getMilliseconds()).padStart(3, "0")
-  ].join("");
-  const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `${prefix}-${datePart}-${timePart}-${seq}`;
 }
 function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);

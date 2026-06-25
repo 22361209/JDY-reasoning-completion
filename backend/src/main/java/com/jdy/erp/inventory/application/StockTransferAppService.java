@@ -8,6 +8,7 @@ import java.util.Map;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
 import com.jdy.erp.shared.application.ValidationService;
@@ -26,6 +27,7 @@ public class StockTransferAppService {
     private final LookupService lookupService;
     private final ValidationService validationService;
     private final BillLifecycleService lifecycleService;
+    private final NumberingService numberingService;
     private final PostingPipeline postingPipeline;
 
     public StockTransferAppService(
@@ -33,13 +35,15 @@ public class StockTransferAppService {
         LookupService lookupService,
         ValidationService validationService,
         BillLifecycleService lifecycleService,
-        PostingPipeline postingPipeline
+        PostingPipeline postingPipeline,
+        NumberingService numberingService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.lifecycleService = lifecycleService;
         this.postingPipeline = postingPipeline;
+        this.numberingService = numberingService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -81,6 +85,7 @@ public class StockTransferAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(StockTransferDraftRequest request) {
+        var billNo = numberingService.assignBillNo("stockTransfer", request.billNo());
         var bill = jdbcTemplate.queryForMap("""
             INSERT INTO stock_transfer (bill_no, bill_date, department, transfer_type, business_type, status, owner_name)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -96,7 +101,7 @@ public class StockTransferAppService {
             WHERE stock_transfer.status = ?
             RETURNING id::text AS id, bill_no AS "billNo"
             """,
-            validationService.required(request.billNo(), "单据编号"),
+            billNo,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),
             request.department(),
             "STK_TransferDirect",

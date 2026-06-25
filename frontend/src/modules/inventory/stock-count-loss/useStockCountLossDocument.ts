@@ -13,7 +13,7 @@ export function useStockCountLossDocument(options: Parameters<typeof useDocument
     auditPermission: "inventory.stock_count_loss.audit",
     billPrefix: "PK",
     defaultDepartment: "仓储部",
-    defaultPartyCode: "CK-001",
+    defaultPartyCode: "",
     defaultUnitPrice: 0,
     sourceTraceType: "stockCount",
     reversible: true,

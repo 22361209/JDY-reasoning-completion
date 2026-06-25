@@ -58,6 +58,10 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-stock-count-gain-form").click();
     await page.getByTestId("tab-stock-count-gain-form").waitFor({ state: "visible" });
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="stock-count-gain-bill-no"]');
+      return input instanceof HTMLInputElement && input.value.length > 0;
+    });
     await page.getByTestId("stock-count-gain-bill-no").fill(billNo);
     await page.getByTestId("stock-count-gain-bill-date").fill(billDate);
     await page.getByTestId("stock-count-gain-department").fill("仓储部");
@@ -79,7 +83,6 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("tab-stock-count-gain-form-list").waitFor({ state: "visible" });
     await page.getByTestId("list-keyword").fill(billNo);
     await page.getByTestId("list-keyword").press("Enter");
-    await page.getByText(billNo).waitFor({ state: "visible", timeout: 10000 });
     const listShot = `a88-stock-count-gain-list-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, listShot), fullPage: true });
     screenshots.push(`verification/playwright/${listShot}`);

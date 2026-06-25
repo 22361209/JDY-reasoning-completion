@@ -141,8 +141,8 @@ export const defaultPrintTemplateForm: PrintTemplateConfig = {
 };
 
 export const initialSalesOrderForm: OrderForm = {
-  billNo: "XSDD-00001",
-  partyCode: "KH-001",
+  billNo: "",
+  partyCode: "",
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
@@ -151,8 +151,8 @@ export const initialSalesOrderForm: OrderForm = {
 };
 
 export const initialPurchaseOrderForm: OrderForm = {
-  billNo: "CGDD-00001",
-  partyCode: "GYS-001",
+  billNo: "",
+  partyCode: "",
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
@@ -161,9 +161,9 @@ export const initialPurchaseOrderForm: OrderForm = {
 };
 
 export const initialPurchaseInForm: OrderForm = {
-  billNo: "CGRK-00001",
-  sourceOrderNo: "CGDD-00001",
-  partyCode: "GYS-001",
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
@@ -172,9 +172,9 @@ export const initialPurchaseInForm: OrderForm = {
 };
 
 export const initialSalesOutForm: OrderForm = {
-  billNo: "XSCK-00001",
-  sourceOrderNo: "XSDD-00001",
-  partyCode: "KH-001",
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
@@ -183,9 +183,9 @@ export const initialSalesOutForm: OrderForm = {
 };
 
 export const initialMaterialIssueForm: OrderForm = {
-  billNo: "SCLL-00001",
-  sourceOrderNo: "SCRW-00001",
-  partyCode: "SCRW-00001",
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
   billDate: "2026-06-23",
   department: "生产部",
   ownerName: "本地管理员",
@@ -194,9 +194,9 @@ export const initialMaterialIssueForm: OrderForm = {
 };
 
 export const initialProductInForm: OrderForm = {
-  billNo: "CPRK-00001",
-  sourceOrderNo: "SCRW-00001",
-  partyCode: "SCRW-00001",
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
   billDate: "2026-06-23",
   department: "生产部",
   ownerName: "本地管理员",
@@ -205,8 +205,8 @@ export const initialProductInForm: OrderForm = {
 };
 
 export const initialOtherStockInForm: OrderForm = {
-  billNo: "QTRK-00001",
-  partyCode: "GYS-001",
+  billNo: "",
+  partyCode: "",
   billDate: "2026-06-25",
   department: "仓储部",
   ownerName: "本地管理员",
@@ -215,8 +215,8 @@ export const initialOtherStockInForm: OrderForm = {
 };
 
 export const initialOtherStockOutForm: OrderForm = {
-  billNo: "QTCK-00001",
-  partyCode: "KH-001",
+  billNo: "",
+  partyCode: "",
   billDate: "2026-06-25",
   department: "仓储部",
   ownerName: "本地管理员",
@@ -225,8 +225,8 @@ export const initialOtherStockOutForm: OrderForm = {
 };
 
 export const initialStockTransferForm: OrderForm = {
-  billNo: "DBD-00001",
-  partyCode: "CK-001",
+  billNo: "",
+  partyCode: "",
   billDate: "2026-06-25",
   department: "仓储部",
   ownerName: "本地管理员",
@@ -235,8 +235,8 @@ export const initialStockTransferForm: OrderForm = {
 };
 
 export const initialStockCountForm: OrderForm = {
-  billNo: "PD-00001",
-  partyCode: "CK-001",
+  billNo: "",
+  partyCode: "",
   billDate: "2026-06-26",
   department: "仓储部",
   ownerName: "本地管理员",
@@ -245,9 +245,9 @@ export const initialStockCountForm: OrderForm = {
 };
 
 export const initialStockCountGainForm: OrderForm = {
-  billNo: "PY-00001",
-  sourceOrderNo: "PD-00001",
-  partyCode: "CK-001",
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
   billDate: "2026-06-26",
   department: "仓储部",
   ownerName: "本地管理员",
@@ -256,9 +256,9 @@ export const initialStockCountGainForm: OrderForm = {
 };
 
 export const initialStockCountLossForm: OrderForm = {
-  billNo: "PK-00001",
-  sourceOrderNo: "PD-00001",
-  partyCode: "CK-001",
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
   billDate: "2026-06-26",
   department: "仓储部",
   ownerName: "本地管理员",

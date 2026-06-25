@@ -13,7 +13,7 @@ export function useOtherStockOutDocument(options: Parameters<typeof useDocumentM
     auditPermission: "inventory.other_stock_out.audit",
     billPrefix: "QTCK",
     defaultDepartment: "仓储部",
-    defaultPartyCode: "KH-001",
+    defaultPartyCode: "",
     defaultUnitPrice: 0,
     reversible: true,
     initialForm: initialOtherStockOutForm,

@@ -11,6 +11,7 @@ import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -46,6 +47,7 @@ public class PurchaseInAppService {
     private final PostingPipeline postingPipeline;
     private final ConversionService conversionService;
     private final OperationLogService operationLogService;
+    private final NumberingService numberingService;
 
     public PurchaseInAppService(
         JdbcTemplate jdbcTemplate,
@@ -54,7 +56,8 @@ public class PurchaseInAppService {
         BillLifecycleService lifecycleService,
         PostingPipeline postingPipeline,
         ConversionService conversionService,
-        OperationLogService operationLogService
+        OperationLogService operationLogService,
+        NumberingService numberingService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -63,6 +66,7 @@ public class PurchaseInAppService {
         this.postingPipeline = postingPipeline;
         this.conversionService = conversionService;
         this.operationLogService = operationLogService;
+        this.numberingService = numberingService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -122,6 +126,7 @@ public class PurchaseInAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(PurchaseInDraftRequest request) {
+        var billNo = numberingService.assignBillNo("purchaseIn", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
         var sourceOrderId = sourceOrderId(request.sourceOrderNo());
         var totalAmount = request.lines().stream()
@@ -142,7 +147,7 @@ public class PurchaseInAppService {
                 version = purchase_in.version + 1
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
             """,
-            validationService.required(request.billNo(), "单据编号"),
+            billNo,
             sourceOrderId,
             supplierId,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),

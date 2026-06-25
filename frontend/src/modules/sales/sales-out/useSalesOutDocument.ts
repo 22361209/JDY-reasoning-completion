@@ -21,6 +21,7 @@ import {
   auditDocument,
   exportDocument,
   fetchDocumentDetail,
+  fetchNextBillNo,
   printDocument,
   redReverseDocument,
   reverseDocument,
@@ -118,23 +119,25 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     : "反审核将冲销销售出库库存流水，回退销售订单已出库数量，并重算出库状态。");
   const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 
-  function startNew() {
+  async function startNew() {
     const today = new Date();
     form.billDate = [
       today.getFullYear(),
       String(today.getMonth() + 1).padStart(2, "0"),
       String(today.getDate()).padStart(2, "0")
     ].join("-");
-    form.billNo = nextBillNoFor("XSCK");
+    form.billNo = "";
+    const billNoResult = await fetchNextBillNo("salesOut");
+    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     form.sourceOrderNo = "";
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
-    form.partyCode = "KH-001";
+    form.partyCode = "";
     form.department = "销售部";
     form.ownerName = options.userName() || "本地管理员";
     form.status = "DRAFT";
     form.lines = [defaultLine()];
-    message.value = "已生成新单据草稿号";
+    message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
     options.markDirty();
   }
 
@@ -144,7 +147,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.sourceOrderNo = document.sourceOrderNo || undefined;
     form.redReverseBillNo = document.redReverseBillNo || undefined;
     form.redSourceBillNo = document.redSourceBillNo || undefined;
-    form.partyCode = document.sourceOrderNo && document.customerCode === "SC" ? document.sourceOrderNo : document.customerCode || "KH-001";
+    form.partyCode = document.sourceOrderNo && document.customerCode === "SC" ? document.sourceOrderNo : document.customerCode || "";
     form.billDate = document.billDate;
     form.department = document.department || "销售部";
     form.ownerName = document.ownerName || "本地管理员";
@@ -241,6 +244,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
     if (result.ok) {
+      const saved = result.data as { billNo?: unknown } | undefined;
+      if (typeof saved?.billNo === "string") {
+        form.billNo = saved.billNo;
+      }
       form.status = "DRAFT";
       options.clearDirty();
     }
@@ -923,23 +930,6 @@ function normalizedQty(value: number | string | undefined) {
 function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function nextBillNoFor(prefix: string) {
-  const now = new Date();
-  const datePart = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0")
-  ].join("");
-  const timePart = [
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-    String(now.getMilliseconds()).padStart(3, "0")
-  ].join("");
-  const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `${prefix}-${datePart}-${timePart}-${seq}`;
 }
 
 function toDocumentLines(lines: OrderLineForm[]) {

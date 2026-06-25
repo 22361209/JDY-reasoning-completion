@@ -13,7 +13,7 @@ export function useStockCountDocument(options: Parameters<typeof useDocumentModu
     auditPermission: "inventory.stock_count.audit",
     billPrefix: "PD",
     defaultDepartment: "仓储部",
-    defaultPartyCode: "CK-001",
+    defaultPartyCode: "",
     defaultUnitPrice: 0,
     executionQtyLabel: "系统库存",
     remainingQtyLabel: "差异",

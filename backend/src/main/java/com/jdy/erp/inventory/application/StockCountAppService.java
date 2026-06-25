@@ -8,6 +8,7 @@ import java.util.Map;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.http.HttpStatus;
@@ -24,6 +25,7 @@ public class StockCountAppService {
     private final LookupService lookupService;
     private final ValidationService validationService;
     private final BillLifecycleService lifecycleService;
+    private final NumberingService numberingService;
     private final ConversionService conversionService;
 
     public StockCountAppService(
@@ -31,12 +33,14 @@ public class StockCountAppService {
         LookupService lookupService,
         ValidationService validationService,
         BillLifecycleService lifecycleService,
+        NumberingService numberingService,
         ConversionService conversionService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.lifecycleService = lifecycleService;
+        this.numberingService = numberingService;
         this.conversionService = conversionService;
     }
 
@@ -78,6 +82,7 @@ public class StockCountAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(StockCountDraftRequest request) {
+        var billNo = numberingService.assignBillNo("stockCount", request.billNo());
         var bill = jdbcTemplate.queryForMap("""
             INSERT INTO stock_count (bill_no, bill_date, department, document_type, business_type, status, owner_name)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -91,7 +96,7 @@ public class StockCountAppService {
             WHERE stock_count.status = ?
             RETURNING id::text AS id, bill_no AS "billNo"
             """,
-            validationService.required(request.billNo(), "单据编号"),
+            billNo,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),
             request.department(),
             "STK_StockCountInput",

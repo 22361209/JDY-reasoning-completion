@@ -94,6 +94,10 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-stock-transfer-form").click();
     await page.getByTestId("tab-stock-transfer-form").waitFor({ state: "visible" });
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="stock-transfer-bill-no"]');
+      return input instanceof HTMLInputElement && input.value.length > 0;
+    });
     await page.getByTestId("stock-transfer-bill-no").fill(billNo);
     await page.getByTestId("stock-transfer-bill-date").fill(billDate);
     await page.getByTestId("stock-transfer-department").fill("仓储部");

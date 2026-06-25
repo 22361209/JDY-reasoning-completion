@@ -94,6 +94,10 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-other-in-form").click();
     await page.getByTestId("tab-other-in-form").waitFor({ state: "visible" });
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="other-stock-in-bill-no"]');
+      return input instanceof HTMLInputElement && input.value.length > 0;
+    });
     await page.getByTestId("other-stock-in-bill-no").fill(billNo);
     await page.getByTestId("other-stock-in-bill-date").fill(billDate);
     await page.getByTestId("other-stock-in-department").fill("仓储部");

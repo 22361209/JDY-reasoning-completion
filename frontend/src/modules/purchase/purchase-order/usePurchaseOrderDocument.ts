@@ -13,7 +13,7 @@ export function usePurchaseOrderDocument(options: Parameters<typeof useDocumentM
     auditPermission: "purchase.order.audit",
     billPrefix: "CGDD",
     defaultDepartment: "采购部",
-    defaultPartyCode: "GYS-001",
+    defaultPartyCode: "",
     defaultUnitPrice: 72,
     initialForm: initialPurchaseOrderForm
   }, options);

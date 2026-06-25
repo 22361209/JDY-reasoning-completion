@@ -61,7 +61,12 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await page.getByTestId("new-document").click();
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && input.value.length > 0;
+  });
   const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  await page.getByTestId("sales-party-code").fill("KH-001");
 
   await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-warehouse").fill("CK-001");

@@ -141,6 +141,15 @@ export async function saveDocumentDraft(type: DocumentType, payload: DocumentDra
   return callDocument(`${endpointByType[type]}/draft`, "POST", body);
 }
 
+export async function fetchNextBillNo(type: DocumentType) {
+  const result = await callDocument(`/api/numbering/${encodeURIComponent(type)}/next`, "GET");
+  const data = result.data as { billNo?: unknown } | undefined;
+  if (!result.ok || typeof data?.billNo !== "string") {
+    return { ok: false, message: result.message || "单据编号生成失败。" };
+  }
+  return { ok: true, message: "", billNo: data.billNo };
+}
+
 export async function auditDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/audit`, "POST");
 }

@@ -6,6 +6,7 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -24,19 +25,22 @@ public class MaterialIssueAppService {
     private final ValidationService validationService;
     private final PostingPipeline postingPipeline;
     private final OperationLogService operationLogService;
+    private final NumberingService numberingService;
 
     public MaterialIssueAppService(
         JdbcTemplate jdbcTemplate,
         LookupService lookupService,
         ValidationService validationService,
         PostingPipeline postingPipeline,
-        OperationLogService operationLogService
+        OperationLogService operationLogService,
+        NumberingService numberingService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.postingPipeline = postingPipeline;
         this.operationLogService = operationLogService;
+        this.numberingService = numberingService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -86,6 +90,7 @@ public class MaterialIssueAppService {
 
     @Transactional
     public Map<String, Object> issue(String billNo, IssueRequest request) {
+        var issueBillNo = numberingService.assignBillNo("materialIssue", request.billNo());
         var taskRows = jdbcTemplate.queryForList("""
             SELECT id::text AS id, bom_id::text AS bom_id, qty
             FROM production_task
@@ -101,7 +106,7 @@ public class MaterialIssueAppService {
             INSERT INTO production_material_issue (bill_no, task_id, status)
             VALUES (?, ?::uuid, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status
-            """, validationService.required(request.billNo(), "领料单号"), task.get("id"), BillStatus.AUDITED.name());
+            """, issueBillNo, task.get("id"), BillStatus.AUDITED.name());
         var issueId = String.valueOf(issueRows.get(0).get("id"));
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
@@ -117,7 +122,7 @@ public class MaterialIssueAppService {
         for (var line : lines) {
             var neededQty = ((BigDecimal) line.get("qty")).multiply(taskQty);
             insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), materialWarehouseId, neededQty, BigDecimal.ONE);
-            post(String.valueOf(line.get("materialCode")), materialWarehouseCode, neededQty.negate(), "PRODUCTION_ISSUE", "PRODUCTION_ISSUE:" + request.billNo());
+            post(String.valueOf(line.get("materialCode")), materialWarehouseCode, neededQty.negate(), "PRODUCTION_ISSUE", "PRODUCTION_ISSUE:" + issueBillNo);
         }
         jdbcTemplate.update("""
             UPDATE production_task

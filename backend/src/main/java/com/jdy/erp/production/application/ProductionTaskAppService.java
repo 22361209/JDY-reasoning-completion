@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -20,12 +21,14 @@ public class ProductionTaskAppService {
     private final LookupService lookupService;
     private final ValidationService validationService;
     private final OperationLogService operationLogService;
+    private final NumberingService numberingService;
 
-    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService) {
+    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.operationLogService = operationLogService;
+        this.numberingService = numberingService;
     }
 
     @Transactional
@@ -61,6 +64,7 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> createTask(TaskRequest request) {
+        var billNo = numberingService.assignBillNo("productionTask", request.billNo());
         var bomRows = jdbcTemplate.queryForList("""
             SELECT b.id::text AS id, b.product_id::text AS product_id
             FROM prod_bom b
@@ -83,7 +87,7 @@ public class ProductionTaskAppService {
                 updated_at = now()
             RETURNING id::text AS id, bill_no AS "billNo", qty, status
             """,
-            validationService.required(request.billNo(), "生产任务单号"),
+            billNo,
             bom.get("id"),
             bom.get("product_id"),
             warehouseId,

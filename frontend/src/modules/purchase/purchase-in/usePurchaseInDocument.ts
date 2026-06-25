@@ -13,7 +13,7 @@ export function usePurchaseInDocument(options: Parameters<typeof useDocumentModu
     auditPermission: "purchase.in.audit",
     billPrefix: "CGRK",
     defaultDepartment: "采购部",
-    defaultPartyCode: "GYS-001",
+    defaultPartyCode: "",
     defaultUnitPrice: 72,
     sourceTraceType: "purchaseOrder",
     reversible: true,

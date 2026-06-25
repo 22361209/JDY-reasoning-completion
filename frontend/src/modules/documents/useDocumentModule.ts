@@ -21,6 +21,7 @@ import {
   auditDocument,
   exportDocument,
   fetchDocumentDetail,
+  fetchNextBillNo,
   printDocument,
   redReverseDocument,
   reverseDocument,
@@ -139,18 +140,20 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     : config.reverseImpact ?? `反审核将冲销${config.title}相关库存流水。`);
   const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 
-  function startNew() {
+  async function startNew() {
     form.billDate = todayText();
-    form.billNo = nextBillNoFor(config.billPrefix);
+    form.billNo = "";
+    const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
+    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     form.sourceOrderNo = config.sourceTraceType ? "" : undefined;
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
-    form.partyCode = config.defaultPartyCode;
+    form.partyCode = "";
     form.department = config.defaultDepartment;
     form.ownerName = runtime.userName() || "本地管理员";
     form.status = "DRAFT";
     form.lines = [defaultLine()];
-    message.value = "已生成新单据草稿号";
+    message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
     runtime.markDirty();
   }
 
@@ -278,6 +281,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
     if (result.ok) {
+      const saved = result.data as { billNo?: unknown } | undefined;
+      if (typeof saved?.billNo === "string") {
+        form.billNo = saved.billNo;
+      }
       form.status = "DRAFT";
       runtime.clearDirty();
     }
@@ -1023,23 +1030,6 @@ function todayText() {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
-}
-
-function nextBillNoFor(prefix: string) {
-  const now = new Date();
-  const datePart = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0")
-  ].join("");
-  const timePart = [
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-    String(now.getMilliseconds()).padStart(3, "0")
-  ].join("");
-  const seq = Math.random().toString(36).slice(2, 5).toUpperCase();
-  return `${prefix}-${datePart}-${timePart}-${seq}`;
 }
 
 function normalizedQty(value: number | string | undefined) {
