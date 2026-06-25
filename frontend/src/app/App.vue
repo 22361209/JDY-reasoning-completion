@@ -311,9 +311,11 @@
           v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report'"
           :list-key="tabs.activeTab.value.id"
           :locked="isLockedList"
+          :locked-object-id="lockedObjectIdForActiveList"
           @push-down-sales-out="openOutboundFromSalesOrder"
           @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
+          @create-document="openCreateDocumentFromList"
         />
         <SalesOrderForm
           v-else-if="isSalesOrderForm"
@@ -740,6 +742,13 @@ const canManageNotificationProviderSettings = computed(() => session.hasPermissi
 const isLockedList = computed(() => {
   return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
 });
+const lockedObjectIdForActiveList = computed(() => {
+  const type = documentTypeByListTabId(tabs.activeTab.value.id);
+  if (!type) {
+    return "";
+  }
+  return tabs.tabs.value.find((tab) => tab.lockedObjectId && documentTypeByFormTabId(tab.id) === type)?.lockedObjectId ?? "";
+});
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
 const pendingPushDownTotal = computed(() => (pendingPushDown.value?.lines ?? [])
   .reduce((sum, line) => sum + normalizedQty(line.qty), 0)
@@ -836,6 +845,66 @@ function startNewModuleDocument(entryId: string) {
   } else if (entryId === stockCountLossTabId) {
     stockCountLossFormRef.value?.startNew();
   }
+}
+
+async function openCreateDocumentFromList(payload: { type: OpenableDocumentType }) {
+  const target = openableDocumentTarget(payload.type);
+  const opened = tabs.openTab({
+    id: target.tabId,
+    title: target.title,
+    module: target.module,
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = target.module;
+  if (opened) {
+    const tab = tabs.tabs.value.find((item) => item.id === target.tabId);
+    if (tab) {
+      tab.dirty = true;
+      tab.lockedObjectId = undefined;
+    }
+    await nextTick();
+    target.ref.value?.startNew();
+    markActiveDirty();
+  }
+}
+
+function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
+  const listMap: Record<string, OpenableDocumentType> = {
+    "sales-order-form-list": "salesOrder",
+    "sales-out-list": "salesOut",
+    "sales-out-form-list": "salesOut",
+    "purchase-order-form-list": "purchaseOrder",
+    "purchase-in-list": "purchaseIn",
+    "purchase-in-form-list": "purchaseIn",
+    "material-issue-form-list": "materialIssue",
+    "product-in-form-list": "productIn",
+    "other-in-form-list": "otherStockIn",
+    "other-out-form-list": "otherStockOut",
+    "stock-transfer-form-list": "stockTransfer",
+    "stock-count-form-list": "stockCount",
+    "stock-count-gain-form-list": "stockCountGain",
+    "stock-count-loss-form-list": "stockCountLoss"
+  };
+  return listMap[tabId] ?? "";
+}
+
+function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
+  const formMap: Record<string, OpenableDocumentType> = {
+    "sales-order-form": "salesOrder",
+    [outboundTabId]: "salesOut",
+    [purchaseOrderTabId]: "purchaseOrder",
+    [purchaseInTabId]: "purchaseIn",
+    [materialIssueTabId]: "materialIssue",
+    [productInTabId]: "productIn",
+    [otherStockInTabId]: "otherStockIn",
+    [otherStockOutTabId]: "otherStockOut",
+    [stockTransferTabId]: "stockTransfer",
+    [stockCountTabId]: "stockCount",
+    [stockCountGainTabId]: "stockCountGain",
+    [stockCountLossTabId]: "stockCountLoss"
+  };
+  return formMap[tabId] ?? "";
 }
 function canOpenEntry(entry: ShellEntry) {
   return session.hasPermission(entry.permission);
@@ -992,6 +1061,7 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
       dirty: false,
       lockedObjectId: billNo
     });
+    markTabLockedObject(outboundTabId, billNo);
     activeModuleName.value = "销售管理";
     await nextTick();
     outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${billNo}`);
@@ -1012,6 +1082,7 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
     dirty: false,
     lockedObjectId: billNo
   });
+  markTabLockedObject(target.tabId, billNo);
   activeModuleName.value = target.module;
   await nextTick();
   target.ref.value?.applyDetail(result.data, `已打开${target.title} ${billNo}`);
@@ -1033,6 +1104,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
       dirty: false,
       lockedObjectId: payload.billNo
     });
+    markTabLockedObject(outboundTabId, payload.billNo);
     activeModuleName.value = "销售管理";
     await nextTick();
     outboundFormRef.value?.applyDetail(result.data, payload.sourceLineNo ? `已追踪打开${"销售"}${"出库单"} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${"销售"}${"出库单"} ${payload.billNo}`, payload.sourceLineNo ?? null);
@@ -1053,6 +1125,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
     dirty: false,
     lockedObjectId: payload.billNo
   });
+  markTabLockedObject(target.tabId, payload.billNo);
   activeModuleName.value = target.module;
   await nextTick();
   target.ref.value?.applyDetail(result.data, payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`, payload.sourceLineNo ?? null);
@@ -1062,7 +1135,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
   formMessage.value = payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`;
   clearActiveDirty();
 }
-function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; ref: { value: { applyDetail: (detail: DocumentDetail, message?: string, sourceLineNo?: number | null) => void } | null } } {
+function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; ref: { value: { applyDetail: (detail: DocumentDetail, message?: string, sourceLineNo?: number | null) => void; startNew: () => void } | null } } {
   switch (type) {
     case "purchaseOrder":
       return { tabId: purchaseOrderTabId, title: "采购订单", module: "采购管理", ref: purchaseOrderFormRef };
@@ -1087,6 +1160,14 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
     case "salesOrder":
     default:
       return { tabId: "sales-order-form", title: "销售订单", module: "销售管理", ref: salesOrderFormRef };
+  }
+}
+
+function markTabLockedObject(tabId: string, billNo: string) {
+  const tab = tabs.tabs.value.find((item) => item.id === tabId);
+  if (tab) {
+    tab.lockedObjectId = billNo;
+    tab.dirty = false;
   }
 }
 async function openOutboundFromSalesOrder(row: Record<string, unknown>) {

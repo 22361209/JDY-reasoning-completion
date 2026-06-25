@@ -25,6 +25,7 @@ try {
   await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-qty").fill("2");
   await page.getByTestId("sales-line-price").fill("86");
+  await page.getByTestId("sales-line-menu").click();
   await page.getByTestId("sales-line-copy").click();
 
   const rowCountAfterCopy = await page.getByTestId("sales-entry-row").count();

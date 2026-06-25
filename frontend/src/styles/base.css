@@ -1713,6 +1713,7 @@ table {
   width: 100%;
   min-width: 1180px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 th,
@@ -1727,14 +1728,41 @@ td {
 td input {
   width: 100%;
   min-width: 72px;
+  max-width: 100%;
   height: 26px;
   border: 1px solid #c7d2df;
   border-radius: 3px;
   padding: 0 6px;
+  box-sizing: border-box;
 }
 
 .remark-cell {
   min-width: 210px;
+}
+
+.entry-cell-text {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entry-number-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-number-cell input,
+.entry-number-input {
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-actions-cell {
+  position: relative;
+  overflow: visible;
+  text-align: center;
 }
 
 .entry-zero-warning-table select {
@@ -1801,6 +1829,58 @@ tr.is-source-target td {
   cursor: grabbing;
 }
 
+.entry-row-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.line-menu-trigger {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #c7d2df;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #284057;
+}
+
+.line-action-menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  min-width: 126px;
+  padding: 4px;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(24, 40, 56, 0.16);
+}
+
+.line-action-menu .line-action {
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #26394d;
+  text-align: left;
+}
+
+.line-action-menu .line-action:hover:not(:disabled) {
+  background: #eef5ff;
+}
+
+.line-action-menu .line-action + .line-action {
+  margin-left: 0;
+}
+
+.entry-total-row td {
+  height: 32px;
+  background: #f7fafc;
+  color: #2e4055;
+  font-weight: 700;
+}
+
 th {
   background: #f3f6f9;
   color: #405064;
@@ -1842,8 +1922,22 @@ th {
   text-decoration: none;
 }
 
+.locked-row-mark {
+  margin-left: 8px;
+  color: #8a651e;
+  font-size: 12px;
+}
+
 .add-line {
   color: #1f72b8;
+}
+
+.column-width-input {
+  width: 74px;
+  height: 26px;
+  border: 1px solid #c7d2df;
+  border-radius: 3px;
+  padding: 0 6px;
 }
 
 .line-action + .line-action {

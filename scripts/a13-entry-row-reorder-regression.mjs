@@ -63,6 +63,7 @@ try {
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await fillLine(page, 0, "CP-001", 1);
 
+  await page.getByTestId("sales-line-menu").click();
   await page.getByTestId("sales-line-insert").click();
   await fillLine(page, 1, "CP-T413874", 2);
   const afterButtonInsert = await readProducts(page, 2);

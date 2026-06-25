@@ -221,11 +221,29 @@ async function callDocument(url: string, method: string, body?: unknown): Promis
       body: body ? JSON.stringify(body) : undefined
     });
     if (!response.ok) {
-      return { ok: false, message: "单据操作失败，请检查主数据、库存和单据状态。" };
+      return { ok: false, message: await readDocumentErrorMessage(response) };
     }
     return { ok: true, message: "", data: await response.json() };
   } catch {
     return { ok: false, message: "网络异常，单据操作失败。" };
+  }
+}
+
+async function readDocumentErrorMessage(response: Response) {
+  const fallback = `单据操作失败（HTTP ${response.status}）。`;
+  try {
+    const text = await response.text();
+    if (!text.trim()) {
+      return fallback;
+    }
+    try {
+      const payload = JSON.parse(text) as { reason?: string; message?: string; error?: string; detail?: string };
+      return payload.reason || payload.message || payload.detail || payload.error || text;
+    } catch {
+      return text;
+    }
+  } catch {
+    return fallback;
   }
 }
 

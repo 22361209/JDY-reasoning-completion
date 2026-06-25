@@ -106,19 +106,19 @@
       </div>
     </section>
 
-    <div v-if="locked" class="lock-banner" data-testid="lock-banner">
-      单据已在其他页签打开，列表的审核/删除/批量操作已锁定。
+    <div v-if="lockedObjectId" class="lock-banner" data-testid="lock-banner">
+      单据 {{ lockedObjectId }} 已在其他页签打开，仅该行锁定，其他单据可继续操作。
     </div>
 
     <div class="list-toolbar">
-      <button class="primary-action" type="button" :disabled="locked || !canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
-      <button v-if="isMasterList" type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
-      <button type="button" :disabled="locked || !canAuditCurrentList || selectedRows.length === 0" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
+      <button class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
+      <button type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
-      <button v-if="isMasterList" type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
-      <button v-if="isMasterList" type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
-      <button type="button" :disabled="locked || !canMaintainCurrentList || selectedRows.length === 0" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
+      <button type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
       <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
       <button type="button">打印</button>
@@ -188,12 +188,13 @@
               v-else-if="isOpenableDocumentList && column.field === 'billNo'"
               class="list-cell-link"
               type="button"
-              :disabled="locked"
+              :disabled="isRowLocked(row)"
               :data-testid="`open-document-${row.billNo}`"
               @click.stop="openDocument(row)"
             >
               {{ row[column.field] }}
             </button>
+            <span v-else-if="column.field === 'billNo' && isRowLocked(row)" class="locked-row-mark">已打开</span>
             <span v-else>{{ row[column.field] }}</span>
           </template>
         </vxe-column>
@@ -343,11 +344,13 @@ type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purch
 const props = defineProps<{
   listKey: string;
   locked?: boolean;
+  lockedObjectId?: string;
 }>();
 const emit = defineEmits<{
   pushDownSalesOut: [row: Record<string, unknown>];
   pushDownPurchaseIn: [row: Record<string, unknown>];
   openDocument: [payload: { type: OpenableDocumentType; row: Record<string, unknown> }];
+  createDocument: [payload: { type: OpenableDocumentType }];
 }>();
 
 const tableRef = ref();
@@ -885,9 +888,9 @@ const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
   return Boolean(
     isSalesOrderList.value &&
-    !props.locked &&
     session.hasPermission("sales.out.audit") &&
     selectedRows.value.length === 1 &&
+    !isRowLocked(row) &&
     row?.status === "已审核" &&
     row?.outStatus !== "全部出库"
   );
@@ -896,9 +899,9 @@ const canPushDownPurchaseIn = computed(() => {
   const row = selectedRows.value[0];
   return Boolean(
     isPurchaseOrderList.value &&
-    !props.locked &&
     session.hasPermission("purchase.in.audit") &&
     selectedRows.value.length === 1 &&
+    !isRowLocked(row) &&
     row?.status === "已审核" &&
     row?.inStatus !== "全部入库"
   );
@@ -907,6 +910,7 @@ const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
 const displayedRows = computed(() => rows.value);
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
+const selectedContainsLockedRow = computed(() => selectedRows.value.some((row) => isRowLocked(row)));
 
 watch(() => props.listKey, () => {
   resetColumns();
@@ -1170,8 +1174,8 @@ function syncSelected(event?: { records?: Record<string, unknown>[] }) {
   selectedRows.value = event?.records ?? tableRef.value?.getCheckboxRecords?.() ?? [];
 }
 
-function checkboxCheckMethod() {
-  return !props.locked;
+function checkboxCheckMethod({ row }: { row?: Record<string, unknown> } = {}) {
+  return !row || !isRowLocked(row);
 }
 
 function confirmAction(action: string) {
@@ -1193,15 +1197,26 @@ function pushDownPurchaseIn() {
 }
 
 function openDocument(row: Record<string, unknown>) {
-  if (!props.locked && openableDocumentType.value) {
+  if (!isRowLocked(row) && openableDocumentType.value) {
     emit("openDocument", { type: openableDocumentType.value, row });
   }
 }
 
 function openCreateDialog() {
-  if (!masterMaintenance.openCreateDialog()) {
-    pendingAction.value = "新增";
+  if (masterMaintenance.openCreateDialog()) {
+    return;
   }
+  if (openableDocumentType.value) {
+    emit("createDocument", { type: openableDocumentType.value });
+  }
+}
+
+function isRowLocked(row: Record<string, unknown> | undefined) {
+  if (!row) {
+    return false;
+  }
+  const lockedBillNo = String(props.lockedObjectId ?? "");
+  return Boolean(lockedBillNo && String(row.billNo ?? "") === lockedBillNo);
 }
 
 function openEditDialog() {
