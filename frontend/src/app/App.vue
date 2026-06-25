@@ -1,5 +1,5 @@
 <template>
-  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :users="systemUsers" @login-success="handleLoginSuccess" />
+  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :users="systemUsers" :message="loginPageMessage" @login-success="handleLoginSuccess" />
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
@@ -584,6 +584,7 @@ const activePasswordPolicy = ref<PasswordPolicySettings>({
 });
 const systemUsers = ref<SystemUser[]>([]);
 const isAuthenticated = ref(false);
+const loginPageMessage = ref("");
 const printTemplateForm = reactive<PrintTemplateConfig>({ ...defaultPrintTemplateForm });
 const typedModuleCatalog = moduleCatalog as unknown as ShellModule[];
 const typedExcludedModules = excludedModules as unknown as ShellModule[];
@@ -728,6 +729,7 @@ function applySystemSession(remoteSession: SystemSession) {
   }
   loginPageRef.value?.setUsername(remoteSession.user.username || "");
   isAuthenticated.value = true;
+  loginPageMessage.value = "";
 }
 async function handleLoginSuccess(remoteSession: SystemSession) {
   applySystemSession(remoteSession);
@@ -742,6 +744,7 @@ function clearLocalSession(message: string, reason: SessionInvalidationReason = 
   session.userRole.value = "";
   session.userRoleCode.value = "";
   session.permissionCodes.value = [];
+  loginPageMessage.value = message;
   loginPageRef.value?.clearPassword(message);
   passwordChangeDialogRef.value?.resetPasswordForm();
   tabs.activeTabId.value = "home";

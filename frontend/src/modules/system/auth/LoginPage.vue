@@ -42,11 +42,13 @@
 </template>
 
 <script setup lang="ts">
+import { watch } from "vue";
 import type { SystemSession } from "../../../services/systemApi";
 import { useLoginPage, type LoginPageUser } from "./useAuthForms";
 
-defineProps<{
+const props = defineProps<{
   users: LoginPageUser[];
+  message: string;
 }>();
 
 const emit = defineEmits<{
@@ -54,6 +56,16 @@ const emit = defineEmits<{
 }>();
 
 const auth = useLoginPage();
+
+watch(
+  () => props.message,
+  (message) => {
+    if (message) {
+      auth.clearPassword(message);
+    }
+  },
+  { immediate: true }
+);
 
 async function submitLogin() {
   const remoteSession = await auth.loginCurrentUser();
