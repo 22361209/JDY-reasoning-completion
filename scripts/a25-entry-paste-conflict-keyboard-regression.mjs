@@ -121,8 +121,8 @@ async function activeCandidateCode(page) {
 async function readFirstLine(page) {
   return {
     productCode: await page.getByTestId("sales-line-product").inputValue(),
-    productName: (await page.getByTestId("sales-entry-row").first().locator("td").nth(1).innerText()).trim(),
-    spec: (await page.getByTestId("sales-entry-row").first().locator("td").nth(2).innerText()).trim(),
+    productName: (await page.getByTestId("sales-entry-row").first().locator("td").nth(2).innerText()).trim(),
+    spec: (await page.getByTestId("sales-entry-row").first().locator("td").nth(3).innerText()).trim(),
     warehouseCode: await page.getByTestId("sales-line-warehouse").inputValue(),
     qty: Number(await page.getByTestId("sales-line-qty").inputValue()),
     unitPrice: Number(await page.getByTestId("sales-line-price").inputValue()),
