@@ -1,44 +1,5 @@
 <template>
-  <section v-if="!isAuthenticated" class="login-page" data-testid="login-page">
-    <form class="login-panel" @submit.prevent="loginCurrentUser">
-      <div class="login-panel__brand">JDY</div>
-      <h1>金蝶云星辰复刻工作台</h1>
-      <p>选择员工账号并输入密码后进入当前测试账套。</p>
-      <label>
-        <span>账号</span>
-        <select v-model="loginForm.username" data-testid="login-username">
-          <option v-for="user in systemUsers" :key="user.username" :value="user.username">
-            {{ user.displayName }} / {{ user.roleName }}
-          </option>
-        </select>
-      </label>
-      <label>
-        <span>密码</span>
-        <input v-model="loginForm.password" data-testid="login-password" type="password" autocomplete="current-password" />
-      </label>
-      <button class="primary-action" type="submit" data-testid="login-submit">登录</button>
-      <button class="text-action" type="button" data-testid="forgot-password-open" @click="openPasswordResetRequestDialog">忘记密码</button>
-      <p v-if="loginMessage" class="login-message" data-testid="login-message">{{ loginMessage }}</p>
-    </form>
-    <div v-if="passwordResetRequestDialogOpen" class="modal-mask" data-testid="password-reset-request-dialog">
-      <form class="dialog password-dialog" @submit.prevent="submitPasswordResetRequest">
-        <h3>找回密码</h3>
-        <label>
-          <span>账号</span>
-          <input v-model="passwordResetRequestForm.username" data-testid="password-reset-username" autocomplete="username" />
-        </label>
-        <label>
-          <span>联系方式/说明</span>
-          <input v-model="passwordResetRequestForm.contactNote" data-testid="password-reset-contact" placeholder="手机号、班组或交接说明" />
-        </label>
-        <p v-if="passwordResetRequestMessage" class="form-message" data-testid="password-reset-message">{{ passwordResetRequestMessage }}</p>
-        <div class="dialog-actions">
-          <button type="button" data-testid="password-reset-cancel" @click="closePasswordResetRequestDialog">取消</button>
-          <button class="primary-action" type="submit" data-testid="password-reset-submit">提交申请</button>
-        </div>
-      </form>
-    </div>
-  </section>
+  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :users="systemUsers" @login-success="handleLoginSuccess" />
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
@@ -123,7 +84,7 @@
             <strong data-testid="session-user-name">{{ session.userName.value }}</strong>
             <span data-testid="session-user-role">{{ session.userRole.value }}</span>
           </div>
-          <button type="button" data-testid="session-password-change" @click="openPasswordDialog">修改密码</button>
+          <button type="button" data-testid="session-password-change" @click="passwordChangeDialogRef?.openPasswordDialog()">修改密码</button>
           <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出</button>
         </div>
       </header>
@@ -880,31 +841,7 @@
         </div>
       </div>
     </div>
-    <div v-if="passwordDialogOpen" class="modal-mask" data-testid="password-change-dialog">
-      <form class="dialog password-dialog" @submit.prevent="submitPasswordChange">
-        <h3>修改密码</h3>
-        <label>
-          <span>当前密码</span>
-          <input v-model="passwordForm.currentPassword" type="password" data-testid="password-current" autocomplete="current-password" />
-        </label>
-        <label>
-          <span>新密码</span>
-          <input v-model="passwordForm.newPassword" type="password" data-testid="password-new" autocomplete="new-password" />
-        </label>
-        <label>
-          <span>确认新密码</span>
-          <input v-model="passwordForm.confirmPassword" type="password" data-testid="password-confirm" autocomplete="new-password" />
-        </label>
-        <div class="password-rules" data-testid="password-rules">
-          <span v-for="rule in passwordStrengthRules" :key="rule.label" :class="{ passed: rule.ok }">{{ rule.label }}</span>
-        </div>
-        <p v-if="passwordMessage" class="form-message" data-testid="password-message">{{ passwordMessage }}</p>
-        <div class="dialog-actions">
-          <button type="button" data-testid="password-cancel" @click="closePasswordDialog">取消</button>
-          <button class="primary-action" type="submit" data-testid="password-submit">保存</button>
-        </div>
-      </form>
-    </div>
+    <PasswordChangeDialog ref="passwordChangeDialogRef" :password-policy="activePasswordPolicy" @changed="handlePasswordChanged" />
     <DocumentDialogs
       :pending-zero-entry-save="null"
       :zero-reason-options="zeroReasonOptions"
@@ -981,9 +918,11 @@ import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
+import LoginPage from "../modules/system/auth/LoginPage.vue";
+import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
 import { fetchDocumentDetail, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
-import { changeSystemPassword, createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, loginSystemUser, logoutSystemUser, requestPasswordReset, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, saveSecuritySettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
+import { createManagedUser, fetchManagedUsers, fetchNotificationOutbox, fetchNotificationProviderSettings, fetchRolePermissions, fetchSecuritySettings, fetchSystemSession, fetchSystemUsers, handlePasswordResetRequest, logoutSystemUser, resendNotification, resetManagedUserPassword, saveNotificationProviderSettings, saveRolePermissions, saveSecuritySettings, syncNotificationReceipt, unlockManagedUser, updateManagedUser, type ManagedRole, type ManagedUser, type NotificationOutboxItem, type NotificationProviderCode, type NotificationProviderSettings, type PasswordPolicySettings, type PasswordResetRequestItem, type PermissionCatalogItem, type RepeatedLoginPolicy, type RolePermissionMatrix, type SecuritySettings, type SystemSession, type SystemUser } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -1021,6 +960,8 @@ const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
 const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
+const loginPageRef = ref<InstanceType<typeof LoginPage> | null>(null);
+const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | null>(null);
 const keyword = ref("");
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
@@ -1105,24 +1046,6 @@ const managedUserForm = reactive({
 });
 const systemUsers = ref<SystemUser[]>([]);
 const isAuthenticated = ref(false);
-const loginForm = reactive({
-  username: "admin",
-  password: ""
-});
-const loginMessage = ref("");
-const passwordResetRequestDialogOpen = ref(false);
-const passwordResetRequestMessage = ref("");
-const passwordResetRequestForm = reactive({
-  username: "admin",
-  contactNote: ""
-});
-const passwordDialogOpen = ref(false);
-const passwordMessage = ref("");
-const passwordForm = reactive({
-  currentPassword: "",
-  newPassword: "",
-  confirmPassword: ""
-});
 const printTemplateForm = reactive<PrintTemplateConfig>({ ...defaultPrintTemplateForm });
 const typedModuleCatalog = moduleCatalog as unknown as ShellModule[];
 const typedExcludedModules = excludedModules as unknown as ShellModule[];
@@ -1166,8 +1089,6 @@ const canManagePrintTemplates = computed(() => session.hasPermission("system.pri
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
 const canManageSecuritySettings = computed(() => session.hasPermission("system.security.manage"));
 const canManageNotificationProviderSettings = computed(() => session.hasPermission("system.notification_provider.manage"));
-const passwordStrengthRules = computed(() => passwordPolicyRules(activePasswordPolicy.value, passwordForm.newPassword));
-const passwordStrengthOk = computed(() => passwordStrengthRules.value.every((rule) => rule.ok));
 const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
 const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
 const selectedPasswordResetRequest = computed(() => passwordResetRequests.value.find((request) => request.id === selectedPasswordResetRequestId.value && request.status === "PENDING") ?? null);
@@ -1282,44 +1203,13 @@ function applySystemSession(remoteSession: SystemSession) {
   if (remoteSession.security?.passwordPolicy) {
     activePasswordPolicy.value = remoteSession.security.passwordPolicy;
   }
-  loginForm.username = remoteSession.user.username || loginForm.username;
+  loginPageRef.value?.setUsername(remoteSession.user.username || "");
   isAuthenticated.value = true;
-  loginMessage.value = "";
 }
-async function loginCurrentUser() {
-  loginMessage.value = "";
-  const loginResult = await loginSystemUser(loginForm.username, loginForm.password);
-  const remoteSession = loginResult.session;
-  if (!loginResult.ok || !remoteSession?.authenticated || !remoteSession.user) {
-    loginMessage.value = loginResult.message || "账号或密码不正确";
-    return;
-  }
+async function handleLoginSuccess(remoteSession: SystemSession) {
   applySystemSession(remoteSession);
-  loginForm.password = "";
   if (tabs.activeTab.value.id === "role-permission-settings") {
     await loadRolePermissions();
-  }
-}
-function openPasswordResetRequestDialog() {
-  passwordResetRequestForm.username = loginForm.username;
-  passwordResetRequestForm.contactNote = "";
-  passwordResetRequestMessage.value = "";
-  passwordResetRequestDialogOpen.value = true;
-}
-function closePasswordResetRequestDialog() {
-  passwordResetRequestDialogOpen.value = false;
-  passwordResetRequestMessage.value = "";
-}
-async function submitPasswordResetRequest() {
-  passwordResetRequestMessage.value = "";
-  const result = await requestPasswordReset({
-    username: passwordResetRequestForm.username,
-    contactNote: passwordResetRequestForm.contactNote
-  });
-  passwordResetRequestMessage.value = result.message || (result.ok ? "已提交找回申请。" : "找回申请提交失败。");
-  if (result.ok) {
-    loginMessage.value = passwordResetRequestMessage.value;
-    passwordResetRequestForm.contactNote = "";
   }
 }
 async function logoutCurrentUser() {
@@ -1332,48 +1222,14 @@ function clearLocalSession(message: string, reason: SessionInvalidationReason = 
   session.userRole.value = "";
   session.userRoleCode.value = "";
   session.permissionCodes.value = [];
-  loginForm.password = "";
-  loginMessage.value = message;
-  passwordDialogOpen.value = false;
-  resetPasswordForm();
+  loginPageRef.value?.clearPassword(message);
+  passwordChangeDialogRef.value?.resetPasswordForm();
   tabs.activeTabId.value = "home";
   if (broadcast) {
     broadcastSessionInvalidation(reason, message);
   }
 }
-function openPasswordDialog() {
-  resetPasswordForm();
-  passwordDialogOpen.value = true;
-}
-function closePasswordDialog() {
-  passwordDialogOpen.value = false;
-  resetPasswordForm();
-}
-function resetPasswordForm() {
-  passwordForm.currentPassword = "";
-  passwordForm.newPassword = "";
-  passwordForm.confirmPassword = "";
-  passwordMessage.value = "";
-}
-async function submitPasswordChange() {
-  passwordMessage.value = "";
-  if (!passwordStrengthOk.value) {
-    passwordMessage.value = "新密码需满足全部强度要求。";
-    return;
-  }
-  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    passwordMessage.value = "两次输入的新密码不一致。";
-    return;
-  }
-  const result = await changeSystemPassword({
-    currentPassword: passwordForm.currentPassword,
-    newPassword: passwordForm.newPassword
-  });
-  if (!result.ok) {
-    passwordMessage.value = result.message || "密码修改失败。";
-    return;
-  }
-  closePasswordDialog();
+async function handlePasswordChanged() {
   await logoutSystemUser();
   clearLocalSession("密码已修改，请使用新密码重新登录。", "password-changed");
 }
@@ -1887,22 +1743,6 @@ function applyPasswordPolicyToSecurityForm(policy: PasswordPolicySettings) {
   securitySettingsForm.passwordRequireLowercase = policy.requireLowercase;
   securitySettingsForm.passwordRequireDigit = policy.requireDigit;
   securitySettingsForm.passwordRequireSymbol = policy.requireSymbol;
-}
-function passwordPolicyRules(policy: PasswordPolicySettings, password: string) {
-  const rules = [{ label: `至少 ${policy.minLength} 位`, ok: password.length >= policy.minLength }];
-  if (policy.requireUppercase) {
-    rules.push({ label: "大写字母", ok: /[A-Z]/.test(password) });
-  }
-  if (policy.requireLowercase) {
-    rules.push({ label: "小写字母", ok: /[a-z]/.test(password) });
-  }
-  if (policy.requireDigit) {
-    rules.push({ label: "数字", ok: /\d/.test(password) });
-  }
-  if (policy.requireSymbol) {
-    rules.push({ label: "符号", ok: /[^A-Za-z0-9]/.test(password) });
-  }
-  return rules;
 }
 function passwordPolicySummary(policy: PasswordPolicySettings) {
   const parts = [`至少 ${policy.minLength} 位`];
