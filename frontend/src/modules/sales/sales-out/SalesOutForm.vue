@@ -46,6 +46,15 @@
                 @input="document.handleMasterInput('customer', document.form.partyCode, 'sales-out-party')"
                 @keydown="document.handleSelectorKeydown($event, 'sales-out-party')"
               />
+              <button
+                class="master-selector__open"
+                type="button"
+                data-testid="sales-out-party-open-selector"
+                title="整列表选择"
+                aria-label="整列表选择"
+                @mousedown.prevent
+                @click="document.openMasterSelectorDialog('customer', 'sales-out-party', document.form.partyCode)"
+              >...</button>
               <span v-if="document.activeSelector.value === 'sales-out-party'" class="master-selector__menu">
                 <button
                   v-for="(option, optionIndex) in document.selectorOptions.value"
@@ -107,6 +116,7 @@
         @search-master-options="document.searchMasterOptions"
         @handle-master-input="document.handleMasterInput"
         @handle-selector-keydown="document.handleSelectorKeydown"
+        @open-master-selector-dialog="document.openMasterSelectorDialog"
         @select-line-product="document.selectLineProduct"
         @select-warehouse-option="document.selectWarehouseOption"
         @entry-paste="document.handleEntryPaste"
@@ -123,6 +133,20 @@
       />
     </div>
   </StandardDocument>
+
+  <MasterSelectorDialog
+    :open="document.masterSelectorDialogOpen.value"
+    :title="document.masterSelectorDialogTitle.value"
+    :label="document.masterSelectorDialogLabel.value"
+    :keyword="document.masterSelectorDialogKeyword.value"
+    :rows="document.masterSelectorDialogRows.value"
+    :total="document.masterSelectorDialogTotal.value"
+    :loading="document.masterSelectorDialogLoading.value"
+    :message="document.masterSelectorDialogMessage.value"
+    @close="document.closeMasterSelectorDialog"
+    @search="document.searchMasterSelectorDialog"
+    @select="document.selectMasterSelectorDialogRow"
+  />
 
   <div v-if="document.sourceSelectorOpen.value" class="modal-mask" data-testid="sales-out-source-selector-dialog">
     <div class="dialog source-selector-dialog">
@@ -252,6 +276,7 @@
 import EntryTable from "../../../components/EntryTable.vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
+import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import { useSalesOutDocument, type SalesOutPushDownDraft } from "./useSalesOutDocument";

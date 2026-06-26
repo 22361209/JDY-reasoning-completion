@@ -105,6 +105,14 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const activeSelector = ref("");
   const selectorOptions = ref<MasterOption[]>([]);
   const selectorCursorIndex = ref(0);
+  const masterSelectorDialogOpen = ref(false);
+  const masterSelectorDialogType = ref("");
+  const masterSelectorDialogSelectorId = ref("");
+  const masterSelectorDialogKeyword = ref("");
+  const masterSelectorDialogRows = ref<MasterOption[]>([]);
+  const masterSelectorDialogTotal = ref(0);
+  const masterSelectorDialogLoading = ref(false);
+  const masterSelectorDialogMessage = ref("");
   const draggingLineIndex = ref<number | null>(null);
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
@@ -128,6 +136,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
+  const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
+  const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
   const statusLabel = computed(() => {
     const labels: Record<OrderForm["status"], string> = {
       DRAFT: "草稿",
@@ -630,13 +640,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     selectorCursorIndex.value = 0;
     const requestSeq = selectorRequestSeq + 1;
     selectorRequestSeq = requestSeq;
-    const listKeyByType: Record<string, string> = {
-      customer: "customer-master-list",
-      supplier: "supplier-master-list",
-      product: "product-master-list",
-      warehouse: "warehouse-master-list"
-    };
-    const result = await fetchListRows(listKeyByType[type], {
+    const result = await fetchListRows(masterSelectorListKey(type), {
       keyword: keywordValue,
       status: "",
       page: 1,
@@ -654,6 +658,65 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       }))
       : [];
     selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
+  }
+
+  async function openMasterSelectorDialog(type: string, selectorId: string, keywordValue: string) {
+    activeSelector.value = "";
+    masterSelectorDialogOpen.value = true;
+    masterSelectorDialogType.value = type;
+    masterSelectorDialogSelectorId.value = selectorId;
+    masterSelectorDialogKeyword.value = keywordValue;
+    await loadMasterSelectorDialogRows(keywordValue);
+  }
+
+  function closeMasterSelectorDialog() {
+    masterSelectorDialogOpen.value = false;
+    masterSelectorDialogMessage.value = "";
+  }
+
+  async function searchMasterSelectorDialog(keywordValue: string) {
+    masterSelectorDialogKeyword.value = keywordValue;
+    await loadMasterSelectorDialogRows(keywordValue);
+  }
+
+  async function loadMasterSelectorDialogRows(keywordValue: string) {
+    if (!masterSelectorDialogType.value) {
+      return;
+    }
+    masterSelectorDialogLoading.value = true;
+    masterSelectorDialogMessage.value = "";
+    const result = await fetchListRows(masterSelectorListKey(masterSelectorDialogType.value), {
+      keyword: keywordValue,
+      status: "",
+      page: 1,
+      pageSize: 100
+    });
+    masterSelectorDialogLoading.value = false;
+    if (!result.ok || !result.data) {
+      masterSelectorDialogRows.value = [];
+      masterSelectorDialogTotal.value = 0;
+      masterSelectorDialogMessage.value = result.message || "主数据列表加载失败。";
+      return;
+    }
+    masterSelectorDialogRows.value = result.data.rows.map(masterRowToOption);
+    masterSelectorDialogTotal.value = result.data.total;
+  }
+
+  function selectMasterSelectorDialogRow(option: MasterOption) {
+    const selectorId = masterSelectorDialogSelectorId.value;
+    if (!selectorId) {
+      return;
+    }
+    if (selectorId.endsWith("-party")) {
+      selectPartyOption(option, selectorId);
+    } else if (selectorId.endsWith("-product")) {
+      selectLineProduct(option, lineIndexFromSelector(selectorId), selectorId);
+    } else if (selectorId.endsWith("-target-warehouse")) {
+      selectTargetWarehouseOption(option, lineIndexFromSelector(selectorId), selectorId);
+    } else if (selectorId.endsWith("-warehouse")) {
+      selectWarehouseOption(option, lineIndexFromSelector(selectorId), selectorId);
+    }
+    closeMasterSelectorDialog();
   }
 
   function handleSelectorKeydown(event: KeyboardEvent, selectorId: string) {
@@ -923,6 +986,15 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     activeSelector,
     selectorOptions,
     selectorCursorIndex,
+    masterSelectorDialogOpen,
+    masterSelectorDialogType,
+    masterSelectorDialogTitle,
+    masterSelectorDialogLabel,
+    masterSelectorDialogKeyword,
+    masterSelectorDialogRows,
+    masterSelectorDialogTotal,
+    masterSelectorDialogLoading,
+    masterSelectorDialogMessage,
     draggingLineIndex,
     highlightedSourceBillNo,
     highlightedSourceLineNo,
@@ -987,6 +1059,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     handleMasterInput,
     searchMasterOptions,
     handleSelectorKeydown,
+    openMasterSelectorDialog,
+    closeMasterSelectorDialog,
+    searchMasterSelectorDialog,
+    selectMasterSelectorDialogRow,
     selectPartyOption,
     selectWarehouseOption,
     selectTargetWarehouseOption,
@@ -1274,6 +1350,26 @@ function selectorIdForLine(lineIndex: number, field: "product" | "warehouse" | "
 
 function selectorIdForParty(testPrefix = "") {
   return `${testPrefix}-party`;
+}
+
+function masterSelectorListKey(type: string) {
+  const listKeyByType: Record<string, string> = {
+    customer: "customer-master-list",
+    supplier: "supplier-master-list",
+    product: "product-master-list",
+    warehouse: "warehouse-master-list"
+  };
+  return listKeyByType[type] ?? "product-master-list";
+}
+
+function masterSelectorLabel(type: string) {
+  const labelByType: Record<string, string> = {
+    customer: "客户",
+    supplier: "供应商",
+    product: "商品",
+    warehouse: "仓库"
+  };
+  return labelByType[type] ?? "资料";
 }
 
 async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price", testPrefix = "") {

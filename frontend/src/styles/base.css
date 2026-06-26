@@ -1638,8 +1638,22 @@ input:disabled {
 
 .master-selector {
   position: relative;
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
   min-width: 0;
+}
+
+.master-selector > input {
+  min-width: 0;
+}
+
+.master-selector__open {
+  height: 30px;
+  border-left: 0;
+  border-radius: 0 3px 3px 0;
+  padding: 0;
+  color: #2f5f8f;
+  font-weight: 700;
 }
 
 .master-selector__menu {
@@ -1653,6 +1667,91 @@ input:disabled {
   border: 1px solid #c7d2df;
   box-shadow: 0 8px 18px rgba(35, 48, 63, 0.14);
   background: #ffffff;
+}
+
+.master-selector-dialog {
+  width: min(880px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+
+.master-selector-dialog__toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.master-selector-dialog__body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  border: 1px solid #d6e0ea;
+  min-height: 340px;
+}
+
+.master-selector-dialog__tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-right: 1px solid #d6e0ea;
+  background: #f8fafc;
+  color: #526273;
+  font-size: 12px;
+}
+
+.master-selector-dialog__tree strong {
+  color: #2e3f51;
+}
+
+.master-selector-dialog__table {
+  overflow: auto;
+  max-height: 390px;
+}
+
+.master-selector-dialog__table table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.master-selector-dialog__table th,
+.master-selector-dialog__table td {
+  height: 34px;
+  border-bottom: 1px solid #e5ebf2;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.master-selector-dialog__table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f5f8fb;
+  color: #4c5c6d;
+  font-weight: 600;
+}
+
+.master-selector-dialog__table tbody tr[data-testid] {
+  cursor: pointer;
+}
+
+.master-selector-dialog__table tbody tr[data-testid]:hover,
+.master-selector-dialog__table tbody tr[data-testid]:focus {
+  background: #edf4ff;
+  outline: none;
+}
+
+.master-selector-dialog__summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+  color: #536678;
+  font-size: 12px;
 }
 
 .master-selector__menu button {

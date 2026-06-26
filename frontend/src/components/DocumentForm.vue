@@ -52,6 +52,15 @@
               @input="emit('handleMasterInput', partyType, form.partyCode, `${testPrefix}-party`)"
               @keydown="emit('handleSelectorKeydown', $event, `${testPrefix}-party`)"
             />
+            <button
+              class="master-selector__open"
+              type="button"
+              :data-testid="`${testPrefix}-party-open-selector`"
+              title="整列表选择"
+              aria-label="整列表选择"
+              @mousedown.prevent
+              @click="emit('openMasterSelectorDialog', partyType, `${testPrefix}-party`, form.partyCode)"
+            >...</button>
             <span v-if="activeSelector === `${testPrefix}-party`" class="master-selector__menu">
               <button
                 v-for="(option, optionIndex) in selectorOptions"
@@ -117,6 +126,7 @@
         @search-master-options="(type, keyword, selectorId) => emit('searchMasterOptions', type, keyword, selectorId)"
         @handle-master-input="(type, keyword, selectorId) => emit('handleMasterInput', type, keyword, selectorId)"
         @handle-selector-keydown="(event, selectorId) => emit('handleSelectorKeydown', event, selectorId)"
+        @open-master-selector-dialog="(type, selectorId, keyword) => emit('openMasterSelectorDialog', type, selectorId, keyword)"
         @select-line-product="(option, lineIndex, selectorId) => emit('selectLineProduct', option, lineIndex, selectorId)"
         @select-warehouse-option="(option, lineIndex, selectorId) => emit('selectWarehouseOption', option, lineIndex, selectorId)"
         @select-target-warehouse-option="(option, lineIndex, selectorId) => emit('selectTargetWarehouseOption', option, lineIndex, selectorId)"
@@ -132,6 +142,19 @@
         @copy-line="emit('copyLine', $event)"
         @add-line="emit('addLine')"
       />
+      <MasterSelectorDialog
+        :open="masterSelectorDialogOpen"
+        :title="masterSelectorDialogTitle"
+        :label="masterSelectorDialogLabel"
+        :keyword="masterSelectorDialogKeyword"
+        :rows="masterSelectorDialogRows"
+        :total="masterSelectorDialogTotal"
+        :loading="masterSelectorDialogLoading"
+        :message="masterSelectorDialogMessage"
+        @close="emit('closeMasterSelectorDialog')"
+        @search="emit('searchMasterSelectorDialog', $event)"
+        @select="emit('selectMasterSelectorDialogRow', $event)"
+      />
     </div>
     <div v-else class="empty-shell">该表单正在等待本批次接入，先保留统一工作区和页签行为。</div>
   </StandardDocument>
@@ -139,6 +162,7 @@
 
 <script setup lang="ts">
 import EntryTable, { type EntryLine, type MasterOption } from "./EntryTable.vue";
+import MasterSelectorDialog from "./MasterSelectorDialog.vue";
 import StandardDocument from "./StandardDocument.vue";
 
 interface DocumentFormState {
@@ -197,6 +221,15 @@ withDefaults(defineProps<{
   activeSelector: string;
   selectorOptions: MasterOption[];
   selectorCursorIndex: number;
+  masterSelectorDialogOpen: boolean;
+  masterSelectorDialogType: string;
+  masterSelectorDialogTitle: string;
+  masterSelectorDialogLabel: string;
+  masterSelectorDialogKeyword: string;
+  masterSelectorDialogRows: MasterOption[];
+  masterSelectorDialogTotal: number;
+  masterSelectorDialogLoading: boolean;
+  masterSelectorDialogMessage: string;
   knownProductOptions: MasterOption[];
   draggingLineIndex: number | null;
   highlightedSourceBillNo: string;
@@ -232,6 +265,10 @@ const emit = defineEmits<{
   searchMasterOptions: [type: string, keyword: string, selectorId: string];
   handleMasterInput: [type: string, keyword: string, selectorId: string];
   handleSelectorKeydown: [event: KeyboardEvent, selectorId: string];
+  openMasterSelectorDialog: [type: string, selectorId: string, keyword: string];
+  closeMasterSelectorDialog: [];
+  searchMasterSelectorDialog: [keyword: string];
+  selectMasterSelectorDialogRow: [option: MasterOption];
   selectPartyOption: [option: MasterOption];
   selectLineProduct: [option: MasterOption, lineIndex: number, selectorId: string];
   selectWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];

@@ -87,6 +87,14 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const activeSelector = ref("");
   const selectorOptions = ref<MasterOption[]>([]);
   const selectorCursorIndex = ref(0);
+  const masterSelectorDialogOpen = ref(false);
+  const masterSelectorDialogType = ref("");
+  const masterSelectorDialogSelectorId = ref("");
+  const masterSelectorDialogKeyword = ref("");
+  const masterSelectorDialogRows = ref<MasterOption[]>([]);
+  const masterSelectorDialogTotal = ref(0);
+  const masterSelectorDialogLoading = ref(false);
+  const masterSelectorDialogMessage = ref("");
   const draggingLineIndex = ref<number | null>(null);
   const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
   const downstreamTrace = ref<DownstreamTraceState | null>(null);
@@ -118,6 +126,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     return labels[form.status];
   });
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
+  const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
+  const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
   const showSourceLineColumn = computed(() => Boolean(form.sourceOrderNo));
   const entryTableColspan = computed(() => 11 + (showSourceLineColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
@@ -801,12 +811,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     selectorCursorIndex.value = 0;
     const requestSeq = selectorRequestSeq + 1;
     selectorRequestSeq = requestSeq;
-    const listKeyByType: Record<string, string> = {
-      customer: "customer-master-list",
-      product: "product-master-list",
-      warehouse: "warehouse-master-list"
-    };
-    const result = await fetchListRows(listKeyByType[type], { keyword: keywordValue, status: "", page: 1, pageSize: 20 });
+    const result = await fetchListRows(masterSelectorListKey(type), { keyword: keywordValue, status: "", page: 1, pageSize: 20 });
     if (requestSeq !== selectorRequestSeq || activeSelector.value !== selectorId) {
       return;
     }
@@ -816,6 +821,58 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }
     selectorOptions.value = result.data.rows.map(masterRowToOption);
     selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
+  }
+
+  async function openMasterSelectorDialog(type: string, selectorId: string, keywordValue: string) {
+    activeSelector.value = "";
+    masterSelectorDialogOpen.value = true;
+    masterSelectorDialogType.value = type;
+    masterSelectorDialogSelectorId.value = selectorId;
+    masterSelectorDialogKeyword.value = keywordValue;
+    await loadMasterSelectorDialogRows(keywordValue);
+  }
+
+  function closeMasterSelectorDialog() {
+    masterSelectorDialogOpen.value = false;
+    masterSelectorDialogMessage.value = "";
+  }
+
+  async function searchMasterSelectorDialog(keywordValue: string) {
+    masterSelectorDialogKeyword.value = keywordValue;
+    await loadMasterSelectorDialogRows(keywordValue);
+  }
+
+  async function loadMasterSelectorDialogRows(keywordValue: string) {
+    if (!masterSelectorDialogType.value) {
+      return;
+    }
+    masterSelectorDialogLoading.value = true;
+    masterSelectorDialogMessage.value = "";
+    const result = await fetchListRows(masterSelectorListKey(masterSelectorDialogType.value), { keyword: keywordValue, status: "", page: 1, pageSize: 100 });
+    masterSelectorDialogLoading.value = false;
+    if (!result.ok || !result.data) {
+      masterSelectorDialogRows.value = [];
+      masterSelectorDialogTotal.value = 0;
+      masterSelectorDialogMessage.value = result.message || "主数据列表加载失败。";
+      return;
+    }
+    masterSelectorDialogRows.value = result.data.rows.map(masterRowToOption);
+    masterSelectorDialogTotal.value = result.data.total;
+  }
+
+  function selectMasterSelectorDialogRow(option: MasterOption) {
+    const selectorId = masterSelectorDialogSelectorId.value;
+    if (!selectorId) {
+      return;
+    }
+    if (selectorId.endsWith("-party")) {
+      selectPartyOption(option, selectorId);
+    } else if (selectorId.endsWith("-product")) {
+      selectLineProduct(option, lineIndexFromSelector(selectorId), selectorId);
+    } else if (selectorId.endsWith("-warehouse")) {
+      selectWarehouseOption(option, lineIndexFromSelector(selectorId), selectorId);
+    }
+    closeMasterSelectorDialog();
   }
 
   function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
@@ -924,6 +981,15 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     activeSelector,
     selectorOptions,
     selectorCursorIndex,
+    masterSelectorDialogOpen,
+    masterSelectorDialogType,
+    masterSelectorDialogTitle,
+    masterSelectorDialogLabel,
+    masterSelectorDialogKeyword,
+    masterSelectorDialogRows,
+    masterSelectorDialogTotal,
+    masterSelectorDialogLoading,
+    masterSelectorDialogMessage,
     draggingLineIndex,
     sourceSelectorOpen,
     sourceSelectorLoading,
@@ -996,6 +1062,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     searchMasterOptions,
     handleMasterInput,
     handleSelectorKeydown,
+    openMasterSelectorDialog,
+    closeMasterSelectorDialog,
+    searchMasterSelectorDialog,
+    selectMasterSelectorDialogRow,
     selectPartyOption,
     selectWarehouseOption,
     selectLineProduct,
@@ -1418,6 +1488,24 @@ function mergeLineRemark(current: string | undefined, addition: string) {
 
 function selectorIdForLine(lineIndex: number, field: "product" | "warehouse") {
   return `sales-out-line-${lineIndex}-${field}`;
+}
+
+function masterSelectorListKey(type: string) {
+  const listKeyByType: Record<string, string> = {
+    customer: "customer-master-list",
+    product: "product-master-list",
+    warehouse: "warehouse-master-list"
+  };
+  return listKeyByType[type] ?? "product-master-list";
+}
+
+function masterSelectorLabel(type: string) {
+  const labelByType: Record<string, string> = {
+    customer: "客户",
+    product: "商品",
+    warehouse: "仓库"
+  };
+  return labelByType[type] ?? "资料";
 }
 
 async function focusFormField(testId: string) {

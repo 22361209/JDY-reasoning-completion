@@ -63,6 +63,16 @@
                   @keydown="handleLineCellKeydown($event, lineIndex, 'product', selectorIdForLine(lineIndex, 'product'))"
                   @paste="emit('entryPaste', $event, lineIndex)"
                 />
+                <button
+                  class="master-selector__open"
+                  type="button"
+                  :disabled="!isDraft"
+                  :data-testid="`${lineProductTestId(lineIndex)}-open-selector`"
+                  title="整列表选择"
+                  aria-label="整列表选择"
+                  @mousedown.prevent
+                  @click="emit('openMasterSelectorDialog', 'product', selectorIdForLine(lineIndex, 'product'), line.productCode)"
+                >...</button>
                 <span v-if="activeSelector === selectorIdForLine(lineIndex, 'product')" class="master-selector__menu">
                   <button
                     v-for="(option, optionIndex) in selectorOptions"
@@ -98,6 +108,16 @@
                   @keydown="handleLineCellKeydown($event, lineIndex, 'warehouse', selectorIdForLine(lineIndex, 'warehouse'))"
                   @paste="emit('entryPaste', $event, lineIndex)"
                 />
+                <button
+                  class="master-selector__open"
+                  type="button"
+                  :disabled="!isDraft"
+                  :data-testid="`${lineWarehouseTestId(lineIndex)}-open-selector`"
+                  title="整列表选择"
+                  aria-label="整列表选择"
+                  @mousedown.prevent
+                  @click="emit('openMasterSelectorDialog', 'warehouse', selectorIdForLine(lineIndex, 'warehouse'), line.warehouseCode)"
+                >...</button>
                 <span v-if="activeSelector === selectorIdForLine(lineIndex, 'warehouse')" class="master-selector__menu">
                   <button
                     v-for="(option, optionIndex) in selectorOptions"
@@ -123,6 +143,16 @@
                   @keydown="handleLineCellKeydown($event, lineIndex, 'target-warehouse', selectorIdForLine(lineIndex, 'target-warehouse'))"
                   @paste="emit('entryPaste', $event, lineIndex)"
                 />
+                <button
+                  class="master-selector__open"
+                  type="button"
+                  :disabled="!isDraft"
+                  :data-testid="`${lineTargetWarehouseTestId(lineIndex)}-open-selector`"
+                  title="整列表选择"
+                  aria-label="整列表选择"
+                  @mousedown.prevent
+                  @click="emit('openMasterSelectorDialog', 'warehouse', selectorIdForLine(lineIndex, 'target-warehouse'), line.targetWarehouseCode || '')"
+                >...</button>
                 <span v-if="activeSelector === selectorIdForLine(lineIndex, 'target-warehouse')" class="master-selector__menu">
                   <button
                     v-for="(option, optionIndex) in selectorOptions"
@@ -328,6 +358,7 @@ const emit = defineEmits<{
   searchMasterOptions: [type: string, keyword: string, selectorId: string];
   handleMasterInput: [type: string, keyword: string, selectorId: string];
   handleSelectorKeydown: [event: KeyboardEvent, selectorId: string];
+  openMasterSelectorDialog: [type: string, selectorId: string, keyword: string];
   selectLineProduct: [option: MasterOption, lineIndex: number, selectorId: string];
   selectWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   selectTargetWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
