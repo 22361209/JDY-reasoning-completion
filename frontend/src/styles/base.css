@@ -1481,6 +1481,29 @@ input:disabled {
   padding-right: 0;
 }
 
+.data-list-native-table .list-checkbox-column input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.data-list-native-table .vxe-checkbox--icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #aebdca;
+  border-radius: 2px;
+  background: #ffffff;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.data-list-native-table .list-checkbox-column input:checked + .vxe-checkbox--icon {
+  border-color: #1f72b8;
+  background: #1f72b8;
+  box-shadow: inset 0 0 0 3px #ffffff;
+}
+
 .vxe-wrap .vxe-table--body-wrapper {
   overflow-x: hidden !important;
   overflow-y: scroll !important;

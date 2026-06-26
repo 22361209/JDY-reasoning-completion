@@ -153,6 +153,7 @@
                       data-testid="list-select-all"
                       @change="toggleAllDisplayedRows(($event.target as HTMLInputElement).checked)"
                     />
+                    <span class="vxe-checkbox--icon" @click="toggleAllDisplayedRows(!allDisplayedRowsSelected)" />
                   </th>
                   <th
                     v-for="column in visibleColumns"
@@ -195,6 +196,7 @@
                       :data-testid="`list-select-${rowKey(row)}`"
                       @change="toggleRowSelection(row, ($event.target as HTMLInputElement).checked)"
                     />
+                    <span class="vxe-checkbox--icon" @click="toggleRowSelection(row, !isRowSelected(row))" />
                   </td>
                   <td
                     v-for="column in visibleColumns"
