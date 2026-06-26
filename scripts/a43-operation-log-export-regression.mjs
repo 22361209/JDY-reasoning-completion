@@ -160,6 +160,7 @@ try {
   await page.getByTestId("operation-log-date-to").fill(logDate);
   await page.getByTestId("list-query").click();
   await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible" });
+  await page.getByTestId("list-more-actions").hover();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByTestId("list-export").click()

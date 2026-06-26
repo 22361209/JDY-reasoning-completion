@@ -116,13 +116,18 @@
       <button type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
-      <button type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
-      <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
-      <button type="button">打印</button>
       <button type="button" data-testid="column-settings" @click="columnDialogOpen = true">列设置</button>
+      <div class="list-more-actions">
+        <button type="button" class="list-more-trigger" data-testid="list-more-actions">更多</button>
+        <div class="list-more-menu">
+          <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
+          <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
+          <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
+          <button type="button">打印</button>
+          <button class="danger-menu-action" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
+        </div>
+      </div>
       <span class="selected-count">已选中 {{ selectedRows.length }} 条</span>
       <span v-if="exportMessage" class="list-export-message" data-testid="list-export-message">{{ exportMessage }}</span>
     </div>
@@ -183,7 +188,7 @@
             </div>
           </template>
           <template #default="{ row }">
-            <span v-if="column.field === 'status'" class="status-pill" :class="{ draft: row.status === '草稿' }">{{ row[column.field] }}</span>
+            <span v-if="column.field === 'status'" class="status-pill" :class="statusClass(row[column.field])">{{ row[column.field] }}</span>
             <button
               v-else-if="isOpenableDocumentList && column.field === 'billNo'"
               class="list-cell-link"
@@ -1163,6 +1168,17 @@ function syncSelected(event?: { records?: Record<string, unknown>[] }) {
 
 function checkboxCheckMethod({ row }: { row?: Record<string, unknown> } = {}) {
   return !row || !isRowLocked(row);
+}
+
+function statusClass(value: unknown) {
+  const status = String(value ?? "");
+  return {
+    draft: status === "草稿",
+    audited: ["已审核", "成功", "启用", "正常", "已核销"].includes(status),
+    reversed: ["已反审核", "部分核销"].includes(status),
+    warning: ["低库存", "未核销"].includes(status),
+    danger: ["已作废", "已红冲", "失败", "禁用"].includes(status)
+  };
 }
 
 function confirmAction(action: string) {
