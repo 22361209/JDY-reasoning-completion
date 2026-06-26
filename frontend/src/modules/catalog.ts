@@ -1,3 +1,5 @@
+import { stockAlertListEntry } from "./inventory/stock-alert/definition";
+
 export const moduleCatalog = [
   {
     name: "销售管理",
@@ -34,6 +36,7 @@ export const moduleCatalog = [
     groups: [
       { title: "库存业务", entries: [
         { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" },
+        stockAlertListEntry,
         { id: "stock-transfer-form", label: "调拨单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_transfer.audit" },
         { id: "stock-count-form", label: "盘点单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count.audit" },
         { id: "stock-count-gain-form", label: "盘盈单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count_gain.audit" },

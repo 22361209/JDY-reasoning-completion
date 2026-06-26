@@ -111,9 +111,10 @@
     </div>
 
     <div class="list-toolbar">
-      <button class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
+      <button v-if="!isStockAlertList" class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
+      <button v-if="isStockAlertList" type="button" :disabled="!canMaintainStockAlert" data-testid="stock-alert-settings" @click="openStockAlertSettings">安全库存设置</button>
       <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
-      <button type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
+      <button v-if="!isStockAlertList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
@@ -277,6 +278,62 @@
       {{ draggingColumnTitle }}
     </div>
 
+    <div v-if="stockAlertSettingsOpen" class="modal-mask" data-testid="stock-alert-settings-dialog">
+      <div class="dialog stock-alert-settings-dialog">
+        <h3>安全库存设置</h3>
+        <form class="stock-alert-settings-form" @submit.prevent="submitStockAlertSetting">
+          <label>
+            商品编码
+            <input v-model="stockAlertSettingForm.productCode" data-testid="stock-alert-product-code" placeholder="如 CP-118" />
+          </label>
+          <label>
+            仓库编码
+            <input v-model="stockAlertSettingForm.warehouseCode" data-testid="stock-alert-warehouse-code" placeholder="如 CK-001" />
+          </label>
+          <label>
+            最低安全量
+            <input v-model="stockAlertSettingForm.safetyQty" type="number" step="0.0001" min="0" data-testid="stock-alert-safety-qty" />
+          </label>
+          <label>
+            库存上限
+            <input v-model="stockAlertSettingForm.maxQty" type="number" step="0.0001" min="0" data-testid="stock-alert-max-qty" />
+          </label>
+          <div class="dialog-actions">
+            <button type="button" @click="stockAlertSettingsOpen = false">关闭</button>
+            <button class="primary-action" type="submit" data-testid="stock-alert-save">保存</button>
+          </div>
+          <p v-if="stockAlertSettingsMessage" class="form-message" data-testid="stock-alert-settings-message">{{ stockAlertSettingsMessage }}</p>
+        </form>
+        <div class="stock-alert-settings-table">
+          <table>
+            <thead>
+              <tr>
+                <th>商品编码</th>
+                <th>商品名称</th>
+                <th>仓库</th>
+                <th>最低安全量</th>
+                <th>库存上限</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="setting in stockAlertSettings" :key="setting.id" :data-testid="`stock-alert-setting-${setting.productCode}-${setting.warehouseCode}`">
+                <td>{{ setting.productCode }}</td>
+                <td>{{ setting.productName }}</td>
+                <td>{{ setting.warehouseName }}</td>
+                <td>{{ setting.safetyQty }}</td>
+                <td>{{ setting.maxQty || "-" }}</td>
+                <td>
+                  <button type="button" :data-testid="`stock-alert-edit-${setting.productCode}-${setting.warehouseCode}`" @click="editStockAlertSetting(setting)">编辑</button>
+                  <button type="button" :data-testid="`stock-alert-delete-${setting.productCode}-${setting.warehouseCode}`" @click="removeStockAlertSetting(setting.id)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div v-if="pendingAction" class="modal-mask" data-testid="batch-confirm-dialog">
       <div class="dialog">
         <h3>操作确认</h3>
@@ -296,10 +353,14 @@ import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import {
   deleteListPreset,
+  deleteStockAlertSetting,
   exportListRows,
   fetchListPresets,
   fetchListRows,
+  fetchStockAlertSettings,
   saveListPreset,
+  saveStockAlertSetting,
+  type StockAlertSetting,
   type ListFilterPreset
 } from "../services/listApi";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
@@ -359,6 +420,15 @@ const presetMessage = ref("");
 const presetName = ref("");
 const selectedPresetId = ref("");
 const operationLogPresets = ref<ListFilterPreset[]>([]);
+const stockAlertSettings = ref<StockAlertSetting[]>([]);
+const stockAlertSettingsOpen = ref(false);
+const stockAlertSettingsMessage = ref("");
+const stockAlertSettingForm = reactive({
+  productCode: "",
+  warehouseCode: "",
+  safetyQty: "",
+  maxQty: ""
+});
 const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
@@ -553,6 +623,25 @@ const definitions: Record<string, ListDefinition> = {
       { field: "onHand", title: "现存量", width: 110, align: "right", visible: true },
       { field: "available", title: "可用量", width: 110, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "stock-alert-list": {
+    title: "库存预警查询表",
+    subtitle: "按商品与仓库的安全库存阈值直查当前库存余额，低于安全库存或高于上限时进入预警列表。",
+    keywordPlaceholder: "商品编码、商品名称、仓库",
+    statuses: ["低于安全库存", "高于库存上限"],
+    columns: [
+      { field: "productCode", title: "商品编码", width: 140, fixed: "left", visible: true },
+      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCategory", title: "商品类别", width: 130, visible: true },
+      { field: "warehouseName", title: "仓库名称", width: 140, visible: true },
+      { field: "spec", title: "规格型号", width: 160, visible: true },
+      { field: "unit", title: "基本单位", width: 90, visible: true },
+      { field: "available", title: "可用量", width: 100, align: "right", visible: true },
+      { field: "safetyQty", title: "最低安全量", width: 120, align: "right", visible: true },
+      { field: "maxQty", title: "库存上限", width: 110, align: "right", visible: true },
+      { field: "diffQty", title: "预警差量", width: 110, align: "right", visible: true },
+      { field: "status", title: "安全库存状况", width: 140, visible: true }
     ]
   },
   "warehouse-master-list": {
@@ -819,6 +908,7 @@ const masterCreateError = masterMaintenance.createError;
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
+const isStockAlertList = computed(() => props.listKey === "stock-alert-list");
 const auditPermissionByListKey: Partial<Record<string, string>> = {
   "sales-order-form-list": "sales.order.audit",
   "sales-out-list": "sales.out.audit",
@@ -853,10 +943,12 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "stock-transfer-form-list": "inventory.stock_transfer.audit",
   "stock-count-form-list": "inventory.stock_count.audit",
   "stock-count-gain-form-list": "inventory.stock_count_gain.audit",
-  "stock-count-loss-form-list": "inventory.stock_count_loss.audit"
+  "stock-count-loss-form-list": "inventory.stock_count_loss.audit",
+  "stock-alert-list": "inventory.stock_alert.manage"
 };
 const canAuditCurrentList = computed(() => session.hasPermission(auditPermissionByListKey[props.listKey]));
 const canMaintainCurrentList = computed(() => session.hasPermission(maintainPermissionByListKey[props.listKey]));
+const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
   "sales-order-form-list": "salesOrder",
   "sales-out-list": "salesOut",
@@ -985,6 +1077,64 @@ async function exportCurrentList() {
   link.remove();
   URL.revokeObjectURL(url);
   exportMessage.value = "引出文件已生成";
+}
+
+async function openStockAlertSettings() {
+  stockAlertSettingsOpen.value = true;
+  stockAlertSettingsMessage.value = "";
+  await loadStockAlertSettings();
+}
+
+async function loadStockAlertSettings() {
+  const result = await fetchStockAlertSettings();
+  stockAlertSettings.value = result.data;
+  if (!result.ok) {
+    stockAlertSettingsMessage.value = result.message;
+  }
+}
+
+async function submitStockAlertSetting() {
+  const safetyQty = Number(stockAlertSettingForm.safetyQty);
+  const maxQty = stockAlertSettingForm.maxQty === "" ? null : Number(stockAlertSettingForm.maxQty);
+  if (!stockAlertSettingForm.productCode.trim() || !stockAlertSettingForm.warehouseCode.trim() || !Number.isFinite(safetyQty)) {
+    stockAlertSettingsMessage.value = "请填写商品编码、仓库编码和最低安全量。";
+    return;
+  }
+  if (maxQty !== null && !Number.isFinite(maxQty)) {
+    stockAlertSettingsMessage.value = "库存上限必须是数字。";
+    return;
+  }
+  const result = await saveStockAlertSetting({
+    productCode: stockAlertSettingForm.productCode.trim(),
+    warehouseCode: stockAlertSettingForm.warehouseCode.trim(),
+    safetyQty,
+    maxQty
+  });
+  if (!result.ok) {
+    stockAlertSettingsMessage.value = result.message;
+    return;
+  }
+  stockAlertSettingsMessage.value = "安全库存设置已保存";
+  await loadStockAlertSettings();
+  await reload();
+}
+
+function editStockAlertSetting(setting: StockAlertSetting) {
+  stockAlertSettingForm.productCode = setting.productCode;
+  stockAlertSettingForm.warehouseCode = setting.warehouseCode;
+  stockAlertSettingForm.safetyQty = setting.safetyQty;
+  stockAlertSettingForm.maxQty = setting.maxQty ?? "";
+}
+
+async function removeStockAlertSetting(id: string) {
+  const result = await deleteStockAlertSetting(id);
+  if (!result.ok) {
+    stockAlertSettingsMessage.value = result.message;
+    return;
+  }
+  stockAlertSettingsMessage.value = "安全库存设置已删除";
+  await loadStockAlertSettings();
+  await reload();
 }
 
 async function saveCurrentPreset() {
@@ -1176,8 +1326,8 @@ function statusClass(value: unknown) {
     draft: status === "草稿",
     audited: ["已审核", "成功", "启用", "正常", "已核销"].includes(status),
     reversed: ["已反审核", "部分核销"].includes(status),
-    warning: ["低库存", "未核销"].includes(status),
-    danger: ["已作废", "已红冲", "失败", "禁用"].includes(status)
+    warning: ["低库存", "未核销", "高于库存上限"].includes(status),
+    danger: ["已作废", "已红冲", "失败", "禁用", "低于安全库存"].includes(status)
   };
 }
 

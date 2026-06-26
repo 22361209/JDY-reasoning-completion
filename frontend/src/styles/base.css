@@ -1509,6 +1509,64 @@ input:disabled {
   width: 560px;
 }
 
+.stock-alert-settings-dialog {
+  width: min(900px, calc(100vw - 32px));
+}
+
+.stock-alert-settings-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.stock-alert-settings-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.stock-alert-settings-form input {
+  height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.stock-alert-settings-form .dialog-actions,
+.stock-alert-settings-form .form-message {
+  grid-column: span 4;
+}
+
+.stock-alert-settings-table {
+  margin-top: 12px;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #d8e0eb;
+}
+
+.stock-alert-settings-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.stock-alert-settings-table th,
+.stock-alert-settings-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.stock-alert-settings-table th {
+  background: #f3f7fb;
+  color: #475569;
+  font-weight: 600;
+}
+
 .master-create-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

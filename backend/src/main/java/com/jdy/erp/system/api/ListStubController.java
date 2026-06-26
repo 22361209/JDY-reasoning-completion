@@ -270,6 +270,7 @@ public class ListStubController {
             case "other-out-list", "other-out-form-list" -> otherStockOutRows();
             case "stock-transfer-list", "stock-transfer-form-list" -> stockTransferRows();
             case "inventory-query-list" -> realInventoryRows();
+            case "stock-alert-list" -> stockAlertRows();
             case "receivable-list", "ar-receivable-list" -> receivableRows();
             case "payable-list", "ap-payable-list" -> payableRows();
             case "bom-list" -> bomRows();
@@ -350,6 +351,43 @@ public class ListStubController {
             JOIN md_product p ON p.id = b.product_id
             JOIN md_warehouse w ON w.id = b.warehouse_id
             ORDER BY p.code, w.code
+            """));
+    }
+
+    private List<Map<String, ?>> stockAlertRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT s.id::text AS id,
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.category, '') AS "productCategory",
+                   COALESCE(p.spec, '') AS spec,
+                   p.unit,
+                   w.code AS "warehouseCode",
+                   w.name AS "warehouseName",
+                   trim(to_char(b.qty_on_hand, 'FM9999999990.####')) AS "onHand",
+                   trim(to_char(b.qty_available, 'FM9999999990.####')) AS available,
+                   trim(to_char(s.safety_qty, 'FM9999999990.####')) AS "safetyQty",
+                   trim(to_char(s.max_qty, 'FM9999999990.####')) AS "maxQty",
+                   CASE
+                       WHEN b.qty_available < s.safety_qty THEN '低于安全库存'
+                       WHEN s.max_qty IS NOT NULL AND b.qty_available > s.max_qty THEN '高于库存上限'
+                       ELSE '正常'
+                   END AS status,
+                   CASE
+                       WHEN b.qty_available < s.safety_qty THEN trim(to_char(s.safety_qty - b.qty_available, 'FM9999999990.####'))
+                       WHEN s.max_qty IS NOT NULL AND b.qty_available > s.max_qty THEN trim(to_char(b.qty_available - s.max_qty, 'FM9999999990.####'))
+                       ELSE '0'
+                   END AS "diffQty"
+            FROM inv_safety_stock_setting s
+            JOIN inv_stock_balance b ON b.product_id = s.product_id AND b.warehouse_id = s.warehouse_id
+            JOIN md_product p ON p.id = s.product_id
+            JOIN md_warehouse w ON w.id = s.warehouse_id
+            WHERE b.qty_available < s.safety_qty
+               OR (s.max_qty IS NOT NULL AND b.qty_available > s.max_qty)
+            ORDER BY
+                CASE WHEN b.qty_available < s.safety_qty THEN 0 ELSE 1 END,
+                p.code,
+                w.code
             """));
     }
 

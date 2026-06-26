@@ -53,6 +53,26 @@ export interface ListFilterPreset {
   updatedAt?: string;
 }
 
+export interface StockAlertSetting {
+  id: string;
+  productCode: string;
+  productName: string;
+  spec: string;
+  unit: string;
+  warehouseCode: string;
+  warehouseName: string;
+  safetyQty: string;
+  maxQty: string;
+  updatedAt: string;
+}
+
+export interface StockAlertSettingPayload {
+  productCode: string;
+  warehouseCode: string;
+  safetyQty: number;
+  maxQty: number | null;
+}
+
 export interface ListPresetResult {
   ok: boolean;
   status: number;
@@ -168,6 +188,47 @@ export async function deleteListPreset(listKey: string, presetId: string): Promi
     return { ok: true, status: response.status, message: "" };
   } catch {
     return { ok: false, status: 0, message: "网络异常，筛选预设删除失败。" };
+  }
+}
+
+export async function fetchStockAlertSettings(): Promise<{ ok: boolean; status: number; message: string; data: StockAlertSetting[] }> {
+  try {
+    const response = await fetch("/api/inventory/stock-alert-settings");
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: "安全库存设置加载失败。", data: [] };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as StockAlertSetting[] };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，安全库存设置加载失败。", data: [] };
+  }
+}
+
+export async function saveStockAlertSetting(payload: StockAlertSettingPayload): Promise<{ ok: boolean; status: number; message: string }> {
+  try {
+    const response = await fetch("/api/inventory/stock-alert-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: text || "安全库存设置保存失败。" };
+    }
+    return { ok: true, status: response.status, message: "" };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，安全库存设置保存失败。" };
+  }
+}
+
+export async function deleteStockAlertSetting(id: string): Promise<{ ok: boolean; status: number; message: string }> {
+  try {
+    const response = await fetch(`/api/inventory/stock-alert-settings/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) {
+      return { ok: false, status: response.status, message: "安全库存设置删除失败。" };
+    }
+    return { ok: true, status: response.status, message: "" };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，安全库存设置删除失败。" };
   }
 }
 
