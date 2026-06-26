@@ -32,8 +32,23 @@ async function api(pathname, options = {}) {
   return data;
 }
 
-async function createAuditedSalesOrder(label) {
+async function createAuditedSalesOrder(label, withNotice = false) {
   const billNo = `XSDD-A102-${label}-${batch}`;
+  const lines = [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, taxRate: 13, lineRemark: `A102 ${label} 1`, planDeliveryDate: "2026-07-03" },
+    { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, taxRate: 13, lineRemark: `A102 ${label} 2`, planDeliveryDate: "2026-07-04" }
+  ];
+  for (const line of lines) {
+    await api("/api/inventory/adjustments", {
+      body: {
+        productCode: line.productCode,
+        warehouseCode: line.warehouseCode,
+        qtyDelta: 100,
+        txnType: "A102_CORE_FLOW_IN",
+        sourceBillType: `A102:${batch}`
+      }
+    });
+  }
   await api("/api/sales-orders/draft", {
     body: {
       billNo,
@@ -42,14 +57,28 @@ async function createAuditedSalesOrder(label) {
       department: "销售部",
       ownerName: "本地管理员",
       remark: `A102 ${label}`,
-      lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, taxRate: 13, lineRemark: `A102 ${label} 1`, planDeliveryDate: "2026-07-03" },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, taxRate: 13, lineRemark: `A102 ${label} 2`, planDeliveryDate: "2026-07-04" }
-      ]
+      lines
     }
   });
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
-  return billNo;
+  if (!withNotice) {
+    return { orderNo: billNo, noticeNo: "" };
+  }
+  const noticeNo = `FHTZ-A102-${label}-${batch}`;
+  await api("/api/delivery-notices/draft", {
+    body: {
+      billNo: noticeNo,
+      sourceOrderNo: billNo,
+      customerCode: "KH-001",
+      billDate: "2026-06-26",
+      department: "销售部",
+      ownerName: "本地管理员",
+      remark: `A102 notice ${label}`,
+      lines: lines.map((line, index) => ({ ...line, sourceOrderNo: billNo, sourceLineNo: index + 1 }))
+    }
+  });
+  await api(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+  return { orderNo: billNo, noticeNo };
 }
 
 async function drag(page, locator, dx, dy = 0) {
@@ -61,8 +90,8 @@ async function drag(page, locator, dx, dy = 0) {
   await page.mouse.up();
 }
 
-const sourceOrderNo = await createAuditedSalesOrder("SRC");
-const reverseOrderNo = await createAuditedSalesOrder("REV");
+const source = await createAuditedSalesOrder("SRC", true);
+const reverse = await createAuditedSalesOrder("REV");
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
@@ -96,8 +125,8 @@ try {
   }));
   assert(sourceDialogMetrics.width >= 1000, `source selector should be large modal, got ${JSON.stringify(sourceDialogMetrics)}`);
 
-  await page.getByTestId("sales-out-source-selector-search").fill(sourceOrderNo);
-  await page.locator(".source-selector-table tbody tr", { hasText: sourceOrderNo }).first().waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
+  await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceTableScroll = await page.locator(".source-selector-table").evaluate((node) => ({
     scrollWidth: node.scrollWidth,
     clientWidth: node.clientWidth,
@@ -117,7 +146,7 @@ try {
   await page.getByTestId("sales-out-line-source-order-no").waitFor({ state: "visible" });
   const sourceOrderCell = (await page.getByTestId("sales-out-line-source-order-no").textContent())?.trim();
   const sourceLineCell = (await page.getByTestId("sales-out-line-source-line-no").textContent())?.replace(/\s+/g, " ").trim();
-  assert(sourceOrderCell === sourceOrderNo, `source order column should show bill no only, got ${sourceOrderCell}`);
+  assert(sourceOrderCell === source.noticeNo, `source column should show delivery notice no only, got ${sourceOrderCell}`);
   assert(sourceLineCell?.includes("#1"), `source line column should show line no, got ${sourceLineCell}`);
   assert(await page.locator(".entry-column-header", { hasText: "源单号" }).count() > 0, "entry table should have source order header");
   assert(await page.locator(".entry-column-header", { hasText: "源单行号" }).count() > 0, "entry table should have source line header");
@@ -155,15 +184,15 @@ try {
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("query-sales-order-form").click();
-  await page.getByTestId("list-keyword").fill(reverseOrderNo);
+  await page.getByTestId("list-keyword").fill(reverse.orderNo);
   await page.getByTestId("list-query").click();
-  await page.getByText(reverseOrderNo).waitFor({ state: "visible" });
-  await page.locator(".vxe-body--row", { hasText: reverseOrderNo }).locator(".vxe-checkbox--icon").first().click({ force: true });
+  await page.getByText(reverse.orderNo).waitFor({ state: "visible" });
+  await page.locator(".vxe-body--row", { hasText: reverse.orderNo }).locator(".vxe-checkbox--icon").first().click({ force: true });
   await page.getByTestId("batch-reverse").click();
   await page.getByTestId("batch-confirm-dialog").waitFor({ state: "visible" });
   await page.locator('[data-testid="batch-confirm-dialog"] .danger-action').click();
   await page.getByTestId("list-batch-message").filter({ hasText: "已反审核" }).waitFor({ state: "visible" });
-  const reversedDetail = await api(`/api/sales-orders/${encodeURIComponent(reverseOrderNo)}`, { method: "GET" });
+  const reversedDetail = await api(`/api/sales-orders/${encodeURIComponent(reverse.orderNo)}`, { method: "GET" });
   assert(reversedDetail.order?.status === "DRAFT", `batch reverse should return order to DRAFT, got ${reversedDetail.order?.status}`);
 
   const screenshot = `a102-core-flow-ui-${batch}.png`;
@@ -172,8 +201,10 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     ok: true,
-    sourceOrderNo,
-    reverseOrderNo,
+    sourceOrderNo: source.orderNo,
+    sourceNoticeNo: source.noticeNo,
+    reverseOrderNo: reverse.orderNo,
+    reverseNoticeNo: reverse.noticeNo,
     checks: {
       sourceHeaderInputCount,
       toolbarSourceVisible,

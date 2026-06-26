@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -86,16 +87,14 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: salesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: salesOutLines
-    }
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: salesOutLines
   });
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 

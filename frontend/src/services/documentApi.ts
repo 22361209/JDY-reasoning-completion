@@ -12,6 +12,8 @@ interface DocumentDraftPayload {
     warehouseCode: string;
     targetWarehouseCode?: string;
     sourceOrderNo?: string;
+    sourceDeliveryNoticeNo?: string;
+    sourceDeliveryLineNo?: number;
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
@@ -23,6 +25,7 @@ interface DocumentDraftPayload {
 
 const endpointByType = {
   salesOrder: "/api/sales-orders",
+  deliveryNotice: "/api/delivery-notices",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
   salesOut: "/api/sales-outs",
@@ -38,6 +41,7 @@ const endpointByType = {
 
 const detailEndpointByType = {
   salesOrder: "/api/sales-orders",
+  deliveryNotice: "/api/delivery-notices",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
   salesOut: "/api/sales-outs",
@@ -53,6 +57,7 @@ const detailEndpointByType = {
 
 const outputTypeByDocumentType = {
   salesOrder: "sales-order",
+  deliveryNotice: "delivery-notice",
   purchaseOrder: "purchase-order",
   purchaseIn: "purchase-in",
   salesOut: "sales-out",
@@ -143,6 +148,8 @@ export interface DocumentDetail {
     lineNo?: number | string;
     sourceOrderNo?: string;
     sourceLineNo?: number | string;
+    sourceDeliveryNoticeNo?: string;
+    sourceDeliveryLineNo?: number | string;
     productCode?: string;
     productName?: string;
     spec?: string;
@@ -163,6 +170,10 @@ export interface DocumentDetail {
     lineRemark?: string;
     planDeliveryDate?: string;
     downstreamDocs?: DownstreamDocumentRef[];
+    stockOnHand?: number | string;
+    stockReserved?: number | string;
+    stockAvailable?: number | string;
+    stockInTransit?: number | string;
   }>;
 }
 
@@ -280,7 +291,7 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     isTaxInclusive: payload.isTaxInclusive,
     lines: payload.lines
   };
-  if (type === "salesOut" || type === "salesOrder" || type === "otherStockOut") {
+  if (type === "salesOut" || type === "salesOrder" || type === "deliveryNotice" || type === "otherStockOut") {
     return { ...base, customerCode: payload.partyCode };
   }
   return { ...base, supplierCode: payload.partyCode };

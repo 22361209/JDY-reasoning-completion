@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -85,7 +86,7 @@ async function createBusinessData() {
   const salesOutRedSource = `XSCK-A2A7-RS-${batch}`;
   const salesOutRed = `XSCK-A2A7-HC-${batch}`;
   for (const billNo of [salesOutDraft, salesOutAudited, salesOutReverse, salesOutRedSource]) {
-    await post("/api/sales-outs/draft", stockPayload(billNo, "KH-001", lines, "销售部"));
+    await createSalesOutDraftViaDeliveryNotice(post, stockPayload(billNo, "KH-001", lines, "销售部"));
   }
   await post(`/api/sales-outs/${encodeURIComponent(salesOutAudited)}/audit`);
   await post(`/api/sales-outs/${encodeURIComponent(salesOutReverse)}/audit`);

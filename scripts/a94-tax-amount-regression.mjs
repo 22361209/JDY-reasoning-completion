@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -91,7 +92,7 @@ const purchaseTotal = money(purchaseExpected.reduce((sum, line) => sum + line.pr
 await seedStock();
 
 const salesOutNo = `XSCK-A94-${batch}`;
-await post("/api/sales-outs/draft", {
+const salesOutPayload = {
   billNo: salesOutNo,
   customerCode: "KH-001",
   billDate,
@@ -99,7 +100,11 @@ await post("/api/sales-outs/draft", {
   ownerName: "本地管理员",
   isTaxInclusive: false,
   lines: salesLines
-});
+};
+const salesFlow = salesOutPayloadViaDeliveryNotice(salesOutPayload, `FHTZ-A94-${batch}`);
+await post("/api/delivery-notices/draft", salesFlow.noticePayload);
+await post(`/api/delivery-notices/${encodeURIComponent(salesFlow.noticeNo)}/audit`);
+await post("/api/sales-outs/draft", salesFlow.outPayload);
 await post(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 const salesOutDetail = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
 assert(salesOutDetail.document.isTaxInclusive === false, "sales out should save as tax exclusive");

@@ -98,17 +98,30 @@ async function runFrontendFlow() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   const screenshots = [];
+  let generatedDeliveryNoticeNo = "";
   let generatedSalesOutNo = "";
   try {
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
     await loginAsAdmin(page);
     await openSalesOrderDetail(page, salesOrderNo);
-    await page.getByTestId("push-sales-out-from-order-detail").waitFor({ state: "visible" });
+    await page.getByTestId("push-delivery-notice-from-order-detail").waitFor({ state: "visible" });
     const detailShot = `a89-sales-order-detail-push-visible-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, detailShot), fullPage: true });
     screenshots.push(`verification/playwright/${detailShot}`);
 
-    await page.getByTestId("push-sales-out-from-order-detail").click();
+    await page.getByTestId("push-delivery-notice-from-order-detail").click();
+    await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
+    generatedDeliveryNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
+    assert(/^FHTZD\d{6}$/.test(generatedDeliveryNoticeNo), `expected generated delivery notice bill no, got ${generatedDeliveryNoticeNo}`);
+    await page.getByTestId("save-sales-order").click();
+    await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
+    await page.getByTestId("audit-sales-order").click();
+    await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+    const noticeShot = `a89-delivery-notice-from-detail-audited-${batch}.png`;
+    await page.screenshot({ path: path.join(screenshotDir, noticeShot), fullPage: true });
+    screenshots.push(`verification/playwright/${noticeShot}`);
+
+    await page.getByTestId("push-sales-out-from-delivery-notice").click();
     await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
     generatedSalesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
     assert(/^XSCKD\d{6}$/.test(generatedSalesOutNo), `expected generated sales out bill no, got ${generatedSalesOutNo}`);
@@ -130,14 +143,14 @@ async function runFrontendFlow() {
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
     await loginAsAdmin(page);
     await openSalesOrderDetail(page, salesOrderNo);
-    await page.getByTestId("push-sales-out-from-order-detail").waitFor({ state: "hidden" });
+    await page.getByTestId("push-delivery-notice-from-order-detail").waitFor({ state: "hidden" });
     const hiddenShot = `a89-sales-order-detail-push-hidden-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, hiddenShot), fullPage: true });
     screenshots.push(`verification/playwright/${hiddenShot}`);
   } finally {
     await browser.close();
   }
-  return { beforeQty, afterQty: stockQty(), generatedSalesOutNo, screenshots };
+  return { beforeQty, afterQty: stockQty(), generatedDeliveryNoticeNo, generatedSalesOutNo, screenshots };
 }
 
 await seed();
@@ -151,7 +164,7 @@ const reverseBlocked = await api(`/api/sales-orders/${encodeURIComponent(salesOr
 assert(flow.afterQty === flow.beforeQty - qty, `stock should decrease by ${qty}: ${flow.beforeQty} -> ${flow.afterQty}`);
 assert(salesOutDetail.document.status === "AUDITED", `sales out should be AUDITED, got ${salesOutDetail.document.status}`);
 assert(!salesOutDetail.document.sourceOrderNo, "sales out header should not keep a single source order no");
-assert(salesOutDetail.lines[0]?.sourceOrderNo === salesOrderNo, "sales out line should keep source order no");
+assert(salesOutDetail.lines[0]?.sourceOrderNo === flow.generatedDeliveryNoticeNo, "sales out visible source should be delivery notice no");
 assert(salesOutCount() === 1, "one sales out should be generated from source order");
 assert(sourceDetail.order.status === "AUDITED", `source order should stay AUDITED, got ${sourceDetail.order.status}`);
 assert(sourceDetail.lines.every((line) => Number(line.remainingQty ?? 0) === 0), "source order should have no remaining outbound qty");
@@ -163,6 +176,7 @@ const result = {
   batch,
   generatedAt: new Date().toISOString(),
   salesOrderNo,
+  generatedDeliveryNoticeNo: flow.generatedDeliveryNoticeNo,
   generatedSalesOutNo: flow.generatedSalesOutNo,
   reverseOrderNo,
   beforeQty: flow.beforeQty,

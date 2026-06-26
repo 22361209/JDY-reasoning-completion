@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loginApi, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -77,8 +78,9 @@ async function seedStock() {
 async function createData() {
   await seedStock();
   const salesOrderNo = `XSDD-A9-${batch}`;
+  const firstDeliveryNoticeNo = `FHTZ-A9-PART-${batch}`;
+  const overDeliveryNoticeNo = `FHTZ-A9-OVER-${batch}`;
   const firstSalesOutNo = `XSCK-A9-PART-${batch}`;
-  const overSalesOutNo = `XSCK-A9-OVER-${batch}`;
   await requireApi("/api/sales-orders/draft", {
     body: {
       billNo: salesOrderNo,
@@ -90,21 +92,40 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: firstSalesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: salesFirstOutLines
-    }
+  const firstSalesFlow = salesOutPayloadViaDeliveryNotice({
+    billNo: firstSalesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: salesFirstOutLines
+  }, firstDeliveryNoticeNo);
+  await requireApi("/api/delivery-notices/draft", {
+    body: firstSalesFlow.noticePayload
   });
+  await requireApi(`/api/delivery-notices/${encodeURIComponent(firstDeliveryNoticeNo)}/audit`);
+  await requireApi("/api/sales-outs/draft", { body: firstSalesFlow.outPayload });
   await requireApi(`/api/sales-outs/${encodeURIComponent(firstSalesOutNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
+  const overSalesFlow = salesOutPayloadViaDeliveryNotice({
+    billNo: `XSCK-A9-OVER-${batch}`,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: salesLines
+  }, overDeliveryNoticeNo);
+  await requireApi("/api/delivery-notices/draft", {
+    body: overSalesFlow.noticePayload
+  });
+  const salesOverAudit = await api(`/api/delivery-notices/${encodeURIComponent(overDeliveryNoticeNo)}/audit`);
+  if (salesOverAudit.ok || salesOverAudit.status !== 409) {
+    throw new Error(`sales over-push delivery notice audit should fail with 409, got ${salesOverAudit.status}`);
+  }
+  await api("/api/sales-outs/draft", {
     body: {
-      billNo: overSalesOutNo,
+      billNo: `XSCK-A9-DIRECT-${batch}`,
       sourceOrderNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
@@ -113,10 +134,6 @@ async function createData() {
       lines: salesLines
     }
   });
-  const salesOverAudit = await api(`/api/sales-outs/${encodeURIComponent(overSalesOutNo)}/audit`);
-  if (salesOverAudit.ok || salesOverAudit.status !== 409) {
-    throw new Error(`sales over-push audit should fail with 409, got ${salesOverAudit.status}`);
-  }
 
   const purchaseOrderNo = `CGDD-A9-${batch}`;
   const firstPurchaseInNo = `CGRK-A9-PART-${batch}`;
@@ -166,7 +183,7 @@ async function createData() {
     expectedSalesRemaining: [6, 5, 4],
     expectedPurchaseRemaining: [6, 5, 4],
     overChecks: [
-      { document: overSalesOutNo, status: salesOverAudit.status },
+      { document: overDeliveryNoticeNo, status: salesOverAudit.status },
       { document: overPurchaseInNo, status: purchaseOverAudit.status }
     ]
   };
@@ -183,7 +200,7 @@ async function openListAndPush(page, moduleName, entryId, listId, billNo, pushTe
   await row.locator(".vxe-checkbox--icon").first().click();
   await page.getByTestId(pushTestId).click();
   if (pushTestId === "push-sales-out") {
-    await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
+    await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
     return;
   }
   await page.getByTestId("purchase-in-bill-no").waitFor({ state: "visible" });
@@ -225,14 +242,14 @@ try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await openListAndPush(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo, "push-sales-out");
-  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
-  const salesSource = await lineSourceText(page, "sales-out", 0);
+  await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
+  const salesSource = await lineSourceText(page, "delivery-notice", 0);
   if (salesSource !== `${data.salesOrderNo} / #1`) {
     throw new Error(`sales line source expected ${data.salesOrderNo} / #1, got ${salesSource}`);
   }
-  const salesQtys = await assertQtys(page, "sales-out", data.expectedSalesRemaining);
-  const salesRemarks = await assertInputValues(page, "sales-out", "remark", salesLines.map((line) => line.lineRemark));
-  const salesPlanDates = await assertInputValues(page, "sales-out", "plan-delivery-date", salesLines.map((line) => line.planDeliveryDate));
+  const salesQtys = await assertQtys(page, "delivery-notice", data.expectedSalesRemaining);
+  const salesRemarks = await assertInputValues(page, "delivery-notice", "remark", salesLines.map((line) => line.lineRemark));
+  const salesPlanDates = await assertInputValues(page, "delivery-notice", "plan-delivery-date", salesLines.map((line) => line.planDeliveryDate));
   const salesScreenshot = `a9-sales-remaining-pushdown-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);

@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -150,7 +151,7 @@ await post("/api/sales-orders/draft", {
   lines: [{ productCode: historyProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: 111, taxRate: 13 }]
 });
 await post(`/api/sales-orders/${encodeURIComponent(olderOrderNo)}/audit`);
-await post("/api/sales-outs/draft", {
+const newerOutPayload = {
   billNo: newerOutNo,
   customerCode,
   billDate: "2026-06-25",
@@ -158,7 +159,11 @@ await post("/api/sales-outs/draft", {
   ownerName: "本地管理员",
   isTaxInclusive: false,
   lines: [{ productCode: historyProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: expectedHistoryPrice, taxRate: 13 }]
-});
+};
+const newerOutFlow = salesOutPayloadViaDeliveryNotice(newerOutPayload, `FHTZ-A103-NEW-${batch}`);
+await post("/api/delivery-notices/draft", newerOutFlow.noticePayload);
+await post(`/api/delivery-notices/${encodeURIComponent(newerOutFlow.noticeNo)}/audit`);
+await post("/api/sales-outs/draft", newerOutFlow.outPayload);
 await post(`/api/sales-outs/${encodeURIComponent(newerOutNo)}/audit`);
 
 const historyQuote = await api(`/api/sales-prices/unit-price?${new URLSearchParams({ customerCode, productCode: historyProductCode })}`, { method: "GET" });

@@ -10,7 +10,7 @@
     :dirty="dirty"
     :message="document.message.value"
     :form="document.form"
-    test-prefix="sales"
+    test-prefix="delivery-notice"
     party-label="客户"
     party-type="customer"
     :is-document-form="true"
@@ -27,8 +27,8 @@
     :can-delete="false"
     :show-push-down="showPushDownSalesOut"
     :can-push-down="canPushDownSalesOut"
-    push-down-label="下推发货通知"
-    push-down-test-id="push-delivery-notice-from-order-detail"
+    push-down-label="下推销售出库"
+    push-down-test-id="push-sales-out-from-delivery-notice"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="document.showExecutionColumns.value"
@@ -61,20 +61,14 @@
     @save="document.save()"
     @audit="document.audit"
     @reverse="document.openRiskyAction('reverse')"
-    @red-reverse="document.openRiskyAction('redReverse')"
     @void-document="document.openLifecycleAction('void')"
     @close-document="document.openLifecycleAction('close')"
     @unclose-document="document.openLifecycleAction('unclose')"
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
-    @push-down="emit('pushDownDeliveryNotice', { billNo: document.form.billNo })"
-    @delete-document="noop"
-    @export-document="document.exportCurrent"
-    @print-document="document.printCurrent"
+    @push-down="emit('pushDownSalesOut', { billNo: document.form.billNo })"
     @show-existing="emit('showExisting')"
     @override-lock="emit('overrideLock')"
-    @open-red-reverse-bill="document.openRedReverseBill"
-    @open-red-source-bill="document.openRedSourceBill"
     @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
     @update:batch-plan-delivery-date="document.batchPlanDeliveryDate.value = $event"
     @update:is-tax-inclusive="document.form.isTaxInclusive = $event; document.markDirty()"
@@ -88,7 +82,7 @@
     @close-master-selector-dialog="document.closeMasterSelectorDialog"
     @search-master-selector-dialog="document.searchMasterSelectorDialog"
     @select-master-selector-dialog-row="document.selectMasterSelectorDialogRow"
-    @select-party-option="document.selectPartyOption($event, 'sales-party')"
+    @select-party-option="document.selectPartyOption($event, 'delivery-notice-party')"
     @select-line-product="document.selectLineProduct"
     @select-warehouse-option="document.selectWarehouseOption"
     @entry-paste="document.handleEntryPaste"
@@ -113,7 +107,8 @@ import { computed } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
-import { useSalesOrderDocument } from "./useSalesOrderDocument";
+import type { PendingPushLine } from "../../../app/documentModel";
+import { useDeliveryNoticeDocument } from "./useDeliveryNoticeDocument";
 
 const props = defineProps<{
   title: string;
@@ -132,11 +127,11 @@ const emit = defineEmits<{
   clearDirty: [];
   showExisting: [];
   overrideLock: [];
-  pushDownDeliveryNotice: [row: Record<string, unknown>];
+  pushDownSalesOut: [row: Record<string, unknown>];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
 }>();
 
-const document = useSalesOrderDocument({
+const document = useDeliveryNoticeDocument({
   userName: () => props.userName,
   hasPermission: props.hasPermission,
   markDirty: () => emit("markDirty"),
@@ -144,12 +139,7 @@ const document = useSalesOrderDocument({
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
 
-const showPushDownSalesOut = computed(() => (
-  document.form.status === "AUDITED" &&
-  document.form.closeStatus !== "CLOSED" &&
-  document.form.frozenStatus !== "FROZEN" &&
-  document.form.lines.some((line) => Number(line.remainingQty ?? line.qty ?? 0) > 0 && line.lineCloseStatus !== "CLOSED" && line.lineFrozenStatus !== "FROZEN")
-));
+const showPushDownSalesOut = computed(() => document.form.status === "AUDITED" && document.form.lines.some((line) => Number(line.remainingQty ?? line.qty ?? 0) > 0));
 const canPushDownSalesOut = computed(() => showPushDownSalesOut.value && props.hasPermission("sales.out.audit"));
 
 const dialogBindings = computed(() => ({
@@ -180,7 +170,7 @@ const dialogBindings = computed(() => ({
   downstreamRedReverseImpact: document.downstreamRedReverseImpact,
   downstreamDocTestId: document.downstreamDocTestId,
   entryPasteCandidateTestId: document.entryPasteCandidateTestId,
-  isEntryPasteCandidateActive: document.isEntryPasteCandidateActive,
+  isEntryPasteCandidateActive: document.isEntryPasteCandidateActive
 }));
 
 const dialogHandlers = {
@@ -201,19 +191,30 @@ const dialogHandlers = {
   confirmPendingEntryPaste: document.confirmPendingEntryPaste
 };
 
-function noop() {}
-
-async function loadByBillNo(billNo: string) {
-  await document.loadByBillNo(billNo);
+function loadByBillNo(billNo: string) {
+  return document.loadByBillNo(billNo);
 }
 
 function startNew() {
   document.startNew();
 }
 
+function applyPushDownDraft(draft: {
+  billNo: string;
+  sourceOrderNo: string;
+  partyCode: string;
+  partyName?: string;
+  billDate: string;
+  department: string;
+  ownerName: string;
+  lines: PendingPushLine[];
+}) {
+  document.applyInboundPushDownDraft(draft);
+}
+
 function applyDetail(detail: DocumentDetail, message = "", sourceLineNo: number | null = null) {
   document.applyDetail(detail, message, sourceLineNo);
 }
 
-defineExpose({ loadByBillNo, startNew, applyDetail });
+defineExpose({ loadByBillNo, startNew, applyPushDownDraft, applyDetail });
 </script>

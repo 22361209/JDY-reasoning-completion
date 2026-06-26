@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -76,20 +77,19 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: salesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [
-        { ...salesLines[2], sourceLineNo: 3, qty: 2 },
-        { ...salesLines[0], sourceLineNo: 1, qty: 4 }
-      ]
-    }
-  });
+  const deliveryNoticeNo = `FHTZ-A22-${batch}`;
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: [
+      { ...salesLines[2], sourceLineNo: 3, qty: 2 },
+      { ...salesLines[0], sourceLineNo: 1, qty: 4 }
+    ]
+  }, deliveryNoticeNo);
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
   const purchaseOrderNo = `CGDD-A22-${batch}`;
@@ -121,7 +121,7 @@ async function createData() {
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
-  return { salesOrderNo, salesOutNo, purchaseOrderNo, purchaseInNo };
+  return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
 async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
@@ -166,7 +166,7 @@ const purchaseDetail = await requireApi(`/api/purchase-orders/${encodeURICompone
 const salesLine3Docs = lineDocs(salesDetail, 3);
 const purchaseLine3Docs = lineDocs(purchaseDetail, 3);
 assertEqual("sales line 3 downstream count", salesLine3Docs.length, 1);
-assertEqual("sales line 3 downstream bill", String(salesLine3Docs[0].billNo), data.salesOutNo);
+assertEqual("sales line 3 downstream bill", String(salesLine3Docs[0].billNo), data.deliveryNoticeNo);
 assertEqual("sales line 3 source line", Number(salesLine3Docs[0].sourceLineNo), 3);
 assertEqual("sales line 3 downstream line", Number(salesLine3Docs[0].downstreamLineNo), 1);
 assertEqual("purchase line 3 downstream count", purchaseLine3Docs.length, 1);
@@ -185,8 +185,8 @@ try {
   await page.getByTestId("sales-line-downstream-trace-3").click();
   await page.getByTestId("downstream-trace-dialog").waitFor({ state: "visible" });
   const salesDialogText = await page.getByTestId("downstream-trace-dialog").innerText();
-  assertIncludes("sales downstream dialog", salesDialogText, data.salesOutNo);
-  assertIncludes("sales downstream dialog", salesDialogText, "销售出库单");
+  assertIncludes("sales downstream dialog", salesDialogText, data.deliveryNoticeNo);
+  assertIncludes("sales downstream dialog", salesDialogText, "发货通知单");
   assertIncludes("sales downstream dialog", salesDialogText, "#3");
   assertIncludes("sales downstream dialog", salesDialogText, "#1");
   assertIncludes("sales downstream dialog", salesDialogText, "24.00");
@@ -194,8 +194,8 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, salesDialogScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesDialogScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await page.getByTestId("sales-out-line-source-order-no").filter({ hasText: data.salesOrderNo }).waitFor({ state: "visible" });
-  await page.getByTestId("sales-out-line-source-line-no").filter({ hasText: "#3" }).waitFor({ state: "visible" });
+  await page.getByTestId("delivery-notice-line-source-order-no").filter({ hasText: data.salesOrderNo }).waitFor({ state: "visible" });
+  await page.getByTestId("delivery-notice-line-source-line-no").filter({ hasText: "#3" }).waitFor({ state: "visible" });
   const salesOpenScreenshot = `a22-sales-downstream-open-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesOpenScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesOpenScreenshot}`);
@@ -225,6 +225,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     salesOrderNo: data.salesOrderNo,
+    deliveryNoticeNo: data.deliveryNoticeNo,
     salesOutNo: data.salesOutNo,
     salesLine3Docs,
     purchaseOrderNo: data.purchaseOrderNo,

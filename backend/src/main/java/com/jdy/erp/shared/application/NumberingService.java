@@ -11,6 +11,7 @@ public class NumberingService {
     private static final int SEQUENCE_LENGTH = 6;
     private static final Map<String, NumberingRule> RULES = Map.ofEntries(
         Map.entry("salesOrder", new NumberingRule("XSDD", "sales_order")),
+        Map.entry("deliveryNotice", new NumberingRule("FHTZD", "delivery_notice")),
         Map.entry("salesOut", new NumberingRule("XSCKD", "sales_out")),
         Map.entry("purchaseOrder", new NumberingRule("CGDD", "purchase_order")),
         Map.entry("purchaseIn", new NumberingRule("CGRK", "purchase_in")),

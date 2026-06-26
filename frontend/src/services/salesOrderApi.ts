@@ -74,6 +74,15 @@ export interface SelectableSalesOrderLine {
   planDeliveryDate?: string;
 }
 
+export interface SelectableDeliveryNoticeLine extends SelectableSalesOrderLine {
+  sourceOrderNo?: string;
+  sourceLineNo?: number | string;
+  stockOnHand?: number | string;
+  stockReserved?: number | string;
+  stockAvailable?: number | string;
+  stockInTransit?: number | string;
+}
+
 export async function saveSalesOrderDraft(payload: SalesOrderDraftPayload): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await fetch("/api/sales-orders/draft", {
@@ -109,6 +118,14 @@ export async function fetchSelectableSalesOrderLines(customerCode: string): Prom
     return { ok: false, message: result.message || "销售订单选单列表加载失败。", data: [] };
   }
   return { ok: true, message: "", data: (result.data as { lines: SelectableSalesOrderLine[] }).lines };
+}
+
+export async function fetchSelectableDeliveryNoticeLines(customerCode: string): Promise<{ ok: boolean; message: string; data: SelectableDeliveryNoticeLine[] }> {
+  const result = await callSalesOrder(`/api/delivery-notices/selectable-lines?customerCode=${encodeURIComponent(customerCode)}`, "GET");
+  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
+    return { ok: false, message: result.message || "发货通知单选单列表加载失败。", data: [] };
+  }
+  return { ok: true, message: "", data: (result.data as { lines: SelectableDeliveryNoticeLine[] }).lines };
 }
 
 export async function deleteSalesOrder(billNo: string) {

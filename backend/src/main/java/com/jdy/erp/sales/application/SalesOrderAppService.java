@@ -143,12 +143,12 @@ public class SalesOrderAppService {
         var downstreamCount = jdbcTemplate.queryForObject("""
             SELECT COUNT(*)
             FROM sales_order so
-            JOIN sales_out_line sout_l ON sout_l.source_order_no = so.bill_no
-            JOIN sales_out sout ON sout.id = sout_l.bill_id
-            WHERE so.bill_no = ? AND sout.status = ?
+            JOIN delivery_notice_line dnl ON dnl.source_order_no = so.bill_no
+            JOIN delivery_notice dn ON dn.id = dnl.bill_id
+            WHERE so.bill_no = ? AND dn.status = ?
             """, Long.class, billNo, BillStatus.AUDITED.name());
         if (downstreamCount != null && downstreamCount > 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售订单已有已审核销售出库单，不能反审核");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售订单已有已审核发货通知单，不能反审核");
         }
         return lifecycleService.transition(
             BILL_TABLE,
@@ -203,25 +203,37 @@ public class SalesOrderAppService {
                    w.code AS "warehouseCode",
                    l.qty AS "sourceQty",
                    l.shipped_qty AS "shippedQty",
-                   GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) AS "remainingQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
                    l.tax_rate AS "taxRate",
                    COALESCE(l.line_remark, '') AS "lineRemark",
-                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
+                   COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
+                   COALESCE(b.qty_reserved, 0) AS "stockReserved",
+                   COALESCE(b.qty_available, 0) AS "stockAvailable",
+                   0 AS "stockInTransit"
             FROM sales_order so
             JOIN md_customer c ON c.id = so.customer_id
             JOIN sales_order_line l ON l.order_id = so.id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
+                FROM delivery_notice_line dnl
+                JOIN delivery_notice dn ON dn.id = dnl.bill_id
+                WHERE dn.status = 'AUDITED'
+                GROUP BY source_order_no, source_line_no
+            ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE c.code = ?
               AND so.status = ?
               AND so.close_status = 'OPEN'
               AND so.frozen_status = 'NORMAL'
               AND l.line_close_status = 'OPEN'
               AND l.line_frozen_status = 'NORMAL'
-              AND GREATEST(0, l.qty - l.shipped_qty) > 0
+              AND GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) > 0
             ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
             """, customerCode == null ? "" : customerCode.trim(), BillStatus.AUDITED.name());
         return Map.of("customerCode", customerCode == null ? "" : customerCode.trim(), "lines", rows);
@@ -259,7 +271,7 @@ public class SalesOrderAppService {
                    w.code AS "warehouseCode",
                    l.qty,
                    l.shipped_qty AS "shippedQty",
-                   GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) AS "remainingQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
@@ -268,11 +280,23 @@ public class SalesOrderAppService {
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark",
-                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
+                   COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
+                   COALESCE(b.qty_reserved, 0) AS "stockReserved",
+                   COALESCE(b.qty_available, 0) AS "stockAvailable",
+                   0 AS "stockInTransit"
             FROM sales_order_line l
+            JOIN sales_order so ON so.id = l.order_id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
-            JOIN sales_order so ON so.id = l.order_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
+                FROM delivery_notice_line dnl
+                JOIN delivery_notice dn ON dn.id = dnl.bill_id
+                WHERE dn.status = 'AUDITED'
+                GROUP BY source_order_no, source_line_no
+            ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE so.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
@@ -287,31 +311,30 @@ public class SalesOrderAppService {
 
     private List<Map<String, Object>> downstreamSalesOutDocs(String sourceOrderId, Object sourceLineNo) {
         var docs = jdbcTemplate.queryForList("""
-            SELECT so.bill_no AS "billNo",
-                   'salesOut' AS type,
-                   '销售出库单' AS "typeLabel",
-                   so.status,
-                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+            SELECT dn.bill_no AS "billNo",
+                   'deliveryNotice' AS type,
+                   '发货通知单' AS "typeLabel",
+                   dn.status,
+                   to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
                    COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
                    l.line_no AS "downstreamLineNo",
                    l.qty,
                    l.amount,
                    l.price_tax_total AS "priceTaxTotal"
-            FROM sales_out_line l
-            JOIN sales_out so ON so.id = l.bill_id
+            FROM delivery_notice_line l
+            JOIN delivery_notice dn ON dn.id = l.bill_id
             JOIN sales_order src ON src.bill_no = l.source_order_no
             WHERE src.id = ?::uuid
               AND COALESCE(l.source_line_no, l.line_no) = ?
-              AND so.status = ?
-            ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
+              AND dn.status = ?
+            ORDER BY dn.bill_date DESC, dn.bill_no DESC, l.line_no
             """, sourceOrderId, sourceLineNo, BillStatus.AUDITED.name());
         return docs.stream().<Map<String, Object>>map(doc -> {
             var copy = new HashMap<String, Object>(doc);
             copy.put("riskLevel", "HIGH");
-            copy.put("reverseImpact", "反审核将冲销销售出库库存流水，并把源销售订单第 "
-                + doc.get("sourceLineNo") + " 行已出库数量减少 " + doc.get("qty") + "，随后重算出库状态。");
-            copy.put("redReverseImpact", "红冲将生成负数销售出库单，原单标记已红冲，并同样回退源销售订单第 "
-                + doc.get("sourceLineNo") + " 行已出库数量。");
+            copy.put("reverseImpact", "反审核发货通知将释放预留库存，并恢复源销售订单第 "
+                + doc.get("sourceLineNo") + " 行可通知数量 " + doc.get("qty") + "。");
+            copy.put("redReverseImpact", "发货通知单不支持红冲；如已下推出库需先处理销售出库。");
             return copy;
         }).toList();
     }

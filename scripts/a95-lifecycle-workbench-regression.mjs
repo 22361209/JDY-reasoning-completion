@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -120,7 +121,10 @@ async function verifyReverseBackToEditableDraft() {
   assert(reaudited.status === "AUDITED", `sales order should re-audit to AUDITED, got ${reaudited.status}`);
 
   const salesOutNo = `XSCK-A95-R-${batch}`;
-  await api("/api/sales-outs/draft", { body: salesOutPayload(salesOutNo, "A95出库反审核") });
+  const salesFlow = salesOutPayloadViaDeliveryNotice(salesOutPayload(salesOutNo, "A95出库反审核"), `FHTZ-A95-R-${batch}`);
+  await api("/api/delivery-notices/draft", { body: salesFlow.noticePayload });
+  await api(`/api/delivery-notices/${encodeURIComponent(salesFlow.noticeNo)}/audit`);
+  await api("/api/sales-outs/draft", { body: salesFlow.outPayload });
   await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
   const outReversed = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/reverse`);
   const outAfterReverse = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
@@ -128,7 +132,7 @@ async function verifyReverseBackToEditableDraft() {
   assert(outAfterReverse.document.status === "DRAFT", `sales out after reverse should be DRAFT, got ${outAfterReverse.document.status}`);
   assert(txnCount("SALES_OUT_REVERSE", salesOutNo) === 1, "sales out reverse should keep inventory reversal txn");
 
-  await api("/api/sales-outs/draft", { body: salesOutPayload(salesOutNo, "A95出库反审核后可编辑") });
+  await api("/api/sales-outs/draft", { body: { ...salesFlow.outPayload, remark: "A95出库反审核后可编辑" } });
   const outAfterEdit = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
   assert(outAfterEdit.document.status === "DRAFT", `edited sales out should stay DRAFT, got ${outAfterEdit.document.status}`);
   assert(outAfterEdit.document.remark === "A95出库反审核后可编辑", `edited sales out remark should persist, got ${outAfterEdit.document.remark}`);

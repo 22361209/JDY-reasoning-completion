@@ -82,16 +82,43 @@ async function createOrder(suffix, lines) {
   return billNo;
 }
 
+async function createDeliveryNotice(orderNo, suffix, lines) {
+  const billNo = `FHTZ-A93-${suffix}-${batch}`;
+  await requireApi("/api/delivery-notices/draft", {
+    body: {
+      billNo,
+      sourceOrderNo: orderNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      remark: `A93 ${suffix}`,
+      lines: lines.map((line, index) => ({
+        ...line,
+        sourceOrderNo: orderNo,
+        sourceLineNo: index + 1
+      }))
+    }
+  });
+  await requireApi(`/api/delivery-notices/${encodeURIComponent(billNo)}/audit`);
+  return billNo;
+}
+
 async function createData() {
   await seedStock();
   const lines = [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 6, unitPrice: 86, lineRemark: "A93 第一行备注", planDeliveryDate: "2026-07-01" },
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 4, unitPrice: 12, lineRemark: "A93 第二行备注", planDeliveryDate: "2026-07-02" }
   ];
+  const listPushOrderNo = await createOrder("PUSH", lines);
+  const sourceInputOrderNo = await createOrder("SRC", lines);
+  const customerPickOrderNo = await createOrder("PICK", lines);
   return {
-    listPushOrderNo: await createOrder("PUSH", lines),
-    sourceInputOrderNo: await createOrder("SRC", lines),
-    customerPickOrderNo: await createOrder("PICK", lines),
+    listPushOrderNo,
+    sourceInputOrderNo,
+    sourceInputNoticeNo: await createDeliveryNotice(sourceInputOrderNo, "SRC", lines),
+    customerPickOrderNo,
+    customerPickNoticeNo: await createDeliveryNotice(customerPickOrderNo, "PICK", lines),
     expected: {
       products: ["CP-001", "PJ-014"],
       warehouses: ["CK-001", "CK-002"],
@@ -183,12 +210,19 @@ try {
   await loginAsAdmin(page);
   await openSalesOrderList(page, data.listPushOrderNo);
   await page.getByTestId("push-sales-out").click();
+  await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
+  const listPushNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
+  await page.getByTestId("save-sales-order").click();
+  await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
+  await page.getByTestId("audit-sales-order").click();
+  await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+  await page.getByTestId("push-sales-out-from-delivery-notice").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   assert(await page.getByTestId("push-confirm-dialog").count() === 0, "sales pushdown confirm dialog should not appear");
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "direct push should not keep source order on header");
   const directPushLines = await readSalesOutLines(page);
   assertSalesOutLines("direct push", directPushLines, data.expected);
-  assertLineSources("direct push", directPushLines, data.listPushOrderNo);
+  assertLineSources("direct push", directPushLines, listPushNoticeNo);
   await page.getByTestId("sales-out-line-qty").fill("5");
   assert(Number(await page.getByTestId("sales-out-line-qty").inputValue()) === 5, "direct push qty should be edited in sales out form");
   const directShot = `a93-sales-direct-push-${batch}.png`;
@@ -201,16 +235,16 @@ try {
   await page.getByTestId("sales-out-party-code").fill("KH-001");
   await page.getByTestId("sales-out-open-source-selector").click();
   await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("sales-out-source-selector-search").fill(data.sourceInputOrderNo);
-  await page.getByTestId(`sales-out-source-line-${data.sourceInputOrderNo}:1`).check();
-  await page.getByTestId(`sales-out-source-line-${data.sourceInputOrderNo}:2`).check();
+  await page.getByTestId("sales-out-source-selector-search").fill(data.sourceInputNoticeNo);
+  await page.getByTestId(`sales-out-source-line-${data.sourceInputNoticeNo}:1`).check();
+  await page.getByTestId(`sales-out-source-line-${data.sourceInputNoticeNo}:2`).check();
   await page.getByTestId("sales-out-source-selector-ok").click();
   await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
   assert(await page.getByTestId("sales-out-party-code").inputValue() === "KH-001", "source order should carry customer code");
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "source input should be removed after A102");
   const sourceInputLines = await readSalesOutLines(page);
   assertSalesOutLines("source order input", sourceInputLines, data.expected);
-  assertLineSources("source order input", sourceInputLines, data.sourceInputOrderNo);
+  assertLineSources("source order input", sourceInputLines, data.sourceInputNoticeNo);
   const sourceShot = `a93-sales-source-order-load-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, sourceShot), fullPage: true });
   screenshots.push(`verification/playwright/${sourceShot}`);
@@ -221,14 +255,14 @@ try {
   await page.getByTestId("sales-out-party-code").fill("KH-001");
   await page.getByTestId("sales-out-open-source-selector").click();
   await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId(`sales-out-source-line-${data.customerPickOrderNo}:1`).check();
-  await page.getByTestId(`sales-out-source-line-${data.customerPickOrderNo}:2`).check();
+  await page.getByTestId(`sales-out-source-line-${data.customerPickNoticeNo}:1`).check();
+  await page.getByTestId(`sales-out-source-line-${data.customerPickNoticeNo}:2`).check();
   await page.getByTestId("sales-out-source-selector-ok").click();
   await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "customer selector should not put source order on header");
   const customerPickLines = await readSalesOutLines(page);
   assertSalesOutLines("customer selector", customerPickLines, data.expected);
-  assertLineSources("customer selector", customerPickLines, data.customerPickOrderNo);
+  assertLineSources("customer selector", customerPickLines, data.customerPickNoticeNo);
   const selectorShot = `a93-sales-customer-source-selector-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, selectorShot), fullPage: true });
   screenshots.push(`verification/playwright/${selectorShot}`);
@@ -236,6 +270,7 @@ try {
   const result = {
     batch,
     generatedAt: new Date().toISOString(),
+    listPushNoticeNo,
     orders: data,
     directPushLines,
     sourceInputLines,

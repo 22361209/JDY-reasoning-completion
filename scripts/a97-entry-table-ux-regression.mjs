@@ -34,6 +34,21 @@ async function api(pathname, options = {}) {
 
 async function createAuditedOrder() {
   const billNo = `XSDD-A97-${batch}`;
+  const lines = [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, lineRemark: `A97 first ${batch}`, planDeliveryDate: "2026-07-03" },
+    { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, lineRemark: `A97 second ${batch}`, planDeliveryDate: "2026-07-04" }
+  ];
+  for (const line of lines) {
+    await api("/api/inventory/adjustments", {
+      body: {
+        productCode: line.productCode,
+        warehouseCode: line.warehouseCode,
+        qtyDelta: 100,
+        txnType: "A97_SOURCE_SELECTOR_IN",
+        sourceBillType: `A97:${batch}`
+      }
+    });
+  }
   await api("/api/sales-orders/draft", {
     body: {
       billNo,
@@ -42,14 +57,25 @@ async function createAuditedOrder() {
       department: "销售部",
       ownerName: "本地管理员",
       remark: `A97 source ${batch}`,
-      lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, lineRemark: `A97 first ${batch}`, planDeliveryDate: "2026-07-03" },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, lineRemark: `A97 second ${batch}`, planDeliveryDate: "2026-07-04" }
-      ]
+      lines
     }
   });
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
-  return billNo;
+  const noticeNo = `FHTZ-A97-${batch}`;
+  await api("/api/delivery-notices/draft", {
+    body: {
+      billNo: noticeNo,
+      sourceOrderNo: billNo,
+      customerCode: "KH-001",
+      billDate: "2026-06-26",
+      department: "销售部",
+      ownerName: "本地管理员",
+      remark: `A97 notice ${batch}`,
+      lines: lines.map((line, index) => ({ ...line, sourceOrderNo: billNo, sourceLineNo: index + 1 }))
+    }
+  });
+  await api(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+  return { orderNo: billNo, noticeNo };
 }
 
 async function dragHorizontally(page, locator, deltaX) {
@@ -61,7 +87,19 @@ async function dragHorizontally(page, locator, deltaX) {
   await page.mouse.up();
 }
 
-const sourceBillNo = await createAuditedOrder();
+async function waitForBoundingBox(locator, message) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await locator.scrollIntoViewIfNeeded().catch(() => {});
+    const box = await locator.boundingBox();
+    if (box && box.width > 0 && box.height > 0) {
+      return box;
+    }
+    await locator.page().waitForTimeout(100);
+  }
+  throw new Error(message);
+}
+
+const source = await createAuditedOrder();
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
@@ -116,8 +154,8 @@ try {
 
   await page.getByTestId("sales-out-open-source-selector").click();
   await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("sales-out-source-selector-search").fill(sourceBillNo);
-  await page.locator(".source-selector-table tbody tr", { hasText: sourceBillNo }).first().waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
+  await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceTableScroll = await page.locator(".source-selector-table").evaluate((node) => ({
     scrollWidth: node.scrollWidth,
     clientWidth: node.clientWidth,
@@ -138,12 +176,11 @@ try {
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("query-sales-order-form").click();
-  await page.getByTestId("list-keyword").fill(sourceBillNo);
+  await page.getByTestId("list-keyword").fill(source.orderNo);
   await page.getByTestId("list-query").click();
   const visibleBillNoHeader = page.locator('[data-testid="column-drag-billNo"]:visible').first();
   await visibleBillNoHeader.waitFor({ state: "visible" });
-  const headerBox = await visibleBillNoHeader.boundingBox();
-  assert(headerBox, "list column header should have bounding box");
+  const headerBox = await waitForBoundingBox(visibleBillNoHeader, "list column header should have bounding box");
   await page.mouse.move(headerBox.x + 20, headerBox.y + 15);
   await page.mouse.down();
   await page.mouse.move(headerBox.x + 180, headerBox.y + 18, { steps: 6 });
@@ -158,7 +195,8 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     ok: true,
-    sourceBillNo,
+    sourceOrderNo: source.orderNo,
+    sourceNoticeNo: source.noticeNo,
     checks: {
       remarkTag,
       remarkResize,

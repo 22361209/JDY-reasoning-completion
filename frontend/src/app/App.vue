@@ -312,7 +312,7 @@
           :list-key="tabs.activeTab.value.id"
           :locked="false"
           locked-object-id=""
-          @push-down-sales-out="openOutboundFromSalesOrder"
+          @push-down-sales-out="openDeliveryNoticeFromSalesOrder"
           @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
           @create-document="openCreateDocumentFromList"
@@ -333,7 +333,7 @@
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = 'sales-order-form'"
           @override-lock="overrideActiveDocumentLock"
-          @push-down-sales-out="openOutboundFromSalesOrder"
+          @push-down-delivery-notice="openDeliveryNoticeFromSalesOrder"
           @request-open-document="openDocumentFromModule"
         />
         <SalesOutForm
@@ -352,6 +352,25 @@
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = outboundTabId"
           @override-lock="overrideActiveDocumentLock"
+          @request-open-document="openDocumentFromModule"
+        />
+        <DeliveryNoticeForm
+          v-else-if="tabs.activeTab.value.id === deliveryNoticeTabId"
+          ref="deliveryNoticeFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = deliveryNoticeTabId"
+          @override-lock="overrideActiveDocumentLock"
+          @push-down-sales-out="openOutboundFromDeliveryNotice"
           @request-open-document="openDocumentFromModule"
         />
         <PurchaseOrderForm
@@ -590,6 +609,7 @@ import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
+import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
@@ -628,6 +648,7 @@ const tabs = useTabStore();
 const preferences = usePreferenceStore();
 const outboundTabId = "sales-out-form";
 const outboundDocumentType = ("sales" + "Out") as OpenableDocumentType;
+const deliveryNoticeTabId = "delivery-notice-form";
 const purchaseOrderTabId = "purchase-order-form";
 const purchaseInTabId = "purchase-in-form";
 const materialIssueTabId = "material-issue-form";
@@ -645,6 +666,7 @@ tabs.onBeforeClose((tab) => {
   }
 });
 const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
+const deliveryNoticeFormRef = ref<InstanceType<typeof DeliveryNoticeForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
@@ -786,6 +808,8 @@ function openEntry(entry: ShellEntry) {
 function startNewModuleDocument(entryId: string) {
   if (entryId === "sales-order-form") {
     salesOrderFormRef.value?.startNew();
+  } else if (entryId === deliveryNoticeTabId) {
+    deliveryNoticeFormRef.value?.startNew();
   } else if (entryId === outboundTabId) {
     outboundFormRef.value?.startNew();
   } else if (entryId === purchaseOrderTabId) {
@@ -839,6 +863,7 @@ async function openCreateDocumentFromList(payload: { type: OpenableDocumentType 
 function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
   const listMap: Record<string, OpenableDocumentType> = {
     "sales-order-form-list": "salesOrder",
+    "delivery-notice-form-list": "deliveryNotice",
     "sales-out-list": "salesOut",
     "sales-out-form-list": "salesOut",
     "purchase-order-form-list": "purchaseOrder",
@@ -859,6 +884,7 @@ function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
 function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
   const formMap: Record<string, OpenableDocumentType> = {
     "sales-order-form": "salesOrder",
+    [deliveryNoticeTabId]: "deliveryNotice",
     [outboundTabId]: "salesOut",
     [purchaseOrderTabId]: "purchaseOrder",
     [purchaseInTabId]: "purchaseIn",
@@ -1058,7 +1084,7 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
 }
 async function openDocumentFromModule(payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }) {
   if (
-    (tabs.activeTab.value.id === outboundTabId && payload.type === "salesOrder")
+    ((tabs.activeTab.value.id === outboundTabId || tabs.activeTab.value.id === deliveryNoticeTabId) && (payload.type === "salesOrder" || payload.type === "deliveryNotice"))
     || (tabs.activeTab.value.id === purchaseInTabId && payload.type === "purchaseOrder")
   ) {
     const result = await fetchDocumentDetail(payload.type, payload.billNo);
@@ -1117,7 +1143,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
 }
 
 function openSourceTraceWindow(type: OpenableDocumentType, detail: DocumentDetail, sourceLineNo: number | null) {
-  const title = type === "purchaseOrder" ? "采购订单" : "销售订单";
+  const title = sourceTraceTitle(type);
   const document = detail.document;
   const source = detail.lines.map((line) => {
     const lineNo = Number(line.lineNo ?? 0);
@@ -1133,6 +1159,16 @@ function openSourceTraceWindow(type: OpenableDocumentType, detail: DocumentDetai
   }
 }
 
+function sourceTraceTitle(type: OpenableDocumentType) {
+  if (type === "purchaseOrder") {
+    return "采购订单";
+  }
+  if (type === "deliveryNotice") {
+    return "发货通知单";
+  }
+  return "销售订单";
+}
+
 function escapeTraceHtml(value: string | undefined) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1143,6 +1179,8 @@ function escapeTraceHtml(value: string | undefined) {
 }
 function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; ref: { value: { applyDetail: (detail: DocumentDetail, message?: string, sourceLineNo?: number | null) => void; startNew: () => void } | null } } {
   switch (type) {
+    case "deliveryNotice":
+      return { tabId: deliveryNoticeTabId, title: "发货通知单", module: "销售管理", ref: deliveryNoticeFormRef };
     case "purchaseOrder":
       return { tabId: purchaseOrderTabId, title: "采购订单", module: "采购管理", ref: purchaseOrderFormRef };
     case "purchaseIn":
@@ -1209,7 +1247,7 @@ async function overrideActiveDocumentLock() {
   applyLockStateToTab(tab.id, result.data);
   formMessage.value = "已踢走当前持锁人，你可以编辑。";
 }
-async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
+async function openDeliveryNoticeFromSalesOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
   if (!sourceBillNo) {
     return;
@@ -1237,6 +1275,77 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可出数量`;
     return;
   }
+  const nextBillNo = await fetchNextBillNo("deliveryNotice");
+  if (!nextBillNo.ok || !nextBillNo.billNo) {
+    formMessage.value = nextBillNo.message || "发货通知单号生成失败。";
+    return;
+  }
+  tabs.openTab({
+    id: deliveryNoticeTabId,
+    title: "发货通知单",
+    module: "销售管理",
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = "销售管理";
+  await nextTick();
+  deliveryNoticeFormRef.value?.applyPushDownDraft({
+    billNo: nextBillNo.billNo,
+    sourceOrderNo: sourceBillNo,
+    partyCode: result.data.order.customerCode || "",
+    partyName: result.data.order.customer || "",
+    billDate: dateText,
+    department: result.data.order.department || "销售部",
+    ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
+    lines
+  });
+  formMessage.value = `已由销售订单 ${sourceBillNo} 按剩余数量生成发货通知单草稿`;
+}
+
+async function openOutboundFromDeliveryNotice(row: Record<string, unknown>) {
+  const sourceBillNo = String(row.billNo ?? "");
+  if (!sourceBillNo) {
+    return;
+  }
+  const result = await fetchDocumentDetail("deliveryNotice", sourceBillNo);
+  if (!result.ok || !result.data) {
+    formMessage.value = result.message || "发货通知单详情加载失败。";
+    return;
+  }
+  if (result.data.document.status !== "AUDITED") {
+    formMessage.value = `发货通知单 ${sourceBillNo} 未审核，不能下推销售出库`;
+    return;
+  }
+  const today = new Date();
+  const dateText = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0")
+  ].join("-");
+  const lines = result.data.lines
+    .map((line) => ({
+      productCode: String(line.productCode ?? ""),
+      productName: String(line.productName ?? ""),
+      spec: String(line.spec ?? ""),
+      warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceOrderNo: sourceBillNo,
+      sourceLineNo: Number(line.lineNo ?? 0),
+      sourceDeliveryNoticeNo: sourceBillNo,
+      sourceDeliveryLineNo: Number(line.lineNo ?? 0),
+      sourceQty: Number(line.qty ?? 0),
+      executedQty: Number(line.shippedQty ?? 0),
+      remainingQty: Number(line.remainingQty ?? line.qty ?? 0),
+      qty: Number(line.remainingQty ?? line.qty ?? 0),
+      unitPrice: Number(line.unitPrice ?? 0),
+      taxRate: Number(line.taxRate ?? 13),
+      lineRemark: String(line.lineRemark ?? ""),
+      planDeliveryDate: String(line.planDeliveryDate ?? "")
+    }))
+    .filter((line) => line.remainingQty > 0);
+  if (lines.length === 0) {
+    formMessage.value = `发货通知单 ${sourceBillNo} 已无剩余可出数量`;
+    return;
+  }
   const nextBillNo = await fetchNextBillNo("salesOut");
   if (!nextBillNo.ok || !nextBillNo.billNo) {
     formMessage.value = nextBillNo.message || "销售出库单号生成失败。";
@@ -1254,14 +1363,14 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
   outboundFormRef.value?.applyPushDownDraft({
     billNo: nextBillNo.billNo,
     sourceOrderNo: sourceBillNo,
-    partyCode: result.data.order.customerCode || "",
-    partyName: result.data.order.customer || "",
+    partyCode: result.data.document.customerCode || "",
+    partyName: result.data.document.customer || "",
     billDate: dateText,
-    department: result.data.order.department || "销售部",
-    ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
+    department: result.data.document.department || "销售部",
+    ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
     lines
   });
-  formMessage.value = `已由销售订单 ${sourceBillNo} 按剩余数量生成销售出库单草稿`;
+  formMessage.value = `已由发货通知单 ${sourceBillNo} 生成销售出库单草稿`;
 }
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");

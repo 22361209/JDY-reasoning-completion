@@ -26,6 +26,7 @@
       <button type="button" :disabled="!isDraft" data-testid="apply-batch-plan-delivery-date" @click="emit('applyBatchPlanDeliveryDate', selectedLineIndexes())">应用交期</button>
     </template>
     <button type="button" data-testid="entry-column-settings" @click="columnDialogOpen = true">列设置</button>
+    <button v-if="showStockColumns" type="button" data-testid="refresh-entry-stock" @click="emit('refreshStock')">更新</button>
   </div>
   <div class="entry-table">
     <table :style="{ width: `${entryTableWidth}px`, minWidth: `${entryTableWidth}px` }">
@@ -259,6 +260,10 @@
               <small v-if="line.lineCloseStatus === 'CLOSED'">已关闭</small>
               <small v-if="line.lineFrozenStatus === 'FROZEN'">已冻结</small>
             </span>
+            <span v-else-if="column.key === 'stockOnHand'">{{ formatQty(line.stockOnHand) }}</span>
+            <span v-else-if="column.key === 'stockReserved'">{{ formatQty(line.stockReserved) }}</span>
+            <span v-else-if="column.key === 'stockAvailable'">{{ formatQty(line.stockAvailable) }}</span>
+            <span v-else-if="column.key === 'stockInTransit'">{{ formatQty(line.stockInTransit) }}</span>
             <input
               v-else-if="column.key === 'unitPrice'"
               v-model.number="line.unitPrice"
@@ -382,6 +387,10 @@ export interface EntryLine {
   lineRemark?: string;
   planDeliveryDate?: string;
   downstreamDocs?: any[];
+  stockOnHand?: number | string;
+  stockReserved?: number | string;
+  stockAvailable?: number | string;
+  stockInTransit?: number | string;
 }
 
 export interface MasterOption {
@@ -391,7 +400,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "selection" | "rowNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
+type EntryColumnKey = "selection" | "rowNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -425,6 +434,7 @@ const props = defineProps<{
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
+  showStockColumns?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   entryTableColspan: number;
@@ -459,6 +469,7 @@ const emit = defineEmits<{
   copyLine: [lineIndex: number];
   lineLifecycle: [lineNo: number, action: "close" | "unclose" | "freeze" | "unfreeze"];
   addLine: [];
+  refreshStock: [];
 }>();
 
 const columnDialogOpen = ref(false);
@@ -482,7 +493,7 @@ const dragOverColumnKey = ref<EntryColumnKey | "">("");
 const dragGhostLeft = ref(0);
 const dragGhostTop = ref(0);
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
-const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
+const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 
 const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "selection", title: "", width: 44, visible: true, fixed: "left", configurable: false },
@@ -497,6 +508,10 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "qty", title: "数量", width: 104, visible: true, numeric: true },
   { key: "executedQty", title: props.executionQtyLabel || "已执行", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
+  { key: "stockOnHand", title: "即时库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
+  { key: "stockReserved", title: "锁定库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
+  { key: "stockAvailable", title: "可用库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
+  { key: "stockInTransit", title: "在途库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
   { key: "unitPrice", title: "单价", width: 104, visible: true, numeric: true },
   { key: "taxRate", title: "税率%", width: 88, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
@@ -526,6 +541,7 @@ watch(() => [
   props.showTargetWarehouseColumn,
   props.showPlanDeliveryDateColumn,
   props.showTaxColumns,
+  props.showStockColumns,
   props.executionQtyLabel,
   props.remainingQtyLabel
 ], resetColumns, { immediate: true });
@@ -588,6 +604,9 @@ function isColumnAvailable(column: EntryColumn) {
   if (column.key === "executedQty" || column.key === "remainingQty") {
     return props.showExecutionColumns;
   }
+  if (["stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"].includes(column.key)) {
+    return Boolean(props.showStockColumns);
+  }
   return true;
 }
 
@@ -641,7 +660,7 @@ function columnPreferenceKey() {
 function columnClass(column: EntryColumn) {
   return {
     "entry-number-cell": numericColumns.has(column.key),
-    "readonly-qty": ["sourceLineNo", "executedQty", "remainingQty"].includes(column.key),
+    "readonly-qty": ["sourceLineNo", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"].includes(column.key),
     "amount-cell": column.key === "amount" || column.key === "taxAmount" || column.key === "priceTaxTotal",
     "tax-cell": column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal",
     "entry-actions-cell": column.key === "actions",
@@ -750,6 +769,14 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
       return lineExecutedQty(line);
     case "remainingQty":
       return lineRemainingQty(line);
+    case "stockOnHand":
+      return formatQty(line.stockOnHand);
+    case "stockReserved":
+      return formatQty(line.stockReserved);
+    case "stockAvailable":
+      return formatQty(line.stockAvailable);
+    case "stockInTransit":
+      return formatQty(line.stockInTransit);
     case "unitPrice":
       return formatQty(line.unitPrice);
     case "taxRate":
@@ -1072,6 +1099,10 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
   }
   if (key === "remainingQty") {
     return lineRemainingQtyTestId(index);
+  }
+  if (key === "stockOnHand" || key === "stockReserved" || key === "stockAvailable" || key === "stockInTransit") {
+    const suffix = index === 0 ? "" : `-${index + 1}`;
+    return `${props.testPrefix}-line-${key}${suffix}`;
   }
   return undefined;
 }

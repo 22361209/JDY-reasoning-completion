@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -76,20 +77,19 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: salesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [
-        { ...salesLines[2], sourceLineNo: 3, qty: 2 },
-        { ...salesLines[0], sourceLineNo: 1, qty: 4 }
-      ]
-    }
-  });
+  const deliveryNoticeNo = `FHTZ-A33-${batch}`;
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: [
+      { ...salesLines[2], sourceLineNo: 3, qty: 2 },
+      { ...salesLines[0], sourceLineNo: 1, qty: 4 }
+    ]
+  }, deliveryNoticeNo);
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
   const purchaseOrderNo = `CGDD-A33-${batch}`;
@@ -121,7 +121,7 @@ async function createData() {
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
-  return { salesOrderNo, salesOutNo, purchaseOrderNo, purchaseInNo };
+  return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
 async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
@@ -167,8 +167,8 @@ const salesLine3Docs = lineDocs(salesDetail, 3);
 const purchaseLine3Docs = lineDocs(purchaseDetail, 3);
 assertEqual("sales line 3 downstream count", salesLine3Docs.length, 1);
 assertEqual("purchase line 3 downstream count", purchaseLine3Docs.length, 1);
-assertIncludes("sales reverse impact", salesLine3Docs[0].reverseImpact, "反审核将冲销销售出库库存流水");
-assertIncludes("sales red reverse impact", salesLine3Docs[0].redReverseImpact, "红冲将生成负数销售出库单");
+assertIncludes("sales reverse impact", salesLine3Docs[0].reverseImpact, "反审核发货通知将释放预留库存");
+assertIncludes("sales red reverse impact", salesLine3Docs[0].redReverseImpact, "发货通知单不支持红冲");
 assertIncludes("purchase reverse impact", purchaseLine3Docs[0].reverseImpact, "反审核将冲销采购入库库存流水");
 assertIncludes("purchase red reverse impact", purchaseLine3Docs[0].redReverseImpact, "红冲将生成负数采购入库单");
 
@@ -184,14 +184,14 @@ try {
   await page.getByTestId("downstream-trace-dialog").waitFor({ state: "visible" });
   const salesDialogText = await page.getByTestId("downstream-trace-dialog").innerText();
   assertIncludes("sales dialog note", salesDialogText, "影响提示");
-  assertIncludes("sales dialog reverse", salesDialogText, "反审核将冲销销售出库库存流水");
-  assertIncludes("sales dialog red reverse", salesDialogText, "红冲将生成负数销售出库单");
+  assertIncludes("sales dialog reverse", salesDialogText, "反审核发货通知将释放预留库存");
+  assertIncludes("sales dialog red reverse", salesDialogText, "发货通知单不支持红冲");
   const salesScreenshot = `a33-sales-downstream-impact-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await page.getByTestId("sales-out-line-source-order-no").filter({ hasText: data.salesOrderNo }).waitFor({ state: "visible" });
-  await page.getByTestId("sales-out-line-source-line-no").filter({ hasText: "#3" }).waitFor({ state: "visible" });
+  await page.getByTestId("delivery-notice-line-source-order-no").filter({ hasText: data.salesOrderNo }).waitFor({ state: "visible" });
+  await page.getByTestId("delivery-notice-line-source-line-no").filter({ hasText: "#3" }).waitFor({ state: "visible" });
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
@@ -213,6 +213,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     salesOrderNo: data.salesOrderNo,
+    deliveryNoticeNo: data.deliveryNoticeNo,
     salesOutNo: data.salesOutNo,
     salesLine3Docs,
     purchaseOrderNo: data.purchaseOrderNo,

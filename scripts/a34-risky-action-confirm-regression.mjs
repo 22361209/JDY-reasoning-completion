@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -57,10 +58,11 @@ async function seedStock() {
 
 async function createData() {
   await seedStock();
+  const salesOrderNo = `XSDD-A34-R-${batch}`;
   const salesOutNo = `XSCK-A34-R-${batch}`;
-  await requireApi("/api/sales-outs/draft", {
+  await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: salesOutNo,
+      billNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -68,6 +70,16 @@ async function createData() {
       lines
     }
   });
+  await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines
+  }, `FHTZ-A34-R-${batch}`);
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
   const purchaseInNo = `CGRK-A34-HC-${batch}`;
@@ -83,7 +95,7 @@ async function createData() {
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
-  return { salesOutNo, purchaseInNo };
+  return { salesOrderNo, salesOutNo, purchaseInNo };
 }
 
 async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
@@ -173,6 +185,7 @@ try {
   const result = {
     batch,
     generatedAt: new Date().toISOString(),
+    salesOrderNo: data.salesOrderNo,
     salesOutNo: data.salesOutNo,
     salesOutStatus: salesOutDetail.document.status,
     purchaseInNo: data.purchaseInNo,

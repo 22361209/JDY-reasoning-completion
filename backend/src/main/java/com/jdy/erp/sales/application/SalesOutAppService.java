@@ -9,7 +9,6 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
@@ -19,6 +18,7 @@ import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.inventory.application.InventoryPostingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -38,6 +38,16 @@ public class SalesOutAppService {
         "out_status",
         "销售出库数量不能超过销售订单剩余可出数量"
     );
+    private static final SourceExecutionSpec DELIVERY_NOTICE_OUT_SPEC = new SourceExecutionSpec(
+        "delivery_notice",
+        "delivery_notice_line",
+        "bill_id",
+        "line_no",
+        "shipped_qty",
+        "qty",
+        "out_status",
+        "销售出库数量不能超过发货通知剩余可出数量"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -49,6 +59,7 @@ public class SalesOutAppService {
     private final NumberingService numberingService;
     private final CurrentSessionService currentSessionService;
     private final TaxAmountCalculator taxAmountCalculator;
+    private final InventoryPostingService inventoryPostingService;
 
     public SalesOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -60,7 +71,8 @@ public class SalesOutAppService {
         OperationLogService operationLogService,
         NumberingService numberingService,
         CurrentSessionService currentSessionService,
-        TaxAmountCalculator taxAmountCalculator
+        TaxAmountCalculator taxAmountCalculator,
+        InventoryPostingService inventoryPostingService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -72,6 +84,7 @@ public class SalesOutAppService {
         this.numberingService = numberingService;
         this.currentSessionService = currentSessionService;
         this.taxAmountCalculator = taxAmountCalculator;
+        this.inventoryPostingService = inventoryPostingService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -115,8 +128,10 @@ public class SalesOutAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   l.source_order_no AS "sourceOrderNo",
-                   l.source_line_no AS "sourceLineNo",
+                   COALESCE(l.source_delivery_notice_no, l.source_order_no) AS "sourceOrderNo",
+                   COALESCE(l.source_delivery_line_no, l.source_line_no) AS "sourceLineNo",
+                   l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
+                   l.source_delivery_line_no AS "sourceDeliveryLineNo",
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
@@ -151,11 +166,13 @@ public class SalesOutAppService {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var ownerName = currentSessionService.currentDisplayName();
         var createdBy = currentSessionService.currentUserId();
+        var sourceDeliveryNoticeId = sourceDeliveryNoticeId(request);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO sales_out (bill_no, source_order_id, source_delivery_notice_id, customer_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
+                source_delivery_notice_id = EXCLUDED.source_delivery_notice_id,
                 customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
@@ -170,6 +187,7 @@ public class SalesOutAppService {
             """,
             billNo,
             null,
+            sourceDeliveryNoticeId,
             customerId,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),
             request.department(),
@@ -200,6 +218,8 @@ public class SalesOutAppService {
             "销售出库单不存在或已审核"
         );
         var lines = postingLines(billNo);
+        guardDeliveryNoticeExecutable(lines);
+        guardDeliveryNoticeRemaining(lines, billNo);
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
             if (sourceOrderId != null) {
@@ -213,14 +233,13 @@ public class SalesOutAppService {
         }
         refreshSalesSourceStatuses(lines);
         for (var line : lines) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
+            inventoryPostingService.shipReserved(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
-                ((BigDecimal) line.get("qty")).negate(),
+                (BigDecimal) line.get("qty"),
                 "SALES_OUT",
                 "SALES_OUT:" + billNo
-            ));
+            );
         }
         postingPipeline.post(financeContext(row, "SALES_OUT"));
         return row;
@@ -241,14 +260,13 @@ public class SalesOutAppService {
         );
         var lines = postingLines(billNo);
         for (var line : lines) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
+            inventoryPostingService.reverseShipReserved(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 (BigDecimal) line.get("qty"),
                 "SALES_OUT_REVERSE",
                 "SALES_OUT_REVERSE:" + billNo
-            ));
+            );
         }
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
@@ -322,13 +340,15 @@ public class SalesOutAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, source_delivery_notice_no, source_delivery_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
                 line.get("sourceOrderNo"),
                 line.get("sourceLineNo"),
+                line.get("sourceDeliveryNoticeNo"),
+                line.get("sourceDeliveryLineNo"),
                 line.get("productId"),
                 line.get("warehouseId"),
                 qty.negate(),
@@ -340,14 +360,13 @@ public class SalesOutAppService {
                 line.get("lineRemark"),
                 line.get("planDeliveryDate")
             );
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
+            inventoryPostingService.reverseShipReserved(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 qty,
                 "SALES_OUT_RED",
                 "SALES_OUT_RED:" + redBillNo
-            ));
+            );
             var sourceOrderId = sourceOrderIdFromLine(line);
             if (sourceOrderId != null) {
                 conversionService.decreaseExecutedQuantity(
@@ -381,19 +400,27 @@ public class SalesOutAppService {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
-            var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
-            Integer sourceLineNo = line.sourceLineNo();
+            var sourceDeliveryNo = validationService.optionalText(line.sourceDeliveryNoticeNo() == null || line.sourceDeliveryNoticeNo().isBlank() ? line.sourceOrderNo() : line.sourceDeliveryNoticeNo());
+            var sourceDeliveryLineNo = line.sourceDeliveryLineNo() == null ? line.sourceLineNo() : line.sourceDeliveryLineNo();
+            if (sourceDeliveryNo == null || sourceDeliveryLineNo == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库只能由已审核发货通知单下推生成");
+            }
+            var source = sourceFromDeliveryNotice(sourceDeliveryNo, sourceDeliveryLineNo);
+            var sourceOrderNo = source.get("sourceOrderNo") == null ? null : String.valueOf(source.get("sourceOrderNo"));
+            Integer sourceLineNo = (Integer) source.get("sourceLineNo");
             if (sourceLineNo == null && sourceOrderNo != null) {
                 sourceLineNo = lineNo;
             }
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, source_delivery_notice_no, source_delivery_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
                 sourceOrderNo,
                 sourceLineNo,
+                sourceDeliveryNo,
+                sourceDeliveryLineNo,
                 productId,
                 warehouseId,
                 line.qty(),
@@ -425,6 +452,8 @@ public class SalesOutAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
+                   l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
+                   l.source_delivery_line_no AS "sourceDeliveryLineNo",
                    p.code AS "productCode",
                    w.code AS "warehouseCode",
                    l.qty
@@ -467,6 +496,8 @@ public class SalesOutAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
+                   l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
+                   l.source_delivery_line_no AS "sourceDeliveryLineNo",
                    p.code AS "productCode",
                    w.code AS "warehouseCode",
                    l.product_id::text AS "productId",
@@ -504,6 +535,50 @@ public class SalesOutAppService {
         return sourceOrderId(String.valueOf(sourceOrderNo));
     }
 
+    private void guardDeliveryNoticeRemaining(List<Map<String, Object>> lines, String billNo) {
+        for (var line : lines) {
+            if (line.get("sourceDeliveryNoticeNo") == null || line.get("sourceDeliveryLineNo") == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库只能来自发货通知单");
+            }
+            var remaining = jdbcTemplate.queryForObject("""
+                SELECT dnl.qty - COALESCE(out_qty.shipped_qty, 0)
+                FROM delivery_notice dn
+                JOIN delivery_notice_line dnl ON dnl.bill_id = dn.id AND dnl.line_no = ?
+                LEFT JOIN (
+                    SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
+                    FROM sales_out_line sol
+                    JOIN sales_out so ON so.id = sol.bill_id
+                    WHERE so.status = 'AUDITED'
+                      AND so.bill_no <> ?
+                    GROUP BY source_delivery_notice_no, source_delivery_line_no
+                ) out_qty ON out_qty.source_delivery_notice_no = dn.bill_no AND out_qty.source_delivery_line_no = dnl.line_no
+                WHERE dn.bill_no = ? AND dn.status = 'AUDITED'
+                """, BigDecimal.class, line.get("sourceDeliveryLineNo"), billNo, line.get("sourceDeliveryNoticeNo"));
+            if (remaining == null || remaining.compareTo((BigDecimal) line.get("qty")) < 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库数量不能超过发货通知剩余数量");
+            }
+        }
+    }
+
+    private void guardDeliveryNoticeExecutable(List<Map<String, Object>> lines) {
+        for (var line : lines) {
+            var sourceDeliveryNoticeNo = line.get("sourceDeliveryNoticeNo");
+            var sourceDeliveryLineNo = line.get("sourceDeliveryLineNo");
+            if (sourceDeliveryNoticeNo == null || sourceDeliveryLineNo == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库只能来自发货通知单");
+            }
+            var rows = jdbcTemplate.queryForList(
+                "SELECT id::text AS id FROM delivery_notice WHERE bill_no = ? AND status = ?",
+                String.valueOf(sourceDeliveryNoticeNo),
+                BillStatus.AUDITED.name()
+            );
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库来源发货通知单不存在或未审核");
+            }
+            lifecycleService.guardExecutableSourceLine(DELIVERY_NOTICE_OUT_SPEC, String.valueOf(rows.get(0).get("id")), sourceDeliveryLineNo);
+        }
+    }
+
     private void refreshSalesSourceStatuses(List<Map<String, Object>> lines) {
         lines.stream()
             .map(this::sourceOrderIdFromLine)
@@ -512,7 +587,48 @@ public class SalesOutAppService {
             .forEach(id -> conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, id));
     }
 
-    public record SalesOutLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark, String planDeliveryDate) {
+    private String sourceDeliveryNoticeId(SalesOutDraftRequest request) {
+        var notices = request.lines().stream()
+            .map(line -> line.sourceDeliveryNoticeNo() == null || line.sourceDeliveryNoticeNo().isBlank() ? line.sourceOrderNo() : line.sourceDeliveryNoticeNo())
+            .filter(value -> value != null && !value.isBlank())
+            .distinct()
+            .toList();
+        if (notices.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库必须来自发货通知单");
+        }
+        if (notices.size() != 1) {
+            return null;
+        }
+        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM delivery_notice WHERE bill_no = ? AND status = ?", notices.get(0), BillStatus.AUDITED.name());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库来源发货通知单不存在或未审核");
+        }
+        return String.valueOf(rows.get(0).get("id"));
+    }
+
+    private Map<String, Object> sourceFromDeliveryNotice(String billNo, Integer lineNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT dnl.source_order_no AS "sourceOrderNo",
+                   dnl.source_line_no AS "sourceLineNo",
+                   dnl.qty - COALESCE(out_qty.shipped_qty, 0) AS "remainingQty"
+            FROM delivery_notice dn
+            JOIN delivery_notice_line dnl ON dnl.bill_id = dn.id AND dnl.line_no = ?
+            LEFT JOIN (
+                SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
+                FROM sales_out_line sol
+                JOIN sales_out so ON so.id = sol.bill_id
+                WHERE so.status = 'AUDITED'
+                GROUP BY source_delivery_notice_no, source_delivery_line_no
+            ) out_qty ON out_qty.source_delivery_notice_no = dn.bill_no AND out_qty.source_delivery_line_no = dnl.line_no
+            WHERE dn.bill_no = ? AND dn.status = ?
+            """, lineNo, billNo, BillStatus.AUDITED.name());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库来源发货通知单不存在或未审核");
+        }
+        return rows.get(0);
+    }
+
+    public record SalesOutLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, String sourceDeliveryNoticeNo, Integer sourceDeliveryLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark, String planDeliveryDate) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

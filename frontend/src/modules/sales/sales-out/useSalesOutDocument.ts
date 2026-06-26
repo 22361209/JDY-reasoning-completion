@@ -36,7 +36,12 @@ import {
   type DownstreamDocumentRef,
   type OpenableDocumentType
 } from "../../../services/documentApi";
-import { fetchSalesOrderDetail, fetchSelectableSalesOrderLines, type SelectableSalesOrderLine, type SalesOrderDetail } from "../../../services/salesOrderApi";
+import {
+  fetchSalesOrderDetail,
+  fetchSelectableDeliveryNoticeLines,
+  type SelectableDeliveryNoticeLine,
+  type SalesOrderDetail
+} from "../../../services/salesOrderApi";
 
 interface SalesOutDocumentOptions {
   userName: () => string;
@@ -64,6 +69,8 @@ type PreparedEntryLines = {
     warehouseCode: string;
     sourceOrderNo?: string;
     sourceLineNo?: number;
+    sourceDeliveryNoticeNo?: string;
+    sourceDeliveryLineNo?: number;
     qty: number;
     unitPrice: number;
     taxRate?: number;
@@ -112,7 +119,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const voidPassword = ref("");
   const sourceSelectorOpen = ref(false);
   const sourceSelectorLoading = ref(false);
-  const sourceSelectorLines = ref<SelectableSalesOrderLine[]>([]);
+  const sourceSelectorLines = ref<SelectableDeliveryNoticeLine[]>([]);
   const sourceSelectorSelected = ref<Record<string, boolean>>({});
   const sourceSelectorMessage = ref("");
   const highlightedSourceBillNo = ref("");
@@ -207,6 +214,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         lineNo: normalizedOptionalInt(line.lineNo),
         sourceOrderNo: String(line.sourceOrderNo ?? ""),
         sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
+        sourceDeliveryNoticeNo: String(line.sourceDeliveryNoticeNo ?? ""),
+        sourceDeliveryLineNo: normalizedOptionalInt(line.sourceDeliveryLineNo),
         qty: Number(line.qty ?? 0),
         executedQty: line.shippedQty === undefined ? undefined : normalizedQty(line.shippedQty),
         remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
@@ -266,6 +275,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       sourceOrderNo: draft.sourceOrderNo,
       sourceLineNo: line.sourceLineNo,
+      sourceDeliveryNoticeNo: line.sourceDeliveryNoticeNo ?? draft.sourceOrderNo,
+      sourceDeliveryLineNo: line.sourceDeliveryLineNo ?? line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
@@ -379,20 +390,20 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!customerCode) {
       sourceSelectorLoading.value = false;
       sourceSelectorLines.value = [];
-      sourceSelectorMessage.value = "请先在单头选择客户，再从该客户的已审核销售订单中选源单。";
+      sourceSelectorMessage.value = "请先在单头选择客户，再从该客户的已审核发货通知单中选源单。";
       return;
     }
     sourceSelectorLoading.value = true;
-    const result = await fetchSelectableSalesOrderLines(customerCode);
+    const result = await fetchSelectableDeliveryNoticeLines(customerCode);
     sourceSelectorLoading.value = false;
     if (!result.ok) {
       sourceSelectorLines.value = [];
-      sourceSelectorMessage.value = result.message || "销售订单选单列表加载失败。";
+      sourceSelectorMessage.value = result.message || "发货通知单选单列表加载失败。";
       return;
     }
     sourceSelectorLines.value = result.data;
     if (result.data.length === 0) {
-      sourceSelectorMessage.value = "该客户暂无已审核且有剩余可出数量的销售订单。";
+      sourceSelectorMessage.value = "该客户暂无已审核且有剩余可出数量的发货通知单。";
     }
   }
 
@@ -401,14 +412,14 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     sourceSelectorMessage.value = "";
   }
 
-  function toggleSourceSelectorLine(line: SelectableSalesOrderLine, checked: boolean) {
+  function toggleSourceSelectorLine(line: SelectableDeliveryNoticeLine, checked: boolean) {
     sourceSelectorSelected.value[sourceSelectorLineKey(line)] = checked;
   }
 
   async function confirmCustomerSourceSelector() {
     const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected.value[sourceSelectorLineKey(line)]);
     if (selectedLines.length === 0) {
-      sourceSelectorMessage.value = "请至少勾选一条销售订单明细。";
+      sourceSelectorMessage.value = "请至少勾选一条发货通知明细。";
       return;
     }
     const first = selectedLines[0];
@@ -423,7 +434,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     appendFormLines(selectedLines.map((line) => selectableLineToFormLine(line)));
     sourceSelectorOpen.value = false;
     sourceSelectorMessage.value = "";
-    message.value = `已追加 ${selectedLines.length} 行销售订单剩余可出明细`;
+    message.value = `已追加 ${selectedLines.length} 行发货通知剩余可出明细`;
     options.markDirty();
   }
 
@@ -605,7 +616,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!billNo) {
       return;
     }
-    options.requestOpenDocument({ type: "salesOrder", billNo, sourceLineNo: sourceLineNo ?? form.lines.find((line) => line.sourceOrderNo === billNo && line.sourceLineNo)?.sourceLineNo ?? null });
+    options.requestOpenDocument({ type: "deliveryNotice", billNo, sourceLineNo: sourceLineNo ?? form.lines.find((line) => line.sourceOrderNo === billNo && line.sourceLineNo)?.sourceLineNo ?? null });
   }
 
   function openDownstreamTrace(line: OrderLineForm, index: number) {
@@ -1269,6 +1280,7 @@ function backendStatusLabel(status: string | undefined) {
 function downstreamTypeLabel(type: OpenableDocumentType) {
   const labels: Record<OpenableDocumentType, string> = {
     salesOrder: "销售订单",
+    deliveryNotice: "发货通知单",
     salesOut: "销售出库单",
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",
@@ -1304,7 +1316,7 @@ function lineLineNo(line: OrderLineForm, index: number) {
   return line.lineNo ?? index + 1;
 }
 
-function sourceSelectorLineKey(line: SelectableSalesOrderLine) {
+function sourceSelectorLineKey(line: SelectableDeliveryNoticeLine) {
   return `${line.billNo}:${line.lineNo}`;
 }
 
@@ -1329,7 +1341,7 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
   };
 }
 
-function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm {
+function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLineForm {
   return {
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName ?? ""),
@@ -1337,11 +1349,17 @@ function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     sourceOrderNo: String(line.billNo ?? ""),
     sourceLineNo: normalizedOptionalInt(line.lineNo),
+    sourceDeliveryNoticeNo: String(line.billNo ?? ""),
+    sourceDeliveryLineNo: normalizedOptionalInt(line.lineNo),
     qty: normalizedQty(line.remainingQty),
     unitPrice: Number(line.unitPrice ?? 0),
     taxRate: Number(line.taxRate ?? 13),
     lineRemark: String(line.lineRemark ?? ""),
-    planDeliveryDate: String(line.planDeliveryDate ?? "")
+    planDeliveryDate: String(line.planDeliveryDate ?? ""),
+    stockOnHand: line.stockOnHand,
+    stockReserved: line.stockReserved,
+    stockAvailable: line.stockAvailable,
+    stockInTransit: line.stockInTransit
   };
 }
 
@@ -1361,6 +1379,8 @@ function toDocumentLines(lines: OrderLineForm[]) {
     warehouseCode: line.warehouseCode,
     sourceOrderNo: line.sourceOrderNo,
     sourceLineNo: line.sourceLineNo,
+    sourceDeliveryNoticeNo: line.sourceDeliveryNoticeNo,
+    sourceDeliveryLineNo: line.sourceDeliveryLineNo,
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0),
     taxRate: Number(line.taxRate ?? 13),

@@ -1,8 +1,31 @@
 export async function loginAsAdmin(page, password = "admin123") {
-  const loginPage = page.getByTestId("login-page");
-  const visible = await loginPage.isVisible({ timeout: 1500 }).catch(() => false);
+  let loginPage = page.getByTestId("login-page");
+  let visible = await loginPage.isVisible({ timeout: 1500 }).catch(() => false);
   if (!visible) {
-    return;
+    const active = await page.evaluate(async () => {
+      try {
+        const response = await fetch("/api/system/session");
+        if (!response.ok) return false;
+        const session = await response.json();
+        return Boolean(session?.authenticated);
+      } catch {
+        return false;
+      }
+    }).catch(() => false);
+    if (active) {
+      return;
+    }
+    await page.context().clearCookies();
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    }).catch(() => {});
+    await page.reload({ waitUntil: "domcontentloaded" });
+    loginPage = page.getByTestId("login-page");
+    visible = await loginPage.isVisible({ timeout: 5000 }).catch(() => false);
+  }
+  if (!visible) {
+    throw new Error("login page did not appear for stale session recovery");
   }
   await page.getByTestId("login-password").fill(password);
   await page.getByTestId("login-submit").click();

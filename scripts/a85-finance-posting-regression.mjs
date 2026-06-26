@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -114,7 +115,13 @@ async function createFinanceData() {
   const salesOutRedSource = `XSCK-A85-RS-${batch}`;
   const salesOutRed = `XSCK-A85-HC-${batch}`;
   for (const billNo of [salesOutAudited, salesOutReverse, salesOutRedSource]) {
-    await post("/api/sales-outs/draft", salesOutPayload(billNo));
+    const orderNo = billNo.replace("XSCK", "XSDD");
+    await post("/api/sales-orders/draft", { ...salesOutPayload(orderNo), billNo: orderNo });
+    await post(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
+    await createSalesOutDraftViaDeliveryNotice((pathname, body) => post(pathname, body), {
+      ...salesOutPayload(billNo),
+      sourceOrderNo: orderNo
+    }, billNo.replace("XSCK", "FHTZ"));
     await post(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
   }
   await post(`/api/sales-outs/${encodeURIComponent(salesOutReverse)}/reverse`);

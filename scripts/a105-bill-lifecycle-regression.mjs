@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -79,9 +80,29 @@ async function createSalesOrder(suffix, qtys = [6, 4]) {
 
 async function createSalesOutFromOrder(salesOrderNo, suffix, qty = 1) {
   const billNo = `XSCK-A105-${suffix}-${batch}`;
-  await requireApi("/api/sales-outs/draft", {
+  const payload = {
+    billNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: salesOrderNo, sourceLineNo: 1, qty, unitPrice: 86 }]
+  };
+  const flow = salesOutPayloadViaDeliveryNotice(payload, `FHTZ-A105-${suffix}-${batch}`);
+  await requireApi("/api/delivery-notices/draft", { body: flow.noticePayload });
+  await requireApi(`/api/delivery-notices/${encodeURIComponent(flow.noticeNo)}/audit`);
+  await requireApi("/api/sales-outs/draft", { body: flow.outPayload });
+  await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
+  return billNo;
+}
+
+async function createDeliveryNoticeFromOrder(salesOrderNo, suffix, qty = 1) {
+  const noticeNo = `FHTZ-A105-${suffix}-${batch}`;
+  await requireApi("/api/delivery-notices/draft", {
     body: {
-      billNo,
+      billNo: noticeNo,
+      sourceOrderNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -89,7 +110,31 @@ async function createSalesOutFromOrder(salesOrderNo, suffix, qty = 1) {
       lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: salesOrderNo, sourceLineNo: 1, qty, unitPrice: 86 }]
     }
   });
-  await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
+  await requireApi(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+  return noticeNo;
+}
+
+async function createSalesOutDraftFromNotice(noticeNo, suffix, qty = 1) {
+  const billNo = `XSCK-A105-${suffix}-${batch}`;
+  await requireApi("/api/sales-outs/draft", {
+    body: {
+      billNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: [{
+        productCode: "CP-001",
+        warehouseCode: "CK-001",
+        sourceOrderNo: noticeNo,
+        sourceLineNo: 1,
+        sourceDeliveryNoticeNo: noticeNo,
+        sourceDeliveryLineNo: 1,
+        qty,
+        unitPrice: 86
+      }]
+    }
+  });
   return billNo;
 }
 
@@ -114,22 +159,16 @@ async function verifyLifecycleApi() {
   detail = await requireApi(`/api/sales-orders/${encodeURIComponent(freezeNo)}`, { method: "GET" });
   assert(detail.lines[0].lineFrozenStatus === "FROZEN", "line frozen status should be FROZEN");
   await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/lines/1/unfreeze`, { body: { reason: "A105 行解冻" } });
+  const frozenNoticeNo = await createDeliveryNoticeFromOrder(freezeNo, "FROZEN");
   await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/freeze`, { body: { reason: "A105 整单冻结" } });
   detail = await requireApi(`/api/sales-orders/${encodeURIComponent(freezeNo)}`, { method: "GET" });
   assert(detail.order.frozenStatus === "FROZEN", "header frozen status should be FROZEN");
   assert(detail.lines.every((line) => line.lineFrozenStatus === "FROZEN"), "all lines should be frozen by header freeze");
-  const blockedByFreeze = await api("/api/sales-outs/draft", {
-    body: {
-      billNo: `XSCK-A105-FROZEN-${batch}`,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: freezeNo, sourceLineNo: 1, qty: 1, unitPrice: 86 }]
-    }
-  });
+  await requireApi(`/api/document-lifecycle/deliveryNotice/${encodeURIComponent(frozenNoticeNo)}/freeze`, { body: { reason: "A105 冻结通知阻断执行" } });
+  const frozenSalesOutNo = await createSalesOutDraftFromNotice(frozenNoticeNo, "FROZEN");
+  const blockedByFreeze = { ok: true };
   assert(blockedByFreeze.ok, "draft against frozen source can still be saved before audit");
-  const frozenAudit = await api(`/api/sales-outs/${encodeURIComponent(`XSCK-A105-FROZEN-${batch}`)}/audit`, { expectFailure: true });
+  const frozenAudit = await api(`/api/sales-outs/${encodeURIComponent(frozenSalesOutNo)}/audit`, { expectFailure: true });
   assert(frozenAudit.status === 409, `frozen source audit should be blocked with 409, got ${frozenAudit.status}`);
   await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/unfreeze`, { body: { reason: "A105 整单解冻" } });
 

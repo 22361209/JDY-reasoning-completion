@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -87,11 +88,12 @@ async function seedStock() {
 }
 
 async function createRedReverseSalesOut() {
+  const orderNo = `XSDD-A43-${batch}`;
   const billNo = `XSCK-A43-${batch}`;
   const redBillNo = `RED-A43-XSCK-${batch}`;
-  await requireJson("/api/sales-outs/draft", {
+  await requireJson("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: orderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -99,11 +101,21 @@ async function createRedReverseSalesOut() {
       lines
     }
   });
+  await requireJson(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireJson(pathname, { body }), {
+    billNo,
+    sourceOrderNo: orderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: operator,
+    lines
+  }, `FHTZ-A43-${batch}`);
   await requireJson(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
   await requireJson(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
     body: { redBillNo, billDate, ownerName: operator }
   });
-  return { billNo, redBillNo };
+  return { orderNo, billNo, redBillNo };
 }
 
 function exportQuery(redBillNo) {

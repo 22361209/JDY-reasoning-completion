@@ -21,7 +21,7 @@
     :can-output="true"
     :show-source-select="true"
     :can-source-select="document.isDraft.value"
-    source-select-label="选源单"
+    source-select-label="选发货通知"
     source-select-test-id="sales-out-open-source-selector"
     @create="document.startNew"
     @save="document.save()"
@@ -163,8 +163,8 @@
 
   <div v-if="document.sourceSelectorOpen.value" class="modal-mask" data-testid="sales-out-source-selector-dialog">
     <div class="dialog source-selector-dialog">
-      <h3>选择销售订单</h3>
-      <p>{{ document.form.partyCode || '未限定客户' }} {{ document.form.partyName || '' }} 已下单且有剩余可出数量的销售订单明细。</p>
+      <h3>选择发货通知单</h3>
+      <p>{{ document.form.partyCode || '未限定客户' }} {{ document.form.partyName || '' }} 已审核且有剩余可出数量的发货通知明细。</p>
       <div class="source-selector-toolbar">
         <input
           v-model="sourceSelectorKeyword"
@@ -289,7 +289,7 @@ import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import ColumnSettingsDialog from "../../../components/table/ColumnSettingsDialog.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
-import type { SelectableSalesOrderLine } from "../../../services/salesOrderApi";
+import type { SelectableDeliveryNoticeLine } from "../../../services/salesOrderApi";
 import { useSalesOutDocument, type SalesOutPushDownDraft } from "./useSalesOutDocument";
 import { computed, ref } from "vue";
 
@@ -333,14 +333,14 @@ const sourceSelectorKeyword = ref("");
 const sourceColumnDialogOpen = ref(false);
 const sourceSelectorColumns = ref([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
-  { key: "billNo", title: "销售订单", width: 150, visible: true },
+  { key: "billNo", title: "发货通知单", width: 150, visible: true },
   { key: "lineNo", title: "行号", width: 70, visible: true },
   { key: "customer", title: "客户", width: 190, visible: true },
   { key: "billDate", title: "日期", width: 120, visible: true },
   { key: "productCode", title: "商品编码", width: 130, visible: true },
   { key: "productName", title: "商品名称", width: 180, visible: true },
   { key: "warehouseCode", title: "仓库", width: 110, visible: true },
-  { key: "sourceQty", title: "订单数量", width: 100, visible: true },
+  { key: "sourceQty", title: "通知数量", width: 100, visible: true },
   { key: "shippedQty", title: "已出库", width: 100, visible: true },
   { key: "remainingQty", title: "剩余可出", width: 110, visible: true },
   { key: "unitPrice", title: "单价", width: 100, visible: true },
@@ -355,7 +355,7 @@ const filteredSourceSelectorLines = computed(() => {
   return document.sourceSelectorLines.value.filter((line) => sourceLineSearchText(line).includes(keyword));
 });
 
-function sourceLineSearchText(line: SelectableSalesOrderLine) {
+function sourceLineSearchText(line: SelectableDeliveryNoticeLine) {
   return [
     line.customerCode,
     line.customer,

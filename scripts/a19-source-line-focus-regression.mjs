@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -76,20 +77,19 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: salesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [
-        { ...salesLines[2], sourceLineNo: 3, qty: 2 },
-        { ...salesLines[0], sourceLineNo: 1, qty: 4 }
-      ]
-    }
-  });
+  const deliveryNoticeNo = `FHTZ-A19-${batch}`;
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: [
+      { ...salesLines[2], sourceLineNo: 3, qty: 2 },
+      { ...salesLines[0], sourceLineNo: 1, qty: 4 }
+    ]
+  }, deliveryNoticeNo);
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
   const purchaseOrderNo = `CGDD-A19-${batch}`;
@@ -121,7 +121,7 @@ async function createData() {
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
-  return { salesOrderNo, salesOutNo, purchaseOrderNo, purchaseInNo };
+  return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
 async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
@@ -185,7 +185,7 @@ try {
   const salesPopup = await salesPopupPromise;
   await salesPopup.waitForLoadState("domcontentloaded");
   const salesHighlightedText = await salesPopup.locator("body").innerText();
-  assertIncludes("sales trace popup", salesHighlightedText, data.salesOrderNo);
+  assertIncludes("sales trace popup", salesHighlightedText, data.deliveryNoticeNo);
   assertIncludes("sales highlighted line", salesHighlightedText, "衬套");
   await salesPopup.close();
   const salesMessage = "source trace popup opened";
@@ -217,6 +217,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     salesOrderNo: data.salesOrderNo,
+    deliveryNoticeNo: data.deliveryNoticeNo,
     salesOutNo: data.salesOutNo,
     salesMessage,
     salesHighlightedLineNo: 3,

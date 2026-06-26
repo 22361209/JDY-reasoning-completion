@@ -29,6 +29,8 @@ export interface OrderLineForm {
   targetWarehouseCode?: string;
   sourceOrderNo?: string;
   sourceLineNo?: number;
+  sourceDeliveryNoticeNo?: string;
+  sourceDeliveryLineNo?: number;
   qty: number;
   executedQty?: number;
   remainingQty?: number;
@@ -41,6 +43,10 @@ export interface OrderLineForm {
   lineRemark?: string;
   planDeliveryDate?: string;
   downstreamDocs?: DownstreamDocumentRef[];
+  stockOnHand?: number | string;
+  stockReserved?: number | string;
+  stockAvailable?: number | string;
+  stockInTransit?: number | string;
 }
 
 export interface PendingEntryPaste {
@@ -103,6 +109,7 @@ export const zeroReasonOptions = ["赠品", "样品", "补录", "其他已确认
 
 export const printTemplateDocumentTypes = [
   { documentType: "sales-order", documentTitle: "销售订单" },
+  { documentType: "delivery-notice", documentTitle: "发货通知单" },
   { documentType: "purchase-order", documentTitle: "采购订单" },
   { documentType: "sales-out", documentTitle: "销售出库单" },
   { documentType: "purchase-in", documentTitle: "采购入库单" },
@@ -177,6 +184,18 @@ export const initialSalesOutForm: OrderForm = {
   sourceOrderNo: "",
   partyCode: "",
   billDate: "2026-06-23",
+  department: "销售部",
+  ownerName: "本地管理员",
+  isTaxInclusive: false,
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86, taxRate: 13 }]
+};
+
+export const initialDeliveryNoticeForm: OrderForm = {
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
+  billDate: "2026-06-26",
   department: "销售部",
   ownerName: "本地管理员",
   isTaxInclusive: false,

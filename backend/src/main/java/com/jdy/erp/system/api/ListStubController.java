@@ -278,6 +278,7 @@ public class ListStubController {
             case "supplier-master-list" -> realSupplierRows();
             case "warehouse-master-list" -> realWarehouseRows();
             case "purchase-order-form-list" -> purchaseOrderRows();
+            case "delivery-notice-form-list" -> deliveryNoticeRows();
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
             case "sales-out-list", "sales-out-form-list" -> salesOutRows();
             case "other-in-list", "other-in-form-list" -> otherStockInRows();
@@ -365,14 +366,42 @@ public class ListStubController {
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
-                       COALESCE(l.source_order_no, '') AS "sourceBillNo",
-                       COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
+                       COALESCE(l.source_delivery_notice_no, l.source_order_no, '') AS "sourceBillNo",
+                       COALESCE(l.source_delivery_line_no::text, l.source_line_no::text, '') AS "sourceLineNo"
                 FROM sales_out so
                 JOIN sales_out_line l ON l.bill_id = so.id
                 JOIN md_customer c ON c.id = so.customer_id
                 JOIN md_product p ON p.id = l.product_id
                 JOIN md_warehouse w ON w.id = l.warehouse_id
                 ORDER BY so.updated_at DESC, l.line_no
+                """);
+            case "delivery-notice-form-list" -> queryDetailRows("""
+                SELECT concat(dn.id::text, '-', l.line_no) AS id,
+                       dn.bill_no AS "billNo",
+                       to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       c.name AS partner,
+                       CASE
+                           WHEN dn.status = 'DRAFT' THEN '草稿'
+                           WHEN dn.status = 'REVERSED' THEN '已反审核'
+                           WHEN dn.status = 'VOID' THEN '已作废'
+                           ELSE '已审核'
+                       END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       COALESCE(l.source_order_no, '') AS "sourceBillNo",
+                       COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
+                FROM delivery_notice dn
+                JOIN delivery_notice_line l ON l.bill_id = dn.id
+                JOIN md_customer c ON c.id = dn.customer_id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY dn.updated_at DESC, l.line_no
                 """);
             case "purchase-in-list", "purchase-in-form-list" -> queryDetailRows("""
                 SELECT concat(pi.id::text, '-', l.line_no) AS id,
@@ -766,13 +795,42 @@ public class ListStubController {
             JOIN md_customer c ON c.id = so.customer_id
             LEFT JOIN sales_out_line l ON l.bill_id = so.id AND l.line_no = 1
             LEFT JOIN (
-                SELECT bill_id, string_agg(DISTINCT source_order_no, '、' ORDER BY source_order_no) AS source_bill_no
+                SELECT bill_id, string_agg(DISTINCT COALESCE(source_delivery_notice_no, source_order_no), '、' ORDER BY COALESCE(source_delivery_notice_no, source_order_no)) AS source_bill_no
                 FROM sales_out_line
-                WHERE source_order_no IS NOT NULL AND source_order_no <> ''
+                WHERE COALESCE(source_delivery_notice_no, source_order_no) IS NOT NULL AND COALESCE(source_delivery_notice_no, source_order_no) <> ''
                 GROUP BY bill_id
             ) src ON src.bill_id = so.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY so.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> deliveryNoticeRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT dn.id::text AS id,
+                   dn.bill_no AS "billNo",
+                   c.name AS customer,
+                   to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   CASE
+                       WHEN dn.status = 'DRAFT' THEN '草稿'
+                       WHEN dn.status = 'REVERSED' THEN '已反审核'
+                       WHEN dn.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   trim(to_char(dn.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(src.source_bill_no, '') AS "sourceBillNo",
+                   COALESCE(w.name, '') AS warehouse
+            FROM delivery_notice dn
+            JOIN md_customer c ON c.id = dn.customer_id
+            LEFT JOIN delivery_notice_line l ON l.bill_id = dn.id AND l.line_no = 1
+            LEFT JOIN (
+                SELECT bill_id, string_agg(DISTINCT source_order_no, '、' ORDER BY source_order_no) AS source_bill_no
+                FROM delivery_notice_line
+                WHERE source_order_no IS NOT NULL AND source_order_no <> ''
+                GROUP BY bill_id
+            ) src ON src.bill_id = dn.id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            ORDER BY dn.updated_at DESC
             """));
     }
 

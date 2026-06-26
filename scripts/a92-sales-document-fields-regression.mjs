@@ -144,42 +144,42 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, orderScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${orderScreenshot}`);
 
-  await page.getByTestId("push-sales-out-from-order-detail").click();
-  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
+  await page.getByTestId("push-delivery-notice-from-order-detail").click();
+  await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
   const pushed = {
     headerSourceOrderNo: await page.getByTestId("sales-out-source-order-no").count() === 0
       ? ""
       : await page.getByTestId("sales-out-source-order-no").inputValue(),
-    customerCode: await page.getByTestId("sales-out-party-code").inputValue(),
-    customerName: await page.getByTestId("sales-out-party-name").inputValue(),
-    ownerName: await page.getByTestId("sales-out-owner-name").inputValue(),
+    customerCode: await page.getByTestId("delivery-notice-party-code").inputValue(),
+    customerName: await page.getByTestId("delivery-notice-party-name").inputValue(),
+    ownerName: await page.getByTestId("delivery-notice-owner-name").inputValue(),
     sourceLines: [
-      await lineSourceText(page, "sales-out", 0),
-      await lineSourceText(page, "sales-out", 1)
+      await lineSourceText(page, "delivery-notice", 0),
+      await lineSourceText(page, "delivery-notice", 1)
     ],
     products: [
-      await page.getByTestId("sales-out-line-product").inputValue(),
-      await page.getByTestId("sales-out-line-product-2").inputValue()
+      await page.getByTestId("delivery-notice-line-product").inputValue(),
+      await page.getByTestId("delivery-notice-line-product-2").inputValue()
     ],
     warehouses: [
-      await page.getByTestId("sales-out-line-warehouse").inputValue(),
-      await page.getByTestId("sales-out-line-warehouse-2").inputValue()
+      await page.getByTestId("delivery-notice-line-warehouse").inputValue(),
+      await page.getByTestId("delivery-notice-line-warehouse-2").inputValue()
     ],
     qtys: [
-      Number(await page.getByTestId("sales-out-line-qty").inputValue()),
-      Number(await page.getByTestId("sales-out-line-qty-2").inputValue())
+      Number(await page.getByTestId("delivery-notice-line-qty").inputValue()),
+      Number(await page.getByTestId("delivery-notice-line-qty-2").inputValue())
     ],
     prices: [
-      Number(await page.getByTestId("sales-out-line-price").inputValue()),
-      Number(await page.getByTestId("sales-out-line-price-2").inputValue())
+      Number(await page.getByTestId("delivery-notice-line-price").inputValue()),
+      Number(await page.getByTestId("delivery-notice-line-price-2").inputValue())
     ],
     remarks: [
-      await page.getByTestId("sales-out-line-remark").inputValue(),
-      await page.getByTestId("sales-out-line-remark-2").inputValue()
+      await page.getByTestId("delivery-notice-line-remark").inputValue(),
+      await page.getByTestId("delivery-notice-line-remark-2").inputValue()
     ],
     planDates: [
-      await page.getByTestId("sales-out-line-plan-delivery-date").inputValue(),
-      await page.getByTestId("sales-out-line-plan-delivery-date-2").inputValue()
+      await page.getByTestId("delivery-notice-line-plan-delivery-date").inputValue(),
+      await page.getByTestId("delivery-notice-line-plan-delivery-date-2").inputValue()
     ]
   };
   assert(pushed.headerSourceOrderNo === "", `pushed header source order should be empty: ${pushed.headerSourceOrderNo}`);
@@ -194,6 +194,12 @@ try {
   assertArray("pushed line remarks", pushed.remarks, ["A92 第一行备注", "A92 第二行备注"]);
   assertArray("pushed plan dates", pushed.planDates, [firstPlanDate, secondPlanDate]);
 
+  await page.getByTestId("save-sales-order").click();
+  await page.getByText("草稿已保存").waitFor({ state: "visible" });
+  await page.getByTestId("audit-sales-order").click();
+  await page.getByText("审核成功").waitFor({ state: "visible" });
+  await page.getByTestId("push-sales-out-from-delivery-notice").click();
+  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   await page.getByTestId("sales-out-remark").fill(`A92 出库备注 ${batch}`);
   await page.getByTestId("save-sales-order").click();
   await page.getByText("草稿已保存").waitFor({ state: "visible" });

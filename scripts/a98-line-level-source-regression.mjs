@@ -69,14 +69,28 @@ async function createOrder(suffix, productCode, qty, unitPrice) {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
-  return billNo;
+  const noticeNo = `FHTZ-A98-${suffix}-${batch}`;
+  await requireApi("/api/delivery-notices/draft", {
+    body: {
+      billNo: noticeNo,
+      sourceOrderNo: billNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      remark: `A98 ${suffix}`,
+      lines: [{ productCode, warehouseCode: "CK-001", sourceOrderNo: billNo, sourceLineNo: 1, qty, unitPrice, lineRemark: `A98 ${suffix} 行`, planDeliveryDate: "2026-07-18" }]
+    }
+  });
+  await requireApi(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+  return { orderNo: billNo, noticeNo };
 }
 
 async function createData() {
   await seedStock();
   return {
-    orderA: await createOrder("A", "CP-001", 3, 86),
-    orderB: await createOrder("B", "PJ-014", 2, 12)
+    sourceA: await createOrder("A", "CP-001", 3, 86),
+    sourceB: await createOrder("B", "PJ-014", 2, 12)
   };
 }
 
@@ -86,13 +100,13 @@ async function openNewSalesOut(page) {
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
 }
 
-async function selectSourceLines(page, orderA, orderB) {
+async function selectSourceLines(page, noticeA, noticeB) {
   await page.getByTestId("sales-out-party-code").fill("KH-001");
   await page.getByTestId("sales-out-open-source-selector").click();
   await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
   await page.getByTestId("sales-out-source-selector-search").fill(batch);
-  await page.getByTestId(`sales-out-source-line-${orderA}:1`).check();
-  await page.getByTestId(`sales-out-source-line-${orderB}:1`).check();
+  await page.getByTestId(`sales-out-source-line-${noticeA}:1`).check();
+  await page.getByTestId(`sales-out-source-line-${noticeB}:1`).check();
   await page.getByTestId("sales-out-source-selector-ok").click();
   await page.getByTestId("sales-out-line-source-trace-2").waitFor({ state: "visible" });
 }
@@ -114,11 +128,11 @@ try {
   await page.evaluate(() => localStorage.removeItem("jdy:entry-columns:sales-out"));
   await loginAsAdmin(page);
   await openNewSalesOut(page);
-  await selectSourceLines(page, data.orderA, data.orderB);
+  await selectSourceLines(page, data.sourceA.noticeNo, data.sourceB.noticeNo);
 
   const sourceTexts = [await lineSourceText(page, 0), await lineSourceText(page, 1)];
-  assert(sourceTexts.includes(`${data.orderA} / #1`), `line sources should include order A, got ${sourceTexts.join(",")}`);
-  assert(sourceTexts.includes(`${data.orderB} / #1`), `line sources should include order B, got ${sourceTexts.join(",")}`);
+  assert(sourceTexts.includes(`${data.sourceA.noticeNo} / #1`), `line sources should include notice A, got ${sourceTexts.join(",")}`);
+  assert(sourceTexts.includes(`${data.sourceB.noticeNo} / #1`), `line sources should include notice B, got ${sourceTexts.join(",")}`);
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "header source order input should be removed after multi-source selection");
 
   const popupPromise = page.waitForEvent("popup");
@@ -126,8 +140,8 @@ try {
   const popup = await popupPromise;
   await popup.waitForLoadState("domcontentloaded");
   const popupText = await popup.locator("body").innerText();
-  const openedSourceOrder = [data.orderA, data.orderB].find((billNo) => popupText.includes(billNo)) ?? "";
-  assert([data.orderA, data.orderB].includes(openedSourceOrder), `line source trace should open clicked source order, got ${openedSourceOrder}`);
+  const openedSourceNotice = [data.sourceA.noticeNo, data.sourceB.noticeNo].find((billNo) => popupText.includes(billNo)) ?? "";
+  assert([data.sourceA.noticeNo, data.sourceB.noticeNo].includes(openedSourceNotice), `line source trace should open clicked source notice, got ${openedSourceNotice}`);
   const draftProducts = [
     await page.getByTestId("sales-out-line-product").inputValue(),
     await page.getByTestId("sales-out-line-product-2").inputValue()
@@ -148,10 +162,10 @@ try {
   const detail = await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
   assert(!detail.document.sourceOrderNo, "audited sales out header sourceOrderNo should be empty");
   const persistedSources = detail.lines.map((line) => line.sourceOrderNo);
-  assert(persistedSources.includes(data.orderA) && persistedSources.includes(data.orderB), `audited sales out should persist line-level source order numbers, got ${persistedSources.join(",")}`);
+  assert(persistedSources.includes(data.sourceA.noticeNo) && persistedSources.includes(data.sourceB.noticeNo), `audited sales out should persist line-level delivery notice numbers, got ${persistedSources.join(",")}`);
 
-  const orderADetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.orderA)}`, { method: "GET" });
-  const orderBDetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.orderB)}`, { method: "GET" });
+  const orderADetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.sourceA.orderNo)}`, { method: "GET" });
+  const orderBDetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.sourceB.orderNo)}`, { method: "GET" });
   assert(Number(orderADetail.lines[0].remainingQty) === 0, "order A should have no remaining qty after audit");
   assert(Number(orderBDetail.lines[0].remainingQty) === 0, "order B should have no remaining qty after audit");
 
@@ -159,12 +173,21 @@ try {
   await requireApi("/api/sales-outs/draft", {
     body: {
       billNo: duplicateNo,
-      sourceOrderNo: data.orderA,
+      sourceOrderNo: data.sourceA.noticeNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
-      lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceLineNo: 1, qty: 1, unitPrice: 86 }]
+      lines: [{
+        productCode: "CP-001",
+        warehouseCode: "CK-001",
+        sourceOrderNo: data.sourceA.noticeNo,
+        sourceLineNo: 1,
+        sourceDeliveryNoticeNo: data.sourceA.noticeNo,
+        sourceDeliveryLineNo: 1,
+        qty: 1,
+        unitPrice: 86
+      }]
     }
   });
   const duplicateAudit = await api(`/api/sales-outs/${encodeURIComponent(duplicateNo)}/audit`, { expectFailure: true });
@@ -177,13 +200,15 @@ try {
       "多源单出库行级源单",
       "下推后源单追溯不丢明细不重复下推"
     ],
-    orderA: data.orderA,
-    orderB: data.orderB,
+    orderA: data.sourceA.orderNo,
+    orderB: data.sourceB.orderNo,
+    noticeA: data.sourceA.noticeNo,
+    noticeB: data.sourceB.noticeNo,
     salesOutNo,
     lineSources: detail.lines.map((line) => ({ lineNo: line.lineNo, sourceOrderNo: line.sourceOrderNo, sourceLineNo: line.sourceLineNo })),
     remainingQty: {
-      [data.orderA]: Number(orderADetail.lines[0].remainingQty),
-      [data.orderB]: Number(orderBDetail.lines[0].remainingQty)
+      [data.sourceA.orderNo]: Number(orderADetail.lines[0].remainingQty),
+      [data.sourceB.orderNo]: Number(orderBDetail.lines[0].remainingQty)
     },
     duplicateAuditStatus: duplicateAudit.status,
     screenshots

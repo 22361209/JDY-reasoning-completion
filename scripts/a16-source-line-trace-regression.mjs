@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -76,20 +77,19 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: salesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [
-        { ...salesLines[2], sourceLineNo: 3, qty: 2 },
-        { ...salesLines[0], sourceLineNo: 1, qty: 4 }
-      ]
-    }
-  });
+  const deliveryNoticeNo = `FHTZ-A16-${batch}`;
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: [
+      { ...salesLines[2], sourceLineNo: 3, qty: 2 },
+      { ...salesLines[0], sourceLineNo: 1, qty: 4 }
+    ]
+  }, deliveryNoticeNo);
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
   const purchaseOrderNo = `CGDD-A16-${batch}`;
@@ -121,7 +121,7 @@ async function createData() {
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
-  return { salesOrderNo, salesOutNo, purchaseOrderNo, purchaseInNo };
+  return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
 async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
@@ -174,7 +174,7 @@ try {
   await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
   const salesOutSourceLines = await readSourceLineNos(page, "sales-out", 2);
-  assertArray("sales out source line nos", salesOutSourceLines, [`${data.salesOrderNo} / #3`, `${data.salesOrderNo} / #1`]);
+  assertArray("sales out source line nos", salesOutSourceLines, [`${data.deliveryNoticeNo} / #1`, `${data.deliveryNoticeNo} / #2`]);
   const salesScreenshot = `a16-sales-out-source-line-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
@@ -192,6 +192,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     salesOrderNo: data.salesOrderNo,
+    deliveryNoticeNo: data.deliveryNoticeNo,
     salesOutNo: data.salesOutNo,
     salesOutSourceLines,
     salesShipped,

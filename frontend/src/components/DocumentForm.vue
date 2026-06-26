@@ -123,6 +123,7 @@
         :show-execution-columns="showExecutionColumns"
         :show-target-warehouse-column="showTargetWarehouseColumn"
         :show-plan-delivery-date-column="showPlanDeliveryDateColumn"
+        :show-stock-columns="showStockColumns"
         :execution-qty-label="executionQtyLabel"
         :remaining-qty-label="remainingQtyLabel"
         :entry-table-colspan="entryTableColspan"
@@ -154,6 +155,7 @@
         @copy-line="emit('copyLine', $event)"
         @line-lifecycle="(lineNo, action) => emit('lineLifecycle', lineNo, action)"
         @add-line="emit('addLine')"
+        @refresh-stock="emit('refreshStock')"
       />
       <MasterSelectorDialog
         :open="masterSelectorDialogOpen"
@@ -228,6 +230,7 @@ withDefaults(defineProps<{
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
+  showStockColumns?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   entryTableColspan: number;
@@ -315,5 +318,6 @@ const emit = defineEmits<{
   copyLine: [lineIndex: number];
   lineLifecycle: [lineNo: number, action: "close" | "unclose" | "freeze" | "unfreeze"];
   addLine: [];
+  refreshStock: [];
 }>();
 </script>

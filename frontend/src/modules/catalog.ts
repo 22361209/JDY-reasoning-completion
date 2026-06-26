@@ -7,6 +7,7 @@ export const moduleCatalog = [
     groups: [
       { title: "销售业务", entries: [
         { id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" },
+        { id: "delivery-notice-form", label: "发货通知单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-return-form", label: "销售退货申请", module: "销售管理", mode: "form" }
       ] },

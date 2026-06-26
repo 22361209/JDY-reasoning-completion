@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class BillLifecycleService {
     private static final Set<String> BILL_TABLES = Set.of(
         "sales_order",
+        "delivery_notice",
         "sales_out",
         "purchase_order",
         "purchase_in",
@@ -381,6 +382,11 @@ public class BillLifecycleService {
         }
         if (hasFinancePosting(billNo)) {
             impacts.add("已生应收应付");
+        }
+        if ("sales_order".equals(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM delivery_notice_line l JOIN delivery_notice h ON h.id = l.bill_id WHERE l.source_order_no = ? AND h.status <> 'VOID'
+            """, billNo) > 0) {
+            impacts.add("已下推");
         }
         if ("sales_order".equals(target.headerTable()) && count("""
             SELECT COUNT(*) FROM sales_out_line l JOIN sales_out h ON h.id = l.bill_id WHERE l.source_order_no = ? AND h.status <> 'VOID'

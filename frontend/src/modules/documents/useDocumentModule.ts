@@ -56,6 +56,7 @@ export interface DocumentModuleOptions {
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   showTaxMode?: boolean;
+  showStockColumns?: boolean;
   defaultTargetWarehouseCode?: string;
   sourceTraceType?: OpenableDocumentType;
   reversible?: boolean;
@@ -86,6 +87,8 @@ type PreparedEntryLines = {
     taxRate?: number;
     lineRemark: string;
     planDeliveryDate?: string;
+    sourceDeliveryNoticeNo?: string;
+    sourceDeliveryLineNo?: number;
   }[];
   removedBlankCount: number;
 };
@@ -147,7 +150,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
   const showTaxMode = computed(() => Boolean(config.showTaxMode));
-  const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder");
+  const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder" || config.documentType === "deliveryNotice");
   const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
@@ -233,6 +236,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         taxRate: Number(line.taxRate ?? 13),
         taxAmount: line.taxAmount,
         priceTaxTotal: line.priceTaxTotal,
+        stockOnHand: line.stockOnHand,
+        stockReserved: line.stockReserved,
+        stockAvailable: line.stockAvailable,
+        stockInTransit: line.stockInTransit,
         lineRemark: String(line.lineRemark ?? ""),
         planDeliveryDate: String(line.planDeliveryDate ?? ""),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
@@ -250,6 +257,30 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     fillFromDetail(result.data);
     message.value = loadedMessage || `已打开${config.title} ${billNo}`;
     runtime.clearDirty();
+  }
+
+  async function refreshStock() {
+    if (!form.billNo) {
+      message.value = "请先保存或打开单据后再更新库存。";
+      return;
+    }
+    const result = await fetchDocumentDetail(config.documentType, form.billNo);
+    if (!result.ok || !result.data) {
+      message.value = result.message || "库存更新失败。";
+      return;
+    }
+    const stockByLine = new Map(result.data.lines.map((line) => [Number(line.lineNo ?? 0), line]));
+    form.lines.forEach((line, index) => {
+      const stock = stockByLine.get(Number(line.lineNo ?? index + 1));
+      if (!stock) {
+        return;
+      }
+      line.stockOnHand = stock.stockOnHand;
+      line.stockReserved = stock.stockReserved;
+      line.stockAvailable = stock.stockAvailable;
+      line.stockInTransit = stock.stockInTransit;
+    });
+    message.value = "库存已更新";
   }
 
   function applyDetail(detail: DocumentDetail, loadedMessage = "", sourceLineNo: number | null = null) {
@@ -271,6 +302,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     billNo: string;
     sourceOrderNo: string;
     partyCode: string;
+    partyName?: string;
     billDate: string;
     department: string;
     ownerName: string;
@@ -281,7 +313,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = draft.partyCode;
-    form.partyName = "";
+    form.partyName = draft.partyName || "";
     form.billDate = draft.billDate;
     form.department = draft.department;
     form.ownerName = draft.ownerName;
@@ -1163,6 +1195,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showTargetWarehouseColumn,
     showTaxMode,
     showPlanDeliveryDateColumn,
+    showStockColumns: computed(() => Boolean(config.showStockColumns)),
     executionQtyLabel: config.executionQtyLabel ?? "已执行",
     remainingQtyLabel: config.remainingQtyLabel ?? "剩余",
     entryTableColspan,
@@ -1178,6 +1211,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     knownProductOptions,
     startNew,
     loadByBillNo,
+    refreshStock,
     applyDetail,
     applyPushDownDraft,
     applyInboundPushDownDraft,
@@ -1391,6 +1425,7 @@ function backendStatusLabel(status: string | undefined) {
 function downstreamTypeLabel(type: OpenableDocumentType) {
   const labels: Record<OpenableDocumentType, string> = {
     salesOrder: "销售订单",
+    deliveryNotice: "发货通知单",
     salesOut: "销售出库单",
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",

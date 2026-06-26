@@ -112,7 +112,7 @@
       <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
       <button v-if="!isStockAlertList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button v-if="isReverseableDocumentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow || !selectedRows.every(isAuditedRow)" data-testid="batch-reverse" @click="confirmAction('反审核')">反审核</button>
-      <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
+      <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">发货通知</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
       <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
@@ -390,7 +390,7 @@ interface ColumnFilter {
   value: string;
 }
 
-type OpenableDocumentType = "salesOrder" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
+type OpenableDocumentType = "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
 const props = defineProps<{
   listKey: string;
@@ -582,6 +582,21 @@ const definitions: Record<string, ListDefinition> = {
       { field: "billDate", title: "日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "delivery-notice-form-list": {
+    title: "发货通知单",
+    subtitle: "发货通知单读取真实单据，审核后锁定库存，不扣减现存量。",
+    keywordPlaceholder: "单据编号、客户、仓库",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "customer", title: "客户", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "sourceBillNo", title: "源销售订单", width: 160, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
@@ -931,6 +946,7 @@ const isStockAlertList = computed(() => props.listKey === "stock-alert-list");
 const isDetailView = ref(false);
 const auditPermissionByListKey: Partial<Record<string, string>> = {
   "sales-order-form-list": "sales.order.audit",
+  "delivery-notice-form-list": "sales.out.audit",
   "sales-out-list": "sales.out.audit",
   "sales-out-form-list": "sales.out.audit",
   "purchase-order-form-list": "purchase.order.audit",
@@ -951,6 +967,7 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "supplier-master-list": "master.data.manage",
   "warehouse-master-list": "master.data.manage",
   "sales-order-form-list": "sales.order.audit",
+  "delivery-notice-form-list": "sales.out.audit",
   "sales-out-list": "sales.out.audit",
   "sales-out-form-list": "sales.out.audit",
   "purchase-order-form-list": "purchase.order.audit",
@@ -971,6 +988,7 @@ const canMaintainCurrentList = computed(() => !isDetailView.value && session.has
 const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
   "sales-order-form-list": "salesOrder",
+  "delivery-notice-form-list": "deliveryNotice",
   "sales-out-list": "salesOut",
   "sales-out-form-list": "salesOut",
   "purchase-order-form-list": "purchaseOrder",
@@ -1022,6 +1040,7 @@ const draggingColumnTitle = computed(() => columns.value.find((column) => column
 
 const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
   "sales-order-form-list": "salesOrder",
+  "delivery-notice-form-list": "deliveryNotice",
   "sales-out-list": "salesOut",
   "sales-out-form-list": "salesOut",
   "purchase-order-form-list": "purchaseOrder",

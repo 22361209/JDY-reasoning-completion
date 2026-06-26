@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -86,17 +87,16 @@ async function createData() {
     }
   });
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", {
-    body: {
-      billNo: salesOutNo,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: salesOutLines
-    }
-  });
+  const deliveryNoticeNo = `FHTZ-A15-${batch}`;
+  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
+    billNo: salesOutNo,
+    sourceOrderNo: salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: salesOutLines
+  }, deliveryNoticeNo);
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
   const purchaseOrderNo = `CGDD-A15-${batch}`;
@@ -125,7 +125,7 @@ async function createData() {
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
-  return { salesOrderNo, salesOutNo, purchaseOrderNo, purchaseInNo };
+  return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
 async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
@@ -199,17 +199,17 @@ try {
   await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
   const salesOutSourceLines = await readSourceLineNos(page, "sales-out", 3);
-  assertArray("sales out line-level source order", salesOutSourceLines, [`${data.salesOrderNo} / #1`, `${data.salesOrderNo} / #2`, `${data.salesOrderNo} / #3`]);
+  assertArray("sales out line-level source delivery notice", salesOutSourceLines, [`${data.deliveryNoticeNo} / #1`, `${data.deliveryNoticeNo} / #2`, `${data.deliveryNoticeNo} / #3`]);
   await page.getByTestId("sales-out-line-source-trace").waitFor({ state: "visible" });
   const salesPopupPromise = page.waitForEvent("popup");
   await page.getByTestId("sales-out-line-source-trace").click();
   const salesPopup = await salesPopupPromise;
   await salesPopup.waitForLoadState("domcontentloaded");
   const salesPopupText = await salesPopup.locator("body").innerText();
-  assertIncludes("sales source popup", salesPopupText, data.salesOrderNo);
+  assertIncludes("sales source popup", salesPopupText, data.deliveryNoticeNo);
   await salesPopup.close();
-  const tracedSalesBillNo = data.salesOrderNo;
-  const tracedSalesQtys = [10, 8, 6];
+  const tracedSalesBillNo = data.deliveryNoticeNo;
+  const tracedSalesQtys = [4, 3, 2];
   const salesScreenshot = `a15-sales-out-source-trace-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
@@ -243,6 +243,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     salesOrderNo: data.salesOrderNo,
+    deliveryNoticeNo: data.deliveryNoticeNo,
     salesOutNo: data.salesOutNo,
     salesOutSourceLines,
     tracedSalesBillNo,
