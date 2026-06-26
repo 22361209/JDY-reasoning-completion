@@ -32,6 +32,8 @@ export interface OrderLineForm {
   qty: number;
   executedQty?: number;
   remainingQty?: number;
+  lineCloseStatus?: "OPEN" | "CLOSED" | string;
+  lineFrozenStatus?: "NORMAL" | "FROZEN" | string;
   unitPrice: number;
   taxRate?: number;
   taxAmount?: number | string;
@@ -63,6 +65,7 @@ export interface PendingZeroEntrySave {
 }
 
 export type RiskyDocumentAction = "reverse" | "redReverse";
+export type LifecycleDocumentAction = "close" | "unclose" | "freeze" | "unfreeze" | "void";
 
 export interface DownstreamTraceState {
   title: string;
@@ -84,6 +87,8 @@ export interface OrderForm {
   remark?: string;
   isTaxInclusive?: boolean;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
+  closeStatus?: "OPEN" | "CLOSED" | string;
+  frozenStatus?: "NORMAL" | "FROZEN" | string;
   lines: OrderLineForm[];
 }
 

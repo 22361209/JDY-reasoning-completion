@@ -68,6 +68,14 @@ public class SalesOrderAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 out_status = 'NOT_OUT',
+                close_status = 'OPEN',
+                close_reason = NULL,
+                closed_by = NULL,
+                closed_at = NULL,
+                frozen_status = 'NORMAL',
+                frozen_reason = NULL,
+                frozen_by = NULL,
+                frozen_at = NULL,
                 total_amount = EXCLUDED.total_amount,
                 is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
@@ -196,6 +204,8 @@ public class SalesOrderAppService {
                    l.qty AS "sourceQty",
                    l.shipped_qty AS "shippedQty",
                    GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
+                   l.line_close_status AS "lineCloseStatus",
+                   l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
                    l.tax_rate AS "taxRate",
                    COALESCE(l.line_remark, '') AS "lineRemark",
@@ -207,6 +217,10 @@ public class SalesOrderAppService {
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             WHERE c.code = ?
               AND so.status = ?
+              AND so.close_status = 'OPEN'
+              AND so.frozen_status = 'NORMAL'
+              AND l.line_close_status = 'OPEN'
+              AND l.line_frozen_status = 'NORMAL'
               AND GREATEST(0, l.qty - l.shipped_qty) > 0
             ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
             """, customerCode == null ? "" : customerCode.trim(), BillStatus.AUDITED.name());
@@ -222,6 +236,8 @@ public class SalesOrderAppService {
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    so.department,
                    so.status,
+                   so.close_status AS "closeStatus",
+                   so.frozen_status AS "frozenStatus",
                    so.total_amount AS "totalAmount",
                    so.is_tax_inclusive AS "isTaxInclusive",
                    so.owner_name AS "ownerName",
@@ -244,6 +260,8 @@ public class SalesOrderAppService {
                    l.qty,
                    l.shipped_qty AS "shippedQty",
                    GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
+                   l.line_close_status AS "lineCloseStatus",
+                   l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",

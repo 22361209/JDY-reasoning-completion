@@ -12,6 +12,10 @@
     :can-reverse="canReverse"
     :can-red-reverse="canRedReverse"
     :can-void="canVoid"
+    :can-close="canClose"
+    :can-unclose="canUnclose"
+    :can-freeze="canFreeze"
+    :can-unfreeze="canUnfreeze"
     :can-delete="canDelete"
     :can-output="isDocumentForm"
     :show-push-down="showPushDown"
@@ -24,6 +28,10 @@
     @reverse="emit('reverse')"
     @red-reverse="emit('redReverse')"
     @void-document="emit('voidDocument')"
+    @close-document="emit('closeDocument')"
+    @unclose-document="emit('uncloseDocument')"
+    @freeze-document="emit('freezeDocument')"
+    @unfreeze-document="emit('unfreezeDocument')"
     @push-down="emit('pushDown')"
     @delete-document="emit('deleteDocument')"
     @export-document="emit('exportDocument')"
@@ -139,6 +147,7 @@
         @insert-line-after="emit('insertLineAfter', $event)"
         @remove-line="emit('removeLine', $event)"
         @copy-line="emit('copyLine', $event)"
+        @line-lifecycle="(lineNo, action) => emit('lineLifecycle', lineNo, action)"
         @add-line="emit('addLine')"
       />
       <MasterSelectorDialog
@@ -198,6 +207,10 @@ withDefaults(defineProps<{
   canReverse: boolean;
   canRedReverse?: boolean;
   canVoid: boolean;
+  canClose?: boolean;
+  canUnclose?: boolean;
+  canFreeze?: boolean;
+  canUnfreeze?: boolean;
   canDelete: boolean;
   showPushDown?: boolean;
   canPushDown?: boolean;
@@ -235,6 +248,10 @@ withDefaults(defineProps<{
   highlightedSourceLineNo: number | null;
 }>(), {
   canRedReverse: undefined,
+  canClose: false,
+  canUnclose: false,
+  canFreeze: false,
+  canUnfreeze: false,
   showPushDown: false,
   canPushDown: false,
   pushDownLabel: "下推",
@@ -248,6 +265,10 @@ const emit = defineEmits<{
   reverse: [];
   redReverse: [];
   voidDocument: [];
+  closeDocument: [];
+  uncloseDocument: [];
+  freezeDocument: [];
+  unfreezeDocument: [];
   pushDown: [];
   deleteDocument: [];
   exportDocument: [];
@@ -282,6 +303,7 @@ const emit = defineEmits<{
   insertLineAfter: [lineIndex: number];
   removeLine: [lineIndex: number];
   copyLine: [lineIndex: number];
+  lineLifecycle: [lineNo: number, action: "close" | "unclose" | "freeze" | "unfreeze"];
   addLine: [];
 }>();
 </script>

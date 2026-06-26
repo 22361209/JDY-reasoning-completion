@@ -15,19 +15,24 @@ public class ConversionService {
     private static final Set<String> STATUS_COLUMNS = Set.of("out_status", "in_status");
 
     private final JdbcTemplate jdbcTemplate;
+    private final BillLifecycleService lifecycleService;
 
-    public ConversionService(JdbcTemplate jdbcTemplate) {
+    public ConversionService(JdbcTemplate jdbcTemplate, BillLifecycleService lifecycleService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.lifecycleService = lifecycleService;
     }
 
     public void increaseExecutedQuantity(SourceExecutionSpec spec, String sourceId, Object sourceLineNo, BigDecimal qty) {
         guard(spec);
+        lifecycleService.guardExecutableSourceLine(spec, sourceId, sourceLineNo);
         var updated = jdbcTemplate.update("""
             UPDATE %s
             SET %s = %s + ?
             WHERE %s = ?::uuid
               AND %s = ?
               AND %s + ? <= %s
+              AND line_close_status = 'OPEN'
+              AND line_frozen_status = 'NORMAL'
             """.formatted(
                 spec.lineTable(),
                 spec.executedQtyColumn(),

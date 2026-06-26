@@ -242,7 +242,11 @@
               </button>
               <span v-else>{{ lineExecutedQty(line) }}</span>
             </template>
-            <span v-else-if="column.key === 'remainingQty'">{{ lineRemainingQty(line) }}</span>
+            <span v-else-if="column.key === 'remainingQty'" class="line-lifecycle-state">
+              {{ lineRemainingQty(line) }}
+              <small v-if="line.lineCloseStatus === 'CLOSED'">已关闭</small>
+              <small v-if="line.lineFrozenStatus === 'FROZEN'">已冻结</small>
+            </span>
             <input
               v-else-if="column.key === 'unitPrice'"
               v-model.number="line.unitPrice"
@@ -275,12 +279,14 @@
             />
             <input v-else-if="column.key === 'remark'" v-model="line.lineRemark" :disabled="!isDraft" :data-testid="lineRemarkTestId(lineIndex)" @input="emit('markDirty')" />
             <div v-else-if="column.key === 'actions'" class="entry-row-actions">
-              <button class="line-action line-menu-trigger" type="button" :disabled="!isDraft" :data-testid="lineMenuTestId(lineIndex)" title="行操作" @click="toggleRowMenu(lineIndex, $event)">⋮</button>
+              <button class="line-action line-menu-trigger" type="button" :data-testid="lineMenuTestId(lineIndex)" title="行操作" @click="toggleRowMenu(lineIndex, $event)">⋮</button>
               <div v-if="openMenuLineIndex === lineIndex" class="line-action-menu" :style="rowMenuStyle" data-testid="entry-line-action-menu">
                 <button class="line-action drag-handle" type="button" :disabled="!isDraft" :data-testid="lineDragHandleTestId(lineIndex)" title="拖拽调整行顺序">↕ 调整顺序</button>
                 <button class="line-action" type="button" :disabled="!isDraft" :data-testid="lineInsertTestId(lineIndex)" @click="runLineAction('insert', lineIndex)">插入</button>
                 <button class="line-action" type="button" :disabled="!isDraft || lines.length <= 1" :data-testid="lineDeleteTestId(lineIndex)" @click="runLineAction('delete', lineIndex)">删除</button>
                 <button class="line-action" type="button" :disabled="!isDraft" :data-testid="lineCopyTestId(lineIndex)" @click="runLineAction('copy', lineIndex)">复制</button>
+                <button class="line-action" type="button" :disabled="isDraft" :data-testid="lineCloseTestId(lineIndex)" @click="emit('lineLifecycle', lineLineNo(line, lineIndex), line.lineCloseStatus === 'CLOSED' ? 'unclose' : 'close')">{{ line.lineCloseStatus === 'CLOSED' ? '反关闭行' : '关闭行' }}</button>
+                <button class="line-action" type="button" :disabled="isDraft" :data-testid="lineFreezeTestId(lineIndex)" @click="emit('lineLifecycle', lineLineNo(line, lineIndex), line.lineFrozenStatus === 'FROZEN' ? 'unfreeze' : 'freeze')">{{ line.lineFrozenStatus === 'FROZEN' ? '解冻行' : '冻结行' }}</button>
               </div>
             </div>
           </td>
@@ -355,6 +361,8 @@ export interface EntryLine {
   qty: number;
   executedQty?: number;
   remainingQty?: number;
+  lineCloseStatus?: string;
+  lineFrozenStatus?: string;
   unitPrice: number;
   taxRate?: number;
   taxAmount?: number | string;
@@ -437,6 +445,7 @@ const emit = defineEmits<{
   insertLineAfter: [lineIndex: number];
   removeLine: [lineIndex: number];
   copyLine: [lineIndex: number];
+  lineLifecycle: [lineNo: number, action: "close" | "unclose" | "freeze" | "unfreeze"];
   addLine: [];
 }>();
 
@@ -995,6 +1004,14 @@ function lineInsertTestId(index: number) {
 
 function lineCopyTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-copy` : `${props.testPrefix}-line-copy-${index + 1}`;
+}
+
+function lineCloseTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-close` : `${props.testPrefix}-line-close-${index + 1}`;
+}
+
+function lineFreezeTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-freeze` : `${props.testPrefix}-line-freeze-${index + 1}`;
 }
 
 function lineDragHandleTestId(index: number) {

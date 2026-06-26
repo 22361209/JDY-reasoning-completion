@@ -17,6 +17,10 @@
     :can-audit="document.canAudit.value"
     :can-reverse="document.canReverse.value"
     :can-void="document.canVoid.value"
+    :can-close="document.canClose.value"
+    :can-unclose="document.canUnclose.value"
+    :can-freeze="document.canFreeze.value"
+    :can-unfreeze="document.canUnfreeze.value"
     :can-delete="document.canDelete.value"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
@@ -48,7 +52,11 @@
     @audit="document.audit"
     @reverse="document.openRiskyAction('reverse')"
     @red-reverse="document.openRiskyAction('redReverse')"
-    @void-document="document.voidCurrent"
+    @void-document="document.openLifecycleAction('void')"
+    @close-document="document.openLifecycleAction('close')"
+    @unclose-document="document.openLifecycleAction('unclose')"
+    @freeze-document="document.openLifecycleAction('freeze')"
+    @unfreeze-document="document.openLifecycleAction('unfreeze')"
     @delete-document="noop"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -79,6 +87,7 @@
     @insert-line-after="document.insertLineAfter"
     @remove-line="document.removeLine"
     @copy-line="document.copyLine"
+    @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
   />
   <DocumentDialogs v-bind="dialogBindings" v-on="dialogHandlers" />
@@ -121,6 +130,8 @@ const dialogBindings = computed(() => ({
   zeroReasonOptions: document.zeroReasonOptions,
   downstreamTrace: document.downstreamTrace.value,
   pendingRiskyDocumentAction: document.pendingRiskyDocumentAction.value,
+  pendingLifecycleAction: document.pendingLifecycleAction.value,
+  pendingLifecycleLineNo: document.pendingLifecycleLineNo.value,
   pendingEntryPaste: document.pendingEntryPaste.value,
   currentBillNo: document.form.billNo,
   currentOrderStatusLabel: document.statusLabel.value,
@@ -129,6 +140,9 @@ const dialogBindings = computed(() => ({
   riskyActionSummary: document.riskyActionSummary.value,
   riskyActionImpact: document.riskyActionImpact.value,
   riskyActionVerb: document.riskyActionVerb.value,
+  lifecycleReason: document.lifecycleReason.value,
+  voidUsername: document.voidUsername.value,
+  voidPassword: document.voidPassword.value,
   entryPasteConflictsResolved: document.entryPasteConflictsResolved.value,
   formatQty: document.formatQty,
   formatAmount: document.formatAmount,
@@ -149,6 +163,11 @@ const dialogHandlers = {
   openDownstreamDocument: document.openDownstreamDocument,
   cancelRiskyDocumentAction: document.cancelRiskyAction,
   confirmRiskyDocumentAction: document.confirmRiskyAction,
+  cancelLifecycleAction: document.cancelLifecycleAction,
+  confirmLifecycleAction: document.confirmLifecycleAction,
+  updateLifecycleReason: (value: string) => { document.lifecycleReason.value = value; },
+  updateVoidUsername: (value: string) => { document.voidUsername.value = value; },
+  updateVoidPassword: (value: string) => { document.voidPassword.value = value; },
   handleEntryPasteConflictKeydown: document.handleEntryPasteConflictKeydown,
   selectEntryPasteCandidate: document.selectEntryPasteCandidate,
   cancelPendingEntryPaste: document.cancelPendingEntryPaste,

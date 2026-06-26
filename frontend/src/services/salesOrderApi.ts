@@ -26,6 +26,8 @@ export interface SalesOrderDetail {
     createdByName?: string;
     remark?: string;
     status: string;
+    closeStatus?: string;
+    frozenStatus?: string;
     isTaxInclusive?: boolean;
   };
   lines: Array<{
@@ -37,6 +39,8 @@ export interface SalesOrderDetail {
     qty: number | string;
     shippedQty?: number | string;
     remainingQty?: number | string;
+    lineCloseStatus?: string;
+    lineFrozenStatus?: string;
     unitPrice: number | string;
     taxRate?: number | string;
     taxAmount?: number | string;

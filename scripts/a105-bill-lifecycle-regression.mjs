@@ -1,0 +1,236 @@
+import { chromium } from "playwright";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+
+const rootDir = path.resolve(import.meta.dirname, "..");
+const screenshotDir = path.join(rootDir, "verification/playwright");
+const resultPath = path.join(rootDir, "verification/a105-bill-lifecycle-regression.json");
+const frontendUrl = "http://127.0.0.1:5173/";
+const apiBase = "http://127.0.0.1:8080";
+const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const billDate = "2026-06-26";
+
+await installApiSession(apiBase);
+await mkdir(screenshotDir, { recursive: true });
+await mkdir(path.dirname(resultPath), { recursive: true });
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+async function api(pathname, options = {}) {
+  const response = await fetch(`${apiBase}${pathname}`, {
+    method: options.method ?? "POST",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!response.ok && !options.expectFailure) {
+    throw new Error(`${options.method ?? "POST"} ${pathname} failed ${response.status}: ${text}`);
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+async function requireApi(pathname, options = {}) {
+  const result = await api(pathname, options);
+  assert(result.ok, `${options.method ?? "POST"} ${pathname} failed ${result.status}`);
+  return result.data;
+}
+
+async function seedStock() {
+  await requireApi("/api/inventory/adjustments", {
+    body: {
+      productCode: "CP-001",
+      warehouseCode: "CK-001",
+      qtyDelta: 1000,
+      txnType: "A105_SEED_IN",
+      sourceBillType: `A105:${batch}`
+    }
+  });
+}
+
+async function createSalesOrder(suffix, qtys = [6, 4]) {
+  const billNo = `XSDD-A105-${suffix}-${batch}`;
+  await requireApi("/api/sales-orders/draft", {
+    body: {
+      billNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      remark: `A105 ${suffix}`,
+      lines: qtys.map((qty, index) => ({
+        productCode: "CP-001",
+        warehouseCode: "CK-001",
+        qty,
+        unitPrice: 86 + index,
+        lineRemark: `A105 第 ${index + 1} 行`,
+        planDeliveryDate: `2026-07-0${index + 1}`
+      }))
+    }
+  });
+  await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
+  return billNo;
+}
+
+async function createSalesOutFromOrder(salesOrderNo, suffix, qty = 1) {
+  const billNo = `XSCK-A105-${suffix}-${batch}`;
+  await requireApi("/api/sales-outs/draft", {
+    body: {
+      billNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: salesOrderNo, sourceLineNo: 1, qty, unitPrice: 86 }]
+    }
+  });
+  await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
+  return billNo;
+}
+
+async function verifyLifecycleApi() {
+  const closeNo = await createSalesOrder("CLOSE");
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/lines/1/close`, { body: { reason: "A105 行关闭" } });
+  let detail = await requireApi(`/api/sales-orders/${encodeURIComponent(closeNo)}`, { method: "GET" });
+  assert(detail.lines[0].lineCloseStatus === "CLOSED", "line close status should be CLOSED");
+  assert(detail.lines[1].lineCloseStatus === "OPEN", "other line should stay OPEN");
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/lines/1/unclose`, { body: { reason: "A105 行反关闭" } });
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/close`, { body: { reason: "A105 整单关闭" } });
+  detail = await requireApi(`/api/sales-orders/${encodeURIComponent(closeNo)}`, { method: "GET" });
+  assert(detail.order.closeStatus === "CLOSED", "header close status should be CLOSED");
+  assert(detail.lines.every((line) => line.lineCloseStatus === "CLOSED"), "all lines should be closed by header close");
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/unclose`, { body: { reason: "A105 整单反关闭" } });
+  detail = await requireApi(`/api/sales-orders/${encodeURIComponent(closeNo)}`, { method: "GET" });
+  assert(detail.order.closeStatus === "OPEN", "header close status should reopen");
+  assert(detail.lines.every((line) => line.lineCloseStatus === "OPEN"), "all lines should reopen");
+
+  const freezeNo = await createSalesOrder("FREEZE");
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/lines/1/freeze`, { body: { reason: "A105 行冻结" } });
+  detail = await requireApi(`/api/sales-orders/${encodeURIComponent(freezeNo)}`, { method: "GET" });
+  assert(detail.lines[0].lineFrozenStatus === "FROZEN", "line frozen status should be FROZEN");
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/lines/1/unfreeze`, { body: { reason: "A105 行解冻" } });
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/freeze`, { body: { reason: "A105 整单冻结" } });
+  detail = await requireApi(`/api/sales-orders/${encodeURIComponent(freezeNo)}`, { method: "GET" });
+  assert(detail.order.frozenStatus === "FROZEN", "header frozen status should be FROZEN");
+  assert(detail.lines.every((line) => line.lineFrozenStatus === "FROZEN"), "all lines should be frozen by header freeze");
+  const blockedByFreeze = await api("/api/sales-outs/draft", {
+    body: {
+      billNo: `XSCK-A105-FROZEN-${batch}`,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: freezeNo, sourceLineNo: 1, qty: 1, unitPrice: 86 }]
+    }
+  });
+  assert(blockedByFreeze.ok, "draft against frozen source can still be saved before audit");
+  const frozenAudit = await api(`/api/sales-outs/${encodeURIComponent(`XSCK-A105-FROZEN-${batch}`)}/audit`, { expectFailure: true });
+  assert(frozenAudit.status === 409, `frozen source audit should be blocked with 409, got ${frozenAudit.status}`);
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/unfreeze`, { body: { reason: "A105 整单解冻" } });
+
+  const lineBlockNo = await createSalesOrder("LINEBLOCK");
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(lineBlockNo)}/lines/1/close`, { body: { reason: "A105 已关闭行不下推" } });
+  const selectable = await requireApi(`/api/sales-orders/selectable-lines?customerCode=KH-001`, { method: "GET" });
+  const sourceLines = selectable.lines.filter((line) => line.billNo === lineBlockNo);
+  assert(sourceLines.length === 1 && Number(sourceLines[0].lineNo) === 2, "selectable lines should skip closed line and keep open line");
+
+  const voidNo = `XSDD-A105-VOID-${batch}`;
+  await requireApi("/api/sales-orders/draft", {
+    body: {
+      billNo: voidNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 }]
+    }
+  });
+  const wrongPassword = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
+    body: { reason: "A105 错密", username: "admin", password: "bad" },
+    expectFailure: true
+  });
+  assert(wrongPassword.status === 401, `wrong password void should be 401, got ${wrongPassword.status}`);
+  const voided = await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
+    body: { reason: "A105 草稿作废", username: "admin", password: "admin123" }
+  });
+  assert(voided.status === "VOID", "draft void should set VOID");
+
+  const downstreamNo = await createSalesOrder("DOWNSTREAM");
+  await createSalesOutFromOrder(downstreamNo, "DOWNSTREAM");
+  const blockedVoid = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`, {
+    body: { reason: "A105 有下游作废", username: "admin", password: "admin123" },
+    expectFailure: true
+  });
+  assert(blockedVoid.status === 409, `void with downstream should be blocked with 409, got ${blockedVoid.status}`);
+
+  return { closeNo, freezeNo, lineBlockNo, voidNo, downstreamNo, wrongPasswordStatus: wrongPassword.status, blockedVoidStatus: blockedVoid.status, frozenAuditStatus: frozenAudit.status };
+}
+
+async function verifyUi() {
+  const uiNo = await createSalesOrder("UI", [3]);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+  const screenshots = [];
+  try {
+    await page.goto(frontendUrl, { waitUntil: "networkidle" });
+    await loginAsAdmin(page);
+    await page.getByTestId("module-销售管理").hover();
+    await page.getByTestId("query-sales-order-form").click();
+    await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
+    await page.getByTestId("list-keyword").fill(uiNo);
+    await page.getByTestId("list-keyword").press("Enter");
+    await page.getByTestId(`open-document-${uiNo}`).click();
+    await page.getByTestId("close-document").waitFor({ state: "visible" });
+    assert(await page.getByTestId("close-document").isEnabled(), "close button should be enabled for audited document");
+    assert(await page.getByTestId("freeze-document").isEnabled(), "freeze button should be enabled for audited document");
+    await page.getByTestId("new-document").click();
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="sales-bill-no"]');
+      return input instanceof HTMLInputElement && input.value.trim().length > 0;
+    });
+    await page.getByTestId("void-document").click();
+    await page.getByTestId("lifecycle-action-dialog").waitFor({ state: "visible" });
+    await page.getByText("作废后单据将不再作为有效业务事实").waitFor({ state: "visible" });
+    await page.getByTestId("void-username").waitFor({ state: "visible" });
+    await page.getByTestId("void-password").waitFor({ state: "visible" });
+    const shot = `a105-lifecycle-danger-dialog-${batch}.png`;
+    await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
+    screenshots.push(`verification/playwright/${shot}`);
+    await page.getByTestId("lifecycle-action-cancel").click();
+    await page.getByTestId("sales-line-menu").click();
+    await page.getByTestId("sales-line-close").waitFor({ state: "visible" });
+    const lineShot = `a105-lifecycle-line-actions-${batch}.png`;
+    await page.screenshot({ path: path.join(screenshotDir, lineShot), fullPage: true });
+    screenshots.push(`verification/playwright/${lineShot}`);
+    return { uiNo, screenshots };
+  } finally {
+    await browser.close();
+  }
+}
+
+await seedStock();
+const lifecycle = await verifyLifecycleApi();
+const ui = await verifyUi();
+
+const result = {
+  batch,
+  generatedAt: new Date().toISOString(),
+  assertions: [
+    "关闭/反关闭支持表头与行级并保留业务事实",
+    "冻结/解冻支持表头与行级并阻断执行",
+    "下推可选行跳过已关闭/已冻结行",
+    "作废需要账号密码且草稿作废成功",
+    "已有下游影响禁止作废",
+    "前端普通按钮和作废危险区二次确认可见"
+  ],
+  lifecycle,
+  ui
+};
+
+await writeFile(resultPath, JSON.stringify(result, null, 2));
+console.log(JSON.stringify(result, null, 2));

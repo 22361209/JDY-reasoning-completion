@@ -403,6 +403,8 @@ public class ListStubController {
                        WHEN so.out_status = 'PART_OUT' THEN '部分出库'
                        ELSE '未出库'
                    END AS "outStatus",
+                   so.close_status AS "closeStatus",
+                   so.frozen_status AS "frozenStatus",
                    trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(so.owner_name, '') AS owner
             FROM sales_order so
@@ -429,6 +431,8 @@ public class ListStubController {
                        WHEN po.in_status = 'PART_IN' THEN '部分入库'
                        ELSE '未入库'
                    END AS "inStatus",
+                   po.close_status AS "closeStatus",
+                   po.frozen_status AS "frozenStatus",
                    trim(to_char(po.total_amount, 'FM9999999990.00')) AS amount,
                    COALESCE(po.owner_name, '') AS owner
             FROM purchase_order po

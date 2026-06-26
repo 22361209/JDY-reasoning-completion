@@ -120,6 +120,35 @@
     </div>
   </div>
 
+  <div v-if="pendingLifecycleAction" class="modal-mask" data-testid="lifecycle-action-dialog">
+    <div class="dialog risky-action-dialog" :class="{ 'void-danger-dialog': pendingLifecycleAction === 'void' }">
+      <h3>{{ lifecycleActionTitle }}</h3>
+      <p>{{ lifecycleActionSummary }}</p>
+      <div v-if="pendingLifecycleAction === 'void'" class="downstream-impact-note danger-note">
+        <strong>危险操作</strong>
+        <span>作废后单据将不再作为有效业务事实。已有下游影响时系统会禁止作废，请改用关闭、反审核、冲销、红字或退货等可审计逆向流程。</span>
+      </div>
+      <label class="dialog-field">
+        原因
+        <textarea :value="lifecycleReason" data-testid="lifecycle-reason" @input="emit('updateLifecycleReason', ($event.target as HTMLTextAreaElement).value)" />
+      </label>
+      <template v-if="pendingLifecycleAction === 'void'">
+        <label class="dialog-field">
+          验证账号
+          <input :value="voidUsername" data-testid="void-username" @input="emit('updateVoidUsername', ($event.target as HTMLInputElement).value)" />
+        </label>
+        <label class="dialog-field">
+          验证密码
+          <input :value="voidPassword" type="password" data-testid="void-password" @input="emit('updateVoidPassword', ($event.target as HTMLInputElement).value)" />
+        </label>
+      </template>
+      <div class="dialog-actions">
+        <button type="button" data-testid="lifecycle-action-cancel" @click="emit('cancelLifecycleAction')">取消</button>
+        <button :class="pendingLifecycleAction === 'void' ? 'danger-action' : 'primary-action'" type="button" data-testid="lifecycle-action-confirm" @click="emit('confirmLifecycleAction')">确认{{ lifecycleActionVerb }}</button>
+      </div>
+    </div>
+  </div>
+
   <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
     <div ref="entryPasteDialogRef" class="dialog entry-paste-conflict-dialog" tabindex="-1" @keydown="emit('handleEntryPasteConflictKeydown', $event)">
       <h3>选择商品</h3>
@@ -153,15 +182,17 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { DownstreamDocumentRef, OpenableDocumentType } from "../services/documentApi";
-import type { DownstreamTraceState, EntryPasteConflict, PendingEntryPaste, PendingZeroEntrySave, RiskyDocumentAction } from "../app/documentModel";
+import type { DownstreamTraceState, EntryPasteConflict, LifecycleDocumentAction, PendingEntryPaste, PendingZeroEntrySave, RiskyDocumentAction } from "../app/documentModel";
 
 const props = defineProps<{
   pendingZeroEntrySave: PendingZeroEntrySave | null;
   zeroReasonOptions: string[];
   downstreamTrace: DownstreamTraceState | null;
   pendingRiskyDocumentAction: RiskyDocumentAction | null;
+  pendingLifecycleAction: LifecycleDocumentAction | null;
+  pendingLifecycleLineNo: number | null;
   pendingEntryPaste: PendingEntryPaste | null;
   currentBillNo: string;
   currentOrderStatusLabel: string;
@@ -170,6 +201,9 @@ const props = defineProps<{
   riskyActionSummary: string;
   riskyActionImpact: string;
   riskyActionVerb: string;
+  lifecycleReason: string;
+  voidUsername: string;
+  voidPassword: string;
   entryPasteConflictsResolved: boolean;
   formatQty: (value: number | string | undefined) => string;
   formatAmount: (value: number | string | undefined) => string;
@@ -190,6 +224,11 @@ const emit = defineEmits<{
   openDownstreamDocument: [doc: DownstreamDocumentRef];
   cancelRiskyDocumentAction: [];
   confirmRiskyDocumentAction: [];
+  cancelLifecycleAction: [];
+  confirmLifecycleAction: [];
+  updateLifecycleReason: [value: string];
+  updateVoidUsername: [value: string];
+  updateVoidPassword: [value: string];
   handleEntryPasteConflictKeydown: [event: KeyboardEvent];
   selectEntryPasteCandidate: [lineIndex: number, code: string];
   cancelPendingEntryPaste: [];
@@ -197,6 +236,23 @@ const emit = defineEmits<{
 }>();
 
 const entryPasteDialogRef = ref<HTMLElement | null>(null);
+
+const lifecycleActionVerb = computed(() => {
+  const labels: Record<LifecycleDocumentAction, string> = {
+    close: "关闭",
+    unclose: "反关闭",
+    freeze: "冻结",
+    unfreeze: "解冻",
+    void: "作废"
+  };
+  return props.pendingLifecycleAction ? labels[props.pendingLifecycleAction] : "";
+});
+
+const lifecycleActionTitle = computed(() => `${lifecycleActionVerb.value}确认`);
+const lifecycleActionSummary = computed(() => {
+  const target = props.pendingLifecycleLineNo == null ? `单据 ${props.currentBillNo}` : `单据 ${props.currentBillNo} 第 ${props.pendingLifecycleLineNo} 行`;
+  return `即将${lifecycleActionVerb.value}${target}。`;
+});
 
 watch(
   () => props.pendingEntryPaste,

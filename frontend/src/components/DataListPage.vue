@@ -980,6 +980,8 @@ const canPushDownSalesOut = computed(() => {
     selectedRows.value.length === 1 &&
     !isRowLocked(row) &&
     row?.status === "已审核" &&
+    row?.closeStatus !== "CLOSED" &&
+    row?.frozenStatus !== "FROZEN" &&
     row?.outStatus !== "全部出库"
   );
 });
@@ -991,6 +993,8 @@ const canPushDownPurchaseIn = computed(() => {
     selectedRows.value.length === 1 &&
     !isRowLocked(row) &&
     row?.status === "已审核" &&
+    row?.closeStatus !== "CLOSED" &&
+    row?.frozenStatus !== "FROZEN" &&
     row?.inStatus !== "全部入库"
   );
 });

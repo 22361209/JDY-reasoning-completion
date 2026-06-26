@@ -122,6 +122,8 @@ export interface DocumentDetail {
     createdByName?: string;
     remark?: string;
     status: string;
+    closeStatus?: string;
+    frozenStatus?: string;
     redReverseBillNo?: string;
     redSourceBillNo?: string;
     isTaxInclusive?: boolean;
@@ -139,6 +141,8 @@ export interface DocumentDetail {
     receivedQty?: number | string;
     shippedQty?: number | string;
     remainingQty?: number | string;
+    lineCloseStatus?: string;
+    lineFrozenStatus?: string;
     unitPrice?: number | string;
     taxRate?: number | string;
     taxAmount?: number | string;
@@ -183,6 +187,18 @@ export async function reverseDocument(type: DocumentType, billNo: string) {
 
 export async function voidDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/void`, "POST");
+}
+
+export async function lifecycleDocument(type: DocumentType, billNo: string, action: "close" | "unclose" | "freeze" | "unfreeze", reason: string) {
+  return callDocument(`/api/document-lifecycle/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/${action}`, "POST", { reason });
+}
+
+export async function lifecycleLine(type: DocumentType, billNo: string, lineNo: number, action: "close" | "unclose" | "freeze" | "unfreeze", reason: string) {
+  return callDocument(`/api/document-lifecycle/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/lines/${encodeURIComponent(String(lineNo))}/${action}`, "POST", { reason });
+}
+
+export async function voidDocumentHardened(type: DocumentType, billNo: string, payload: { reason: string; username: string; password: string }) {
+  return callDocument(`/api/document-lifecycle/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/void`, "POST", payload);
 }
 
 export async function redReverseDocument(type: DocumentType, billNo: string, payload: { redBillNo: string; billDate: string; ownerName: string }) {

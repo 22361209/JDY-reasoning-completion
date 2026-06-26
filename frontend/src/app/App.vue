@@ -1154,7 +1154,12 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
+  if (result.data.order.closeStatus === "CLOSED" || result.data.order.frozenStatus === "FROZEN") {
+    formMessage.value = `销售订单 ${sourceBillNo} 已关闭或冻结，不能下推`;
+    return;
+  }
   const lines = result.data.lines
+    .filter((line) => line.lineCloseStatus !== "CLOSED" && line.lineFrozenStatus !== "FROZEN")
     .map((line) => ({ ...toPendingPushLine(line, "shippedQty"), sourceOrderNo: sourceBillNo }))
     .filter((line) => line.remainingQty > 0);
   if (lines.length === 0) {
@@ -1203,7 +1208,12 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
+  if (result.data.document.closeStatus === "CLOSED" || result.data.document.frozenStatus === "FROZEN") {
+    formMessage.value = `采购订单 ${sourceBillNo} 已关闭或冻结，不能下推`;
+    return;
+  }
   const lines = result.data.lines
+    .filter((line) => line.lineCloseStatus !== "CLOSED" && line.lineFrozenStatus !== "FROZEN")
     .map((line) => ({ ...toPendingPushLine(line, "receivedQty"), sourceOrderNo: sourceBillNo }))
     .filter((line) => line.remainingQty > 0);
   if (lines.length === 0) {

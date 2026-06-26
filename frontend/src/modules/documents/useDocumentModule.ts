@@ -8,6 +8,7 @@ import {
   type DownstreamTraceState,
   type EntryPasteConflict,
   type EntryPasteRefs,
+  type LifecycleDocumentAction,
   type MasterOption,
   type OrderForm,
   type OrderLineForm,
@@ -23,11 +24,13 @@ import {
   exportDocument,
   fetchDocumentDetail,
   fetchNextBillNo,
+  lifecycleDocument,
+  lifecycleLine,
   printDocument,
   redReverseDocument,
   reverseDocument,
   saveDocumentDraft,
-  voidDocument,
+  voidDocumentHardened,
   type DocumentDetail,
   type DocumentType,
   type DownstreamDocumentRef,
@@ -121,12 +124,21 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
   const pendingZeroEntrySave = ref<PendingZeroEntrySave | null>(null);
   const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
+  const pendingLifecycleAction = ref<LifecycleDocumentAction | null>(null);
+  const pendingLifecycleLineNo = ref<number | null>(null);
+  const lifecycleReason = ref("");
+  const voidUsername = ref("");
+  const voidPassword = ref("");
   let selectorRequestSeq = 0;
 
   const isDraft = computed(() => form.status === "DRAFT");
   const canAudit = computed(() => Boolean(config.saveType) && isDraft.value && runtime.hasPermission(config.auditPermission));
   const canReverse = computed(() => Boolean(config.reversible && config.saveType && form.status === "AUDITED"));
   const canVoid = computed(() => Boolean(config.saveType && config.reversible && form.status === "DRAFT"));
+  const canClose = computed(() => Boolean(config.saveType && form.status === "AUDITED" && form.closeStatus !== "CLOSED"));
+  const canUnclose = computed(() => Boolean(config.saveType && form.closeStatus === "CLOSED"));
+  const canFreeze = computed(() => Boolean(config.saveType && form.status === "AUDITED" && form.frozenStatus !== "FROZEN"));
+  const canUnfreeze = computed(() => Boolean(config.saveType && form.frozenStatus === "FROZEN"));
   const canDelete = computed(() => false);
   const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
@@ -171,6 +183,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.remark = "";
     form.isTaxInclusive = false;
     form.status = "DRAFT";
+    form.closeStatus = "OPEN";
+    form.frozenStatus = "NORMAL";
     form.lines = [defaultLine()];
     const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
     form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
@@ -196,6 +210,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.remark = document.remark || "";
     form.isTaxInclusive = Boolean(document.isTaxInclusive);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
+    form.closeStatus = document.closeStatus ?? "OPEN";
+    form.frozenStatus = document.frozenStatus ?? "NORMAL";
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
         productCode: String(line.productCode ?? ""),
@@ -209,6 +225,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
         remainingQty: documentLineRemainingQty(line),
+        lineCloseStatus: line.lineCloseStatus ?? "OPEN",
+        lineFrozenStatus: line.lineFrozenStatus ?? "NORMAL",
         unitPrice: Number(line.unitPrice ?? 0),
         taxRate: Number(line.taxRate ?? 13),
         taxAmount: line.taxAmount,
@@ -383,14 +401,46 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
   }
 
-  async function voidCurrent() {
-    if (!config.saveType) {
+  function openLifecycleAction(action: LifecycleDocumentAction, lineNo?: number) {
+    pendingLifecycleAction.value = action;
+    pendingLifecycleLineNo.value = lineNo ?? null;
+    lifecycleReason.value = defaultLifecycleReason(action, lineNo);
+    voidUsername.value = "";
+    voidPassword.value = "";
+  }
+
+  function cancelLifecycleAction() {
+    pendingLifecycleAction.value = null;
+    pendingLifecycleLineNo.value = null;
+    lifecycleReason.value = "";
+    voidUsername.value = "";
+    voidPassword.value = "";
+  }
+
+  async function confirmLifecycleAction() {
+    const action = pendingLifecycleAction.value;
+    if (!action || !config.saveType) {
+      cancelLifecycleAction();
       return;
     }
-    const result = await voidDocument(config.saveType, form.billNo);
-    message.value = result.ok ? "作废成功" : result.message;
+    const lineNo = pendingLifecycleLineNo.value;
+    const reason = lifecycleReason.value.trim();
+    let result;
+    if (action === "void") {
+      result = await voidDocumentHardened(config.saveType, form.billNo, {
+        reason,
+        username: voidUsername.value.trim(),
+        password: voidPassword.value
+      });
+    } else if (lineNo != null) {
+      result = await lifecycleLine(config.saveType, form.billNo, lineNo, action, reason);
+    } else {
+      result = await lifecycleDocument(config.saveType, form.billNo, action, reason);
+    }
+    message.value = result.ok ? lifecycleSuccessMessage(action, lineNo) : result.message;
     if (result.ok) {
-      form.status = "VOIDED";
+      applyLifecycleLocal(action, lineNo);
+      cancelLifecycleAction();
       runtime.clearDirty();
     }
   }
@@ -981,6 +1031,58 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     return `entry-paste-candidate-${lineIndex + 1}-${code}`;
   }
 
+  function defaultLifecycleReason(action: LifecycleDocumentAction, lineNo?: number) {
+    const target = lineNo == null ? "整单" : `第 ${lineNo} 行`;
+    const labels: Record<LifecycleDocumentAction, string> = {
+      close: "业务结束，剩余不再执行",
+      unclose: "恢复继续执行",
+      freeze: "临时暂停执行",
+      unfreeze: "恢复执行",
+      void: "录入错误，撤销无效业务事实"
+    };
+    return `${target}${labels[action]}`;
+  }
+
+  function lifecycleSuccessMessage(action: LifecycleDocumentAction, lineNo: number | null) {
+    const target = lineNo == null ? "单据" : `第 ${lineNo} 行`;
+    const labels: Record<LifecycleDocumentAction, string> = {
+      close: "关闭成功",
+      unclose: "反关闭成功",
+      freeze: "冻结成功",
+      unfreeze: "解冻成功",
+      void: "作废成功"
+    };
+    return `${target}${labels[action]}`;
+  }
+
+  function applyLifecycleLocal(action: LifecycleDocumentAction, lineNo: number | null) {
+    if (action === "void") {
+      form.status = "VOIDED";
+      return;
+    }
+    if (lineNo != null) {
+      const line = form.lines.find((item, index) => Number(item.lineNo ?? index + 1) === lineNo);
+      if (line) {
+        if (action === "close" || action === "unclose") {
+          line.lineCloseStatus = action === "close" ? "CLOSED" : "OPEN";
+          form.closeStatus = form.lines.every((item) => item.lineCloseStatus === "CLOSED") ? "CLOSED" : "OPEN";
+        }
+        if (action === "freeze" || action === "unfreeze") {
+          line.lineFrozenStatus = action === "freeze" ? "FROZEN" : "NORMAL";
+        }
+      }
+      return;
+    }
+    if (action === "close" || action === "unclose") {
+      form.closeStatus = action === "close" ? "CLOSED" : "OPEN";
+      form.lines.forEach((line) => { line.lineCloseStatus = form.closeStatus; });
+    }
+    if (action === "freeze" || action === "unfreeze") {
+      form.frozenStatus = action === "freeze" ? "FROZEN" : "NORMAL";
+      form.lines.forEach((line) => { line.lineFrozenStatus = form.frozenStatus; });
+    }
+  }
+
   return {
     form,
     message,
@@ -1005,11 +1107,20 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     pendingEntryPaste,
     pendingZeroEntrySave,
     pendingRiskyDocumentAction,
+    pendingLifecycleAction,
+    pendingLifecycleLineNo,
+    lifecycleReason,
+    voidUsername,
+    voidPassword,
     zeroReasonOptions,
     isDraft,
     canAudit,
     canReverse,
     canVoid,
+    canClose,
+    canUnclose,
+    canFreeze,
+    canUnfreeze,
     canDelete,
     canTraceSourceOrder,
     showSourceLineColumn,
@@ -1040,7 +1151,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     openRiskyAction,
     cancelRiskyAction,
     confirmRiskyAction,
-    voidCurrent,
+    openLifecycleAction,
+    cancelLifecycleAction,
+    confirmLifecycleAction,
     exportCurrent,
     printCurrent,
     openRedReverseBill,

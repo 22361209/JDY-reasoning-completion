@@ -1266,6 +1266,11 @@ input:disabled {
   color: #ffffff;
 }
 
+.danger-action:not(:disabled):hover {
+  background: #9f3928;
+  border-color: #9f3928;
+}
+
 .action-bar button:disabled {
   background: #edf1f5;
   color: #9ba8b5;
@@ -2312,6 +2317,21 @@ tr.is-source-target td {
   margin-left: 0;
 }
 
+.line-lifecycle-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.line-lifecycle-state small {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #eef2f7;
+  color: #5f6f82;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .entry-total-row td {
   height: 22px;
   background: #f7fafc;
@@ -2510,6 +2530,44 @@ th {
 
 .downstream-impact-note strong {
   color: #8a5f08;
+}
+
+.danger-note {
+  border-color: #e2b4aa;
+  background: #fff1ef;
+  color: #8a2f20;
+}
+
+.danger-note strong {
+  color: #9f3928;
+}
+
+.void-danger-dialog {
+  border-top: 3px solid #b44b37;
+}
+
+.dialog-field {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  color: #31465c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dialog-field input,
+.dialog-field textarea {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #cbd7e4;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.dialog-field textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .downstream-trace-table {
