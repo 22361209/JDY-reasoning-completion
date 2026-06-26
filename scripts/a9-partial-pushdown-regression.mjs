@@ -186,8 +186,10 @@ async function openListAndPush(page, moduleName, entryId, listId, billNo, pushTe
     await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
     return;
   }
-  await page.getByTestId("push-confirm-ok").waitFor({ state: "visible" });
-  await page.getByTestId("push-confirm-ok").click();
+  await page.getByTestId("purchase-in-bill-no").waitFor({ state: "visible" });
+  if (await page.getByTestId("push-confirm-dialog").count() > 0) {
+    throw new Error("purchase pushdown should open purchase in draft directly without confirmation dialog");
+  }
 }
 
 async function assertQtys(page, prefix, expectedQtys) {

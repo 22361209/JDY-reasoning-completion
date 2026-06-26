@@ -533,61 +533,6 @@
       </div>
     </div>
     <PasswordChangeDialog ref="passwordChangeDialogRef" :password-policy="activePasswordPolicy" @changed="handlePasswordChanged" />
-    <DocumentDialogs
-      :pending-zero-entry-save="null"
-      :zero-reason-options="zeroReasonOptions"
-      :downstream-trace="null"
-      :pending-risky-document-action="null"
-      :pending-entry-paste="null"
-      :pending-push-down="pendingPushDown"
-      current-bill-no=""
-      current-order-status-label=""
-      red-reverse-bill-no=""
-      risky-action-title=""
-      risky-action-summary=""
-      risky-action-impact=""
-      risky-action-verb=""
-      :entry-paste-conflicts-resolved="false"
-      :push-confirm-ratio="pushConfirmRatio"
-      :push-confirm-warehouse-code="pushConfirmWarehouseCode"
-      :push-confirm-selection-summary="pushConfirmSelectionSummary"
-      :all-push-down-lines-selected="allPushDownLinesSelected"
-      :pending-push-down-total="pendingPushDownTotal"
-      :push-confirm-error="pushConfirmError"
-      :format-qty="formatQty"
-      :format-amount="formatAmount"
-      :zero-reason-test-id="pushConfirmQtyTestId"
-      :downstream-type-label="downstreamTypeLabel"
-      :backend-status-label="backendStatusLabel"
-      :downstream-reverse-impact="downstreamReverseImpact"
-      :downstream-red-reverse-impact="downstreamRedReverseImpact"
-      :downstream-doc-test-id="downstreamDocTestId"
-      :entry-paste-candidate-test-id="entryPasteCandidateTestId"
-      :is-entry-paste-candidate-active="() => false"
-      :push-confirm-select-test-id="pushConfirmSelectTestId"
-      :push-confirm-warehouse-test-id="pushConfirmWarehouseTestId"
-      :push-confirm-qty-test-id="pushConfirmQtyTestId"
-      @cancel-zero-entry-save="noop"
-      @confirm-zero-entry-save="noop"
-      @close-downstream-trace="noop"
-      @open-downstream-document="noop"
-      @cancel-risky-document-action="noop"
-      @confirm-risky-document-action="noop"
-      @handle-entry-paste-conflict-keydown="noop"
-      @select-entry-paste-candidate="noop"
-      @cancel-pending-entry-paste="noop"
-      @confirm-pending-entry-paste="noop"
-      @update:push-confirm-ratio="pushConfirmRatio = $event"
-      @update:push-confirm-warehouse-code="pushConfirmWarehouseCode = $event"
-      @clear-push-down-qtys="clearPushDownQtys"
-      @fill-all-remaining-qtys="fillAllRemainingQtys"
-      @invert-push-down-selection="invertPushDownSelection"
-      @apply-push-down-ratio="applyPushDownRatio"
-      @apply-push-down-warehouse="applyPushDownWarehouse"
-      @toggle-all-push-down-lines-from-event="toggleAllPushDownLinesFromEvent"
-      @cancel-push-down="cancelPushDown"
-      @confirm-push-down="confirmPushDown"
-    />
   </div>
 </template>
 <script setup lang="ts">
@@ -596,13 +541,10 @@ import { featureScope } from "./featureScope";
 import {
   defaultPrintTemplateForm,
   printTemplateDocumentTypes,
-  zeroReasonOptions,
-  type PendingPushDown,
   type PendingPushLine,
 } from "./documentModel";
 import { excludedModules, moduleCatalog } from "../modules/catalog";
 import DataListPage from "../components/DataListPage.vue";
-import DocumentDialogs from "../components/DocumentDialogs.vue";
 import OtherStockInForm from "../modules/inventory/other-stock-in/OtherStockInForm.vue";
 import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOutForm.vue";
 import StockCountForm from "../modules/inventory/stock-count/StockCountForm.vue";
@@ -687,10 +629,6 @@ const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
 const formMessage = ref("");
-const pendingPushDown = ref<PendingPushDown | null>(null);
-const pushConfirmRatio = ref(50);
-const pushConfirmWarehouseCode = ref("CK-001");
-const pushConfirmError = ref("");
 const highlightedSourceBillNo = ref("");
 const highlightedSourceLineNo = ref<number | null>(null);
 const printTemplates = ref<PrintTemplateConfig[]>([]);
@@ -750,19 +688,6 @@ const lockedObjectIdForActiveList = computed(() => {
   return tabs.tabs.value.find((tab) => tab.lockedObjectId && documentTypeByFormTabId(tab.id) === type)?.lockedObjectId ?? "";
 });
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
-const pendingPushDownTotal = computed(() => (pendingPushDown.value?.lines ?? [])
-  .reduce((sum, line) => sum + normalizedQty(line.qty), 0)
-  .toFixed(2));
-const selectedPushDownLines = computed(() => (pendingPushDown.value?.lines ?? []).filter((line) => line.selected));
-const effectivePushDownLines = computed(() => selectedPushDownLines.value.length > 0 ? selectedPushDownLines.value : pendingPushDown.value?.lines ?? []);
-const allPushDownLinesSelected = computed(() => {
-  const lines = pendingPushDown.value?.lines ?? [];
-  return lines.length > 0 && lines.every((line) => line.selected);
-});
-const pushConfirmSelectionSummary = computed(() => {
-  const selectedCount = selectedPushDownLines.value.length;
-  return selectedCount > 0 ? `已选 ${selectedCount} 行，本次工具只调整选中行` : "未选行时工具调整全部行";
-});
 function downstreamReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
@@ -1260,143 +1185,7 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
     lines
   });
-  pendingPushDown.value = null;
-  pushConfirmError.value = "";
   formMessage.value = `已由销售订单 ${sourceBillNo} 按剩余数量生成销售出库单草稿`;
-}
-async function confirmPushDown() {
-  const pending = pendingPushDown.value;
-  if (!pending) {
-    return;
-  }
-  const selectedLines = pending.lines
-    .map((line) => ({ ...line, qty: normalizedQty(line.qty) }))
-    .filter((line) => line.qty > 0);
-  const invalidLine = pending.lines.find((line) => normalizedQty(line.qty) < 0 || normalizedQty(line.qty) > line.remainingQty);
-  if (invalidLine) {
-    pushConfirmError.value = "本次下推数量不能小于 0，也不能超过剩余数量。";
-    return;
-  }
-  if (selectedLines.length === 0) {
-    pushConfirmError.value = "至少保留一行本次数量大于 0 的明细。";
-    return;
-  }
-  if (pending.kind === outboundDocumentType) {
-    tabs.openTab({
-      id: pending.targetTabId,
-      title: pending.targetTitle,
-      module: pending.targetModule,
-      kind: "form",
-      dirty: true
-    });
-    activeModuleName.value = pending.targetModule;
-    await nextTick();
-    outboundFormRef.value?.applyPushDownDraft({
-      billNo: pending.targetBillNo,
-      sourceOrderNo: pending.sourceBillNo,
-      partyCode: pending.partyCode,
-      partyName: pending.partyName,
-      billDate: pending.billDate,
-      department: pending.department,
-      ownerName: pending.ownerName,
-      lines: selectedLines
-    });
-    pendingPushDown.value = null;
-    pushConfirmError.value = "";
-    formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
-    return;
-  }
-  tabs.openTab({
-    id: pending.targetTabId,
-    title: pending.targetTitle,
-    module: pending.targetModule,
-    kind: "form",
-    dirty: true
-  });
-  activeModuleName.value = pending.targetModule;
-  await nextTick();
-  purchaseInFormRef.value?.applyPushDownDraft({
-    billNo: pending.targetBillNo,
-    sourceOrderNo: pending.sourceBillNo,
-    partyCode: pending.partyCode,
-    billDate: pending.billDate,
-    department: pending.department,
-    ownerName: pending.ownerName,
-    lines: selectedLines
-  });
-  pendingPushDown.value = null;
-  pushConfirmError.value = "";
-  formMessage.value = `已由${pending.sourceBillNo}按确认数量生成${pending.targetTitle}草稿`;
-}
-function cancelPushDown() {
-  pendingPushDown.value = null;
-  pushConfirmError.value = "";
-  formMessage.value = "已取消下推。";
-}
-function clearPushDownQtys() {
-  if (!pendingPushDown.value) {
-    return;
-  }
-  effectivePushDownLines.value.forEach((line) => {
-    line.qty = 0;
-  });
-  pushConfirmError.value = "";
-}
-function fillAllRemainingQtys() {
-  if (!pendingPushDown.value) {
-    return;
-  }
-  effectivePushDownLines.value.forEach((line) => {
-    line.qty = line.remainingQty;
-  });
-  pushConfirmError.value = "";
-}
-function toggleAllPushDownLinesFromEvent(event: Event) {
-  toggleAllPushDownLines((event.target as HTMLInputElement).checked);
-}
-function toggleAllPushDownLines(selected: boolean) {
-  if (!pendingPushDown.value) {
-    return;
-  }
-  pendingPushDown.value.lines.forEach((line) => {
-    line.selected = selected;
-  });
-}
-function invertPushDownSelection() {
-  if (!pendingPushDown.value) {
-    return;
-  }
-  pendingPushDown.value.lines.forEach((line) => {
-    line.selected = !line.selected;
-  });
-}
-function applyPushDownRatio() {
-  if (!pendingPushDown.value) {
-    return;
-  }
-  const ratio = normalizedQty(pushConfirmRatio.value);
-  if (ratio < 0 || ratio > 100) {
-    pushConfirmError.value = "下推比例必须在 0 到 100 之间。";
-    return;
-  }
-  effectivePushDownLines.value.forEach((line) => {
-    line.qty = roundQty(line.remainingQty * ratio / 100);
-  });
-  pushConfirmError.value = "";
-}
-function applyPushDownWarehouse() {
-  if (!pendingPushDown.value) {
-    return;
-  }
-  const warehouseCode = pushConfirmWarehouseCode.value.trim();
-  if (!warehouseCode) {
-    pushConfirmError.value = "仓库编码不能为空。";
-    return;
-  }
-  effectivePushDownLines.value.forEach((line) => {
-    line.warehouseCode = warehouseCode;
-  });
-  pushConfirmError.value = "";
 }
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
@@ -1426,25 +1215,25 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     formMessage.value = nextBillNo.message || "采购入库单号生成失败。";
     return;
   }
-  pendingPushDown.value = {
-    kind: "purchaseIn",
-    title: `${"采购"}${"入库"}下推确认`,
-    targetTitle: `${"采购"}${"入库"}单`,
-    targetTabId: purchaseInTabId,
-    targetModule: "采购管理",
-    targetBillNo: nextBillNo.billNo,
-    sourceBillNo,
+  tabs.openTab({
+    id: purchaseInTabId,
+    title: "采购入库单",
+    module: "采购管理",
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = "采购管理";
+  await nextTick();
+  purchaseInFormRef.value?.applyPushDownDraft({
+    billNo: nextBillNo.billNo,
+    sourceOrderNo: sourceBillNo,
     partyCode: result.data.document.supplierCode || "",
-    partyName: result.data.document.supplier || "",
     billDate: dateText,
     department: result.data.document.department || "采购部",
     ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
     lines
-  };
-  pushConfirmError.value = "";
-  pushConfirmRatio.value = 50;
-  pushConfirmWarehouseCode.value = lines[0]?.warehouseCode ?? "CK-001";
-  formMessage.value = `请确认${"采购"}${"订单"} ${sourceBillNo} 本次下推数量`;
+  });
+  formMessage.value = `已由采购订单 ${sourceBillNo} 按剩余数量生成采购入库单草稿`;
 }
 function remainingLineQty(line: { qty?: number | string; remainingQty?: number | string }) {
   const remaining = Number(line.remainingQty ?? line.qty ?? 0);
@@ -1457,9 +1246,6 @@ function normalizedQty(value: number | string | undefined) {
 function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-function roundQty(value: number) {
-  return Math.round(value * 100) / 100;
 }
 function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
@@ -1480,15 +1266,6 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
-}
-function pushConfirmQtyTestId(index: number) {
-  return index === 0 ? "push-confirm-qty" : `push-confirm-qty-${index + 1}`;
-}
-function pushConfirmWarehouseTestId(index: number) {
-  return index === 0 ? "push-confirm-warehouse" : `push-confirm-warehouse-${index + 1}`;
-}
-function pushConfirmSelectTestId(index: number) {
-  return index === 0 ? "push-confirm-select" : `push-confirm-select-${index + 1}`;
 }
 function markActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);

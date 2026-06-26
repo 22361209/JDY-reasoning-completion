@@ -7,11 +7,11 @@ const resultPath = path.join(rootDir, "verification/a18-push-confirm-selected-li
 const result = {
   generatedAt: new Date().toISOString(),
   status: "retired",
-  reason: "A93 removed selected-line adjustment from the sales outbound push confirmation dialog. The replacement flow carries all remaining lines into the sales out draft.",
-  replacement: "scripts/a93-sales-out-source-selection-regression.mjs",
+  reason: "A100 retired selected-line pre-draft adjustment for both sales and purchase pushdown. The replacement flow carries all remaining lines into the downstream draft.",
+  replacement: "scripts/a100-purchase-direct-push-regression.mjs and scripts/a93-sales-out-source-selection-regression.mjs",
   removedAssertions: [
-    "push-confirm-select",
-    "push-confirm-selection-summary",
+    "selected pre-draft lines",
+    "selected-line adjustment summary",
     "selected-line ratio adjustment"
   ]
 };

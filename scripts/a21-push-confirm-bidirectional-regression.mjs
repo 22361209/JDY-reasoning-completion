@@ -7,14 +7,13 @@ const resultPath = path.join(rootDir, "verification/a21-push-confirm-bidirection
 const result = {
   generatedAt: new Date().toISOString(),
   status: "retired",
-  reason: "A93 retires the sales outbound push confirmation regression. Sales pushdown direct draft and source selection are covered by A93.",
-  replacement: "scripts/a93-sales-out-source-selection-regression.mjs",
+  reason: "A100 retires the bidirectional pushdown confirmation regression. Sales and purchase pushdown direct draft flows are now covered by A93 and A100.",
+  replacement: "scripts/a100-purchase-direct-push-regression.mjs and scripts/a93-sales-out-source-selection-regression.mjs",
   removedAssertions: [
-    "sales push-confirm-dialog",
-    "sales selected-line adjustment",
-    "bidirectional sales dialog parity"
-  ],
-  note: "Purchase inbound confirmation behavior is outside A93 scope and was not expanded here."
+    "sales pre-draft confirmation dialog",
+    "purchase pre-draft confirmation dialog",
+    "bidirectional dialog parity"
+  ]
 };
 
 await mkdir(path.dirname(resultPath), { recursive: true });

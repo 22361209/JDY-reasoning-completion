@@ -150,84 +150,12 @@
     </div>
   </div>
 
-  <div v-if="pendingPushDown" class="modal-mask" data-testid="push-confirm-dialog">
-    <div class="dialog push-confirm-dialog">
-      <h3>{{ pendingPushDown.title }}</h3>
-      <p>{{ pendingPushDown.sourceBillNo }} 可按剩余数量下推，确认本次数量后生成{{ pendingPushDown.targetTitle }}草稿。</p>
-      <div class="push-confirm-tools">
-        <button type="button" data-testid="push-confirm-clear" @click="emit('clearPushDownQtys')">清零</button>
-        <button type="button" data-testid="push-confirm-all" @click="emit('fillAllRemainingQtys')">全剩余</button>
-        <button type="button" data-testid="push-confirm-invert-selection" @click="emit('invertPushDownSelection')">反选</button>
-        <label>
-          比例
-          <input :value="pushConfirmRatio" inputmode="decimal" data-testid="push-confirm-ratio" @input="emit('update:pushConfirmRatio', Number(($event.target as HTMLInputElement).value))" />
-          <span>%</span>
-        </label>
-        <button type="button" data-testid="push-confirm-apply-ratio" @click="emit('applyPushDownRatio')">按比例</button>
-        <label>
-          仓库
-          <input :value="pushConfirmWarehouseCode" data-testid="push-confirm-warehouse-code" @input="emit('update:pushConfirmWarehouseCode', ($event.target as HTMLInputElement).value)" />
-        </label>
-        <button type="button" data-testid="push-confirm-apply-warehouse" @click="emit('applyPushDownWarehouse')">应用仓库</button>
-        <span class="push-confirm-selection" data-testid="push-confirm-selection-summary">{{ pushConfirmSelectionSummary }}</span>
-      </div>
-      <div class="push-confirm-table">
-        <table>
-          <thead>
-            <tr>
-              <th class="selection-cell">
-                <input
-                  type="checkbox"
-                  :checked="allPushDownLinesSelected"
-                  data-testid="push-confirm-select-all"
-                  @change="emit('toggleAllPushDownLinesFromEvent', $event)"
-                />
-              </th>
-              <th>商品</th>
-              <th>仓库</th>
-              <th>源单</th>
-              <th>已执行</th>
-              <th>剩余</th>
-              <th>本次</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(line, lineIndex) in pendingPushDown.lines" :key="`${line.productCode}-${lineIndex}`">
-              <td class="selection-cell">
-                <input v-model="line.selected" type="checkbox" :data-testid="pushConfirmSelectTestId(lineIndex)" />
-              </td>
-              <td>
-                <strong>{{ line.productCode }}</strong>
-                <span>{{ line.productName || line.spec }}</span>
-              </td>
-              <td :data-testid="pushConfirmWarehouseTestId(lineIndex)">{{ line.warehouseCode }}</td>
-              <td>{{ line.sourceQty }}</td>
-              <td>{{ line.executedQty }}</td>
-              <td>{{ line.remainingQty }}</td>
-              <td>
-                <input v-model.number="line.qty" inputmode="decimal" :data-testid="pushConfirmQtyTestId(lineIndex)" />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="push-confirm-summary">
-        <span>本次数量合计</span>
-        <strong data-testid="push-confirm-total">{{ pendingPushDownTotal }}</strong>
-      </div>
-      <p v-if="pushConfirmError" class="form-error" data-testid="push-confirm-error">{{ pushConfirmError }}</p>
-      <div class="dialog-actions">
-        <button type="button" data-testid="push-confirm-cancel" @click="emit('cancelPushDown')">取消</button>
-        <button class="primary-action" type="button" data-testid="push-confirm-ok" @click="emit('confirmPushDown')">生成草稿</button>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import type { DownstreamDocumentRef, OpenableDocumentType } from "../services/documentApi";
-import type { DownstreamTraceState, EntryPasteConflict, PendingEntryPaste, PendingPushDown, PendingZeroEntrySave, RiskyDocumentAction } from "../app/documentModel";
+import type { DownstreamTraceState, EntryPasteConflict, PendingEntryPaste, PendingZeroEntrySave, RiskyDocumentAction } from "../app/documentModel";
 
 const props = defineProps<{
   pendingZeroEntrySave: PendingZeroEntrySave | null;
@@ -235,7 +163,6 @@ const props = defineProps<{
   downstreamTrace: DownstreamTraceState | null;
   pendingRiskyDocumentAction: RiskyDocumentAction | null;
   pendingEntryPaste: PendingEntryPaste | null;
-  pendingPushDown: PendingPushDown | null;
   currentBillNo: string;
   currentOrderStatusLabel: string;
   redReverseBillNo: string;
@@ -244,12 +171,6 @@ const props = defineProps<{
   riskyActionImpact: string;
   riskyActionVerb: string;
   entryPasteConflictsResolved: boolean;
-  pushConfirmRatio: number;
-  pushConfirmWarehouseCode: string;
-  pushConfirmSelectionSummary: string;
-  allPushDownLinesSelected: boolean;
-  pendingPushDownTotal: string;
-  pushConfirmError: string;
   formatQty: (value: number | string | undefined) => string;
   formatAmount: (value: number | string | undefined) => string;
   zeroReasonTestId: (lineNo: number) => string;
@@ -260,9 +181,6 @@ const props = defineProps<{
   downstreamDocTestId: (index: number) => string;
   entryPasteCandidateTestId: (lineIndex: number, code: string) => string;
   isEntryPasteCandidateActive: (conflict: EntryPasteConflict, candidateIndex: number) => boolean;
-  pushConfirmSelectTestId: (lineIndex: number) => string;
-  pushConfirmWarehouseTestId: (lineIndex: number) => string;
-  pushConfirmQtyTestId: (lineIndex: number) => string;
 }>();
 
 const emit = defineEmits<{
@@ -276,16 +194,6 @@ const emit = defineEmits<{
   selectEntryPasteCandidate: [lineIndex: number, code: string];
   cancelPendingEntryPaste: [];
   confirmPendingEntryPaste: [];
-  "update:pushConfirmRatio": [value: number];
-  "update:pushConfirmWarehouseCode": [value: string];
-  clearPushDownQtys: [];
-  fillAllRemainingQtys: [];
-  invertPushDownSelection: [];
-  applyPushDownRatio: [];
-  applyPushDownWarehouse: [];
-  toggleAllPushDownLinesFromEvent: [event: Event];
-  cancelPushDown: [];
-  confirmPushDown: [];
 }>();
 
 const entryPasteDialogRef = ref<HTMLElement | null>(null);

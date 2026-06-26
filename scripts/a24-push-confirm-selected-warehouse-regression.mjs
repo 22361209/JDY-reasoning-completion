@@ -7,11 +7,11 @@ const resultPath = path.join(rootDir, "verification/a24-push-confirm-selected-wa
 const result = {
   generatedAt: new Date().toISOString(),
   status: "retired",
-  reason: "A93 removed warehouse override from the sales outbound push confirmation dialog. The warehouse is carried from source lines and can be edited in the sales out draft.",
-  replacement: "scripts/a93-sales-out-source-selection-regression.mjs",
+  reason: "A100 retired pre-draft selected-line warehouse override for both sales and purchase pushdown. Warehouses are carried from source lines and can be edited in the downstream draft.",
+  replacement: "scripts/a100-purchase-direct-push-regression.mjs and scripts/a93-sales-out-source-selection-regression.mjs",
   removedAssertions: [
-    "push-confirm-warehouse-code",
-    "push-confirm-apply-warehouse",
+    "pre-draft warehouse code",
+    "apply warehouse before draft",
     "selected-line warehouse override"
   ]
 };

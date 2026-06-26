@@ -122,7 +122,6 @@ const dialogBindings = computed(() => ({
   downstreamTrace: document.downstreamTrace.value,
   pendingRiskyDocumentAction: document.pendingRiskyDocumentAction.value,
   pendingEntryPaste: document.pendingEntryPaste.value,
-  pendingPushDown: null,
   currentBillNo: document.form.billNo,
   currentOrderStatusLabel: document.statusLabel.value,
   redReverseBillNo: document.redReverseBillNo.value,
@@ -131,12 +130,6 @@ const dialogBindings = computed(() => ({
   riskyActionImpact: document.riskyActionImpact.value,
   riskyActionVerb: document.riskyActionVerb.value,
   entryPasteConflictsResolved: document.entryPasteConflictsResolved.value,
-  pushConfirmRatio: 0,
-  pushConfirmWarehouseCode: "",
-  pushConfirmSelectionSummary: "",
-  allPushDownLinesSelected: false,
-  pendingPushDownTotal: "0.00",
-  pushConfirmError: "",
   formatQty: document.formatQty,
   formatAmount: document.formatAmount,
   zeroReasonTestId: document.zeroReasonTestId,
@@ -147,9 +140,6 @@ const dialogBindings = computed(() => ({
   downstreamDocTestId: document.downstreamDocTestId,
   entryPasteCandidateTestId: document.entryPasteCandidateTestId,
   isEntryPasteCandidateActive: document.isEntryPasteCandidateActive,
-  pushConfirmSelectTestId: noopReturn,
-  pushConfirmWarehouseTestId: noopReturn,
-  pushConfirmQtyTestId: noopReturn
 }));
 
 const dialogHandlers = {
@@ -166,9 +156,6 @@ const dialogHandlers = {
 };
 
 function noop() {}
-function noopReturn() {
-  return "stock-transfer-no-push-dialog";
-}
 
 async function loadByBillNo(billNo: string) {
   await document.loadByBillNo(billNo);

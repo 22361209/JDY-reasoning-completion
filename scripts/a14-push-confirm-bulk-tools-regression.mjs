@@ -7,13 +7,13 @@ const resultPath = path.join(rootDir, "verification/a14-push-confirm-bulk-tools-
 const result = {
   generatedAt: new Date().toISOString(),
   status: "retired",
-  reason: "A93 removed bulk tools from the sales outbound push confirmation dialog. Quantity changes now happen in the generated sales out draft.",
-  replacement: "scripts/a93-sales-out-source-selection-regression.mjs",
+  reason: "A100 retired the old pre-draft bulk quantity tools for both sales and purchase pushdown. Quantity and warehouse edits now happen in the generated downstream draft.",
+  replacement: "scripts/a100-purchase-direct-push-regression.mjs and scripts/a93-sales-out-source-selection-regression.mjs",
   removedAssertions: [
-    "push-confirm-clear",
-    "push-confirm-all",
-    "push-confirm-ratio",
-    "push-confirm-apply-ratio"
+    "clear quantities before draft",
+    "fill all remaining before draft",
+    "percentage quantity calculation before draft",
+    "apply percentage before draft"
   ]
 };
 

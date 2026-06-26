@@ -227,7 +227,6 @@
     :downstream-trace="document.downstreamTrace.value"
     :pending-risky-document-action="document.pendingRiskyDocumentAction.value"
     :pending-entry-paste="document.pendingEntryPaste.value"
-    :pending-push-down="null"
     :current-bill-no="document.form.billNo"
     :current-order-status-label="document.statusLabel.value"
     :red-reverse-bill-no="document.redReverseBillNo.value"
@@ -236,12 +235,6 @@
     :risky-action-impact="document.riskyActionImpact.value"
     :risky-action-verb="document.riskyActionVerb.value"
     :entry-paste-conflicts-resolved="document.entryPasteConflictsResolved.value"
-    :push-confirm-ratio="0"
-    :push-confirm-warehouse-code="''"
-    :push-confirm-selection-summary="''"
-    :all-push-down-lines-selected="false"
-    :pending-push-down-total="'0.00'"
-    :push-confirm-error="''"
     :format-qty="document.formatQty"
     :format-amount="document.formatAmount"
     :zero-reason-test-id="document.zeroReasonTestId"
@@ -252,9 +245,6 @@
     :downstream-doc-test-id="document.downstreamDocTestId"
     :entry-paste-candidate-test-id="document.entryPasteCandidateTestId"
     :is-entry-paste-candidate-active="document.isEntryPasteCandidateActive"
-    :push-confirm-select-test-id="stubPushTestId"
-    :push-confirm-warehouse-test-id="stubPushTestId"
-    :push-confirm-qty-test-id="stubPushTestId"
     @cancel-zero-entry-save="document.cancelZeroEntrySave"
     @confirm-zero-entry-save="document.confirmZeroEntrySave"
     @close-downstream-trace="document.downstreamTrace.value = null"
@@ -265,16 +255,6 @@
     @select-entry-paste-candidate="document.selectEntryPasteCandidate"
     @cancel-pending-entry-paste="document.cancelPendingEntryPaste"
     @confirm-pending-entry-paste="document.confirmPendingEntryPaste"
-    @update:push-confirm-ratio="noop"
-    @update:push-confirm-warehouse-code="noop"
-    @clear-push-down-qtys="noop"
-    @fill-all-remaining-qtys="noop"
-    @invert-push-down-selection="noop"
-    @apply-push-down-ratio="noop"
-    @apply-push-down-warehouse="noop"
-    @toggle-all-push-down-lines-from-event="noop"
-    @cancel-push-down="noop"
-    @confirm-push-down="noop"
   />
 </template>
 
@@ -375,10 +355,6 @@ function resetSourceColumns() {
 }
 
 function noop() {
-}
-
-function stubPushTestId() {
-  return "sales-out-no-push-dialog";
 }
 
 async function loadByBillNo(billNo: string) {

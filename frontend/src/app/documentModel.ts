@@ -94,22 +94,6 @@ export interface PendingPushLine extends OrderLineForm {
   selected?: boolean;
 }
 
-export interface PendingPushDown {
-  kind: "salesOut" | "purchaseIn";
-  title: string;
-  targetTitle: string;
-  targetTabId: string;
-  targetModule: string;
-  targetBillNo: string;
-  sourceBillNo: string;
-  partyCode: string;
-  partyName?: string;
-  billDate: string;
-  department: string;
-  ownerName: string;
-  lines: PendingPushLine[];
-}
-
 export const zeroReasonOptions = ["赠品", "样品", "补录", "其他已确认"];
 
 export const printTemplateDocumentTypes = [
