@@ -138,6 +138,7 @@
       <vxe-table
         :key="tableVersion"
         ref="tableRef"
+        :style="{ minWidth: `${listTableMinWidth}px` }"
         height="360"
         size="mini"
         border
@@ -1037,6 +1038,11 @@ const displayedRows = computed(() => rows.value);
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => false);
 const draggingColumnTitle = computed(() => columns.value.find((column) => column.field === draggingColumnField.value)?.title ?? "");
+const listTableMinWidth = computed(() => {
+  const utilityColumnsWidth = 42 + 48;
+  const contentWidth = visibleColumns.value.reduce((sum, column) => sum + (column.width ?? column.minWidth ?? 120), utilityColumnsWidth);
+  return Math.max(contentWidth, 960);
+});
 
 const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
   "sales-order-form-list": "salesOrder",
@@ -1106,6 +1112,8 @@ async function reload() {
   listState.value = "ready";
   stateMessage.value = "";
   selectedRows.value = [];
+  rows.value = [];
+  total.value = 0;
   const response = await fetchListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters });
   if (response.ok && response.data) {
     rows.value = response.data.rows.map(normalizeListRow);

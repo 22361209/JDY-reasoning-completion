@@ -57,7 +57,7 @@ input:disabled {
 }
 
 .login-panel__brand {
-  width: 44px;
+  width: 50px;
   height: 44px;
   display: grid;
   place-items: center;
@@ -65,6 +65,8 @@ input:disabled {
   background: #17212c;
   color: #ffffff;
   font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0;
 }
 
 .login-panel h1,
@@ -150,6 +152,8 @@ input:disabled {
   color: #17212c;
   border-radius: 6px;
   font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0;
 }
 
 .primary-nav__item {
@@ -1364,7 +1368,8 @@ input:disabled {
   background: #ffffff;
   border: 1px solid #d4dde8;
   border-top: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .vxe-wrap .vxe-table {
@@ -1388,7 +1393,16 @@ input:disabled {
 
 .vxe-wrap .vxe-table--render-default .vxe-cell {
   line-height: 18px;
-  padding: 1px 6px;
+  padding: 1px 8px !important;
+  box-sizing: border-box;
+}
+
+.vxe-wrap .vxe-table--render-default .vxe-body--column.col--align-right .vxe-cell,
+.vxe-wrap .vxe-table--render-default .vxe-body--column.col--right .vxe-cell,
+.vxe-wrap .vxe-table--render-default .vxe-footer--column.col--align-right .vxe-cell {
+  padding-left: 8px !important;
+  padding-right: 12px !important;
+  text-align: right;
 }
 
 .vxe-wrap .vxe-header--column {
@@ -1455,7 +1469,7 @@ input:disabled {
   gap: 4px;
   cursor: move;
   margin: -3px -6px;
-  padding: 2px 6px;
+  padding: 2px 6px 2px 8px;
 }
 
 .column-header-title {
@@ -2102,13 +2116,13 @@ table {
   min-height: 20px;
   cursor: move;
   margin: -2px -6px;
-  padding: 1px 28px 1px 6px;
+  padding: 1px 26px 1px 8px;
   position: relative;
 }
 
 .entry-column-header .column-filter-button {
   position: absolute;
-  right: 8px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
 }
@@ -2140,10 +2154,11 @@ td {
   height: 22px;
   border-bottom: 1px solid #e5ebf2;
   border-right: 1px solid #e0e7ef;
-  padding: 2px 6px;
+  padding: 2px 8px;
   text-align: left;
   white-space: nowrap;
   line-height: 17px;
+  vertical-align: middle;
 }
 
 .entry-table th:last-child,
@@ -2156,11 +2171,11 @@ td input {
   width: 100%;
   min-width: 72px;
   max-width: 100%;
-  height: 26px;
+  height: 20px;
   margin: 0;
   border: 1px solid #c7d2df;
   border-radius: 3px;
-  padding: 0 6px;
+  padding: 0 7px;
   box-sizing: border-box;
 }
 
@@ -2173,6 +2188,14 @@ td input {
   padding-top: 0;
   padding-bottom: 0;
   line-height: 16px;
+}
+
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) {
+  height: 27px;
+}
+
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input {
+  height: 24px;
 }
 
 .entry-table td input:disabled {
@@ -2254,6 +2277,8 @@ thead .entry-frozen-cell {
 .entry-number-cell {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  padding-left: 8px;
+  padding-right: 12px;
 }
 
 .entry-number-cell input,
@@ -2261,6 +2286,7 @@ thead .entry-frozen-cell {
   min-width: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  padding-right: 9px;
 }
 
 .entry-actions-cell {

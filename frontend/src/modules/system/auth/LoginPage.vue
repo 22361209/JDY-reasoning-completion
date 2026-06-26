@@ -1,8 +1,8 @@
 <template>
   <section class="login-page" data-testid="login-page">
     <form class="login-panel" @submit.prevent="submitLogin">
-      <div class="login-panel__brand">JDY</div>
-      <h1>金蝶云星辰复刻工作台</h1>
+      <div class="login-panel__brand">BLD</div>
+      <h1>博莱德机械工作台</h1>
       <p>选择员工账号并输入密码后进入当前测试账套。</p>
       <label>
         <span>账号</span>

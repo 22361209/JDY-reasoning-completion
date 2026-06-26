@@ -3,7 +3,7 @@
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
-        <div class="product-mark" aria-label="JDY">J</div>
+        <div class="product-mark" aria-label="BLD">BLD</div>
         <button
           v-for="module in visibleModules"
           :key="module.name"
