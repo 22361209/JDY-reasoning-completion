@@ -2,6 +2,7 @@ package com.jdy.erp.inventory.api;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.inventory.application.StockCountLossAppService;
 import com.jdy.erp.inventory.application.StockCountLossAppService.StockCountLossDraftRequest;
 import com.jdy.erp.system.security.RequirePermission;
@@ -18,9 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/stock-count-losses")
 public class StockCountLossController {
     private final StockCountLossAppService appService;
+    private final DocumentLockService lockService;
 
-    public StockCountLossController(StockCountLossAppService appService) {
+    public StockCountLossController(StockCountLossAppService appService, DocumentLockService lockService) {
         this.appService = appService;
+        this.lockService = lockService;
     }
 
     @GetMapping("/{billNo}")
@@ -31,7 +34,10 @@ public class StockCountLossController {
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody StockCountLossDraftRequest request) {
-        return appService.saveDraft(request);
+        lockService.assertWritable("stockCountLoss", request.billNo());
+        var result = appService.saveDraft(request);
+        lockService.releaseIfOwned("stockCountLoss", String.valueOf(result.getOrDefault("billNo", request.billNo())));
+        return result;
     }
 
     @PostMapping("/{billNo}/audit")

@@ -5,6 +5,8 @@
     :status-label="document.statusLabel.value"
     :status-class="statusClass"
     :locked="locked"
+    :lock-message="lockMessage"
+    :can-override-lock="canOverrideLock"
     :dirty="dirty"
     :message="document.message.value"
     :can-save="document.isDraft.value"
@@ -36,6 +38,7 @@
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
     @show-existing="emit('showExisting')"
+    @override-lock="emit('overrideLock')"
   >
     <div class="form-layout">
       <section class="form-head-fields">
@@ -49,6 +52,7 @@
             <span class="master-selector">
               <input
                 v-model="document.form.partyCode"
+                :disabled="locked"
                 data-testid="sales-out-party-code"
                 @focus="document.searchMasterOptions('customer', document.form.partyCode, 'sales-out-party')"
                 @input="document.handleMasterInput('customer', document.form.partyCode, 'sales-out-party')"
@@ -57,6 +61,7 @@
               <button
                 class="master-selector__open"
                 type="button"
+                :disabled="locked"
                 data-testid="sales-out-party-open-selector"
                 title="整列表选择"
                 aria-label="整列表选择"
@@ -79,24 +84,24 @@
           </label>
         </div>
         <label>客户名称<input :value="document.form.partyName || ''" data-testid="sales-out-party-name" readonly /></label>
-        <label>业务日期<input v-model="document.form.billDate" data-testid="sales-out-bill-date" @input="document.markDirty" /></label>
-        <label>单据编号<input v-model="document.form.billNo" data-testid="sales-out-bill-no" @input="document.markDirty" /></label>
-        <label>部门<input v-model="document.form.department" data-testid="sales-out-department" @input="document.markDirty" /></label>
+        <label>业务日期<input v-model="document.form.billDate" :disabled="locked" data-testid="sales-out-bill-date" @input="document.markDirty" /></label>
+        <label>单据编号<input v-model="document.form.billNo" :disabled="locked" data-testid="sales-out-bill-no" @input="document.markDirty" /></label>
+        <label>部门<input v-model="document.form.department" :disabled="locked" data-testid="sales-out-department" @input="document.markDirty" /></label>
         <label>录入人<input :value="document.form.ownerName" data-testid="sales-out-owner-name" readonly /></label>
         <label class="tax-mode-field">
           价格口径
-          <select v-model="taxMode" data-testid="sales-out-tax-mode" @change="document.markDirty">
+          <select v-model="taxMode" :disabled="locked" data-testid="sales-out-tax-mode" @change="document.markDirty">
             <option value="net">不含税</option>
             <option value="tax">含税</option>
           </select>
         </label>
-        <label class="form-head-field-wide">单据备注<textarea v-model="document.form.remark" data-testid="sales-out-remark" @input="document.markDirty" /></label>
+        <label class="form-head-field-wide">单据备注<textarea v-model="document.form.remark" :disabled="locked" data-testid="sales-out-remark" @input="document.markDirty" /></label>
       </section>
 
       <EntryTable
         :lines="document.form.lines"
         test-prefix="sales-out"
-        :is-draft="document.isDraft.value"
+        :is-draft="document.isDraft.value && !locked"
         :batch-warehouse-code="document.batchWarehouseCode.value"
         :batch-plan-delivery-date="document.batchPlanDeliveryDate.value"
         :active-selector="document.activeSelector.value"
@@ -293,6 +298,8 @@ const props = defineProps<{
   subtitle: string;
   statusClass: string;
   locked: boolean;
+  lockMessage?: string;
+  canOverrideLock?: boolean;
   dirty: boolean;
   userName: string;
   hasPermission: (permission: string) => boolean;
@@ -302,6 +309,7 @@ const emit = defineEmits<{
   markDirty: [];
   clearDirty: [];
   showExisting: [];
+  overrideLock: [];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
 }>();
 

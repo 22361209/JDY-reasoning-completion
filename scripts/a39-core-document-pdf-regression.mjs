@@ -219,9 +219,14 @@ async function openAndPrint(page, document) {
   await page.getByTestId(`query-${document.entry}`).click();
   await page.getByTestId(`tab-${document.list}`).waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(document.billNo);
-  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId("list-query").click();
+  await page.getByTestId(`open-document-${document.billNo}`).waitFor({ state: "visible", timeout: 10000 });
   await page.getByTestId(`open-document-${document.billNo}`).click();
   await page.getByTestId("document-status").waitFor({ state: "visible" });
+  await page.waitForFunction(({ testId, billNo }) => {
+    const input = document.querySelector(`[data-testid="${testId}"]`);
+    return input instanceof HTMLInputElement && input.value === billNo;
+  }, { testId: `${document.frontendType}-bill-no`, billNo: document.billNo });
 
   const rows = page.getByTestId(`${document.frontendType}-entry-row`);
   const rowCount = await rows.count();

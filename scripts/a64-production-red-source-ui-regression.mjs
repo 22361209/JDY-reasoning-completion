@@ -140,10 +140,13 @@ async function openRedFromListAndTraceSource(page, document) {
   await page.getByTestId(document.listPageTestId).waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(document.redBillNo);
   await page.getByTestId("list-query").click();
+  await page.getByTestId(`open-document-${document.redBillNo}`).waitFor({ state: "visible", timeout: 10000 });
   await page.getByTestId(`open-document-${document.redBillNo}`).click();
   await page.getByTestId(document.billInputTestId).waitFor({ state: "visible" });
-  await page.getByTestId(document.billInputTestId).waitFor({ state: "attached" });
-  assert(await page.getByTestId(document.billInputTestId).inputValue() === document.redBillNo, `${document.name} should open red bill detail`);
+  await page.waitForFunction(
+    ({ testId, expected }) => document.querySelector(`[data-testid="${testId}"]`)?.value === expected,
+    { testId: document.billInputTestId, expected: document.redBillNo }
+  );
   await page.getByTestId("open-red-source-bill").filter({ hasText: document.sourceBillNo }).waitFor({ state: "visible" });
   const redScreenshot = `a64-${document.billInputTestId}-red-source-visible-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, redScreenshot), fullPage: true });

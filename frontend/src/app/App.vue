@@ -310,8 +310,8 @@
         <DataListPage
           v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report'"
           :list-key="tabs.activeTab.value.id"
-          :locked="isLockedList"
-          :locked-object-id="lockedObjectIdForActiveList"
+          :locked="false"
+          locked-object-id=""
           @push-down-sales-out="openOutboundFromSalesOrder"
           @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
@@ -323,13 +323,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = 'sales-order-form'"
+          @override-lock="overrideActiveDocumentLock"
           @push-down-sales-out="openOutboundFromSalesOrder"
           @request-open-document="openDocumentFromModule"
         />
@@ -339,13 +342,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="false"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = outboundTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <PurchaseOrderForm
@@ -354,13 +360,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = purchaseOrderTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <PurchaseInForm
@@ -369,13 +378,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = purchaseInTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <MaterialIssueForm
@@ -384,13 +396,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = materialIssueTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <ProductInForm
@@ -399,13 +414,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = productInTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <OtherStockInForm
@@ -414,13 +432,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = otherStockInTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <OtherStockOutForm
@@ -429,13 +450,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = otherStockOutTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <StockTransferForm
@@ -444,13 +468,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = stockTransferTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <StockCountForm
@@ -460,13 +487,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = stockCountTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <StockCountForm
@@ -476,13 +506,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = stockCountGainTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <StockCountForm
@@ -492,13 +525,16 @@
           :title="tabs.activeTab.value.title"
           :subtitle="pageSubtitle"
           :status-class="tabs.activeTab.value.kind"
-          :locked="isLockedList"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = stockCountLossTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <div
@@ -563,7 +599,7 @@ import NotificationProviderSettingsPage from "../modules/system/notification/Not
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
-import { fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, savePrintTemplate, type DocumentDetail, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
+import { acquireDocumentLock, fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -602,6 +638,12 @@ const stockTransferTabId = "stock-transfer-form";
 const stockCountTabId = "stock-count-form";
 const stockCountGainTabId = "stock-count-gain-form";
 const stockCountLossTabId = "stock-count-loss-form";
+tabs.onBeforeClose((tab) => {
+  const type = documentTypeByFormTabId(tab.id);
+  if (type && tab.lockedObjectId) {
+    void releaseDocumentLock(type, tab.lockedObjectId);
+  }
+});
 const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
@@ -677,16 +719,9 @@ const canManagePrintTemplates = computed(() => session.hasPermission("system.pri
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
 const canManageSecuritySettings = computed(() => session.hasPermission("system.security.manage"));
 const canManageNotificationProviderSettings = computed(() => session.hasPermission("system.notification_provider.manage"));
-const isLockedList = computed(() => {
-  return tabs.activeTab.value.id === "sales-order-form-list" && tabs.tabs.value.some((tab) => tab.id === "sales-order-form");
-});
-const lockedObjectIdForActiveList = computed(() => {
-  const type = documentTypeByListTabId(tabs.activeTab.value.id);
-  if (!type) {
-    return "";
-  }
-  return tabs.tabs.value.find((tab) => tab.lockedObjectId && documentTypeByFormTabId(tab.id) === type)?.lockedObjectId ?? "";
-});
+const activeLockReadOnly = computed(() => Boolean(tabs.activeTab.value.lockReadOnly));
+const activeLockMessage = computed(() => tabs.activeTab.value.lockMessage ?? "");
+const activeLockCanOverride = computed(() => Boolean(tabs.activeTab.value.lockCanOverride));
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
 function downstreamReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
@@ -791,6 +826,9 @@ async function openCreateDocumentFromList(payload: { type: OpenableDocumentType 
     if (tab) {
       tab.dirty = true;
       tab.lockedObjectId = undefined;
+      tab.lockReadOnly = false;
+      tab.lockMessage = "";
+      tab.lockCanOverride = false;
     }
     await nextTick();
     target.ref.value?.startNew();
@@ -990,7 +1028,7 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
       dirty: false,
       lockedObjectId: billNo
     });
-    markTabLockedObject(outboundTabId, billNo);
+    await applyDocumentLock(outboundTabId, payload.type, billNo);
     activeModuleName.value = "销售管理";
     await nextTick();
     outboundFormRef.value?.applyDetail(result.data, `已打开${"销售"}${"出库单"} ${billNo}`);
@@ -1011,7 +1049,7 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
     dirty: false,
     lockedObjectId: billNo
   });
-  markTabLockedObject(target.tabId, billNo);
+  await applyDocumentLock(target.tabId, payload.type, billNo);
   activeModuleName.value = target.module;
   await nextTick();
   target.ref.value?.applyDetail(result.data, `已打开${target.title} ${billNo}`);
@@ -1046,7 +1084,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
       dirty: false,
       lockedObjectId: payload.billNo
     });
-    markTabLockedObject(outboundTabId, payload.billNo);
+    await applyDocumentLock(outboundTabId, payload.type, payload.billNo);
     activeModuleName.value = "销售管理";
     await nextTick();
     outboundFormRef.value?.applyDetail(result.data, payload.sourceLineNo ? `已追踪打开${"销售"}${"出库单"} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${"销售"}${"出库单"} ${payload.billNo}`, payload.sourceLineNo ?? null);
@@ -1067,7 +1105,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
     dirty: false,
     lockedObjectId: payload.billNo
   });
-  markTabLockedObject(target.tabId, payload.billNo);
+  await applyDocumentLock(target.tabId, payload.type, payload.billNo);
   activeModuleName.value = target.module;
   await nextTick();
   target.ref.value?.applyDetail(result.data, payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`, payload.sourceLineNo ?? null);
@@ -1131,12 +1169,45 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
   }
 }
 
-function markTabLockedObject(tabId: string, billNo: string) {
+async function applyDocumentLock(tabId: string, type: OpenableDocumentType, billNo: string) {
+  const lock = await acquireDocumentLock(type, billNo);
+  const tab = tabs.tabs.value.find((item) => item.id === tabId);
+  if (!tab) {
+    return;
+  }
+  tab.lockedObjectId = billNo;
+  tab.dirty = false;
+  if (!lock.ok || !lock.data) {
+    tab.lockReadOnly = true;
+    tab.lockMessage = lock.message || "单据锁状态异常，已转只读";
+    tab.lockCanOverride = false;
+    return;
+  }
+  applyLockStateToTab(tabId, lock.data);
+}
+
+function applyLockStateToTab(tabId: string, lock: DocumentLockState) {
   const tab = tabs.tabs.value.find((item) => item.id === tabId);
   if (tab) {
-    tab.lockedObjectId = billNo;
-    tab.dirty = false;
+    tab.lockReadOnly = Boolean(lock.readOnly);
+    tab.lockCanOverride = Boolean(lock.canOverride);
+    tab.lockMessage = lock.readOnly && lock.holderName ? `已被 ${lock.holderName} 打开，只读` : "";
   }
+}
+
+async function overrideActiveDocumentLock() {
+  const tab = tabs.activeTab.value;
+  const type = documentTypeByFormTabId(tab.id);
+  if (!type || !tab.lockedObjectId) {
+    return;
+  }
+  const result = await overrideDocumentLock(type, tab.lockedObjectId);
+  if (!result.ok || !result.data) {
+    tab.lockMessage = result.message || "强制解锁失败。";
+    return;
+  }
+  applyLockStateToTab(tab.id, result.data);
+  formMessage.value = "已踢走当前持锁人，你可以编辑。";
 }
 async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");

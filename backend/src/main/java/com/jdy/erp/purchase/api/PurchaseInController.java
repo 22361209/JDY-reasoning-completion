@@ -2,6 +2,7 @@ package com.jdy.erp.purchase.api;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.purchase.application.PurchaseInAppService;
 import com.jdy.erp.purchase.application.PurchaseInAppService.PurchaseInDraftRequest;
 import com.jdy.erp.purchase.application.PurchaseInAppService.RedReverseRequest;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/purchase-ins")
 public class PurchaseInController {
     private final PurchaseInAppService appService;
+    private final DocumentLockService lockService;
 
-    public PurchaseInController(PurchaseInAppService appService) {
+    public PurchaseInController(PurchaseInAppService appService, DocumentLockService lockService) {
         this.appService = appService;
+        this.lockService = lockService;
     }
 
     @GetMapping("/{billNo}")
@@ -32,7 +35,10 @@ public class PurchaseInController {
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody PurchaseInDraftRequest request) {
-        return appService.saveDraft(request);
+        lockService.assertWritable("purchaseIn", request.billNo());
+        var result = appService.saveDraft(request);
+        lockService.releaseIfOwned("purchaseIn", String.valueOf(result.getOrDefault("billNo", request.billNo())));
+        return result;
     }
 
     @PostMapping("/{billNo}/audit")

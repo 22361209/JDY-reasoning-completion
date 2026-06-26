@@ -2,6 +2,7 @@ package com.jdy.erp.sales.api;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.sales.application.SalesOutAppService;
 import com.jdy.erp.sales.application.SalesOutAppService.RedReverseRequest;
 import com.jdy.erp.sales.application.SalesOutAppService.SalesOutDraftRequest;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/sales-outs")
 public class SalesOutController {
     private final SalesOutAppService salesOutAppService;
+    private final DocumentLockService lockService;
 
-    public SalesOutController(SalesOutAppService salesOutAppService) {
+    public SalesOutController(SalesOutAppService salesOutAppService, DocumentLockService lockService) {
         this.salesOutAppService = salesOutAppService;
+        this.lockService = lockService;
     }
 
     @GetMapping("/{billNo}")
@@ -32,7 +35,10 @@ public class SalesOutController {
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody SalesOutDraftRequest request) {
-        return salesOutAppService.saveDraft(request);
+        lockService.assertWritable("salesOut", request.billNo());
+        var result = salesOutAppService.saveDraft(request);
+        lockService.releaseIfOwned("salesOut", String.valueOf(result.getOrDefault("billNo", request.billNo())));
+        return result;
     }
 
     @PostMapping("/{billNo}/audit")

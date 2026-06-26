@@ -5,6 +5,8 @@
     :status-label="statusLabel"
     :status-class="statusClass"
     :locked="locked"
+    :lock-message="lockMessage"
+    :can-override-lock="canOverrideLock"
     :dirty="dirty"
     :message="message"
     :can-save="isDraft"
@@ -37,6 +39,7 @@
     @export-document="emit('exportDocument')"
     @print-document="emit('printDocument')"
     @show-existing="emit('showExisting')"
+    @override-lock="emit('overrideLock')"
   >
     <div v-if="isDocumentForm" class="form-layout">
       <section class="form-head-fields">
@@ -54,6 +57,7 @@
           <span class="master-selector">
             <input
               v-model="form.partyCode"
+              :disabled="locked"
               :data-testid="`${testPrefix}-party-code`"
               @focus="emit('searchMasterOptions', partyType, form.partyCode, `${testPrefix}-party`)"
               @input="emit('handleMasterInput', partyType, form.partyCode, `${testPrefix}-party`)"
@@ -63,6 +67,7 @@
               class="master-selector__open"
               type="button"
               :data-testid="`${testPrefix}-party-open-selector`"
+              :disabled="locked"
               title="整列表选择"
               aria-label="整列表选择"
               @mousedown.prevent
@@ -86,24 +91,24 @@
           {{ partyLabel }}名称
           <input :value="form.partyName || ''" :data-testid="`${testPrefix}-party-name`" readonly />
         </label>
-        <label>业务日期<input v-model="form.billDate" :data-testid="`${testPrefix}-bill-date`" @input="emit('markDirty')" /></label>
-        <label>单据编号<input v-model="form.billNo" :data-testid="`${testPrefix}-bill-no`" @input="emit('markDirty')" /></label>
-        <label>部门<input v-model="form.department" :data-testid="`${testPrefix}-department`" @input="emit('markDirty')" /></label>
+        <label>业务日期<input v-model="form.billDate" :disabled="locked" :data-testid="`${testPrefix}-bill-date`" @input="emit('markDirty')" /></label>
+        <label>单据编号<input v-model="form.billNo" :disabled="locked" :data-testid="`${testPrefix}-bill-no`" @input="emit('markDirty')" /></label>
+        <label>部门<input v-model="form.department" :disabled="locked" :data-testid="`${testPrefix}-department`" @input="emit('markDirty')" /></label>
         <label>录入人<input :value="form.ownerName" :data-testid="`${testPrefix}-owner-name`" readonly /></label>
         <label v-if="showTaxMode" class="tax-mode-field">
           价格口径
-          <select :value="isTaxInclusive ? 'tax' : 'net'" :data-testid="`${testPrefix}-tax-mode`" @change="emit('update:isTaxInclusive', ($event.target as HTMLSelectElement).value === 'tax')">
+          <select :value="isTaxInclusive ? 'tax' : 'net'" :disabled="locked" :data-testid="`${testPrefix}-tax-mode`" @change="emit('update:isTaxInclusive', ($event.target as HTMLSelectElement).value === 'tax')">
             <option value="net">不含税</option>
             <option value="tax">含税</option>
           </select>
         </label>
-        <label class="form-head-field-wide">单据备注<textarea v-model="form.remark" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
+        <label class="form-head-field-wide">单据备注<textarea v-model="form.remark" :disabled="locked" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
       </section>
 
       <EntryTable
         :lines="form.lines"
         :test-prefix="testPrefix"
-        :is-draft="isDraft"
+        :is-draft="isDraft && !locked"
         :batch-warehouse-code="batchWarehouseCode"
         :batch-plan-delivery-date="batchPlanDeliveryDate"
         :active-selector="activeSelector"
@@ -194,6 +199,8 @@ withDefaults(defineProps<{
   statusLabel: string;
   statusClass: string;
   locked: boolean;
+  lockMessage?: string;
+  canOverrideLock?: boolean;
   dirty: boolean;
   message: string;
   form: DocumentFormState;
@@ -247,6 +254,8 @@ withDefaults(defineProps<{
   highlightedSourceBillNo: string;
   highlightedSourceLineNo: number | null;
 }>(), {
+  lockMessage: "",
+  canOverrideLock: false,
   canRedReverse: undefined,
   canClose: false,
   canUnclose: false,
@@ -274,6 +283,7 @@ const emit = defineEmits<{
   exportDocument: [];
   printDocument: [];
   showExisting: [];
+  overrideLock: [];
   openRedReverseBill: [];
   openRedSourceBill: [];
   "update:batchWarehouseCode": [value: string];

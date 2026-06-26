@@ -2,6 +2,7 @@ package com.jdy.erp.purchase.api;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.purchase.application.PurchaseOrderAppService;
 import com.jdy.erp.purchase.application.PurchaseOrderAppService.PurchaseOrderDraftRequest;
 import com.jdy.erp.system.security.RequirePermission;
@@ -18,9 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/purchase-orders")
 public class PurchaseOrderController {
     private final PurchaseOrderAppService appService;
+    private final DocumentLockService lockService;
 
-    public PurchaseOrderController(PurchaseOrderAppService appService) {
+    public PurchaseOrderController(PurchaseOrderAppService appService, DocumentLockService lockService) {
         this.appService = appService;
+        this.lockService = lockService;
     }
 
     @GetMapping("/{billNo}")
@@ -31,7 +34,10 @@ public class PurchaseOrderController {
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody PurchaseOrderDraftRequest request) {
-        return appService.saveDraft(request);
+        lockService.assertWritable("purchaseOrder", request.billNo());
+        var result = appService.saveDraft(request);
+        lockService.releaseIfOwned("purchaseOrder", String.valueOf(result.getOrDefault("billNo", request.billNo())));
+        return result;
     }
 
     @PostMapping("/{billNo}/audit")

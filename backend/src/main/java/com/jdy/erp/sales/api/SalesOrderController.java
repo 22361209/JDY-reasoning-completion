@@ -2,6 +2,7 @@ package com.jdy.erp.sales.api;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.sales.application.SalesOrderAppService;
 import com.jdy.erp.sales.application.SalesOrderAppService.SalesOrderDraftRequest;
 import com.jdy.erp.system.security.RequirePermission;
@@ -20,15 +21,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/sales-orders")
 public class SalesOrderController {
     private final SalesOrderAppService appService;
+    private final DocumentLockService lockService;
 
-    public SalesOrderController(SalesOrderAppService appService) {
+    public SalesOrderController(SalesOrderAppService appService, DocumentLockService lockService) {
         this.appService = appService;
+        this.lockService = lockService;
     }
 
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody SalesOrderDraftRequest request) {
-        return appService.saveDraft(request);
+        lockService.assertWritable("salesOrder", request.billNo());
+        var result = appService.saveDraft(request);
+        lockService.releaseIfOwned("salesOrder", String.valueOf(result.getOrDefault("billNo", request.billNo())));
+        return result;
     }
 
     @PostMapping("/{billNo}/audit")

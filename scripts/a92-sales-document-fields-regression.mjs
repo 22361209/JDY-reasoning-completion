@@ -103,15 +103,20 @@ async function openOrderDetailFromList(page, billNo) {
   await page.getByTestId("query-sales-order-form").click();
   await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(billNo);
-  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId("list-query").click();
+  await page.getByTestId(`open-document-${billNo}`).waitFor({ state: "visible", timeout: 10000 });
   await page.getByTestId(`open-document-${billNo}`).click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
+  await page.waitForFunction((expectedBillNo) => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && input.value === expectedBillNo;
+  }, billNo);
 }
 
 async function pushOrderFromList(page, billNo) {
   await page.getByTestId("tab-sales-order-form-list").click();
   await page.getByTestId("list-keyword").fill(billNo);
-  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId("list-query").click();
   const row = page.locator(".vxe-body--row", { hasText: billNo }).first();
   await row.waitFor({ state: "visible" });
   await row.locator(".vxe-checkbox--icon").first().click();

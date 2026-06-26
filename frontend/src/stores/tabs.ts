@@ -9,6 +9,9 @@ export interface WorkTab {
   kind: WorkTabKind;
   dirty?: boolean;
   lockedObjectId?: string;
+  lockReadOnly?: boolean;
+  lockMessage?: string;
+  lockCanOverride?: boolean;
 }
 
 const maxTabs = 8;
@@ -18,6 +21,7 @@ const tabs = ref<WorkTab[]>([
 const activeTabId = ref("home");
 const overflowMessage = ref("");
 const pendingCloseTab = ref<WorkTab | null>(null);
+const beforeCloseHandlers: Array<(tab: WorkTab) => void> = [];
 
 export function useTabStore() {
   const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? tabs.value[0]);
@@ -54,11 +58,16 @@ export function useTabStore() {
     if (index < 0) {
       return;
     }
+    beforeCloseHandlers.forEach((handler) => handler(tabs.value[index]));
     tabs.value.splice(index, 1);
     if (activeTabId.value === tabId) {
       activeTabId.value = tabs.value[Math.max(0, index - 1)]?.id ?? "home";
     }
     pendingCloseTab.value = null;
+  }
+
+  function onBeforeClose(handler: (tab: WorkTab) => void) {
+    beforeCloseHandlers.push(handler);
   }
 
   function cancelClose() {
@@ -79,6 +88,7 @@ export function useTabStore() {
     openTab,
     requestClose,
     closeNow,
+    onBeforeClose,
     cancelClose,
     clearOverflow
   };

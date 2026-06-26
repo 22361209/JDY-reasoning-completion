@@ -106,10 +106,6 @@
       </div>
     </section>
 
-    <div v-if="lockedObjectId" class="lock-banner" data-testid="lock-banner">
-      单据 {{ lockedObjectId }} 已在其他页签打开，仅该行锁定，其他单据可继续操作。
-    </div>
-
     <div class="list-toolbar">
       <button v-if="!isStockAlertList" class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
       <button v-if="isStockAlertList" type="button" :disabled="!canMaintainStockAlert" data-testid="stock-alert-settings" @click="openStockAlertSettings">安全库存设置</button>
@@ -199,13 +195,11 @@
               v-else-if="isOpenableDocumentList && column.field === 'billNo'"
               class="list-cell-link"
               type="button"
-              :disabled="isRowLocked(row)"
               :data-testid="`open-document-${row.billNo}`"
               @click.stop="openDocument(row)"
             >
               {{ row[column.field] }}
             </button>
-            <span v-else-if="column.field === 'billNo' && isRowLocked(row)" class="locked-row-mark">已打开</span>
             <span v-else>{{ row[column.field] }}</span>
           </template>
         </vxe-column>
@@ -1000,7 +994,6 @@ const canPushDownSalesOut = computed(() => {
     isSalesOrderList.value &&
     session.hasPermission("sales.out.audit") &&
     selectedRows.value.length === 1 &&
-    !isRowLocked(row) &&
     row?.status === "已审核" &&
     row?.closeStatus !== "CLOSED" &&
     row?.frozenStatus !== "FROZEN" &&
@@ -1013,7 +1006,6 @@ const canPushDownPurchaseIn = computed(() => {
     isPurchaseOrderList.value &&
     session.hasPermission("purchase.in.audit") &&
     selectedRows.value.length === 1 &&
-    !isRowLocked(row) &&
     row?.status === "已审核" &&
     row?.closeStatus !== "CLOSED" &&
     row?.frozenStatus !== "FROZEN" &&
@@ -1024,7 +1016,7 @@ const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
 const displayedRows = computed(() => rows.value);
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
-const selectedContainsLockedRow = computed(() => selectedRows.value.some((row) => isRowLocked(row)));
+const selectedContainsLockedRow = computed(() => false);
 const draggingColumnTitle = computed(() => columns.value.find((column) => column.field === draggingColumnField.value)?.title ?? "");
 
 const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
@@ -1375,7 +1367,8 @@ function syncSelected(event?: { records?: Record<string, unknown>[] }) {
 }
 
 function checkboxCheckMethod({ row }: { row?: Record<string, unknown> } = {}) {
-  return !row || !isRowLocked(row);
+  void row;
+  return true;
 }
 
 function statusClass(value: unknown) {
@@ -1440,7 +1433,7 @@ function pushDownPurchaseIn() {
 }
 
 function openDocument(row: Record<string, unknown>) {
-  if (!isRowLocked(row) && openableDocumentType.value) {
+  if (openableDocumentType.value) {
     emit("openDocument", { type: openableDocumentType.value, row });
   }
 }
@@ -1452,14 +1445,6 @@ function openCreateDialog() {
   if (openableDocumentType.value) {
     emit("createDocument", { type: openableDocumentType.value });
   }
-}
-
-function isRowLocked(row: Record<string, unknown> | undefined) {
-  if (!row) {
-    return false;
-  }
-  const lockedBillNo = String(props.lockedObjectId ?? "");
-  return Boolean(lockedBillNo && String(row.billNo ?? "") === lockedBillNo);
 }
 
 function openEditDialog() {

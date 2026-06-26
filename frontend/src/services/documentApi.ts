@@ -70,6 +70,17 @@ export type DocumentType = keyof typeof endpointByType;
 export type OpenableDocumentType = keyof typeof detailEndpointByType;
 export type OutputDocumentType = keyof typeof outputTypeByDocumentType;
 
+export interface DocumentLockState {
+  mode: "editable" | "readonly" | "overridden" | string;
+  locked: boolean;
+  readOnly: boolean;
+  holderName?: string;
+  holderUsername?: string;
+  expiresAt?: string;
+  canOverride: boolean;
+  overridden?: boolean;
+}
+
 export interface PrintTemplateConfig {
   documentType: string;
   documentTitle: string;
@@ -198,6 +209,18 @@ export async function fetchDocumentDetail(type: OpenableDocumentType, billNo: st
   return normalizeDocumentDetail(result.data);
 }
 
+export async function acquireDocumentLock(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+  return callDocumentLock(`/api/document-locks/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/acquire`, "POST");
+}
+
+export async function overrideDocumentLock(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+  return callDocumentLock(`/api/document-locks/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/override`, "POST");
+}
+
+export async function releaseDocumentLock(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+  return callDocumentLock(`/api/document-locks/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}`, "DELETE");
+}
+
 export async function reverseDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/reverse`, "POST");
 }
@@ -277,6 +300,14 @@ async function callDocument(url: string, method: string, body?: unknown): Promis
   } catch {
     return { ok: false, message: "网络异常，单据操作失败。" };
   }
+}
+
+async function callDocumentLock(url: string, method: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+  const result = await callDocument(url, method);
+  if (!result.ok || !result.data) {
+    return { ok: false, message: result.message || "单据锁操作失败。" };
+  }
+  return { ok: true, message: "", data: result.data as DocumentLockState };
 }
 
 async function readDocumentErrorMessage(response: Response) {

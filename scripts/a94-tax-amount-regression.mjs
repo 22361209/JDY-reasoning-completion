@@ -150,9 +150,14 @@ try {
   await page.getByTestId("query-sales-out-form").click();
   await page.getByTestId("tab-sales-out-form-list").waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(salesOutNo);
-  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId("list-query").click();
+  await page.getByTestId(`open-document-${salesOutNo}`).waitFor({ state: "visible", timeout: 10000 });
   await page.getByTestId(`open-document-${salesOutNo}`).click();
   await page.getByTestId("sales-out-line-tax-rate").waitFor({ state: "visible" });
+  await page.waitForFunction((billNo) => {
+    const input = document.querySelector('[data-testid="sales-out-bill-no"]');
+    return input instanceof HTMLInputElement && input.value === billNo;
+  }, salesOutNo);
   assert((await page.getByTestId("sales-out-tax-mode").inputValue()) === "net", "sales out UI should show tax exclusive");
   assert((await page.getByTestId("sales-out-line-tax-rate").inputValue()) === "13", "sales out first tax rate should display");
   assert((await page.getByTestId("sales-out-line-tax-amount-2").innerText()).trim() === salesExpected[1].taxAmount.toFixed(2), "sales out second tax amount should display");
@@ -165,9 +170,14 @@ try {
   await page.getByTestId("query-purchase-in-form").click();
   await page.getByTestId("tab-purchase-in-form-list").waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(purchaseInNo);
-  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId("list-query").click();
+  await page.getByTestId(`open-document-${purchaseInNo}`).waitFor({ state: "visible", timeout: 10000 });
   await page.getByTestId(`open-document-${purchaseInNo}`).click();
   await page.getByTestId("purchase-in-line-price-tax-total").waitFor({ state: "visible" });
+  await page.waitForFunction((billNo) => {
+    const input = document.querySelector('[data-testid="purchase-in-bill-no"]');
+    return input instanceof HTMLInputElement && input.value === billNo;
+  }, purchaseInNo);
   assert((await page.getByTestId("purchase-in-tax-mode").inputValue()) === "tax", "purchase in UI should show tax inclusive");
   assert((await page.getByTestId("purchase-in-line-amount").innerText()).trim() === purchaseExpected[0].amount.toFixed(2), "purchase inclusive net amount should display");
   assert((await page.getByTestId("document-total-amount").innerText()).trim() === purchaseTotal.toFixed(2), "purchase UI total should be tax total");

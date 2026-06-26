@@ -5,6 +5,8 @@
     :status-label="document.statusLabel.value"
     :status-class="statusClass"
     :locked="locked"
+    :lock-message="lockMessage"
+    :can-override-lock="canOverrideLock"
     :dirty="dirty"
     :message="document.message.value"
     :form="document.form"
@@ -61,6 +63,7 @@
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
     @show-existing="emit('showExisting')"
+    @override-lock="emit('overrideLock')"
     @open-red-reverse-bill="document.openRedReverseBill"
     @open-red-source-bill="document.openRedSourceBill"
     @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
@@ -106,6 +109,8 @@ const props = defineProps<{
   subtitle: string;
   statusClass: string;
   locked: boolean;
+  lockMessage?: string;
+  canOverrideLock?: boolean;
   dirty: boolean;
   userName: string;
   hasPermission: (permission: string) => boolean;
@@ -115,6 +120,7 @@ const emit = defineEmits<{
   markDirty: [];
   clearDirty: [];
   showExisting: [];
+  overrideLock: [];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
 }>();
 

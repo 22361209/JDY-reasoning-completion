@@ -183,9 +183,15 @@ async function verifyUi() {
     await page.getByTestId("query-sales-order-form").click();
     await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
     await page.getByTestId("list-keyword").fill(uiNo);
-    await page.getByTestId("list-keyword").press("Enter");
+    await page.getByTestId("list-query").click();
+    await page.getByTestId(`open-document-${uiNo}`).waitFor({ state: "visible", timeout: 10000 });
     await page.getByTestId(`open-document-${uiNo}`).click();
     await page.getByTestId("close-document").waitFor({ state: "visible" });
+    await page.waitForFunction((billNo) => {
+      const input = document.querySelector('[data-testid="sales-bill-no"]');
+      return input instanceof HTMLInputElement && input.value === billNo;
+    }, uiNo);
+    await page.getByText("已审核").waitFor({ state: "visible" });
     assert(await page.getByTestId("close-document").isEnabled(), "close button should be enabled for audited document");
     assert(await page.getByTestId("freeze-document").isEnabled(), "freeze button should be enabled for audited document");
     await page.getByTestId("new-document").click();

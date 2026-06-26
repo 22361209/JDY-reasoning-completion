@@ -99,8 +99,10 @@ try {
   await page.getByTestId("tab-sales-order-form-list").click();
   const firstDisabled = await page.getByTestId(`open-document-${firstBillNo}`).isDisabled();
   const secondDisabled = await page.getByTestId(`open-document-${secondBillNo}`).isDisabled();
-  assert(firstDisabled, "opened bill row should be locked");
+  const oldLockBannerCount = await page.getByTestId("lock-banner").count();
+  assert(!firstDisabled, "opened bill row should remain openable after A104 list lock removal");
   assert(!secondDisabled, "other bill rows should remain openable");
+  assert(oldLockBannerCount === 0, "document list should not show old same-tab lock banner");
 
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
   const result = {
@@ -112,7 +114,7 @@ try {
     newBillNo,
     confirmDialogsAfterCreate,
     backendReason: errorResponse.data.reason,
-    rowLock: { firstDisabled, secondDisabled },
+    rowLockRemoved: { firstDisabled, secondDisabled, oldLockBannerCount },
     screenshot: `verification/playwright/${screenshot}`
   };
   await writeFile(resultPath, JSON.stringify(result, null, 2));
