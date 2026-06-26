@@ -308,8 +308,8 @@
           </section>
         </div>
         <DataListPage
-          v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report'"
-          :list-key="tabs.activeTab.value.id"
+          v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report' || Boolean(documentTypeByListTabId(tabs.activeTabId.value))"
+          :list-key="tabs.activeTabId.value"
           :locked="false"
           locked-object-id=""
           @push-down-sales-out="openDeliveryNoticeFromSalesOrder"

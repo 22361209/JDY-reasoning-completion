@@ -104,6 +104,10 @@ type DocumentModuleSnapshot = {
 
 const documentModuleSnapshots = new Map<string, DocumentModuleSnapshot>();
 
+function plainClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(toRaw(value))) as T;
+}
+
 const formStatusByBackendStatus: Record<string, OrderForm["status"]> = {
   DRAFT: "DRAFT",
   AUDITED: "AUDITED",
@@ -1320,7 +1324,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 
   function snapshotState(): DocumentModuleSnapshot {
     return {
-      form: structuredClone(toRaw(form)),
+      form: plainClone(form),
       message: message.value,
       batchWarehouseCode: batchWarehouseCode.value,
       batchPlanDeliveryDate: batchPlanDeliveryDate.value,

@@ -46,6 +46,21 @@ function assert(condition, message) {
   }
 }
 
+async function ensurePresetSelectVisible(page) {
+  const isPresetSelectVisible = () =>
+    Boolean(
+      document.querySelector('[data-testid="operation-log-preset-select"]')?.getClientRects().length
+    );
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await page.evaluate(isPresetSelectVisible)) {
+      return;
+    }
+    await page.getByTestId("list-toggle-filter").click();
+    await page.waitForTimeout(200);
+  }
+  await page.waitForFunction(isPresetSelectVisible, null, { timeout: 10000 });
+}
+
 const session = await requireApi("/api/system/session");
 assert(session.user.roleCode === "ADMIN", "session should expose ADMIN role code");
 
@@ -90,10 +105,12 @@ try {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
-  if (!(await page.getByTestId("operation-log-preset-select").isVisible().catch(() => false))) {
-    await page.getByTestId("list-toggle-filter").click();
-  }
-  await page.getByTestId("operation-log-preset-select").locator("option", { hasText: `${defaultPresetName}（ADMIN）（默认）（只读）` }).waitFor({ state: "attached" });
+  await ensurePresetSelectVisible(page);
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="operation-log-preset-select"] option').length > 1,
+    null,
+    { timeout: 10000 }
+  );
   const optionTexts = await page.getByTestId("operation-log-preset-select").locator("option").evaluateAll((options) => options.map((option) => option.textContent || ""));
   assert(optionTexts.some((text) => text.includes(`${defaultPresetName}（ADMIN）（默认）（只读）`)), "frontend should show ADMIN scoped default preset");
   assert(!optionTexts.some((text) => text.includes(hiddenWarehousePresetName)), "frontend should hide WAREHOUSE scoped preset");

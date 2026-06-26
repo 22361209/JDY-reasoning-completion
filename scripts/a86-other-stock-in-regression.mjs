@@ -120,6 +120,8 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("query-other-in-form").click();
     await page.getByTestId("tab-other-in-form-list").waitFor({ state: "visible" });
+    await page.getByTestId("tab-other-in-form-list").locator("span").click();
+    await page.getByTestId("list-page-other-in-form-list").waitFor({ state: "visible" });
     await page.getByTestId("list-keyword").fill(billNo);
     await page.getByTestId("list-keyword").press("Enter");
     await page.getByText(billNo).waitFor({ state: "visible", timeout: 10000 });

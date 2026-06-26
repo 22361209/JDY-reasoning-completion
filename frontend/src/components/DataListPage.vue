@@ -144,7 +144,7 @@
                 <col v-for="column in visibleColumns" :key="column.field" :style="{ width: `${column.width ?? column.minWidth ?? 120}px` }" />
               </colgroup>
               <thead>
-                <tr>
+                <tr class="vxe-header--row">
                   <th class="vxe-header--column list-checkbox-column col--fixed col--checkbox">
                     <input
                       :checked="allDisplayedRowsSelected"

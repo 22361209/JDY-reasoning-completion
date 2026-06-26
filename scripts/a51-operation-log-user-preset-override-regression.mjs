@@ -46,6 +46,32 @@ function assert(condition, message) {
   }
 }
 
+async function ensurePresetSelectVisible(page) {
+  const isPresetSelectVisible = () =>
+    Boolean(
+      document.querySelector('[data-testid="operation-log-preset-select"]')?.getClientRects().length
+    );
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await page.evaluate(isPresetSelectVisible)) {
+      return;
+    }
+    await page.getByTestId("list-toggle-filter").click();
+    await page.waitForTimeout(200);
+  }
+  await page.waitForFunction(isPresetSelectVisible, null, { timeout: 10000 });
+}
+
+async function waitForPresetOption(page, expectedText) {
+  await page.waitForFunction(
+    (text) =>
+      Array.from(document.querySelectorAll('[data-testid="operation-log-preset-select"] option')).some((option) =>
+        (option.textContent || "").includes(text)
+      ),
+    expectedText,
+    { timeout: 10000 }
+  );
+}
+
 const session = await requireApi("/api/system/session");
 assert(session.user.roleCode === "ADMIN", "session should expose ADMIN role code");
 assert(session.user.username === "admin", "session should expose current login username");
@@ -101,9 +127,9 @@ try {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
-  if (!(await page.getByTestId("operation-log-preset-select").isVisible().catch(() => false))) {
-    await page.getByTestId("list-toggle-filter").click();
-  }
+  await ensurePresetSelectVisible(page);
+  await waitForPresetOption(page, `${userPresetName}（本人:${presetUserName}）（默认）`);
+  await waitForPresetOption(page, `${roleDefaultPresetName}（ADMIN）（默认）（只读）`);
   const optionTexts = await page.getByTestId("operation-log-preset-select").locator("option").evaluateAll((options) => options.map((option) => option.textContent || ""));
   assert(optionTexts.some((text) => text.includes(`${userPresetName}（本人:${presetUserName}）（默认）`)), "frontend should show current-user default preset");
   assert(optionTexts.some((text) => text.includes(`${roleDefaultPresetName}（ADMIN）（默认）（只读）`)), "frontend should keep ADMIN role default preset visible");
