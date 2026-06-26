@@ -38,6 +38,7 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String status,
         @RequestParam(defaultValue = "1") int page,
         @RequestParam(defaultValue = "200") int pageSize,
+        @RequestParam(defaultValue = "header") String view,
         @RequestParam(defaultValue = "") String sortField,
         @RequestParam(defaultValue = "asc") String sortOrder,
         @RequestParam(defaultValue = "") String columnFilters,
@@ -55,7 +56,7 @@ public class ListStubController {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Stub error for list state");
         }
 
-        var rows = filteredRows(listKey, keyword, status, pageSize, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
+        var rows = filteredRows(listKey, view, keyword, status, pageSize, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
         if (!sortField.isBlank()) {
             rows = rows.stream()
                 .sorted(comparator(sortField, sortOrder))
@@ -64,6 +65,7 @@ public class ListStubController {
         return Map.of(
             "page", page,
             "pageSize", pageSize,
+            "view", normalizedView(view),
             "sortField", sortField,
             "sortOrder", sortOrder,
             "total", rows.size(),
@@ -77,6 +79,7 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String keyword,
         @RequestParam(defaultValue = "") String status,
         @RequestParam(defaultValue = "1000") int pageSize,
+        @RequestParam(defaultValue = "header") String view,
         @RequestParam(defaultValue = "") String sortField,
         @RequestParam(defaultValue = "asc") String sortOrder,
         @RequestParam(defaultValue = "") String columnFilters,
@@ -87,7 +90,7 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String dateFrom,
         @RequestParam(defaultValue = "") String dateTo
     ) {
-        var rows = filteredRows(listKey, keyword, status, pageSize, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
+        var rows = filteredRows(listKey, view, keyword, status, pageSize, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
         if (!sortField.isBlank()) {
             rows = rows.stream()
                 .sorted(comparator(sortField, sortOrder))
@@ -112,6 +115,7 @@ public class ListStubController {
 
     private List<Map<String, ?>> filteredRows(
         String listKey,
+        String view,
         String keyword,
         String status,
         int pageSize,
@@ -124,12 +128,16 @@ public class ListStubController {
         String dateTo
     ) {
         var filters = parseColumnFilters(columnFilters);
-        return expandRowsForLargePage(listKey, seedRows(listKey), pageSize).stream()
+        return expandRowsForLargePage(listKey, seedRows(listKey, view), pageSize).stream()
             .filter(row -> keyword.isBlank() || row.values().stream().anyMatch(value -> String.valueOf(value).contains(keyword)))
             .filter(row -> status.isBlank() || status.equals(row.get("status")))
             .filter(row -> matchesOperationLogFilters(listKey, row, module, action, operator, targetType, dateFrom, dateTo))
             .filter(row -> matchesColumnFilters(row, filters))
             .toList();
+    }
+
+    private String normalizedView(String view) {
+        return "detail".equalsIgnoreCase(view) ? "detail" : "header";
     }
 
     private List<ExportColumn> columnsForExport(String listKey, List<Map<String, ?>> rows) {
@@ -257,7 +265,13 @@ public class ListStubController {
             .anyMatch(listKey::equals);
     }
 
-    private List<Map<String, ?>> seedRows(String listKey) {
+    private List<Map<String, ?>> seedRows(String listKey, String view) {
+        if ("detail".equals(normalizedView(view))) {
+            var detailRows = documentDetailRows(listKey);
+            if (!detailRows.isEmpty()) {
+                return detailRows;
+            }
+        }
         return switch (listKey) {
             case "product-master-list" -> realProductRows();
             case "customer-master-list" -> realCustomerRows();
@@ -281,6 +295,266 @@ public class ListStubController {
             case "operation-log-list" -> operationLogRows();
             default -> salesRows();
         };
+    }
+
+    private List<Map<String, ?>> documentDetailRows(String listKey) {
+        return switch (listKey) {
+            case "sales-order-form-list" -> queryDetailRows("""
+                SELECT concat(so.id::text, '-', l.line_no) AS id,
+                       so.bill_no AS "billNo",
+                       to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       c.name AS partner,
+                       CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       COALESCE(w.name, '') AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       '' AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM sales_order so
+                JOIN sales_order_line l ON l.order_id = so.id
+                JOIN md_customer c ON c.id = so.customer_id
+                JOIN md_product p ON p.id = l.product_id
+                LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY so.updated_at DESC, l.line_no
+                """);
+            case "purchase-order-form-list" -> queryDetailRows("""
+                SELECT concat(po.id::text, '-', l.line_no) AS id,
+                       po.bill_no AS "billNo",
+                       to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       s.name AS partner,
+                       CASE WHEN po.status = 'DRAFT' THEN '草稿' WHEN po.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       COALESCE(w.name, '') AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       '' AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM purchase_order po
+                JOIN purchase_order_line l ON l.order_id = po.id
+                JOIN md_supplier s ON s.id = po.supplier_id
+                JOIN md_product p ON p.id = l.product_id
+                LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY po.updated_at DESC, l.line_no
+                """);
+            case "sales-out-list", "sales-out-form-list" -> queryDetailRows("""
+                SELECT concat(so.id::text, '-', l.line_no) AS id,
+                       so.bill_no AS "billNo",
+                       to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       c.name AS partner,
+                       CASE
+                           WHEN so.status = 'DRAFT' THEN '草稿'
+                           WHEN so.status = 'REVERSED' THEN '已反审核'
+                           WHEN so.status = 'RED_REVERSED' THEN '已红冲'
+                           WHEN so.status = 'VOID' THEN '已作废'
+                           ELSE '已审核'
+                       END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       COALESCE(l.source_order_no, '') AS "sourceBillNo",
+                       COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
+                FROM sales_out so
+                JOIN sales_out_line l ON l.bill_id = so.id
+                JOIN md_customer c ON c.id = so.customer_id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY so.updated_at DESC, l.line_no
+                """);
+            case "purchase-in-list", "purchase-in-form-list" -> queryDetailRows("""
+                SELECT concat(pi.id::text, '-', l.line_no) AS id,
+                       pi.bill_no AS "billNo",
+                       to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       s.name AS partner,
+                       CASE
+                           WHEN pi.status = 'DRAFT' THEN '草稿'
+                           WHEN pi.status = 'REVERSED' THEN '已反审核'
+                           WHEN pi.status = 'RED_REVERSED' THEN '已红冲'
+                           WHEN pi.status = 'VOID' THEN '已作废'
+                           ELSE '已审核'
+                       END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       COALESCE(l.source_order_no, '') AS "sourceBillNo",
+                       COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
+                FROM purchase_in pi
+                JOIN purchase_in_line l ON l.bill_id = pi.id
+                JOIN md_supplier s ON s.id = pi.supplier_id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY pi.updated_at DESC, l.line_no
+                """);
+            case "material-issue-list", "material-issue-form-list" -> queryDetailRows("""
+                SELECT concat(i.id::text, '-', l.line_no) AS id,
+                       i.bill_no AS "billNo",
+                       to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
+                       t.bill_no AS partner,
+                       CASE WHEN i.status = 'REVERSED' THEN '已反审核' WHEN i.status = 'RED_REVERSED' THEN '已红冲' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       t.bill_no AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM production_material_issue i
+                JOIN production_task t ON t.id = i.task_id
+                JOIN production_material_issue_line l ON l.issue_id = i.id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY i.created_at DESC, l.line_no
+                """);
+            case "product-in-list", "product-in-form-list" -> queryDetailRows("""
+                SELECT concat(c.id::text, '-', l.line_no) AS id,
+                       c.bill_no AS "billNo",
+                       to_char(c.created_at, 'YYYY-MM-DD') AS "billDate",
+                       t.bill_no AS partner,
+                       CASE WHEN c.status = 'REVERSED' THEN '已反审核' WHEN c.status = 'RED_REVERSED' THEN '已红冲' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       t.bill_no AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM production_completion c
+                JOIN production_task t ON t.id = c.task_id
+                JOIN production_completion_line l ON l.completion_id = c.id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY c.created_at DESC, l.line_no
+                """);
+            case "other-in-list", "other-in-form-list" -> inventoryDetailRows("other_stock_in", "other_stock_in_line", "warehouse_id", "其他入库");
+            case "other-out-list", "other-out-form-list" -> inventoryDetailRows("other_stock_out", "other_stock_out_line", "warehouse_id", "其他出库");
+            case "stock-transfer-list", "stock-transfer-form-list" -> queryDetailRows("""
+                SELECT concat(b.id::text, '-', l.line_no) AS id,
+                       b.bill_no AS "billNo",
+                       to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       COALESCE(b.department, '') AS partner,
+                       CASE WHEN b.status = 'DRAFT' THEN '草稿' WHEN b.status = 'REVERSED' THEN '已反审核' WHEN b.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       concat(sw.name, ' → ', tw.name) AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       '' AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM stock_transfer b
+                JOIN stock_transfer_line l ON l.bill_id = b.id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse sw ON sw.id = l.source_warehouse_id
+                JOIN md_warehouse tw ON tw.id = l.target_warehouse_id
+                ORDER BY b.updated_at DESC, l.line_no
+                """);
+            case "stock-count-list", "stock-count-form-list" -> queryDetailRows("""
+                SELECT concat(b.id::text, '-', l.line_no) AS id,
+                       b.bill_no AS "billNo",
+                       to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       COALESCE(b.department, '') AS partner,
+                       CASE WHEN b.status = 'DRAFT' THEN '草稿' WHEN b.status = 'REVERSED' THEN '已反审核' WHEN b.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.counted_qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.diff_qty * l.unit_price, 'FM9999999990.00')) AS amount,
+                       '' AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM stock_count b
+                JOIN stock_count_line l ON l.bill_id = b.id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY b.updated_at DESC, l.line_no
+                """);
+            case "stock-count-gain-list", "stock-count-gain-form-list" -> stockCountDiffDetailRows("stock_count_gain", "stock_count_gain_line");
+            case "stock-count-loss-list", "stock-count-loss-form-list" -> stockCountDiffDetailRows("stock_count_loss", "stock_count_loss_line");
+            default -> List.of();
+        };
+    }
+
+    private List<Map<String, ?>> inventoryDetailRows(String headerTable, String lineTable, String warehouseColumn, String fallbackBusinessType) {
+        return queryDetailRows("""
+            SELECT concat(b.id::text, '-', l.line_no) AS id,
+                   b.bill_no AS "billNo",
+                   to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(b.department, b.business_type, '%s') AS partner,
+                   CASE WHEN b.status = 'DRAFT' THEN '草稿' WHEN b.status = 'REVERSED' THEN '已反审核' WHEN b.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                   l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.name AS warehouse,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   '' AS "sourceBillNo",
+                   '' AS "sourceLineNo"
+            FROM %s b
+            JOIN %s l ON l.bill_id = b.id
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.%s
+            ORDER BY b.updated_at DESC, l.line_no
+            """.formatted(fallbackBusinessType, headerTable, lineTable, warehouseColumn));
+    }
+
+    private List<Map<String, ?>> stockCountDiffDetailRows(String headerTable, String lineTable) {
+        return queryDetailRows("""
+            SELECT concat(b.id::text, '-', l.line_no) AS id,
+                   b.bill_no AS "billNo",
+                   to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(b.department, b.business_type, '') AS partner,
+                   CASE WHEN b.status = 'DRAFT' THEN '草稿' WHEN b.status = 'REVERSED' THEN '已反审核' WHEN b.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                   l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.name AS warehouse,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(sc.bill_no, '') AS "sourceBillNo",
+                   COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
+            FROM %s b
+            JOIN %s l ON l.bill_id = b.id
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            LEFT JOIN stock_count sc ON sc.id = l.source_bill_id
+            ORDER BY b.updated_at DESC, l.line_no
+            """.formatted(headerTable, lineTable));
+    }
+
+    private List<Map<String, ?>> queryDetailRows(String sql) {
+        return List.copyOf(jdbcTemplate.queryForList(sql));
     }
 
     private List<Map<String, ?>> realProductRows() {

@@ -26,6 +26,7 @@ GET /api/lists/{listKey}/export.csv
 | `status` | string | 否 | 状态快速筛选，空值表示全部。 |
 | `page` | number | 否 | 当前页，从 `1` 开始。 |
 | `pageSize` | number | 否 | 每页条数，前端固定提供 `200/500/1000`。 |
+| `view` | `header`/`detail` | 否 | 单据列表视图，默认 `header` 整单视图；`detail` 为明细视图，每行一条分录并带单头字段。 |
 | `sortField` | string | 否 | 排序字段，必须是当前列表已知字段。 |
 | `sortOrder` | `asc`/`desc` | 否 | 排序方向，默认 `asc`。 |
 | `columnFilters` | JSON string | 否 | 列过滤条件，字段名到过滤规则的映射。 |
@@ -68,6 +69,7 @@ GET /api/lists/{listKey}/export.csv
 
 - `rows` 只返回当前页数据。
 - `total` 是应用所有查询条件后的总数。
+- 单据列表 `view=detail` 时，后端直查单头 join 分录，只读返回，不缓存；列筛选、分页和导出继续复用同一列表契约。
 - 无权限返回 `403`，前端显示无权限态。
 - 服务异常返回非 `2xx`，前端显示错误态并提供重试。
 - 查询无结果返回 `200` 且 `rows=[]`、`total=0`，前端显示空态。

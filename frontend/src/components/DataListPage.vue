@@ -119,6 +119,9 @@
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
+      <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
+        {{ isDetailView ? "整单视图" : "明细视图" }}
+      </button>
       <button type="button" data-testid="column-settings" @click="columnDialogOpen = true">列设置</button>
       <div class="list-more-actions">
         <button type="button" class="list-more-trigger" data-testid="list-more-actions">更多</button>
@@ -901,6 +904,22 @@ const fallbackDefinition: ListDefinition = {
 };
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
+const detailColumns: ListColumn[] = [
+  { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+  { field: "billDate", title: "单据日期", width: 120, visible: true },
+  { field: "partner", title: "客户/供应商", width: 200, visible: true },
+  { field: "status", title: "审核状态", width: 100, visible: true },
+  { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
+  { field: "productCode", title: "商品编码", width: 130, visible: true },
+  { field: "productName", title: "商品名称", width: 180, visible: true },
+  { field: "spec", title: "规格型号", width: 150, visible: true },
+  { field: "warehouse", title: "仓库", width: 150, visible: true },
+  { field: "qty", title: "数量", width: 110, align: "right", visible: true },
+  { field: "unitPrice", title: "单价", width: 110, align: "right", visible: true },
+  { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+  { field: "sourceBillNo", title: "源单号", width: 170, visible: true },
+  { field: "sourceLineNo", title: "源行号", width: 90, align: "right", visible: true }
+];
 const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
@@ -913,6 +932,7 @@ const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
 const isStockAlertList = computed(() => props.listKey === "stock-alert-list");
+const isDetailView = ref(false);
 const auditPermissionByListKey: Partial<Record<string, string>> = {
   "sales-order-form-list": "sales.order.audit",
   "sales-out-list": "sales.out.audit",
@@ -950,8 +970,8 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "stock-count-loss-form-list": "inventory.stock_count_loss.audit",
   "stock-alert-list": "inventory.stock_alert.manage"
 };
-const canAuditCurrentList = computed(() => session.hasPermission(auditPermissionByListKey[props.listKey]));
-const canMaintainCurrentList = computed(() => session.hasPermission(maintainPermissionByListKey[props.listKey]));
+const canAuditCurrentList = computed(() => !isDetailView.value && session.hasPermission(auditPermissionByListKey[props.listKey]));
+const canMaintainCurrentList = computed(() => !isDetailView.value && session.hasPermission(maintainPermissionByListKey[props.listKey]));
 const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
   "sales-order-form-list": "salesOrder",
@@ -971,6 +991,7 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
 };
 const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));
+const supportsDetailView = computed(() => isOpenableDocumentList.value);
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
 const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
@@ -1023,6 +1044,7 @@ const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
 };
 
 watch(() => props.listKey, () => {
+  isDetailView.value = false;
   resetColumns();
   resetQuery(false);
   void loadOperationLogPresets(true);
@@ -1038,7 +1060,7 @@ onBeforeUnmount(() => {
 });
 
 function resetColumns() {
-  const defaults = definition.value.columns.map((column) => ({ ...column }));
+  const defaults = (isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column }));
   const saved = loadColumnPreferences();
   if (!saved.length) {
     columns.value = defaults;
@@ -1071,7 +1093,7 @@ async function reload() {
   listState.value = "ready";
   stateMessage.value = "";
   selectedRows.value = [];
-  const response = await fetchListRows(props.listKey, { ...query, columnFilters });
+  const response = await fetchListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters });
   if (response.ok && response.data) {
     rows.value = response.data.rows;
     total.value = response.data.total;
@@ -1088,7 +1110,7 @@ async function reload() {
 
 async function exportCurrentList() {
   exportMessage.value = "";
-  const result = await exportListRows(props.listKey, { ...query, columnFilters });
+  const result = await exportListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters });
   if (!result.ok || !result.blob) {
     exportMessage.value = result.message;
     return;
@@ -1333,6 +1355,15 @@ function resetQuery(shouldReload = true) {
   }
 }
 
+function toggleDetailView() {
+  isDetailView.value = !isDetailView.value;
+  query.page = 1;
+  selectedRows.value = [];
+  replaceColumnFilters({});
+  resetColumns();
+  reload();
+}
+
 function goPage(page: number) {
   query.page = page;
   reload();
@@ -1556,12 +1587,12 @@ function closeColumnSettings() {
 
 function resetColumnsToDefault() {
   localStorage.removeItem(columnPreferenceKey());
-  columns.value = definition.value.columns.map((column) => ({ ...column }));
+  columns.value = (isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column }));
   tableVersion.value += 1;
 }
 
 function columnPreferenceKey() {
-  return `jdy:list-columns:${props.listKey}`;
+  return `jdy:list-columns:${props.listKey}:${isDetailView.value ? "detail" : "header"}`;
 }
 
 function loadColumnPreferences(): ListColumn[] {

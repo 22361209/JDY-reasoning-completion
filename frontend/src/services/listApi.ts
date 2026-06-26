@@ -3,6 +3,7 @@ export interface ListQuery {
   status: string;
   page: number;
   pageSize: number;
+  view?: "header" | "detail";
   sortField?: string;
   sortOrder?: "asc" | "desc" | "";
   module?: string;
@@ -17,6 +18,7 @@ export interface ListQuery {
 export interface ListResponse {
   page: number;
   pageSize: number;
+  view?: "header" | "detail";
   total: number;
   sortField?: string;
   sortOrder?: string;
@@ -239,6 +241,9 @@ function buildListSearch(query: ListQuery) {
     page: String(query.page),
     pageSize: String(query.pageSize)
   });
+  if (query.view) {
+    search.set("view", query.view);
+  }
   if (query.sortField) {
     search.set("sortField", query.sortField);
     search.set("sortOrder", query.sortOrder || "asc");
