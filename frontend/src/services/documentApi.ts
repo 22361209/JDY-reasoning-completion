@@ -155,9 +155,26 @@ export interface DocumentDetail {
   }>;
 }
 
+export interface SalesUnitPriceQuote {
+  customerCode: string;
+  productCode: string;
+  unitPrice: number | string;
+  source: "salesOrder" | "salesOut" | "productDefault" | "zero" | string;
+  sourceBillNo?: string;
+}
+
 export async function saveDocumentDraft(type: DocumentType, payload: DocumentDraftPayload) {
   const body = toBackendPayload(type, payload);
   return callDocument(`${endpointByType[type]}/draft`, "POST", body);
+}
+
+export async function fetchSalesUnitPriceQuote(customerCode: string, productCode: string): Promise<{ ok: boolean; message: string; data?: SalesUnitPriceQuote }> {
+  const search = new URLSearchParams({ customerCode, productCode });
+  const result = await callDocument(`/api/sales-prices/unit-price?${search.toString()}`, "GET");
+  if (!result.ok || !result.data) {
+    return { ok: false, message: result.message || "销售价格查询失败。" };
+  }
+  return { ok: true, message: "", data: result.data as SalesUnitPriceQuote };
 }
 
 export async function fetchNextBillNo(type: DocumentType) {

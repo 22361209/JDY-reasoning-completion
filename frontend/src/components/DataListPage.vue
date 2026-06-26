@@ -500,6 +500,7 @@ const definitions: Record<string, ListDefinition> = {
       { field: "spec", title: "规格型号", width: 170, visible: true },
       { field: "category", title: "商品类别", width: 130, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "defaultSalePrice", title: "默认销售价", width: 120, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "updatedAt", title: "最近更新时间", width: 160, visible: true }
     ]

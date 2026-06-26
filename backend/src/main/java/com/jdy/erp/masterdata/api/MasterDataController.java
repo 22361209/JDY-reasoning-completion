@@ -1,5 +1,6 @@
 package com.jdy.erp.masterdata.api;
 
+import java.math.BigDecimal;
 import java.util.Map;
 
 import com.jdy.erp.system.security.RequirePermission;
@@ -72,8 +73,8 @@ public class MasterDataController {
 
     private Map<String, Object> createProduct(String code, String name, Map<String, String> payload, boolean enabled) {
         return jdbcTemplate.queryForMap("""
-            INSERT INTO md_product (code, name, spec, category, unit, enabled)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO md_product (code, name, spec, category, unit, default_sale_price, enabled)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, code, name
             """,
             code,
@@ -81,6 +82,7 @@ public class MasterDataController {
             payload.getOrDefault("spec", ""),
             payload.getOrDefault("category", "成品总成"),
             payload.getOrDefault("unit", "只"),
+            defaultSalePrice(payload),
             enabled
         );
     }
@@ -131,7 +133,7 @@ public class MasterDataController {
     private Map<String, Object> updateProduct(String code, String name, Map<String, String> payload, boolean enabled) {
         return updateAndReturn("""
             UPDATE md_product
-            SET name = ?, spec = ?, category = ?, unit = ?, enabled = ?, updated_at = now(), version = version + 1
+            SET name = ?, spec = ?, category = ?, unit = ?, default_sale_price = ?, enabled = ?, updated_at = now(), version = version + 1
             WHERE code = ?
             RETURNING id::text AS id, code, name
             """,
@@ -139,9 +141,26 @@ public class MasterDataController {
             payload.getOrDefault("spec", ""),
             payload.getOrDefault("category", "成品总成"),
             payload.getOrDefault("unit", "只"),
+            defaultSalePrice(payload),
             enabled,
             code
         );
+    }
+
+    private BigDecimal defaultSalePrice(Map<String, String> payload) {
+        var value = payload.getOrDefault("defaultSalePrice", "").trim();
+        if (value.isBlank()) {
+            return null;
+        }
+        try {
+            var price = new BigDecimal(value);
+            if (price.compareTo(BigDecimal.ZERO) < 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "默认销售价不能小于 0");
+            }
+            return price;
+        } catch (NumberFormatException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "默认销售价格式不正确");
+        }
     }
 
     private Map<String, Object> updateCustomer(String code, String name, Map<String, String> payload, boolean enabled) {

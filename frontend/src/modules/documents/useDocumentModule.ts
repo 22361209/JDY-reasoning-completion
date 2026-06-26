@@ -24,6 +24,7 @@ import {
   exportDocument,
   fetchDocumentDetail,
   fetchNextBillNo,
+  fetchSalesUnitPriceQuote,
   lifecycleDocument,
   lifecycleLine,
   printDocument,
@@ -130,6 +131,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const voidUsername = ref("");
   const voidPassword = ref("");
   let selectorRequestSeq = 0;
+  let priceRequestSeq = 0;
 
   const isDraft = computed(() => form.status === "DRAFT");
   const canAudit = computed(() => Boolean(config.saveType) && isDraft.value && runtime.hasPermission(config.auditPermission));
@@ -817,6 +819,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.partyName = option.name;
     activeSelector.value = "";
     runtime.markDirty();
+    void refreshSalesLinePrices();
     focusNextAfterSelector(selectorId);
   }
 
@@ -852,7 +855,39 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     line.spec = option.spec ?? "";
     activeSelector.value = "";
     runtime.markDirty();
+    void refreshSalesLinePrice(lineIndex);
     focusNextAfterSelector(selectorId);
+  }
+
+  async function refreshSalesLinePrices() {
+    if (!isSalesPriceMemoryEnabled(config) || !isDraft.value) {
+      return;
+    }
+    const requestSeq = priceRequestSeq + 1;
+    priceRequestSeq = requestSeq;
+    await Promise.all(form.lines.map((_, index) => refreshSalesLinePrice(index, requestSeq)));
+  }
+
+  async function refreshSalesLinePrice(lineIndex: number, requestSeq = priceRequestSeq) {
+    if (!isSalesPriceMemoryEnabled(config) || !isDraft.value) {
+      return;
+    }
+    const line = form.lines[lineIndex];
+    const customerCode = form.partyCode.trim();
+    const productCode = line?.productCode.trim();
+    if (!line || !customerCode || !productCode) {
+      return;
+    }
+    const result = await fetchSalesUnitPriceQuote(customerCode, productCode);
+    if (requestSeq !== priceRequestSeq || !result.ok || !result.data) {
+      return;
+    }
+    const currentLine = form.lines[lineIndex];
+    if (!currentLine || currentLine.productCode.trim() !== productCode || form.partyCode.trim() !== customerCode) {
+      return;
+    }
+    currentLine.unitPrice = Number(result.data.unitPrice ?? 0);
+    runtime.markDirty();
   }
 
   function cancelZeroEntrySave() {
@@ -1276,6 +1311,10 @@ function normalizedQty(value: number | string | undefined) {
 function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function isSalesPriceMemoryEnabled(config: DocumentModuleOptions) {
+  return config.documentType === "salesOrder" && config.partyKind === "customer";
 }
 
 function normalizeDownstreamDocs(docs: DownstreamDocumentRef[] | undefined) {

@@ -565,6 +565,7 @@ public class ListStubController {
                    COALESCE(spec, '') AS spec,
                    category,
                    unit,
+                   trim(to_char(default_sale_price, 'FM9999999990.00')) AS "defaultSalePrice",
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_product

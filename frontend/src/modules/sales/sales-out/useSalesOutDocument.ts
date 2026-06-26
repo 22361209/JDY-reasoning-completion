@@ -24,6 +24,7 @@ import {
   exportDocument,
   fetchDocumentDetail,
   fetchNextBillNo,
+  fetchSalesUnitPriceQuote,
   lifecycleDocument,
   lifecycleLine,
   printDocument,
@@ -117,6 +118,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
   let selectorRequestSeq = 0;
+  let priceRequestSeq = 0;
 
   const isDraft = computed(() => form.status === "DRAFT");
   const canAudit = computed(() => isDraft.value && options.hasPermission("sales.out.audit"));
@@ -1013,6 +1015,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyName = option.name;
     activeSelector.value = "";
     options.markDirty();
+    void refreshSalesLinePrices();
     focusNextAfterSelector(selectorId);
     void openCustomerSourceSelector();
   }
@@ -1038,7 +1041,39 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     line.spec = option.spec ?? "";
     activeSelector.value = "";
     options.markDirty();
+    void refreshSalesLinePrice(lineIndex);
     focusNextAfterSelector(selectorId);
+  }
+
+  async function refreshSalesLinePrices() {
+    if (!isDraft.value) {
+      return;
+    }
+    const requestSeq = priceRequestSeq + 1;
+    priceRequestSeq = requestSeq;
+    await Promise.all(form.lines.map((_, index) => refreshSalesLinePrice(index, requestSeq)));
+  }
+
+  async function refreshSalesLinePrice(lineIndex: number, requestSeq = priceRequestSeq) {
+    if (!isDraft.value) {
+      return;
+    }
+    const line = form.lines[lineIndex];
+    const customerCode = form.partyCode.trim();
+    const productCode = line?.productCode.trim();
+    if (!line || !customerCode || !productCode || line.sourceOrderNo?.trim()) {
+      return;
+    }
+    const result = await fetchSalesUnitPriceQuote(customerCode, productCode);
+    if (requestSeq !== priceRequestSeq || !result.ok || !result.data) {
+      return;
+    }
+    const currentLine = form.lines[lineIndex];
+    if (!currentLine || currentLine.productCode.trim() !== productCode || form.partyCode.trim() !== customerCode || currentLine.sourceOrderNo?.trim()) {
+      return;
+    }
+    currentLine.unitPrice = Number(result.data.unitPrice ?? 0);
+    options.markDirty();
   }
 
   function cancelZeroEntrySave() {
