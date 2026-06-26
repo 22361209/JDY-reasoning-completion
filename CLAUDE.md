@@ -27,6 +27,28 @@
 - 验收 = 业务逻辑门禁（`docs/11`）+ 对照截图的视觉相似度。
 - 收尾覆盖更新 `docs/09` 快照。
 
+## 分层回归门禁（A111 起）
+
+回归入口统一用：
+
+```bash
+node scripts/run-regression-tier.mjs smoke
+node scripts/run-regression-tier.mjs area:sales
+node scripts/run-regression-tier.mjs full
+```
+
+结果统一写入 `verification/regression-tier-<tier>-latest.json`。`full` 复用当前累积全量脚本清单；`area:<module>` 会自动包含 smoke。
+
+每批按改动性质选档：
+
+| 改动分类 | 例子 | 必跑 |
+| --- | --- | --- |
+| 表现改动 | 共享 UI 的 CSS、布局、密度、列宽、图标、文案、品牌 | `smoke` + 人工眼验/截图核对；不必全量行为回归 |
+| 行为改动 | 业务逻辑、SQL、过账、状态机、金额、库存、财务 | `smoke` + 对应 `area:<module>` |
+| 共享核心逻辑 | `BillLifecycle`、`PostingPipeline`、库存账、税、预留 | `full` + 后端快测 |
+
+后端快测兜底核心行为：生命周期状态转换、库存/财务过账、税额计算、发货通知预留不变式。后续不要把所有行为校验继续压到慢 Playwright。
+
 ## 注意（生成产物会回滚，别手改）
 
 生成链：`xlsx → export-approved-scope.mjs → config + docs/01/02/03 → build-app-data.mjs / generate-frontend-scope.mjs`
