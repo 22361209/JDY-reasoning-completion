@@ -44,14 +44,16 @@ async function openSecuritySettings(page) {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-security-settings").click();
   await page.getByTestId("security-settings-summary").waitFor({ state: "visible" });
+  await page.getByTestId("security-current-timeout").filter({ hasText: "分钟" }).waitFor({ state: "visible" });
 }
 
 async function saveTimeout(page, minutes) {
   const timeoutInput = page.getByTestId("security-session-timeout-minutes");
-  await timeoutInput.click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
-  await page.keyboard.type(String(minutes));
-  await timeoutInput.blur();
+  await setNumberInput(timeoutInput, minutes);
+  await page.waitForFunction(
+    ({ selector, expected }) => document.querySelector(selector)?.value === expected,
+    { selector: "[data-testid='security-session-timeout-minutes']", expected: String(minutes) }
+  );
   const inputValue = await timeoutInput.inputValue();
   assert(inputValue === String(minutes), `timeout input should be ${minutes} before save, got ${inputValue}`);
   await page.getByTestId("security-current-password").fill("admin123");
@@ -67,6 +69,11 @@ async function saveTimeout(page, minutes) {
     ({ selector, expected }) => document.querySelector(selector)?.textContent?.includes(expected),
     { selector: "[data-testid='security-current-timeout']", expected: `${minutes} 分钟` }
   );
+}
+
+async function setNumberInput(locator, value) {
+  await locator.fill(String(value));
+  await locator.blur();
 }
 
 

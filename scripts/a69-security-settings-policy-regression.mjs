@@ -45,6 +45,7 @@ async function loginAs(page, usernameValue, passwordValue, expectedRole) {
 async function savePolicy(page, policy) {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-security-settings").click();
+  await page.getByTestId("security-current-policy").filter({ hasText: /ALLOW_CONCURRENT|SINGLE_ACTIVE/ }).waitFor({ state: "visible" });
   if (policy === "ALLOW_CONCURRENT") {
     await page.getByTestId("security-policy-allow-concurrent").click();
   } else {

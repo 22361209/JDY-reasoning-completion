@@ -49,12 +49,17 @@ async function openSecuritySettings(page) {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-security-settings").click();
   await page.getByTestId("security-settings-summary").waitFor({ state: "visible" });
+  await page.getByTestId("security-current-password-policy").filter({ hasText: "至少" }).waitFor({ state: "visible" });
 }
 
 async function setNumberInput(page, testId, value) {
-  await page.getByTestId(testId).click();
-  await page.keyboard.press("Meta+A");
-  await page.keyboard.type(String(value));
+  const input = page.getByTestId(testId);
+  await input.fill(String(value));
+  await input.blur();
+  await page.waitForFunction(
+    ({ selector, expected }) => document.querySelector(selector)?.value === expected,
+    { selector: `[data-testid='${testId}']`, expected: String(value) }
+  );
 }
 
 async function setCheckbox(page, testId, checked) {
