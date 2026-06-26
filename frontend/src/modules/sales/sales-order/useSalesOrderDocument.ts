@@ -15,6 +15,7 @@ export function useSalesOrderDocument(options: Parameters<typeof useDocumentModu
     defaultDepartment: "销售部",
     defaultPartyCode: "",
     defaultUnitPrice: 86,
+    showTaxMode: true,
     reversible: true,
     reverseImpact: "反审核将把销售订单从已审核退回已反审核；若已有已审核销售出库下游单据，后端会阻断操作。",
     initialForm: initialSalesOrderForm

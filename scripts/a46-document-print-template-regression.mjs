@@ -15,7 +15,7 @@ const billDate = "2026-06-24";
 const companyName = "博莱德机械测试账套";
 const templateName = "标准套打模板";
 const footerNote = "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。";
-const expectedTotal = "110.00";
+const expectedTotal = "124.30";
 
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10, lineRemark: "A46 套打备注：首行" },

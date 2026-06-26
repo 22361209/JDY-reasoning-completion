@@ -15,6 +15,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.http.HttpStatus;
@@ -48,6 +49,7 @@ public class PurchaseInAppService {
     private final ConversionService conversionService;
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
+    private final TaxAmountCalculator taxAmountCalculator;
 
     public PurchaseInAppService(
         JdbcTemplate jdbcTemplate,
@@ -57,7 +59,8 @@ public class PurchaseInAppService {
         PostingPipeline postingPipeline,
         ConversionService conversionService,
         OperationLogService operationLogService,
-        NumberingService numberingService
+        NumberingService numberingService,
+        TaxAmountCalculator taxAmountCalculator
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -67,6 +70,7 @@ public class PurchaseInAppService {
         this.conversionService = conversionService;
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
+        this.taxAmountCalculator = taxAmountCalculator;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -80,6 +84,7 @@ public class PurchaseInAppService {
                    pi.department,
                    pi.status,
                    pi.total_amount AS "totalAmount",
+                   pi.is_tax_inclusive AS "isTaxInclusive",
                    pi.owner_name AS "ownerName",
                    (
                        SELECT red.bill_no
@@ -113,6 +118,9 @@ public class PurchaseInAppService {
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount,
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark"
             FROM purchase_in_line l
             JOIN md_product p ON p.id = l.product_id
@@ -129,12 +137,13 @@ public class PurchaseInAppService {
         var billNo = numberingService.assignBillNo("purchaseIn", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
         var sourceOrderId = sourceOrderId(request.sourceOrderNo());
+        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> line.qty().multiply(line.unitPrice()))
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
                 supplier_id = EXCLUDED.supplier_id,
@@ -142,6 +151,7 @@ public class PurchaseInAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
+                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_in.version + 1
@@ -154,11 +164,12 @@ public class PurchaseInAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            isTaxInclusive,
             request.ownerName()
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM purchase_in_line WHERE bill_id = ?::uuid", billId);
-        insertLines("purchase_in_line", "bill_id", billId, request.lines());
+        insertLines("purchase_in_line", "bill_id", billId, request.lines(), isTaxInclusive);
         return bill;
     }
 
@@ -265,6 +276,7 @@ public class PurchaseInAppService {
                    supplier_id::text AS "supplierId",
                    department,
                    total_amount,
+                   is_tax_inclusive,
                    owner_name AS "ownerName"
             FROM purchase_in
             WHERE bill_no = ? AND status = ?
@@ -278,8 +290,8 @@ public class PurchaseInAppService {
         }
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
             """,
             redBillNo,
@@ -290,6 +302,7 @@ public class PurchaseInAppService {
             source.get("department"),
             BillStatus.RED_REVERSED.name(),
             ((BigDecimal) source.get("total_amount")).negate(),
+            source.get("is_tax_inclusive"),
             request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
         );
         var lines = jdbcTemplate.queryForList("""
@@ -302,6 +315,9 @@ public class PurchaseInAppService {
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount,
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark"
             FROM purchase_in_line l
             JOIN md_product p ON p.id = l.product_id
@@ -313,8 +329,8 @@ public class PurchaseInAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO purchase_in_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
+                INSERT INTO purchase_in_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
@@ -324,6 +340,9 @@ public class PurchaseInAppService {
                 qty.negate(),
                 line.get("unitPrice"),
                 ((BigDecimal) line.get("amount")).negate(),
+                line.get("taxRate"),
+                ((BigDecimal) line.get("taxAmount")).negate(),
+                ((BigDecimal) line.get("priceTaxTotal")).negate(),
                 line.get("lineRemark")
             );
             postingPipeline.post(new PostingContext(
@@ -362,14 +381,14 @@ public class PurchaseInAppService {
         return redBill;
     }
 
-    private void insertLines(String table, String billIdColumn, Object billId, List<PurchaseInLineRequest> lines) {
+    private void insertLines(String table, String billIdColumn, Object billId, List<PurchaseInLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amount = line.qty().multiply(line.unitPrice());
-            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark) VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)",
-                billId, lineNo, line.sourceLineNo() == null ? lineNo : line.sourceLineNo(), productId, warehouseId, line.qty(), line.unitPrice(), amount, validationService.optionalText(line.lineRemark()));
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark) VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)",
+                billId, lineNo, line.sourceLineNo() == null ? lineNo : line.sourceLineNo(), productId, warehouseId, line.qty(), line.unitPrice(), amounts.amount(), amounts.taxRate(), amounts.taxAmount(), amounts.priceTaxTotal(), validationService.optionalText(line.lineRemark()));
             lineNo += 1;
         }
     }
@@ -422,7 +441,7 @@ public class PurchaseInAppService {
         return LocalDate.parse(String.valueOf(value));
     }
 
-    public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, List<PurchaseInLineRequest> lines) {
+    public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, Boolean isTaxInclusive, List<PurchaseInLineRequest> lines) {
         public PurchaseInDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -430,7 +449,7 @@ public class PurchaseInAppService {
         }
     }
 
-    public record PurchaseInLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
+    public record PurchaseInLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -28,6 +29,7 @@ public class SalesOrderAppService {
     private final BillLifecycleService lifecycleService;
     private final NumberingService numberingService;
     private final CurrentSessionService currentSessionService;
+    private final TaxAmountCalculator taxAmountCalculator;
 
     public SalesOrderAppService(
         JdbcTemplate jdbcTemplate,
@@ -35,7 +37,8 @@ public class SalesOrderAppService {
         ValidationService validationService,
         BillLifecycleService lifecycleService,
         NumberingService numberingService,
-        CurrentSessionService currentSessionService
+        CurrentSessionService currentSessionService,
+        TaxAmountCalculator taxAmountCalculator
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -43,20 +46,22 @@ public class SalesOrderAppService {
         this.lifecycleService = lifecycleService;
         this.numberingService = numberingService;
         this.currentSessionService = currentSessionService;
+        this.taxAmountCalculator = taxAmountCalculator;
     }
 
     @Transactional
     public Map<String, Object> saveDraft(SalesOrderDraftRequest request) {
         var billNo = numberingService.assignBillNo("salesOrder", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
+        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> line.qty().multiply(line.unitPrice()))
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var ownerName = currentSessionService.currentDisplayName();
         var createdBy = currentSessionService.currentUserId();
         var order = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
@@ -64,6 +69,7 @@ public class SalesOrderAppService {
                 status = EXCLUDED.status,
                 out_status = 'NOT_OUT',
                 total_amount = EXCLUDED.total_amount,
+                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
@@ -76,6 +82,7 @@ public class SalesOrderAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            isTaxInclusive,
             ownerName,
             validationService.optionalText(request.remark()),
             createdBy
@@ -86,10 +93,10 @@ public class SalesOrderAppService {
         for (var line : request.lines()) {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amount = line.qty().multiply(line.unitPrice());
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -97,7 +104,10 @@ public class SalesOrderAppService {
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
-                amount,
+                amounts.amount(),
+                amounts.taxRate(),
+                amounts.taxAmount(),
+                amounts.priceTaxTotal(),
                 validationService.optionalText(line.lineRemark()),
                 optionalDate(line.planDeliveryDate())
             );
@@ -176,6 +186,7 @@ public class SalesOrderAppService {
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    so.department,
                    so.owner_name AS "ownerName",
+                   so.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    p.code AS "productCode",
                    p.name AS "productName",
@@ -185,6 +196,7 @@ public class SalesOrderAppService {
                    l.shipped_qty AS "shippedQty",
                    GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
+                   l.tax_rate AS "taxRate",
                    COALESCE(l.line_remark, '') AS "lineRemark",
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM sales_order so
@@ -210,6 +222,7 @@ public class SalesOrderAppService {
                    so.department,
                    so.status,
                    so.total_amount AS "totalAmount",
+                   so.is_tax_inclusive AS "isTaxInclusive",
                    so.owner_name AS "ownerName",
                    COALESCE(creator.display_name, so.owner_name, '') AS "createdByName",
                    COALESCE(so.remark, '') AS remark
@@ -232,6 +245,9 @@ public class SalesOrderAppService {
                    GREATEST(0, l.qty - l.shipped_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
                    l.amount,
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark",
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM sales_order_line l
@@ -260,7 +276,8 @@ public class SalesOrderAppService {
                    COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
                    l.line_no AS "downstreamLineNo",
                    l.qty,
-                   l.amount
+                   l.amount,
+                   l.price_tax_total AS "priceTaxTotal"
             FROM sales_out_line l
             JOIN sales_out so ON so.id = l.bill_id
             WHERE so.source_order_id = ?::uuid
@@ -286,6 +303,7 @@ public class SalesOrderAppService {
         String department,
         String ownerName,
         String remark,
+        Boolean isTaxInclusive,
         List<SalesOrderLineRequest> lines
     ) {
         public SalesOrderDraftRequest {
@@ -300,6 +318,7 @@ public class SalesOrderAppService {
         String warehouseCode,
         BigDecimal qty,
         BigDecimal unitPrice,
+        BigDecimal taxRate,
         String lineRemark,
         String planDeliveryDate
     ) {

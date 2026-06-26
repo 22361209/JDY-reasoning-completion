@@ -192,7 +192,7 @@ try {
     amount: "112.00"
   });
   const totalAfterPaste = (await page.getByTestId("document-total-amount").innerText()).trim();
-  assertEqual("total after paste", totalAfterPaste, "112.00");
+  assertEqual("total after paste", totalAfterPaste, "126.56");
 
   await page.getByTestId("save-sales-order").click();
   await page.getByText("草稿已保存").waitFor({ state: "visible" });

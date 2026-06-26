@@ -16,6 +16,7 @@ import {
   type RiskyDocumentAction,
   type ZeroEntryWarning
 } from "../../../app/documentModel";
+import { taxAmounts } from "../../../app/taxAmounts";
 import { fetchListRows } from "../../../services/listApi";
 import {
   auditDocument,
@@ -60,6 +61,7 @@ type PreparedEntryLines = {
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
+    taxRate?: number;
     lineRemark: string;
     planDeliveryDate?: string;
   }[];
@@ -115,7 +117,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     };
     return labels[form.status];
   });
-  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0).toFixed(2));
+  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const showSourceLineColumn = computed(() => Boolean(form.sourceOrderNo));
   const entryTableColspan = computed(() => 11 + (showSourceLineColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
@@ -146,6 +148,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = "销售部";
     form.ownerName = options.userName() || "本地管理员";
     form.remark = "";
+    form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.lines = [defaultLine()];
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
@@ -164,6 +167,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = document.department || "销售部";
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
+    form.isTaxInclusive = Boolean(document.isTaxInclusive);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
@@ -177,6 +181,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         executedQty: line.shippedQty === undefined ? undefined : normalizedQty(line.shippedQty),
         remainingQty: line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty),
         unitPrice: Number(line.unitPrice ?? 0),
+        taxRate: Number(line.taxRate ?? 13),
+        taxAmount: line.taxAmount,
+        priceTaxTotal: line.priceTaxTotal,
         lineRemark: String(line.lineRemark ?? ""),
         planDeliveryDate: String(line.planDeliveryDate ?? ""),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
@@ -218,6 +225,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = draft.department;
     form.ownerName = draft.ownerName;
     form.remark = "";
+    form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
@@ -227,6 +235,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
+      taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "")
     }));
@@ -246,6 +255,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     ].join("-");
     form.department = order.department || "销售部";
     form.ownerName = options.userName() || order.ownerName || "本地管理员";
+    form.isTaxInclusive = Boolean(order.isTaxInclusive);
     form.lines = lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
       productName: String(line.productName ?? ""),
@@ -254,6 +264,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0),
+      taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "")
     }));
@@ -337,6 +348,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyCode = first.customerCode;
     form.partyName = first.customer || form.partyName || "";
     form.department = first.department || form.department || "销售部";
+    form.isTaxInclusive = Boolean(first.isTaxInclusive);
     form.lines = selectedLines.map((line) => selectableLineToFormLine(line));
     sourceSelectorOpen.value = false;
     sourceSelectorMessage.value = "";
@@ -368,6 +380,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       department: form.department,
       ownerName: form.ownerName,
       remark: form.remark,
+      isTaxInclusive: Boolean(form.isTaxInclusive),
       lines: preparedLines.documentLines
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
@@ -512,7 +525,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-    return { productCode: "CP-001", warehouseCode, qty: 1, unitPrice: 86, lineRemark: "", planDeliveryDate: "" };
+    return { productCode: "CP-001", warehouseCode, qty: 1, unitPrice: 86, taxRate: 13, lineRemark: "", planDeliveryDate: "" };
   }
 
   function addLine() {
@@ -930,6 +943,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     canTraceSourceOrder,
     statusLabel,
     totalAmount,
+    showTaxMode: computed(() => true),
     showSourceLineColumn,
     entryTableColspan,
     entryTotalColspan,
@@ -1102,6 +1116,7 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
     remainingQty,
     qty: remainingQty,
     unitPrice: Number(line.unitPrice ?? 0),
+    taxRate: Number(line.taxRate ?? 13),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
@@ -1116,6 +1131,7 @@ function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm
     sourceLineNo: normalizedOptionalInt(line.lineNo),
     qty: normalizedQty(line.remainingQty),
     unitPrice: Number(line.unitPrice ?? 0),
+    taxRate: Number(line.taxRate ?? 13),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
@@ -1138,6 +1154,7 @@ function toDocumentLines(lines: OrderLineForm[]) {
     sourceLineNo: line.sourceLineNo,
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0),
+    taxRate: Number(line.taxRate ?? 13),
     lineRemark: String(line.lineRemark ?? "").trim(),
     planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
   }));

@@ -67,6 +67,13 @@
         <label>单据编号<input v-model="document.form.billNo" data-testid="sales-out-bill-no" @input="document.markDirty" /></label>
         <label>部门<input v-model="document.form.department" data-testid="sales-out-department" @input="document.markDirty" /></label>
         <label>录入人<input :value="document.form.ownerName" data-testid="sales-out-owner-name" readonly /></label>
+        <label class="tax-mode-field">
+          价格口径
+          <select v-model="taxMode" data-testid="sales-out-tax-mode" @change="document.markDirty">
+            <option value="net">不含税</option>
+            <option value="tax">含税</option>
+          </select>
+        </label>
         <label class="form-head-field-wide">单据备注<input v-model="document.form.remark" data-testid="sales-out-remark" @input="document.markDirty" /></label>
       </section>
 
@@ -90,6 +97,8 @@
         :entry-table-colspan="document.entryTableColspan.value"
         :entry-total-colspan="document.entryTotalColspan.value"
         :total-amount="document.totalAmount.value"
+        :is-tax-inclusive="Boolean(document.form.isTaxInclusive)"
+        :show-tax-columns="true"
         @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
         @update:batch-plan-delivery-date="document.batchPlanDeliveryDate.value = $event"
         @apply-batch-warehouse="document.applyBatchWarehouse"
@@ -271,6 +280,13 @@ const document = useSalesOutDocument({
   markDirty: () => emit("markDirty"),
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
+});
+
+const taxMode = computed({
+  get: () => document.form.isTaxInclusive ? "tax" : "net",
+  set: (value: string) => {
+    document.form.isTaxInclusive = value === "tax";
+  }
 });
 
 const selectedSourceLineCount = computed(() => `${Object.values(document.sourceSelectorSelected.value).filter(Boolean).length} 行已选`);

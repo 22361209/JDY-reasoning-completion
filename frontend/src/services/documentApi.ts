@@ -6,6 +6,7 @@ interface DocumentDraftPayload {
   department: string;
   ownerName: string;
   remark?: string;
+  isTaxInclusive?: boolean;
   lines: Array<{
     productCode: string;
     warehouseCode: string;
@@ -13,6 +14,7 @@ interface DocumentDraftPayload {
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
+    taxRate?: number;
     lineRemark?: string;
     planDeliveryDate?: string;
   }>;
@@ -121,6 +123,7 @@ export interface DocumentDetail {
     status: string;
     redReverseBillNo?: string;
     redSourceBillNo?: string;
+    isTaxInclusive?: boolean;
   };
   lines: Array<{
     lineNo?: number | string;
@@ -135,6 +138,9 @@ export interface DocumentDetail {
     shippedQty?: number | string;
     remainingQty?: number | string;
     unitPrice?: number | string;
+    taxRate?: number | string;
+    taxAmount?: number | string;
+    priceTaxTotal?: number | string;
     systemQty?: number | string;
     diffQty?: number | string;
     lineRemark?: string;
@@ -213,6 +219,7 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     department: payload.department,
     ownerName: payload.ownerName,
     remark: payload.remark,
+    isTaxInclusive: payload.isTaxInclusive,
     lines: payload.lines
   };
   if (type === "salesOut" || type === "salesOrder" || type === "otherStockOut") {

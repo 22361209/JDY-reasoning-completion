@@ -80,10 +80,13 @@ try {
   await page.getByTestId("sales-line-qty-2").fill("4");
   await page.getByTestId("sales-line-price-2").fill("6");
   await page.keyboard.press("Enter");
-  await page.getByTestId("sales-line-product-3").waitFor({ state: "visible" });
   const focusAfterPriceEnter = await activeTestId(page);
+  assertEqual("focus after price enter", focusAfterPriceEnter, "sales-line-tax-rate-2");
+  await page.keyboard.press("Enter");
+  await page.getByTestId("sales-line-product-3").waitFor({ state: "visible" });
+  const focusAfterTaxRateEnter = await activeTestId(page);
   const warehouseAfterEnter = await page.getByTestId("sales-line-warehouse-3").inputValue();
-  assertEqual("focus after price enter", focusAfterPriceEnter, "sales-line-product-3");
+  assertEqual("focus after tax rate enter", focusAfterTaxRateEnter, "sales-line-product-3");
   assertEqual("warehouse inherited after price enter", warehouseAfterEnter, "CK-T413874");
 
   await page.getByTestId("sales-line-product-3").fill("CP-T413874");
@@ -99,7 +102,7 @@ try {
   ];
   assertDeepEqual("amounts", amounts, ["60.00", "24.00", "8.00"]);
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();
-  assertEqual("total", total, "92.00");
+  assertEqual("total", total, "103.96");
 
   const screenshot = `a28-entry-new-line-inherit-warehouse-form-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });

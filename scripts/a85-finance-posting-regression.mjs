@@ -148,8 +148,8 @@ async function createFinanceData() {
     purchaseInReverse,
     purchaseInRedSource,
     purchaseInRed,
-    expectedReceivableAmount: 208,
-    expectedPayableAmount: 328
+    expectedReceivableAmount: 235.04,
+    expectedPayableAmount: 370.64
   };
 }
 

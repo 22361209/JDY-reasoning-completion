@@ -32,6 +32,9 @@ export interface OrderLineForm {
   executedQty?: number;
   remainingQty?: number;
   unitPrice: number;
+  taxRate?: number;
+  taxAmount?: number | string;
+  priceTaxTotal?: number | string;
   lineRemark?: string;
   planDeliveryDate?: string;
   downstreamDocs?: DownstreamDocumentRef[];
@@ -78,6 +81,7 @@ export interface OrderForm {
   department: string;
   ownerName: string;
   remark?: string;
+  isTaxInclusive?: boolean;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   lines: OrderLineForm[];
 }
@@ -150,8 +154,9 @@ export const initialSalesOrderForm: OrderForm = {
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
+  isTaxInclusive: false,
   status: "DRAFT",
-  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86 }]
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86, taxRate: 13 }]
 };
 
 export const initialPurchaseOrderForm: OrderForm = {
@@ -160,8 +165,9 @@ export const initialPurchaseOrderForm: OrderForm = {
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
+  isTaxInclusive: false,
   status: "DRAFT",
-  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72 }]
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72, taxRate: 13 }]
 };
 
 export const initialPurchaseInForm: OrderForm = {
@@ -171,8 +177,9 @@ export const initialPurchaseInForm: OrderForm = {
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
+  isTaxInclusive: false,
   status: "DRAFT",
-  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72 }]
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72, taxRate: 13 }]
 };
 
 export const initialSalesOutForm: OrderForm = {
@@ -182,8 +189,9 @@ export const initialSalesOutForm: OrderForm = {
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
+  isTaxInclusive: false,
   status: "DRAFT",
-  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86 }]
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86, taxRate: 13 }]
 };
 
 export const initialMaterialIssueForm: OrderForm = {

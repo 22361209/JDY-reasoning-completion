@@ -15,6 +15,7 @@ export function usePurchaseInDocument(options: Parameters<typeof useDocumentModu
     defaultDepartment: "采购部",
     defaultPartyCode: "",
     defaultUnitPrice: 72,
+    showTaxMode: true,
     sourceTraceType: "purchaseOrder",
     reversible: true,
     initialForm: initialPurchaseInForm,

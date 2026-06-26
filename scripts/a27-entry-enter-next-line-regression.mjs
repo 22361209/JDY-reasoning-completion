@@ -76,9 +76,12 @@ try {
 
   await page.getByTestId("sales-line-price").fill("21");
   await page.keyboard.press("Enter");
-  await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
   const focusAfterPriceEnter = await activeTestId(page);
-  assertEqual("focus after price Enter", focusAfterPriceEnter, "sales-line-product-2");
+  assertEqual("focus after price Enter", focusAfterPriceEnter, "sales-line-tax-rate");
+  await page.keyboard.press("Enter");
+  await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
+  const focusAfterTaxRateEnter = await activeTestId(page);
+  assertEqual("focus after tax rate Enter", focusAfterTaxRateEnter, "sales-line-product-2");
   assertEqual("row count after price Enter", await page.getByTestId("sales-entry-row").count(), 2);
 
   await page.getByTestId("sales-line-product-2").fill("PJ-014");
@@ -92,7 +95,7 @@ try {
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();
   assertEqual("line 1 amount", line1Amount, "63.00");
   assertEqual("line 2 amount", line2Amount, "10.00");
-  assertEqual("total", total, "73.00");
+  assertEqual("total", total, "82.49");
 
   const screenshot = `a27-entry-enter-next-line-form-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });

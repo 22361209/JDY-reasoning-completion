@@ -160,8 +160,8 @@ try {
   ];
   assertDeepEqual("pasted UI lines", linesAfterPaste.slice(0, 2), expectedLines);
   const totalAfterPaste = (await page.getByTestId("document-total-amount").innerText()).trim();
-  if (totalAfterPaste !== "173.00") {
-    throw new Error(`total expected 173.00, got ${totalAfterPaste}`);
+  if (totalAfterPaste !== "195.49") {
+    throw new Error(`total expected 195.49, got ${totalAfterPaste}`);
   }
 
   await page.getByTestId("save-sales-order").click();

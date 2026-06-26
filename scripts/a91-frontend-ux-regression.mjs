@@ -87,8 +87,8 @@ try {
   await page.getByTestId("entry-column-settings-ok").click();
   await page.getByTestId("sales-line-remark").waitFor({ state: "detached" });
   const totalBox = await page.getByTestId("document-total-amount").boundingBox();
-  const amountBox = await page.getByTestId("sales-line-amount").locator("..").boundingBox();
-  assert(totalBox && amountBox && Math.abs(totalBox.x - amountBox.x) < 2, "total amount should align under amount column");
+  const priceTaxTotalBox = await page.getByTestId("sales-line-price-tax-total").locator("..").boundingBox();
+  assert(totalBox && priceTaxTotalBox && Math.abs(totalBox.x - priceTaxTotalBox.x) < 2, "total amount should align under price-tax-total column");
 
   await page.getByTestId("tab-sales-order-form-list").click();
   await page.getByTestId("list-keyword").fill("XSDD-A91");

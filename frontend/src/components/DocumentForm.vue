@@ -74,6 +74,13 @@
         <label>单据编号<input v-model="form.billNo" :data-testid="`${testPrefix}-bill-no`" @input="emit('markDirty')" /></label>
         <label>部门<input v-model="form.department" :data-testid="`${testPrefix}-department`" @input="emit('markDirty')" /></label>
         <label>录入人<input :value="form.ownerName" :data-testid="`${testPrefix}-owner-name`" readonly /></label>
+        <label v-if="showTaxMode" class="tax-mode-field">
+          价格口径
+          <select :value="isTaxInclusive ? 'tax' : 'net'" :data-testid="`${testPrefix}-tax-mode`" @change="emit('update:isTaxInclusive', ($event.target as HTMLSelectElement).value === 'tax')">
+            <option value="net">不含税</option>
+            <option value="tax">含税</option>
+          </select>
+        </label>
         <label class="form-head-field-wide">单据备注<input v-model="form.remark" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
       </section>
 
@@ -100,6 +107,8 @@
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
+        :is-tax-inclusive="isTaxInclusive"
+        :show-tax-columns="showTaxMode"
         @update:batch-warehouse-code="emit('update:batchWarehouseCode', $event)"
         @update:batch-plan-delivery-date="emit('update:batchPlanDeliveryDate', $event)"
         @apply-batch-warehouse="emit('applyBatchWarehouse')"
@@ -181,6 +190,8 @@ withDefaults(defineProps<{
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
+  showTaxMode?: boolean;
+  isTaxInclusive?: boolean;
   batchWarehouseCode: string;
   batchPlanDeliveryDate?: string;
   activeSelector: string;
@@ -214,6 +225,7 @@ const emit = defineEmits<{
   openRedSourceBill: [];
   "update:batchWarehouseCode": [value: string];
   "update:batchPlanDeliveryDate": [value: string];
+  "update:isTaxInclusive": [value: boolean];
   applyBatchWarehouse: [];
   applyBatchPlanDeliveryDate: [lineIndexes: number[]];
   markDirty: [];

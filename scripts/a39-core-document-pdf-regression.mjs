@@ -18,7 +18,7 @@ const lines = [
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5, lineRemark: "A39 PDF备注：第二行" },
   { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 30, lineRemark: "A39 PDF备注：第三行" }
 ];
-const expectedTotal = "110.00";
+const expectedTotal = "124.30";
 
 await mkdir(screenshotDir, { recursive: true });
 

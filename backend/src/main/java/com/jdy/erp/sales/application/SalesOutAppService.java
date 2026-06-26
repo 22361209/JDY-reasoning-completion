@@ -15,6 +15,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -47,6 +48,7 @@ public class SalesOutAppService {
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
     private final CurrentSessionService currentSessionService;
+    private final TaxAmountCalculator taxAmountCalculator;
 
     public SalesOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -57,7 +59,8 @@ public class SalesOutAppService {
         ConversionService conversionService,
         OperationLogService operationLogService,
         NumberingService numberingService,
-        CurrentSessionService currentSessionService
+        CurrentSessionService currentSessionService,
+        TaxAmountCalculator taxAmountCalculator
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -68,6 +71,7 @@ public class SalesOutAppService {
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
         this.currentSessionService = currentSessionService;
+        this.taxAmountCalculator = taxAmountCalculator;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -81,6 +85,7 @@ public class SalesOutAppService {
                    so.department,
                    so.status,
                    so.total_amount AS "totalAmount",
+                   so.is_tax_inclusive AS "isTaxInclusive",
                    so.owner_name AS "ownerName",
                    COALESCE(creator.display_name, so.owner_name, '') AS "createdByName",
                    COALESCE(so.remark, '') AS remark,
@@ -117,6 +122,9 @@ public class SalesOutAppService {
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount,
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark",
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM sales_out_line l
@@ -134,14 +142,15 @@ public class SalesOutAppService {
         var billNo = numberingService.assignBillNo("salesOut", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
         var sourceOrderId = sourceOrderId(request.sourceOrderNo());
+        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> line.qty().multiply(line.unitPrice()))
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var ownerName = currentSessionService.currentDisplayName();
         var createdBy = currentSessionService.currentUserId();
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO sales_out (bill_no, source_order_id, customer_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
                 customer_id = EXCLUDED.customer_id,
@@ -149,6 +158,7 @@ public class SalesOutAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
+                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
@@ -162,13 +172,14 @@ public class SalesOutAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            isTaxInclusive,
             ownerName,
             validationService.optionalText(request.remark()),
             createdBy
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM sales_out_line WHERE bill_id = ?::uuid", billId);
-        insertLines(billId, request.lines());
+        insertLines(billId, request.lines(), isTaxInclusive);
         return bill;
     }
 
@@ -275,6 +286,7 @@ public class SalesOutAppService {
                    customer_id::text AS "customerId",
                    department,
                    total_amount,
+                   is_tax_inclusive,
                    owner_name AS "ownerName"
             FROM sales_out
             WHERE bill_no = ? AND status = ?
@@ -288,8 +300,8 @@ public class SalesOutAppService {
         }
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, red_source_bill_id, customer_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO sales_out (bill_no, source_order_id, red_source_bill_id, customer_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
             """,
             redBillNo,
@@ -300,14 +312,15 @@ public class SalesOutAppService {
             source.get("department"),
             BillStatus.RED_REVERSED.name(),
             ((BigDecimal) source.get("total_amount")).negate(),
+            source.get("is_tax_inclusive"),
             request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
         );
         var lines = redSourceLines(billNo);
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
@@ -317,6 +330,9 @@ public class SalesOutAppService {
                 qty.negate(),
                 line.get("unitPrice"),
                 ((BigDecimal) line.get("amount")).negate(),
+                line.get("taxRate"),
+                ((BigDecimal) line.get("taxAmount")).negate(),
+                ((BigDecimal) line.get("priceTaxTotal")).negate(),
                 line.get("lineRemark"),
                 line.get("planDeliveryDate")
             );
@@ -356,15 +372,15 @@ public class SalesOutAppService {
         return redBill;
     }
 
-    private void insertLines(Object billId, List<SalesOutLineRequest> lines) {
+    private void insertLines(Object billId, List<SalesOutLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amount = line.qty().multiply(line.unitPrice());
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
@@ -373,7 +389,10 @@ public class SalesOutAppService {
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
-                amount,
+                amounts.amount(),
+                amounts.taxRate(),
+                amounts.taxAmount(),
+                amounts.priceTaxTotal(),
                 validationService.optionalText(line.lineRemark()),
                 optionalDate(line.planDeliveryDate())
             );
@@ -440,6 +459,9 @@ public class SalesOutAppService {
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount,
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark",
                    l.plan_delivery_date AS "planDeliveryDate"
             FROM sales_out_line l
@@ -451,7 +473,7 @@ public class SalesOutAppService {
             """, billNo);
     }
 
-    public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<SalesOutLineRequest> lines) {
+    public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, Boolean isTaxInclusive, List<SalesOutLineRequest> lines) {
         public SalesOutDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -459,7 +481,7 @@ public class SalesOutAppService {
         }
     }
 
-    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark, String planDeliveryDate) {
+    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark, String planDeliveryDate) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

@@ -1,5 +1,6 @@
 import { computed, nextTick, reactive, ref } from "vue";
 import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "../../app/entryPaste";
+import { taxAmounts } from "../../app/taxAmounts";
 import {
   knownProductOptions,
   knownWarehouseOptions,
@@ -50,6 +51,7 @@ export interface DocumentModuleOptions {
   showTargetWarehouseColumn?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
+  showTaxMode?: boolean;
   defaultTargetWarehouseCode?: string;
   sourceTraceType?: OpenableDocumentType;
   reversible?: boolean;
@@ -76,6 +78,7 @@ type PreparedEntryLines = {
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
+    taxRate?: number;
     lineRemark: string;
     planDeliveryDate?: string;
   }[];
@@ -120,10 +123,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo));
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
+  const showTaxMode = computed(() => Boolean(config.showTaxMode));
   const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder");
   const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
-  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + Number(line.qty || 0) * Number(line.unitPrice || 0), 0).toFixed(2));
+  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const statusLabel = computed(() => {
     const labels: Record<OrderForm["status"], string> = {
       DRAFT: "草稿",
@@ -156,6 +160,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.department = config.defaultDepartment;
     form.ownerName = runtime.userName() || "本地管理员";
     form.remark = "";
+    form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.lines = [defaultLine()];
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
@@ -178,6 +183,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.department = document.department || config.defaultDepartment;
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
+    form.isTaxInclusive = Boolean(document.isTaxInclusive);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
@@ -192,6 +198,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         executedQty: documentLineExecutedQty(line),
         remainingQty: documentLineRemainingQty(line),
         unitPrice: Number(line.unitPrice ?? 0),
+        taxRate: Number(line.taxRate ?? 13),
+        taxAmount: line.taxAmount,
+        priceTaxTotal: line.priceTaxTotal,
         lineRemark: String(line.lineRemark ?? ""),
         planDeliveryDate: String(line.planDeliveryDate ?? ""),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
@@ -245,6 +254,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.department = draft.department;
     form.ownerName = draft.ownerName;
     form.remark = "";
+    form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
@@ -254,6 +264,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
+      taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "")
     }));
@@ -289,6 +300,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       department: form.department,
       ownerName: form.ownerName,
       remark: form.remark,
+      isTaxInclusive: Boolean(form.isTaxInclusive),
       lines: preparedLines.documentLines
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
@@ -927,6 +939,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showSourceLineColumn,
     showExecutionColumns,
     showTargetWarehouseColumn,
+    showTaxMode,
     showPlanDeliveryDateColumn,
     executionQtyLabel: config.executionQtyLabel ?? "已执行",
     remainingQtyLabel: config.remainingQtyLabel ?? "剩余",
@@ -1003,6 +1016,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       targetWarehouseCode: config.showTargetWarehouseColumn ? config.defaultTargetWarehouseCode ?? "CK-002" : undefined,
       qty: 1,
       unitPrice: config.defaultUnitPrice,
+      taxRate: 13,
       lineRemark: "",
       planDeliveryDate: ""
     };
@@ -1036,6 +1050,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         sourceLineNo: line.sourceLineNo,
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
+        taxRate: Number(line.taxRate ?? 13),
         lineRemark: String(line.lineRemark ?? "").trim(),
         planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
       })),

@@ -122,8 +122,8 @@ try {
   assertDeepEqual("pasted names", linesAfterPaste.map((line) => line.productName), ["控制臂总成", "验收商品总成", "衬套"]);
   assertDeepEqual("pasted specs", linesAfterPaste.map((line) => line.spec), ["左前 / 黑色", "左前 / 蓝色", "65mm / 加强"]);
   const totalAfterPaste = (await page.getByTestId("document-total-amount").innerText()).trim();
-  if (totalAfterPaste !== "502.00") {
-    throw new Error(`total expected 502.00, got ${totalAfterPaste}`);
+  if (totalAfterPaste !== "567.26") {
+    throw new Error(`total expected 567.26, got ${totalAfterPaste}`);
   }
 
   await page.getByTestId("save-sales-order").click();

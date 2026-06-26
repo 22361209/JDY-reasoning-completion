@@ -10,6 +10,7 @@ export interface SalesOrderDraftPayload {
     warehouseCode: string;
     qty: number;
     unitPrice: number;
+    taxRate?: number;
     lineRemark?: string;
   }>;
 }
@@ -25,6 +26,7 @@ export interface SalesOrderDetail {
     createdByName?: string;
     remark?: string;
     status: string;
+    isTaxInclusive?: boolean;
   };
   lines: Array<{
     lineNo?: number | string;
@@ -36,6 +38,9 @@ export interface SalesOrderDetail {
     shippedQty?: number | string;
     remainingQty?: number | string;
     unitPrice: number | string;
+    taxRate?: number | string;
+    taxAmount?: number | string;
+    priceTaxTotal?: number | string;
     lineRemark?: string;
     planDeliveryDate?: string;
   }>;
@@ -48,6 +53,7 @@ export interface SelectableSalesOrderLine {
   billDate: string;
   department?: string;
   ownerName?: string;
+  isTaxInclusive?: boolean;
   lineNo: number | string;
   productCode: string;
   productName?: string;
@@ -57,6 +63,9 @@ export interface SelectableSalesOrderLine {
   shippedQty?: number | string;
   remainingQty: number | string;
   unitPrice: number | string;
+  taxRate?: number | string;
+  taxAmount?: number | string;
+  priceTaxTotal?: number | string;
   lineRemark?: string;
   planDeliveryDate?: string;
 }

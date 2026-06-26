@@ -112,7 +112,7 @@ try {
   const rowCountAfterSave = await page.getByTestId("sales-entry-row").count();
   assertEqual("row count after zero confirm", rowCountAfterSave, 3);
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();
-  assertEqual("total", total, "60.00");
+  assertEqual("total", total, "67.80");
 
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({

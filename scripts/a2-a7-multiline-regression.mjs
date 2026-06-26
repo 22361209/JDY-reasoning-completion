@@ -255,13 +255,21 @@ async function assertDetail(page, item) {
     throw new Error(`${item.name} ${item.billNo} row count expected 3, got ${rowCount}`);
   }
   const amounts = [];
+  const taxTotals = [];
   for (let index = 0; index < rowCount; index += 1) {
-    const text = await page.getByTestId(index === 0 ? `${item.type}-line-amount` : `${item.type}-line-amount-${index + 1}`).innerText();
+    const suffix = index === 0 ? "" : `-${index + 1}`;
+    const text = await page.getByTestId(`${item.type}-line-amount${suffix}`).innerText();
     amounts.push(Number(text.replace(/,/g, "")));
+    const taxTotalCell = page.getByTestId(`${item.type}-line-price-tax-total${suffix}`);
+    if (await taxTotalCell.count()) {
+      const taxTotalText = await taxTotalCell.innerText();
+      taxTotals.push(Number(taxTotalText.replace(/,/g, "")));
+    }
   }
   const totalText = await page.getByTestId("document-total-amount").innerText();
   const total = Number(totalText.replace(/,/g, ""));
-  const sum = Number(amounts.reduce((value, amount) => value + amount, 0).toFixed(2));
+  const sumSource = taxTotals.length === rowCount ? taxTotals : amounts;
+  const sum = Number(sumSource.reduce((value, amount) => value + amount, 0).toFixed(2));
   if (Math.abs(total - sum) > 0.001) {
     throw new Error(`${item.name} ${item.billNo} total expected ${sum}, got ${total}`);
   }
@@ -271,7 +279,7 @@ async function assertDetail(page, item) {
   }
   const screenshot = `a2-a7-regression-${item.type}-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
-  return { ...item, rowCount, amounts, total, status, screenshot: `verification/playwright/${screenshot}` };
+  return { ...item, rowCount, amounts, taxTotals, total, status, screenshot: `verification/playwright/${screenshot}` };
 }
 
 const documents = await createBusinessData();
@@ -315,7 +323,7 @@ for (const item of documents) {
     backendStatus: doc.status,
     lineCount: detail.lines.length,
     backendTotal: Number(doc.totalAmount ?? 0),
-    lineSum: Number(detail.lines.reduce((sum, line) => sum + Number(line.amount ?? Number(line.qty ?? 0) * Number(line.unitPrice ?? 0)), 0).toFixed(2))
+    lineSum: Number(detail.lines.reduce((sum, line) => sum + Number(line.priceTaxTotal ?? line.amount ?? Number(line.qty ?? 0) * Number(line.unitPrice ?? 0)), 0).toFixed(2))
   });
 }
 

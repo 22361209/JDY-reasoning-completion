@@ -114,8 +114,8 @@ try {
   const linesAfterPaste = await readLines(page);
   assertLines("pasted UI lines", linesAfterPaste, expectedLines);
   const totalAfterPaste = (await page.getByTestId("document-total-amount").innerText()).trim();
-  if (totalAfterPaste !== "502.00") {
-    throw new Error(`total expected 502.00, got ${totalAfterPaste}`);
+  if (totalAfterPaste !== "567.26") {
+    throw new Error(`total expected 567.26, got ${totalAfterPaste}`);
   }
 
   await page.getByTestId("save-sales-order").click();

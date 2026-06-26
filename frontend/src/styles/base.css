@@ -1600,12 +1600,14 @@ input:disabled {
   grid-column: span 2;
 }
 
-.form-head-fields input {
+.form-head-fields input,
+.form-head-fields select {
   min-width: 0;
   height: 30px;
   border: 1px solid #c7d2df;
   border-radius: 4px;
   padding: 0 8px;
+  background: #ffffff;
 }
 
 .source-order-field {

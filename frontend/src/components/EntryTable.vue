@@ -182,7 +182,18 @@
               @keydown="handleLineCellKeydown($event, lineIndex, 'price')"
               @paste="emit('entryPaste', $event, lineIndex)"
             />
+            <input
+              v-else-if="column.key === 'taxRate'"
+              v-model.number="line.taxRate"
+              class="entry-number-input"
+              :disabled="!isDraft"
+              :data-testid="lineTaxRateTestId(lineIndex)"
+              @input="emit('markDirty')"
+              @keydown="handleLineCellKeydown($event, lineIndex, 'taxRate')"
+            />
             <span v-else-if="column.key === 'amount'" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</span>
+            <span v-else-if="column.key === 'taxAmount'" :data-testid="lineTaxAmountTestId(lineIndex)">{{ lineTaxAmount(line) }}</span>
+            <span v-else-if="column.key === 'priceTaxTotal'" :data-testid="linePriceTaxTotalTestId(lineIndex)">{{ linePriceTaxTotal(line) }}</span>
             <input
               v-else-if="column.key === 'planDeliveryDate'"
               v-model="line.planDeliveryDate"
@@ -204,10 +215,12 @@
           </td>
         </tr>
         <tr class="entry-total-row">
-          <td v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)" :data-testid="column.key === 'amount' ? 'document-total-amount' : undefined">
+          <td v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)" :data-testid="column.key === totalAmountColumnKey ? 'document-total-amount' : undefined">
             <template v-if="column.key === firstVisibleColumnKey">合计</template>
             <template v-else-if="column.key === 'qty'">{{ totalQty }}</template>
-            <template v-else-if="column.key === 'amount'">{{ totalAmount }}</template>
+            <template v-else-if="column.key === 'amount'">{{ totalNetAmount }}</template>
+            <template v-else-if="column.key === 'taxAmount'">{{ totalTaxAmount }}</template>
+            <template v-else-if="column.key === 'priceTaxTotal'">{{ totalAmount }}</template>
           </td>
         </tr>
         <tr>
@@ -240,6 +253,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { taxAmounts } from "../app/taxAmounts";
 
 export interface EntryLine {
   lineNo?: number;
@@ -253,6 +267,9 @@ export interface EntryLine {
   executedQty?: number;
   remainingQty?: number;
   unitPrice: number;
+  taxRate?: number;
+  taxAmount?: number | string;
+  priceTaxTotal?: number | string;
   lineRemark?: string;
   planDeliveryDate?: string;
   downstreamDocs?: any[];
@@ -265,7 +282,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "selection" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "amount" | "planDeliveryDate" | "remark" | "actions";
+type EntryColumnKey = "selection" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -298,6 +315,8 @@ const props = defineProps<{
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
+  isTaxInclusive?: boolean;
+  showTaxColumns?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -331,7 +350,7 @@ const rowMenuLeft = ref(0);
 const rowMenuTop = ref(0);
 const columns = ref<EntryColumn[]>([]);
 const selectedLines = ref<Record<number, boolean>>({});
-const numericColumns = new Set<EntryColumnKey>(["qty", "executedQty", "remainingQty", "unitPrice", "amount"]);
+const numericColumns = new Set<EntryColumnKey>(["qty", "executedQty", "remainingQty", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 
 const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "selection", title: "选", width: 48, visible: Boolean(props.showPlanDeliveryDateColumn), configurable: false },
@@ -345,7 +364,10 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "executedQty", title: props.executionQtyLabel || "已执行", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "unitPrice", title: "单价", width: 104, visible: true, numeric: true },
+  { key: "taxRate", title: "税率%", width: 88, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
+  { key: "taxAmount", title: "税额", width: 104, visible: Boolean(props.showTaxColumns), numeric: true },
+  { key: "priceTaxTotal", title: "价税合计", width: 124, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "planDeliveryDate", title: "交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn) },
   { key: "remark", title: "备注", width: 210, visible: true },
   { key: "actions", title: "操作", width: 56, visible: true, configurable: false }
@@ -356,6 +378,9 @@ const configurableColumns = computed(() => columns.value.filter((column) => colu
 const firstVisibleColumnKey = computed(() => visibleColumns.value[0]?.key ?? "productCode");
 const rowMenuStyle = computed(() => ({ left: `${rowMenuLeft.value}px`, top: `${rowMenuTop.value}px` }));
 const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0)));
+const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).amount, 0).toFixed(2));
+const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).taxAmount, 0).toFixed(2));
+const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
 
 watch(() => [
   props.testPrefix,
@@ -363,6 +388,7 @@ watch(() => [
   props.showExecutionColumns,
   props.showTargetWarehouseColumn,
   props.showPlanDeliveryDateColumn,
+  props.showTaxColumns,
   props.executionQtyLabel,
   props.remainingQtyLabel
 ], resetColumns, { immediate: true });
@@ -405,6 +431,9 @@ function isColumnAvailable(column: EntryColumn) {
   }
   if (column.key === "selection" || column.key === "planDeliveryDate") {
     return Boolean(props.showPlanDeliveryDateColumn);
+  }
+  if (column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal") {
+    return Boolean(props.showTaxColumns);
   }
   if (column.key === "sourceLineNo") {
     return props.showSourceLineColumn;
@@ -462,7 +491,8 @@ function columnClass(column: EntryColumn) {
   return {
     "entry-number-cell": numericColumns.has(column.key),
     "readonly-qty": ["sourceLineNo", "executedQty", "remainingQty"].includes(column.key),
-    "amount-cell": column.key === "amount",
+    "amount-cell": column.key === "amount" || column.key === "taxAmount" || column.key === "priceTaxTotal",
+    "tax-cell": column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal",
     "entry-actions-cell": column.key === "actions",
     "remark-cell": column.key === "remark",
     "entry-selection-cell": column.key === "selection"
@@ -516,7 +546,19 @@ function selectorIdForLine(lineIndex: number, field: "product" | "warehouse" | "
 }
 
 function lineAmount(line: EntryLine) {
-  return (Number(line.qty || 0) * Number(line.unitPrice || 0)).toFixed(2);
+  return taxForLine(line).amount.toFixed(2);
+}
+
+function lineTaxAmount(line: EntryLine) {
+  return taxForLine(line).taxAmount.toFixed(2);
+}
+
+function linePriceTaxTotal(line: EntryLine) {
+  return taxForLine(line).priceTaxTotal.toFixed(2);
+}
+
+function taxForLine(line: EntryLine) {
+  return taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(props.isTaxInclusive));
 }
 
 function lineExecutedQty(line: EntryLine) {
@@ -600,8 +642,20 @@ function linePriceTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-price` : `${props.testPrefix}-line-price-${index + 1}`;
 }
 
+function lineTaxRateTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-tax-rate` : `${props.testPrefix}-line-tax-rate-${index + 1}`;
+}
+
 function lineAmountTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-amount` : `${props.testPrefix}-line-amount-${index + 1}`;
+}
+
+function lineTaxAmountTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-tax-amount` : `${props.testPrefix}-line-tax-amount-${index + 1}`;
+}
+
+function linePriceTaxTotalTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-price-tax-total` : `${props.testPrefix}-line-price-tax-total-${index + 1}`;
 }
 
 function lineRemarkTestId(index: number) {
@@ -649,7 +703,9 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
   return undefined;
 }
 
-function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price", selectorId = "") {
+type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate";
+
+function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: EditableLineCell, selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && props.activeSelector === selectorId && props.selectorOptions.length > 0);
   if (selectorId) {
     emit("handleSelectorKeydown", event, selectorId);
@@ -678,26 +734,30 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: "p
   }
 }
 
-function advanceLineCellOnEnter(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price") {
+function advanceLineCellOnEnter(lineIndex: number, cell: EditableLineCell) {
   if (cell === "qty") {
     void focusLineCell(lineIndex, "price");
     return;
   }
-  if (cell === "price") {
+  if (cell === "price" && props.showTaxColumns) {
+    void focusLineCell(lineIndex, "taxRate");
+    return;
+  }
+  if (cell === "price" || cell === "taxRate") {
     emit("insertLineAfter", lineIndex);
     return;
   }
   void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), cell);
 }
 
-async function focusLineCell(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price") {
+async function focusLineCell(lineIndex: number, cell: EditableLineCell) {
   await nextTick();
   const input = document.querySelector<HTMLInputElement>(`[data-testid="${lineCellTestId(lineIndex, cell)}"]`);
   input?.focus();
   input?.select();
 }
 
-function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "target-warehouse" | "qty" | "price") {
+function lineCellTestId(lineIndex: number, cell: EditableLineCell) {
   switch (cell) {
     case "target-warehouse":
       return lineTargetWarehouseTestId(lineIndex);
@@ -707,6 +767,8 @@ function lineCellTestId(lineIndex: number, cell: "product" | "warehouse" | "targ
       return lineQtyTestId(lineIndex);
     case "price":
       return linePriceTestId(lineIndex);
+    case "taxRate":
+      return lineTaxRateTestId(lineIndex);
     case "product":
     default:
       return lineProductTestId(lineIndex);

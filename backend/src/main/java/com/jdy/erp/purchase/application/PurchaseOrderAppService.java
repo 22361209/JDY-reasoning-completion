@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,19 +27,22 @@ public class PurchaseOrderAppService {
     private final ValidationService validationService;
     private final BillLifecycleService lifecycleService;
     private final NumberingService numberingService;
+    private final TaxAmountCalculator taxAmountCalculator;
 
     public PurchaseOrderAppService(
         JdbcTemplate jdbcTemplate,
         LookupService lookupService,
         ValidationService validationService,
         BillLifecycleService lifecycleService,
-        NumberingService numberingService
+        NumberingService numberingService,
+        TaxAmountCalculator taxAmountCalculator
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.lifecycleService = lifecycleService;
         this.numberingService = numberingService;
+        this.taxAmountCalculator = taxAmountCalculator;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -52,6 +56,7 @@ public class PurchaseOrderAppService {
                    po.status,
                    po.in_status AS "inStatus",
                    po.total_amount AS "totalAmount",
+                   po.is_tax_inclusive AS "isTaxInclusive",
                    po.owner_name AS "ownerName"
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
@@ -71,6 +76,9 @@ public class PurchaseOrderAppService {
                    GREATEST(0, l.qty - l.received_qty) AS "remainingQty",
                    l.unit_price AS "unitPrice",
                    l.amount,
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.line_remark, '') AS "lineRemark"
             FROM purchase_order_line l
             JOIN md_product p ON p.id = l.product_id
@@ -98,7 +106,8 @@ public class PurchaseOrderAppService {
                    COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
                    l.line_no AS "downstreamLineNo",
                    l.qty,
-                   l.amount
+                   l.amount,
+                   l.price_tax_total AS "priceTaxTotal"
             FROM purchase_in_line l
             JOIN purchase_in pi ON pi.id = l.bill_id
             WHERE pi.source_order_id = ?::uuid
@@ -121,12 +130,13 @@ public class PurchaseOrderAppService {
     public Map<String, Object> saveDraft(PurchaseOrderDraftRequest request) {
         var billNo = numberingService.assignBillNo("purchaseOrder", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
+        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> line.qty().multiply(line.unitPrice()))
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var order = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?)
+            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, is_tax_inclusive, owner_name)
+            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET supplier_id = EXCLUDED.supplier_id,
                 bill_date = EXCLUDED.bill_date,
@@ -134,6 +144,7 @@ public class PurchaseOrderAppService {
                 status = EXCLUDED.status,
                 in_status = 'NOT_IN',
                 total_amount = EXCLUDED.total_amount,
+                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_order.version + 1
@@ -145,6 +156,7 @@ public class PurchaseOrderAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            isTaxInclusive,
             request.ownerName()
         );
         var orderId = order.get("id");
@@ -153,10 +165,10 @@ public class PurchaseOrderAppService {
         for (var line : request.lines()) {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amount = line.qty().multiply(line.unitPrice());
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
+                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -164,7 +176,10 @@ public class PurchaseOrderAppService {
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
-                amount,
+                amounts.amount(),
+                amounts.taxRate(),
+                amounts.taxAmount(),
+                amounts.priceTaxTotal(),
                 validationService.optionalText(line.lineRemark())
             );
             lineNo += 1;
@@ -191,6 +206,7 @@ public class PurchaseOrderAppService {
         String billDate,
         String department,
         String ownerName,
+        Boolean isTaxInclusive,
         List<PurchaseOrderLineRequest> lines
     ) {
         public PurchaseOrderDraftRequest {
@@ -205,6 +221,7 @@ public class PurchaseOrderAppService {
         String warehouseCode,
         BigDecimal qty,
         BigDecimal unitPrice,
+        BigDecimal taxRate,
         String lineRemark
     ) {
     }
