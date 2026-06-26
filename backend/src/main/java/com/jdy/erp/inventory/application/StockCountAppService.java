@@ -129,7 +129,7 @@ public class StockCountAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
-        return lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.REVERSED,
+        return lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "REVERSE", "stock_count", "盘点单不存在或不能反审核");
     }
 

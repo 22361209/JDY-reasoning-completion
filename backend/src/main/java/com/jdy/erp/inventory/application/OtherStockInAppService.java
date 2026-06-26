@@ -150,7 +150,7 @@ public class OtherStockInAppService {
             BILL_TABLE,
             billNo,
             BillStatus.AUDITED,
-            BillStatus.REVERSED,
+            BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status",
             "INVENTORY",
             "REVERSE",

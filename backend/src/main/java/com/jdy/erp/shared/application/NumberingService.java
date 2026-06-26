@@ -53,12 +53,15 @@ public class NumberingService {
             return nextBillNo(documentType);
         }
         var rule = ruleFor(documentType);
-        var exists = Boolean.TRUE.equals(jdbcTemplate.queryForObject(
-            "SELECT EXISTS (SELECT 1 FROM " + rule.tableName() + " WHERE bill_no = ?)",
-            Boolean.class,
+        var statuses = jdbcTemplate.queryForList(
+            "SELECT status FROM " + rule.tableName() + " WHERE bill_no = ?",
+            String.class,
             requested
-        ));
-        return exists ? nextBillNo(documentType) : requested;
+        );
+        if (statuses.isEmpty()) {
+            return requested;
+        }
+        return "DRAFT".equals(statuses.get(0)) ? requested : nextBillNo(documentType);
     }
 
     private NumberingRule ruleFor(String documentType) {

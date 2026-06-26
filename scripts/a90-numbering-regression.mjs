@@ -55,6 +55,7 @@ async function verifyBackendNumbering() {
 
   const first = await api("/api/sales-orders/draft", { body: salesOrderPayload("") });
   const second = await api("/api/sales-orders/draft", { body: salesOrderPayload("") });
+  await api(`/api/sales-orders/${encodeURIComponent(first.billNo)}/audit`);
   const collision = await api("/api/sales-orders/draft", { body: salesOrderPayload(first.billNo) });
 
   assert(/^XSDD\d{6}$/.test(first.billNo), `first sales order bill no format invalid: ${first.billNo}`);

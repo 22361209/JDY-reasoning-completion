@@ -138,8 +138,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       String(today.getDate()).padStart(2, "0")
     ].join("-");
     form.billNo = "";
-    const billNoResult = await fetchNextBillNo("salesOut");
-    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     form.sourceOrderNo = "";
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
@@ -151,6 +149,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.lines = [defaultLine()];
+    const billNoResult = await fetchNextBillNo("salesOut");
+    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
     options.markDirty();
   }
@@ -437,7 +437,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     const result = await reverseDocument("salesOut", form.billNo);
     message.value = result.ok ? "反审核成功，库存流水已冲销" : result.message;
     if (result.ok) {
-      form.status = "REVERSED";
+      const reversed = result.data as { status?: unknown } | undefined;
+      form.status = typeof reversed?.status === "string" ? formStatusByBackendStatus[reversed.status] ?? "DRAFT" : "DRAFT";
     }
   }
 

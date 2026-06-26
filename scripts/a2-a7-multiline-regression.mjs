@@ -99,7 +99,7 @@ async function createBusinessData() {
   stateCoverage.push(
     ["销售出库", "草稿", salesOutDraft],
     ["销售出库", "已审核", salesOutAudited],
-    ["销售出库", "已反审核", salesOutReverse],
+    ["销售出库", "草稿", salesOutReverse],
     ["销售出库", "已红冲", salesOutRed]
   );
 
@@ -130,7 +130,7 @@ async function createBusinessData() {
   stateCoverage.push(
     ["采购入库", "草稿", purchaseInDraft],
     ["采购入库", "已审核", purchaseInAudited],
-    ["采购入库", "已反审核", purchaseInReverse],
+    ["采购入库", "草稿", purchaseInReverse],
     ["采购入库", "已红冲", purchaseInRed]
   );
 
@@ -161,7 +161,7 @@ async function createBusinessData() {
   await post(`/api/production/material-issues/${encodeURIComponent(issueRedSource)}/red-reverse`, { redBillNo: issueRed });
   stateCoverage.push(
     ["生产领料", "已审核", issueAudited],
-    ["生产领料", "已反审核", issueReverse],
+    ["生产领料", "草稿", issueReverse],
     ["生产领料", "已红冲", issueRed]
   );
 
@@ -176,7 +176,7 @@ async function createBusinessData() {
   await post(`/api/production/product-ins/${encodeURIComponent(productInRedSource)}/red-reverse`, { redBillNo: productInRed });
   stateCoverage.push(
     ["产品入库", "已审核", productInAudited],
-    ["产品入库", "已反审核", productInReverse],
+    ["产品入库", "草稿", productInReverse],
     ["产品入库", "已红冲", productInRed]
   );
 
@@ -184,9 +184,9 @@ async function createBusinessData() {
     { name: "销售订单", module: "销售管理", entry: "sales-order-form", list: "sales-order-form-list", type: "sales", billNo: salesOrderAudited, expectedStatus: "已审核" },
     { name: "销售出库", module: "销售管理", entry: "sales-out-form", list: "sales-out-form-list", type: "sales-out", billNo: salesOutRed, expectedStatus: "已红冲" },
     { name: "采购订单", module: "采购管理", entry: "purchase-order-form", list: "purchase-order-form-list", type: "purchase", billNo: purchaseOrderAudited, expectedStatus: "已审核" },
-    { name: "采购入库", module: "采购管理", entry: "purchase-in-form", list: "purchase-in-form-list", type: "purchase-in", billNo: purchaseInReverse, expectedStatus: "已反审核" },
+    { name: "采购入库", module: "采购管理", entry: "purchase-in-form", list: "purchase-in-form-list", type: "purchase-in", billNo: purchaseInReverse, expectedStatus: "草稿" },
     { name: "生产领料", module: "生产管理", entry: "material-issue-form", list: "material-issue-form-list", type: "material-issue", billNo: issueRed, expectedStatus: "已红冲" },
-    { name: "产品入库", module: "生产管理", entry: "product-in-form", list: "product-in-form-list", type: "product-in", billNo: productInReverse, expectedStatus: "已反审核" }
+    { name: "产品入库", module: "生产管理", entry: "product-in-form", list: "product-in-form-list", type: "product-in", billNo: productInReverse, expectedStatus: "草稿" }
   ];
 }
 

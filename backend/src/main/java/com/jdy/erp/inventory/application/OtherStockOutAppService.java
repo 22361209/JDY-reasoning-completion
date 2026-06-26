@@ -137,7 +137,7 @@ public class OtherStockOutAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
-        var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.REVERSED,
+        var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "REVERSE", "other_stock_out", "其他出库单不存在或不能反审核");
         for (var line : postingLines(billNo)) {
             postingPipeline.post(new PostingContext(

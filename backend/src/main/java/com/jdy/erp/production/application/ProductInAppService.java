@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
@@ -20,20 +21,24 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class ProductInAppService {
+    private static final String BILL_TABLE = "production_completion";
+
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
     private final ValidationService validationService;
     private final PostingPipeline postingPipeline;
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
+    private final BillLifecycleService lifecycleService;
 
-    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService) {
+    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService, BillLifecycleService lifecycleService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.postingPipeline = postingPipeline;
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
+        this.lifecycleService = lifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -135,18 +140,19 @@ public class ProductInAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
-        var rows = jdbcTemplate.queryForList("""
-            UPDATE production_completion
-            SET status = ?, reversed_at = now()
-            WHERE bill_no = ? AND status = ?
-            RETURNING id::text AS id, bill_no AS "billNo", status
-            """, BillStatus.REVERSED.name(), billNo, BillStatus.AUDITED.name());
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库单不存在或不能反审核");
-        }
+        var row = lifecycleService.transition(
+            BILL_TABLE,
+            billNo,
+            BillStatus.AUDITED,
+            BillStatus.DRAFT,
+            "id::text AS id, bill_no AS \"billNo\", status",
+            "PRODUCTION",
+            "REVERSE_COMPLETE",
+            "production_completion",
+            "产品入库单不存在或不能反审核"
+        );
         postCompletionLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_COMPLETE_REVERSE", "PRODUCTION_COMPLETE_REVERSE:" + billNo);
-        operationLogService.log("PRODUCTION", "REVERSE_COMPLETE", "production_completion", String.valueOf(rows.get(0).get("id")), true, null);
-        return rows.get(0);
+        return row;
     }
 
     @Transactional

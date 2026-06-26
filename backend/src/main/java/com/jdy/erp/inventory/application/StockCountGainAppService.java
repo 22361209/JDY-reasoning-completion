@@ -126,7 +126,7 @@ public class StockCountGainAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
-        var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.REVERSED,
+        var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "REVERSE", "stock_count_gain", "盘盈单不存在或不能反审核");
         for (var line : postingLines(billNo)) {
             postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "STOCK_COUNT_GAIN_REVERSE", "STOCK_COUNT_GAIN_REVERSE:" + billNo));

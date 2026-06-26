@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
@@ -20,12 +21,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class MaterialIssueAppService {
+    private static final String BILL_TABLE = "production_material_issue";
+
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
     private final ValidationService validationService;
     private final PostingPipeline postingPipeline;
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
+    private final BillLifecycleService lifecycleService;
 
     public MaterialIssueAppService(
         JdbcTemplate jdbcTemplate,
@@ -33,7 +37,8 @@ public class MaterialIssueAppService {
         ValidationService validationService,
         PostingPipeline postingPipeline,
         OperationLogService operationLogService,
-        NumberingService numberingService
+        NumberingService numberingService,
+        BillLifecycleService lifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -41,6 +46,7 @@ public class MaterialIssueAppService {
         this.postingPipeline = postingPipeline;
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
+        this.lifecycleService = lifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -137,18 +143,19 @@ public class MaterialIssueAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
-        var rows = jdbcTemplate.queryForList("""
-            UPDATE production_material_issue
-            SET status = ?, reversed_at = now()
-            WHERE bill_no = ? AND status = ?
-            RETURNING id::text AS id, bill_no AS "billNo", status
-            """, BillStatus.REVERSED.name(), billNo, BillStatus.AUDITED.name());
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在或不能反审核");
-        }
+        var row = lifecycleService.transition(
+            BILL_TABLE,
+            billNo,
+            BillStatus.AUDITED,
+            BillStatus.DRAFT,
+            "id::text AS id, bill_no AS \"billNo\", status",
+            "PRODUCTION",
+            "REVERSE_ISSUE",
+            "production_material_issue",
+            "生产领料单不存在或不能反审核"
+        );
         postIssueLines(billNo, BigDecimal.ONE, "PRODUCTION_ISSUE_REVERSE", "PRODUCTION_ISSUE_REVERSE:" + billNo);
-        operationLogService.log("PRODUCTION", "REVERSE_ISSUE", "production_material_issue", String.valueOf(rows.get(0).get("id")), true, null);
-        return rows.get(0);
+        return row;
     }
 
     @Transactional

@@ -104,7 +104,7 @@ const financeCount = dbNumber(`SELECT (SELECT count(*) FROM ar_receivable WHERE 
 assert(detailAfterAudit.document.status === "AUDITED", `expected AUDITED, got ${detailAfterAudit.document.status}`);
 assert(afterAuditQty === beforeQty + qty, `stock should increase to ${beforeQty + qty}, got ${afterAuditQty}`);
 assert(txnCount("STOCK_COUNT_GAIN") === 1, "gain audit should write one stock txn");
-assert(detailAfterReverse.document.status === "REVERSED", `expected REVERSED, got ${detailAfterReverse.document.status}`);
+assert(detailAfterReverse.document.status === "DRAFT", `expected DRAFT, got ${detailAfterReverse.document.status}`);
 assert(afterReverseQty === beforeQty, `stock should return to ${beforeQty}, got ${afterReverseQty}`);
 assert(txnCount("STOCK_COUNT_GAIN_REVERSE") === 1, "gain reverse should write one stock txn");
 assert(financeCount === 0, "stock count gain must not create finance documents");

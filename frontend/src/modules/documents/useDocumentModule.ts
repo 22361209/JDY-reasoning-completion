@@ -150,8 +150,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   async function startNew() {
     form.billDate = todayText();
     form.billNo = "";
-    const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
-    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     form.sourceOrderNo = config.sourceTraceType ? "" : undefined;
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
@@ -163,6 +161,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.lines = [defaultLine()];
+    const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
+    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
     runtime.markDirty();
   }
@@ -364,7 +364,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     const result = await reverseDocument(config.saveType, form.billNo);
     message.value = result.ok ? "反审核成功，库存流水已冲销" : result.message;
     if (result.ok) {
-      form.status = "REVERSED";
+      const reversed = result.data as { status?: unknown } | undefined;
+      form.status = typeof reversed?.status === "string" ? formStatusByBackendStatus[reversed.status] ?? "DRAFT" : "DRAFT";
       runtime.clearDirty();
     }
   }

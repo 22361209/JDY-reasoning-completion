@@ -145,7 +145,7 @@ public class SalesOrderAppService {
             BILL_TABLE,
             billNo,
             BillStatus.AUDITED,
-            BillStatus.REVERSED,
+            BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status",
             "SALES",
             "REVERSE",

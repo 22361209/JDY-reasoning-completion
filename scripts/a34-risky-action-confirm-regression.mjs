@@ -142,7 +142,7 @@ try {
   assertIncludes("cancel reverse message", await page.getByTestId("form-message").innerText(), "已取消反审核");
   await page.getByTestId("reverse-document").click();
   await page.getByTestId("risky-action-confirm").click();
-  await expectStatus(page, "已反审核");
+  await expectStatus(page, "草稿");
   assertIncludes("reverse success message", await page.getByTestId("form-message").innerText(), "反审核成功");
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });

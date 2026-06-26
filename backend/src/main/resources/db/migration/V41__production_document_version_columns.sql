@@ -1,0 +1,5 @@
+ALTER TABLE production_material_issue
+    ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE production_completion
+    ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;

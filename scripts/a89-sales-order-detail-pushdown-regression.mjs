@@ -154,8 +154,8 @@ assert(salesOutDetail.document.sourceOrderNo === salesOrderNo, "sales out should
 assert(salesOutCount() === 1, "one sales out should be generated from source order");
 assert(sourceDetail.order.status === "AUDITED", `source order should stay AUDITED, got ${sourceDetail.order.status}`);
 assert(sourceDetail.lines.every((line) => Number(line.remainingQty ?? 0) === 0), "source order should have no remaining outbound qty");
-assert(reverseOk.status === "REVERSED", `reverse response should be REVERSED, got ${reverseOk.status}`);
-assert(reverseDetail.order.status === "REVERSED", `reverse order should be REVERSED, got ${reverseDetail.order.status}`);
+assert(reverseOk.status === "DRAFT", `reverse response should be DRAFT, got ${reverseOk.status}`);
+assert(reverseDetail.order.status === "DRAFT", `reverse order should be DRAFT, got ${reverseDetail.order.status}`);
 assert(reverseBlocked.status === 409, `source order reverse with audited downstream should be blocked with 409, got ${reverseBlocked.status}`);
 
 const result = {

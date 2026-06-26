@@ -156,7 +156,7 @@ const afterReverseTargetQty = stockQty(targetWarehouseCode);
 const inReverseTxnCount = txnCount("STOCK_TRANSFER_IN_REVERSE", targetWarehouseCode);
 const outReverseTxnCount = txnCount("STOCK_TRANSFER_OUT_REVERSE", sourceWarehouseCode);
 
-assert(detailAfterReverse.document.status === "REVERSED", `expected REVERSED, got ${detailAfterReverse.document.status}`);
+assert(detailAfterReverse.document.status === "DRAFT", `expected DRAFT, got ${detailAfterReverse.document.status}`);
 assert(afterReverseSourceQty === beforeSourceQty, `source stock should return to ${beforeSourceQty}, got ${afterReverseSourceQty}`);
 assert(afterReverseTargetQty === beforeTargetQty, `target stock should return to ${beforeTargetQty}, got ${afterReverseTargetQty}`);
 assert(inReverseTxnCount === 1, `target reverse leg should write one txn, got ${inReverseTxnCount}`);

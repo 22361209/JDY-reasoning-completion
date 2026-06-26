@@ -824,7 +824,11 @@ function openEntry(entry: ShellEntry) {
   suppressNavigationUntil.value = Date.now() + 250;
 }
 function startNewModuleDocument(entryId: string) {
-  if (entryId === purchaseOrderTabId) {
+  if (entryId === "sales-order-form") {
+    salesOrderFormRef.value?.startNew();
+  } else if (entryId === outboundTabId) {
+    outboundFormRef.value?.startNew();
+  } else if (entryId === purchaseOrderTabId) {
     purchaseOrderFormRef.value?.startNew();
   } else if (entryId === purchaseInTabId) {
     purchaseInFormRef.value?.startNew();

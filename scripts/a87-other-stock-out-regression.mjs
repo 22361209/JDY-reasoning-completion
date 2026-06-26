@@ -136,7 +136,7 @@ const detailAfterReverse = (await api(`/api/other-stock-outs/${encodeURIComponen
 const afterReverseQty = stockQty();
 const reverseTxnCount = txnCount("OTHER_STOCK_OUT_REVERSE");
 
-assert(detailAfterReverse.document.status === "REVERSED", `expected REVERSED, got ${detailAfterReverse.document.status}`);
+assert(detailAfterReverse.document.status === "DRAFT", `expected DRAFT, got ${detailAfterReverse.document.status}`);
 assert(afterReverseQty === beforeQty, `stock should return to ${beforeQty}, got ${afterReverseQty}`);
 assert(reverseTxnCount >= 1, "reverse should write positive inventory txn");
 
