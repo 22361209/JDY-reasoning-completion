@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw } from "vue";
 import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "../../app/entryPaste";
 import { taxAmounts } from "../../app/taxAmounts";
 import {
@@ -93,6 +93,17 @@ type PreparedEntryLines = {
   removedBlankCount: number;
 };
 
+type DocumentModuleSnapshot = {
+  form: OrderForm;
+  message: string;
+  batchWarehouseCode: string;
+  batchPlanDeliveryDate: string;
+  highlightedSourceBillNo: string;
+  highlightedSourceLineNo: number | null;
+};
+
+const documentModuleSnapshots = new Map<string, DocumentModuleSnapshot>();
+
 const formStatusByBackendStatus: Record<string, OrderForm["status"]> = {
   DRAFT: "DRAFT",
   AUDITED: "AUDITED",
@@ -174,6 +185,18 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     ? config.redReverseImpact ?? `红冲将生成负数${config.title}，原单标记已红冲。`
     : config.reverseImpact ?? `反审核将冲销${config.title}相关库存流水。`);
   const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
+
+  onMounted(() => {
+    const snapshot = documentModuleSnapshots.get(config.documentType);
+    if (!snapshot) {
+      return;
+    }
+    restoreSnapshot(snapshot);
+  });
+
+  onBeforeUnmount(() => {
+    documentModuleSnapshots.set(config.documentType, snapshotState());
+  });
 
   async function startNew() {
     form.billDate = todayText();
@@ -559,8 +582,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!isDraft.value) {
       return;
     }
-    const previousLine = form.lines[form.lines.length - 1];
-    form.lines.push(defaultLine(previousLine?.warehouseCode || "CK-001"));
+    form.lines.push(blankLine());
     runtime.markDirty();
   }
 
@@ -568,8 +590,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!isDraft.value) {
       return;
     }
-    const previousLine = form.lines[index];
-    form.lines.splice(index + 1, 0, defaultLine(previousLine?.warehouseCode || "CK-001"));
+    form.lines.splice(index + 1, 0, blankLine());
     runtime.markDirty();
     void focusLineCell(index + 1, "product", config.testPrefix);
   }
@@ -1282,6 +1303,42 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       lineRemark: "",
       planDeliveryDate: ""
     };
+  }
+
+  function blankLine(): OrderLineForm {
+    return {
+      productCode: "",
+      warehouseCode: "",
+      targetWarehouseCode: config.showTargetWarehouseColumn ? "" : undefined,
+      qty: 0,
+      unitPrice: 0,
+      taxRate: 13,
+      lineRemark: "",
+      planDeliveryDate: ""
+    };
+  }
+
+  function snapshotState(): DocumentModuleSnapshot {
+    return {
+      form: structuredClone(toRaw(form)),
+      message: message.value,
+      batchWarehouseCode: batchWarehouseCode.value,
+      batchPlanDeliveryDate: batchPlanDeliveryDate.value,
+      highlightedSourceBillNo: highlightedSourceBillNo.value,
+      highlightedSourceLineNo: highlightedSourceLineNo.value
+    };
+  }
+
+  function restoreSnapshot(snapshot: DocumentModuleSnapshot) {
+    Object.assign(form, {
+      ...snapshot.form,
+      lines: snapshot.form.lines.map((line) => ({ ...line }))
+    });
+    message.value = snapshot.message;
+    batchWarehouseCode.value = snapshot.batchWarehouseCode;
+    batchPlanDeliveryDate.value = snapshot.batchPlanDeliveryDate;
+    highlightedSourceBillNo.value = snapshot.highlightedSourceBillNo;
+    highlightedSourceLineNo.value = snapshot.highlightedSourceLineNo;
   }
 
   function prepareEntryLinesForSave(lines: OrderLineForm[]): { ok: true } & PreparedEntryLines | { ok: false; message: string } {

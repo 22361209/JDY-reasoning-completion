@@ -1361,7 +1361,7 @@ input:disabled {
   background: #ffffff;
   border: 1px solid #d4dde8;
   border-top: 0;
-  overflow-x: auto;
+  overflow-x: scroll;
   overflow-y: hidden;
   scrollbar-gutter: stable;
 }
@@ -1403,6 +1403,92 @@ input:disabled {
 
 .vxe-wrap .vxe-table {
   font-size: 13px;
+}
+
+.data-list-native-table {
+  width: max-content;
+  min-width: 100%;
+  background: #ffffff;
+}
+
+.data-list-native-table table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.data-list-native-table .vxe-table--header-wrapper {
+  overflow: hidden !important;
+}
+
+.data-list-native-table .vxe-table--body-wrapper {
+  height: 336px;
+  overflow-x: hidden !important;
+  overflow-y: scroll !important;
+}
+
+.data-list-native-table .vxe-header--column {
+  height: 24px;
+  background: #f3f6f9;
+  color: #405064;
+  padding: 0 8px;
+  font-weight: 600;
+}
+
+.data-list-native-table .vxe-body--column {
+  height: 21px;
+  padding: 1px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-list-native-table .vxe-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+}
+
+.data-list-native-table .vxe-body--row:nth-child(even) .vxe-body--column {
+  background: #fbfdff;
+}
+
+.data-list-native-table .vxe-body--row:hover .vxe-body--column {
+  background: #eef6ff;
+}
+
+.data-list-native-table .col--align-right {
+  text-align: right;
+  padding-right: 12px;
+}
+
+.data-list-native-table .col--align-right .vxe-cell {
+  padding-right: 12px;
+}
+
+.data-list-native-table .col--align-center {
+  text-align: center;
+}
+
+.data-list-native-table .list-checkbox-column {
+  width: 42px;
+  min-width: 42px;
+  max-width: 42px;
+  text-align: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.vxe-wrap .vxe-table--body-wrapper {
+  overflow-x: hidden !important;
+  overflow-y: scroll !important;
+}
+
+.vxe-wrap .vxe-table--header-wrapper,
+.vxe-wrap .vxe-table--footer-wrapper {
+  overflow-x: hidden !important;
 }
 
 .vxe-wrap .vxe-table--render-default.size--mini .vxe-body--column,
@@ -2136,6 +2222,11 @@ table {
   min-width: 1180px;
   border-collapse: collapse;
   table-layout: fixed;
+}
+
+.data-list-native-table table {
+  width: max-content;
+  min-width: 100%;
 }
 
 .entry-table table {

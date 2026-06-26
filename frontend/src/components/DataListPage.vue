@@ -136,65 +136,93 @@
 
     <TableCoreFrame class="vxe-wrap" kind="list" test-id="vxe-list-table">
       <div class="table-core-vxe-inner" :style="{ width: `${listTableMinWidth}px`, minWidth: `${listTableMinWidth}px` }">
-        <vxe-table
-          :key="tableVersion"
-          ref="tableRef"
-          width="100%"
-          height="360"
-          size="mini"
-          border
-          show-overflow="title"
-          show-header-overflow="title"
-          stripe
-          :data="displayedRows"
-          :row-config="{ keyField: 'id', isHover: true }"
-          :column-config="{ resizable: true }"
-          :checkbox-config="{ checkMethod: checkboxCheckMethod }"
-          @checkbox-change="syncSelected"
-          @checkbox-all="syncSelected"
-          @resizable-change="handleColumnResize"
-        >
-          <vxe-column type="checkbox" width="42" fixed="left" :resizable="false" />
-          <vxe-column
-            v-for="column in visibleColumns"
-            :key="column.field"
-            :field="column.field"
-            :title="column.title"
-            :width="column.width"
-            :min-width="column.minWidth"
-            :fixed="column.fixed || undefined"
-            :align="column.align || 'left'"
-            :resizable="true"
-            show-overflow="title"
-          >
-            <template #header>
-              <TableCoreHeaderCell
-                :title="column.title"
-                :column-key="column.field"
-                :test-id="`column-drag-${column.field}`"
-                :filter-test-id="`column-filter-${column.field}`"
-                :filter-active="Boolean(columnFilters[column.field]?.value)"
-                :dragging="draggingColumnField === column.field"
-                :drag-over="dragOverColumnField === column.field"
-                @drag-start="startColumnMouseDrag(column, $event)"
-                @filter="openColumnFilter(column, $event)"
-              />
-            </template>
-            <template #default="{ row }">
-              <span v-if="column.field === 'status'" class="status-pill" :class="statusClass(row[column.field])">{{ row[column.field] }}</span>
-              <button
-                v-else-if="isOpenableDocumentList && column.field === 'billNo'"
-                class="list-cell-link"
-                type="button"
-                :data-testid="`open-document-${cellValue(row, column)}`"
-                @click.stop="openDocument(row)"
-              >
-                {{ cellValue(row, column) }}
-              </button>
-              <span v-else>{{ cellValue(row, column) }}</span>
-            </template>
-          </vxe-column>
-        </vxe-table>
+        <div class="vxe-table data-list-native-table">
+          <div class="vxe-table--header-wrapper body--wrapper">
+            <table :style="{ width: `${listTableMinWidth}px`, minWidth: `${listTableMinWidth}px` }">
+              <colgroup>
+                <col style="width: 42px" />
+                <col v-for="column in visibleColumns" :key="column.field" :style="{ width: `${column.width ?? column.minWidth ?? 120}px` }" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="vxe-header--column list-checkbox-column col--fixed col--checkbox">
+                    <input
+                      :checked="allDisplayedRowsSelected"
+                      type="checkbox"
+                      aria-label="全选列表行"
+                      data-testid="list-select-all"
+                      @change="toggleAllDisplayedRows(($event.target as HTMLInputElement).checked)"
+                    />
+                  </th>
+                  <th
+                    v-for="column in visibleColumns"
+                    :key="column.field"
+                    class="vxe-header--column"
+                    :class="[`col--align-${column.align || 'left'}`]"
+                    :style="{ width: `${column.width ?? column.minWidth ?? 120}px` }"
+                  >
+                    <TableCoreHeaderCell
+                      :title="column.title"
+                      :column-key="column.field"
+                      :test-id="`column-drag-${column.field}`"
+                      :filter-test-id="`column-filter-${column.field}`"
+                      :resize-test-id="`column-resize-${column.field}`"
+                      :resizable="true"
+                      :filter-active="Boolean(columnFilters[column.field]?.value)"
+                      :dragging="draggingColumnField === column.field"
+                      :drag-over="dragOverColumnField === column.field"
+                      @drag-start="startColumnMouseDrag(column, $event)"
+                      @filter="openColumnFilter(column, $event)"
+                      @resize-start="startColumnResize(column, $event)"
+                    />
+                  </th>
+                </tr>
+              </thead>
+            </table>
+          </div>
+          <div class="vxe-table--body-wrapper body--wrapper">
+            <table :style="{ width: `${listTableMinWidth}px`, minWidth: `${listTableMinWidth}px` }">
+              <colgroup>
+                <col style="width: 42px" />
+                <col v-for="column in visibleColumns" :key="column.field" :style="{ width: `${column.width ?? column.minWidth ?? 120}px` }" />
+              </colgroup>
+              <tbody>
+                <tr v-for="row in displayedRows" :key="rowKey(row)" class="vxe-body--row">
+                  <td class="vxe-body--column list-checkbox-column col--fixed col--checkbox">
+                    <input
+                      :checked="isRowSelected(row)"
+                      type="checkbox"
+                      :data-testid="`list-select-${rowKey(row)}`"
+                      @change="toggleRowSelection(row, ($event.target as HTMLInputElement).checked)"
+                    />
+                  </td>
+                  <td
+                    v-for="column in visibleColumns"
+                    :key="column.field"
+                    class="vxe-body--column"
+                    :class="[`col--align-${column.align || 'left'}`]"
+                    :style="{ width: `${column.width ?? column.minWidth ?? 120}px` }"
+                    :title="String(cellValue(row, column))"
+                  >
+                    <div class="vxe-cell">
+                      <span v-if="column.field === 'status'" class="status-pill" :class="statusClass(row[column.field])">{{ row[column.field] }}</span>
+                      <button
+                        v-else-if="isOpenableDocumentList && column.field === 'billNo'"
+                        class="list-cell-link"
+                        type="button"
+                        :data-testid="`open-document-${cellValue(row, column)}`"
+                        @click.stop="openDocument(row)"
+                      >
+                        {{ cellValue(row, column) }}
+                      </button>
+                      <span v-else>{{ cellValue(row, column) }}</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div v-if="!loading && listState === 'empty'" class="list-state-panel" data-testid="list-empty-state">
         <strong>暂无数据</strong>
@@ -339,7 +367,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCoreFrame from "./table/TableCoreFrame.vue";
@@ -397,7 +425,6 @@ const emit = defineEmits<{
   createDocument: [payload: { type: OpenableDocumentType }];
 }>();
 
-const tableRef = ref();
 const tableVersion = ref(0);
 const loading = ref(false);
 const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
@@ -434,6 +461,9 @@ const draggingColumnField = ref("");
 const dragOverColumnField = ref("");
 const dragGhostLeft = ref(0);
 const dragGhostTop = ref(0);
+const resizingColumnField = ref("");
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
 const query = reactive({
   keyword: "",
   status: "",
@@ -1027,6 +1057,7 @@ const canPushDownPurchaseIn = computed(() => {
 const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
 const displayedRows = computed(() => rows.value);
+const allDisplayedRowsSelected = computed(() => displayedRows.value.length > 0 && displayedRows.value.every((row) => isRowSelected(row)));
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => false);
 const draggingColumnTitle = computed(() => columns.value.find((column) => column.field === draggingColumnField.value)?.title ?? "");
@@ -1068,6 +1099,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("mousemove", trackColumnMouseDrag);
   window.removeEventListener("mouseup", finishColumnMouseDrag);
+  window.removeEventListener("mousemove", trackColumnResize);
+  window.removeEventListener("mouseup", finishColumnResize);
 });
 
 function resetColumns() {
@@ -1112,6 +1145,7 @@ async function reload() {
     total.value = response.data.total;
     listState.value = response.data.rows.length ? "ready" : "empty";
     tableVersion.value += 1;
+    void syncRenderedColumnWidths();
   } else {
     rows.value = [];
     total.value = 0;
@@ -1382,13 +1416,24 @@ function goPage(page: number) {
   reload();
 }
 
-function syncSelected(event?: { records?: Record<string, unknown>[] }) {
-  selectedRows.value = event?.records ?? tableRef.value?.getCheckboxRecords?.() ?? [];
+function rowKey(row: Record<string, unknown>) {
+  return String(row.id ?? row.billNo ?? row.bill_no ?? JSON.stringify(row));
 }
 
-function checkboxCheckMethod({ row }: { row?: Record<string, unknown> } = {}) {
-  void row;
-  return true;
+function isRowSelected(row: Record<string, unknown>) {
+  const key = rowKey(row);
+  return selectedRows.value.some((selected) => rowKey(selected) === key);
+}
+
+function toggleRowSelection(row: Record<string, unknown>, checked: boolean) {
+  const key = rowKey(row);
+  selectedRows.value = checked
+    ? [...selectedRows.value.filter((selected) => rowKey(selected) !== key), row]
+    : selectedRows.value.filter((selected) => rowKey(selected) !== key);
+}
+
+function toggleAllDisplayedRows(checked: boolean) {
+  selectedRows.value = checked ? [...displayedRows.value] : [];
 }
 
 function statusClass(value: unknown) {
@@ -1518,6 +1563,10 @@ function clearColumnFilter() {
 }
 
 function startColumnMouseDrag(column: ListColumn, event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (target.closest("button") || target.closest(".vxe-resizable") || target.closest(".table-core-column-resizer")) {
+    return;
+  }
   event.preventDefault();
   draggingColumnField.value = column.field;
   dragOverColumnField.value = column.field;
@@ -1565,6 +1614,7 @@ function finishColumnMouseDrag() {
   columns.value = normalizeListColumns(nextColumns);
   tableVersion.value += 1;
   saveColumnPreferences();
+  void syncRenderedColumnWidths();
   finishColumnDrag();
 }
 
@@ -1572,6 +1622,37 @@ function finishColumnDrag() {
   window.removeEventListener("mousemove", trackColumnMouseDrag);
   draggingColumnField.value = "";
   dragOverColumnField.value = "";
+}
+
+function startColumnResize(column: ListColumn, event: MouseEvent) {
+  resizingColumnField.value = column.field;
+  resizeStartX.value = event.clientX;
+  resizeStartWidth.value = Number(column.width ?? column.minWidth ?? 120);
+  window.addEventListener("mousemove", trackColumnResize);
+  window.addEventListener("mouseup", finishColumnResize, { once: true });
+}
+
+function trackColumnResize(event: MouseEvent) {
+  const field = resizingColumnField.value;
+  if (!field) {
+    return;
+  }
+  const target = columns.value.find((column) => column.field === field);
+  if (!target) {
+    return;
+  }
+  const minWidth = target.minWidth ?? 70;
+  target.width = Math.max(minWidth, Math.round(resizeStartWidth.value + event.clientX - resizeStartX.value));
+}
+
+function finishColumnResize() {
+  if (resizingColumnField.value) {
+    saveColumnPreferences();
+    tableVersion.value += 1;
+    void syncRenderedColumnWidths();
+  }
+  window.removeEventListener("mousemove", trackColumnResize);
+  resizingColumnField.value = "";
 }
 
 function handleColumnResize(event: { column?: { field?: string }, resizeWidth?: number }) {
@@ -1583,18 +1664,21 @@ function handleColumnResize(event: { column?: { field?: string }, resizeWidth?: 
   if (target) {
     target.width = event.resizeWidth;
     saveColumnPreferences();
+    void syncRenderedColumnWidths();
   }
 }
 
 function closeColumnSettings() {
   saveColumnPreferences();
   columnDialogOpen.value = false;
+  void syncRenderedColumnWidths();
 }
 
 function resetColumnsToDefault() {
   localStorage.removeItem(columnPreferenceKey());
   columns.value = normalizeListColumns((isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column })));
   tableVersion.value += 1;
+  void syncRenderedColumnWidths();
 }
 
 function columnPreferenceKey() {
@@ -1639,5 +1723,29 @@ function normalizeListColumns(nextColumns: ListColumn[]) {
     ...column,
     fixed: "" as const
   }));
+}
+
+async function syncRenderedColumnWidths() {
+  await nextTick();
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  const frame = document.querySelector<HTMLElement>("[data-testid='vxe-list-table']");
+  if (!frame) {
+    return;
+  }
+  const widths = [42, ...visibleColumns.value.map((column) => column.width ?? column.minWidth ?? 120)];
+  const tableWidth = Math.max(widths.reduce((sum, width) => sum + width, 0), 960);
+  frame.querySelectorAll<HTMLElement>(".vxe-table--header table, .vxe-table--body table, .vxe-table--footer table").forEach((table) => {
+    table.style.width = `${tableWidth}px`;
+  });
+  frame.querySelectorAll<HTMLTableColElement>("colgroup col").forEach((col, index) => {
+    const width = widths[index % widths.length] ?? 120;
+    col.style.width = `${width}px`;
+  });
+  frame.querySelectorAll<HTMLElement>(".vxe-header--column, .vxe-body--column, .vxe-footer--column").forEach((cell, index) => {
+    const width = widths[index % widths.length] ?? 120;
+    cell.style.width = `${width}px`;
+    cell.style.minWidth = `${width}px`;
+    cell.style.maxWidth = `${width}px`;
+  });
 }
 </script>

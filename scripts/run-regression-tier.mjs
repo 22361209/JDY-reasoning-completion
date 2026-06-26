@@ -5,6 +5,9 @@ import path from "node:path";
 const rootDir = path.resolve(import.meta.dirname, "..");
 const latestFullPath = path.join(rootDir, "verification/a2-a110-regression-latest.json");
 const verificationDir = path.join(rootDir, "verification");
+const fullTailScripts = [
+  "scripts/a112-table-core-scroll-regression.mjs"
+];
 
 const smokeScripts = [
   "scripts/a59-formal-login-regression.mjs",
@@ -169,7 +172,7 @@ async function scriptsForTier(selectedTier) {
   }
   if (selectedTier === "full") {
     const baseline = JSON.parse(await readFile(latestFullPath, "utf8"));
-    return baseline.results.map((result) => result.script);
+    return unique([...baseline.results.map((result) => result.script), ...fullTailScripts]);
   }
   if (selectedTier.startsWith("area:")) {
     const area = selectedTier.slice("area:".length);

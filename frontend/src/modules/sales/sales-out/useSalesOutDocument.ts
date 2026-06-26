@@ -642,12 +642,15 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     return { productCode: "CP-001", warehouseCode, qty: 1, unitPrice: 86, taxRate: 13, lineRemark: "", planDeliveryDate: "" };
   }
 
+  function blankLine(): OrderLineForm {
+    return { productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: "" };
+  }
+
   function addLine() {
     if (!isDraft.value) {
       return;
     }
-    const previousLine = form.lines[form.lines.length - 1];
-    form.lines.push(defaultLine(previousLine?.warehouseCode || "CK-001"));
+    form.lines.push(blankLine());
     options.markDirty();
   }
 
@@ -655,8 +658,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!isDraft.value) {
       return;
     }
-    const previousLine = form.lines[index];
-    form.lines.splice(index + 1, 0, defaultLine(previousLine?.warehouseCode || "CK-001"));
+    form.lines.splice(index + 1, 0, blankLine());
     options.markDirty();
     void focusLineCell(index + 1, "product");
   }

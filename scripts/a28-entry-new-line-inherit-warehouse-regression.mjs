@@ -72,8 +72,13 @@ try {
   await page.getByTestId("sales-line-price").fill("30");
   await page.getByRole("button", { name: "+ 增加明细行" }).click();
   await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
-  const warehouseAfterAddButton = await page.getByTestId("sales-line-warehouse-2").inputValue();
-  assertEqual("warehouse inherited after add button", warehouseAfterAddButton, "CK-002");
+  const newLineAfterAddButton = {
+    productCode: await page.getByTestId("sales-line-product-2").inputValue(),
+    warehouseCode: await page.getByTestId("sales-line-warehouse-2").inputValue(),
+    qty: await page.getByTestId("sales-line-qty-2").inputValue(),
+    unitPrice: await page.getByTestId("sales-line-price-2").inputValue()
+  };
+  assertDeepEqual("new line blank after add button", newLineAfterAddButton, { productCode: "", warehouseCode: "", qty: "0", unitPrice: "0" });
 
   await page.getByTestId("sales-line-product-2").fill("PJ-014");
   await page.getByTestId("sales-line-warehouse-2").fill("CK-T413874");
@@ -85,11 +90,17 @@ try {
   await page.keyboard.press("Enter");
   await page.getByTestId("sales-line-product-3").waitFor({ state: "visible" });
   const focusAfterTaxRateEnter = await activeTestId(page);
-  const warehouseAfterEnter = await page.getByTestId("sales-line-warehouse-3").inputValue();
+  const newLineAfterEnter = {
+    productCode: await page.getByTestId("sales-line-product-3").inputValue(),
+    warehouseCode: await page.getByTestId("sales-line-warehouse-3").inputValue(),
+    qty: await page.getByTestId("sales-line-qty-3").inputValue(),
+    unitPrice: await page.getByTestId("sales-line-price-3").inputValue()
+  };
   assertEqual("focus after tax rate enter", focusAfterTaxRateEnter, "sales-line-product-3");
-  assertEqual("warehouse inherited after price enter", warehouseAfterEnter, "CK-T413874");
+  assertDeepEqual("new line blank after enter", newLineAfterEnter, { productCode: "", warehouseCode: "", qty: "0", unitPrice: "0" });
 
   await page.getByTestId("sales-line-product-3").fill("CP-T413874");
+  await page.getByTestId("sales-line-warehouse-3").fill("CK-T413874");
   await page.keyboard.press("Escape");
   await page.getByTestId("sales-line-qty-3").fill("1");
   await page.getByTestId("sales-line-price-3").fill("8");
@@ -104,7 +115,7 @@ try {
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();
   assertEqual("total", total, "103.96");
 
-  const screenshot = `a28-entry-new-line-inherit-warehouse-form-${batch}.png`;
+  const screenshot = `a28-entry-new-line-blank-form-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
 
   await page.getByTestId("save-sales-order").click();
@@ -126,9 +137,9 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     billNo,
-    warehouseAfterAddButton,
+    newLineAfterAddButton,
     focusAfterPriceEnter,
-    warehouseAfterEnter,
+    newLineAfterEnter,
     amounts,
     total,
     savedLines,
