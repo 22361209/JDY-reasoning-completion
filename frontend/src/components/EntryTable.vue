@@ -35,7 +35,18 @@
       <thead>
         <tr>
           <th v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)">
+            <template v-if="column.key === 'selection'">
+              <input
+                :checked="allLinesSelected"
+                type="checkbox"
+                :disabled="!isDraft"
+                aria-label="全选分录"
+                data-testid="entry-select-all"
+                @change="toggleAllLines(($event.target as HTMLInputElement).checked)"
+              />
+            </template>
             <div
+              v-else
               class="column-header-cell entry-column-header"
               :class="{ dragging: draggingColumnKey === column.key, 'drag-over': dragOverColumnKey === column.key }"
               :data-testid="`entry-column-drag-${column.key}`"
@@ -124,6 +135,7 @@
                 :data-testid="lineSelectTestId(lineIndex)"
               />
             </template>
+            <span v-else-if="column.key === 'rowNo'" class="entry-row-no">{{ lineLineNo(line, lineIndex) }}</span>
             <span v-else-if="column.key === 'productName'" class="entry-cell-text">{{ productInfo(line).name }}</span>
             <span v-else-if="column.key === 'spec'" class="entry-cell-text">{{ productInfo(line).spec }}</span>
             <template v-else-if="column.key === 'warehouse'">
@@ -379,7 +391,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "selection" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
+type EntryColumnKey = "selection" | "rowNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -470,10 +482,11 @@ const dragOverColumnKey = ref<EntryColumnKey | "">("");
 const dragGhostLeft = ref(0);
 const dragGhostTop = ref(0);
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
-const numericColumns = new Set<EntryColumnKey>(["qty", "executedQty", "remainingQty", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
+const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 
 const defaultColumns = computed<EntryColumn[]>(() => [
-  { key: "selection", title: "选", width: 48, visible: Boolean(props.showPlanDeliveryDateColumn), configurable: false },
+  { key: "selection", title: "", width: 44, visible: true, fixed: "left", configurable: false },
+  { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", configurable: false, numeric: true },
   { key: "productCode", title: "商品编码", width: 140, visible: true },
   { key: "productName", title: "商品名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
@@ -497,13 +510,14 @@ const defaultColumns = computed<EntryColumn[]>(() => [
 const visibleColumns = computed(() => columns.value.filter((column) => isColumnAvailable(column) && column.visible));
 const configurableColumns = computed(() => columns.value.filter((column) => column.configurable !== false && isColumnAvailable(column)));
 const entryTableWidth = computed(() => Math.max(1180, visibleColumns.value.reduce((sum, column) => sum + Math.max(48, Number(column.width) || 96), 0)));
-const firstVisibleColumnKey = computed(() => visibleColumns.value[0]?.key ?? "productCode");
+const firstVisibleColumnKey = computed(() => visibleColumns.value.find((column) => !isFrozenEntryColumn(column.key))?.key ?? "productCode");
 const rowMenuStyle = computed(() => ({ left: `${rowMenuLeft.value}px`, top: `${rowMenuTop.value}px` }));
 const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0)));
 const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).amount, 0).toFixed(2));
 const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).taxAmount, 0).toFixed(2));
 const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
 const draggingColumnTitle = computed(() => columns.value.find((column) => column.key === draggingColumnKey.value)?.title ?? "");
+const allLinesSelected = computed(() => props.lines.length > 0 && props.lines.every((_, index) => selectedLines.value[index]));
 
 watch(() => [
   props.testPrefix,
@@ -529,7 +543,7 @@ function resetColumns() {
   const saved = loadColumnPreferences();
   const defaultByKey = new Map(defaults.map((column) => [column.key, column]));
   if (!saved.length) {
-    columns.value = defaults.map((column) => ({ ...column }));
+    columns.value = normalizeEntryColumns(defaults.map((column) => ({ ...column })));
     return;
   }
   const restored: EntryColumn[] = [];
@@ -541,22 +555,25 @@ function resetColumns() {
     restored.push({
       ...current,
       width: Number.isFinite(savedColumn.width) ? savedColumn.width : current.width,
-      visible: savedColumn.visible,
-      fixed: savedColumn.fixed ?? ""
+      visible: isFrozenEntryColumn(current.key) ? true : savedColumn.visible,
+      fixed: isFrozenEntryColumn(current.key) ? "left" : ""
     });
   });
   const restoredKeys = new Set(restored.map((column) => column.key));
-  columns.value = [
+  columns.value = normalizeEntryColumns([
     ...restored,
     ...defaults.filter((column) => !restoredKeys.has(column.key)).map((column) => ({ ...column }))
-  ];
+  ]);
 }
 
 function isColumnAvailable(column: EntryColumn) {
   if (column.key === "targetWarehouse") {
     return Boolean(props.showTargetWarehouseColumn);
   }
-  if (column.key === "selection" || column.key === "planDeliveryDate") {
+  if (column.key === "selection" || column.key === "rowNo") {
+    return true;
+  }
+  if (column.key === "planDeliveryDate") {
     return Boolean(props.showPlanDeliveryDateColumn);
   }
   if (column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal") {
@@ -581,19 +598,22 @@ function closeColumnSettings() {
 
 function resetColumnsToDefault() {
   localStorage.removeItem(columnPreferenceKey());
-  columns.value = defaultColumns.value.map((column) => ({ ...column }));
+  columns.value = normalizeEntryColumns(defaultColumns.value.map((column) => ({ ...column })));
 }
 
 function moveColumn(key: EntryColumnKey, direction: -1 | 1) {
+  if (isFrozenEntryColumn(key)) {
+    return;
+  }
   const index = columns.value.findIndex((column) => column.key === key);
   const targetIndex = index + direction;
-  if (index < 0 || targetIndex < 0 || targetIndex >= columns.value.length) {
+  if (index < 0 || targetIndex < 0 || targetIndex >= columns.value.length || isFrozenEntryColumn(columns.value[targetIndex].key)) {
     return;
   }
   const next = [...columns.value];
   const [column] = next.splice(index, 1);
   next.splice(targetIndex, 0, column);
-  columns.value = next;
+  columns.value = normalizeEntryColumns(next);
 }
 
 function loadColumnPreferences(): EntryColumn[] {
@@ -608,9 +628,9 @@ function loadColumnPreferences(): EntryColumn[] {
 function persistColumnPreferences() {
   localStorage.setItem(columnPreferenceKey(), JSON.stringify(columns.value.map((column) => ({
     key: column.key,
-    width: Math.max(64, Number(column.width) || 64),
-    visible: column.visible,
-    fixed: column.fixed ?? ""
+    width: isFrozenEntryColumn(column.key) ? column.width : Math.max(64, Number(column.width) || 64),
+    visible: isFrozenEntryColumn(column.key) ? true : column.visible,
+    fixed: isFrozenEntryColumn(column.key) ? "left" : ""
   }))));
 }
 
@@ -626,8 +646,16 @@ function columnClass(column: EntryColumn) {
     "tax-cell": column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal",
     "entry-actions-cell": column.key === "actions",
     "remark-cell": column.key === "remark",
-    "entry-selection-cell": column.key === "selection"
+    "entry-selection-cell": column.key === "selection",
+    "entry-row-no-cell": column.key === "rowNo",
+    "entry-frozen-cell": isFrozenEntryColumn(column.key)
   };
+}
+
+function toggleAllLines(checked: boolean) {
+  props.lines.forEach((_, index) => {
+    selectedLines.value[index] = checked;
+  });
 }
 
 function selectedLineIndexes() {
@@ -700,6 +728,8 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
   switch (key) {
     case "selection":
       return selectedLines.value[index] ? "已选" : "";
+    case "rowNo":
+      return String(lineLineNo(line, index));
     case "productCode":
       return line.productCode;
     case "productName":
@@ -753,7 +783,7 @@ function startColumnMouseDrag(column: EntryColumn, event: MouseEvent) {
   if (target.closest("button") || target.closest(".entry-column-resizer")) {
     return;
   }
-  if (column.configurable === false) {
+  if (column.configurable === false || isFrozenEntryColumn(column.key)) {
     return;
   }
   event.preventDefault();
@@ -774,7 +804,7 @@ function trackColumnMouseDrag(event: MouseEvent) {
   const element = document.elementFromPoint(event.clientX, event.clientY);
   const header = element?.closest<HTMLElement>(".entry-column-header");
   const key = header?.dataset.columnField as EntryColumnKey | undefined;
-  if (key && columns.value.some((column) => column.key === key && column.configurable !== false)) {
+  if (key && columns.value.some((column) => column.key === key && column.configurable !== false && !isFrozenEntryColumn(column.key))) {
     dragOverColumnKey.value = key;
   }
 }
@@ -788,14 +818,19 @@ function finishColumnMouseDrag() {
   }
   const sourceIndex = columns.value.findIndex((column) => column.key === sourceKey);
   const targetIndex = columns.value.findIndex((column) => column.key === targetKey);
-  if (sourceIndex < 0 || targetIndex < 0) {
+  if (
+    sourceIndex < 0
+    || targetIndex < 0
+    || isFrozenEntryColumn(columns.value[sourceIndex].key)
+    || isFrozenEntryColumn(columns.value[targetIndex].key)
+  ) {
     finishColumnDrag();
     return;
   }
   const next = [...columns.value];
   const [sourceColumn] = next.splice(sourceIndex, 1);
   next.splice(targetIndex, 0, sourceColumn);
-  columns.value = next;
+  columns.value = normalizeEntryColumns(next);
   persistColumnPreferences();
   finishColumnDrag();
 }
@@ -1023,6 +1058,9 @@ function lineMenuTestId(index: number) {
 }
 
 function columnCellTestId(key: EntryColumnKey, index: number) {
+  if (key === "rowNo") {
+    return index === 0 ? `${props.testPrefix}-line-row-no` : `${props.testPrefix}-line-row-no-${index + 1}`;
+  }
   if (key === "sourceLineNo") {
     return lineSourceLineNoTestId(index);
   }
@@ -1036,6 +1074,21 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
     return lineRemainingQtyTestId(index);
   }
   return undefined;
+}
+
+function isFrozenEntryColumn(key: EntryColumnKey) {
+  return key === "selection" || key === "rowNo";
+}
+
+function normalizeEntryColumns(nextColumns: EntryColumn[]) {
+  const frozen = nextColumns
+    .filter((column) => isFrozenEntryColumn(column.key))
+    .sort((a, b) => (a.key === "selection" ? 0 : 1) - (b.key === "selection" ? 0 : 1))
+    .map((column) => ({ ...column, fixed: "left" as const, visible: true, configurable: false }));
+  const regular = nextColumns
+    .filter((column) => !isFrozenEntryColumn(column.key))
+    .map((column) => ({ ...column, fixed: "" as const }));
+  return [...frozen, ...regular];
 }
 
 type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate";

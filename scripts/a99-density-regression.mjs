@@ -57,8 +57,22 @@ async function createAuditedOrder() {
 async function heightStats(page, selector) {
   return page.locator(selector).evaluateAll((nodes) => nodes
     .filter((node) => {
+      function hasHiddenAncestor(element) {
+        let current = element;
+        while (current && current instanceof HTMLElement) {
+          const style = getComputedStyle(current);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+            return true;
+          }
+          current = current.parentElement;
+        }
+        return false;
+      }
       const rect = node.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && getComputedStyle(node).display !== "none";
+      const visible = typeof node.checkVisibility === "function"
+        ? node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+        : true;
+      return visible && rect.width > 0 && rect.height > 0 && !hasHiddenAncestor(node);
     })
     .map((node) => {
       const rect = node.getBoundingClientRect();
@@ -70,6 +84,21 @@ async function firstHeight(page, selector) {
   const heights = await heightStats(page, selector);
   assert(heights.length > 0, `no visible rows for ${selector}`);
   return heights[0];
+}
+
+async function markDocumentRoot(page, billNoTestId, billNo, marker) {
+  const marked = await page.evaluate(({ billNoTestId, billNo, marker }) => {
+    document.querySelectorAll("[data-a99-root]").forEach((node) => node.removeAttribute("data-a99-root"));
+    const inputs = Array.from(document.querySelectorAll(`[data-testid="${billNoTestId}"]`));
+    const input = inputs.find((node) => node instanceof HTMLInputElement && node.value === billNo);
+    const root = input?.closest(".business-page");
+    if (!root) {
+      return false;
+    }
+    root.setAttribute("data-a99-root", marker);
+    return true;
+  }, { billNoTestId, billNo, marker });
+  assert(marked, `document root should be found for ${billNo}`);
 }
 
 const sourceBillNo = await createAuditedOrder();
@@ -103,7 +132,8 @@ try {
 
   await page.getByTestId(`open-document-${sourceBillNo}`).click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  const auditedEntryHeights = await heightStats(page, '[data-testid="sales-entry-row"]');
+  await markDocumentRoot(page, "sales-bill-no", sourceBillNo, "a99-audited-root");
+  const auditedEntryHeights = await heightStats(page, '[data-a99-root="a99-audited-root"] [data-testid="sales-entry-row"]');
   assert(Math.max(...auditedEntryHeights) <= 22.5, `audited entry rows should be 20-22px, got ${auditedEntryHeights.join(",")}`);
   const formScreenshot = `a99-density-audited-entry-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, formScreenshot), fullPage: true });

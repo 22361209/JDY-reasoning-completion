@@ -89,13 +89,16 @@ async function dispatchPaste(page, testId, text) {
 
 async function readLines(page) {
   const rows = await page.getByTestId("sales-entry-row").count();
+  const productNameIndex = await entryColumnIndex(page, "商品名称");
+  const specIndex = await entryColumnIndex(page, "规格型号");
   const lines = [];
   for (let index = 0; index < rows; index += 1) {
     const suffix = index === 0 ? "" : `-${index + 1}`;
+    const row = page.getByTestId("sales-entry-row").nth(index);
     lines.push({
       productCode: await page.getByTestId(`sales-line-product${suffix}`).inputValue(),
-      productName: (await page.getByTestId("sales-entry-row").nth(index).locator("td").nth(2).innerText()).trim(),
-      spec: (await page.getByTestId("sales-entry-row").nth(index).locator("td").nth(3).innerText()).trim(),
+      productName: (await row.locator("td").nth(productNameIndex).innerText()).trim(),
+      spec: (await row.locator("td").nth(specIndex).innerText()).trim(),
       warehouseCode: await page.getByTestId(`sales-line-warehouse${suffix}`).inputValue(),
       qty: Number(await page.getByTestId(`sales-line-qty${suffix}`).inputValue()),
       unitPrice: Number(await page.getByTestId(`sales-line-price${suffix}`).inputValue()),
@@ -103,6 +106,15 @@ async function readLines(page) {
     });
   }
   return lines;
+}
+
+async function entryColumnIndex(page, title) {
+  const headers = await page.locator(".entry-table thead th:visible").evaluateAll((nodes) => nodes.map((node) => node.textContent?.trim() ?? ""));
+  const index = headers.findIndex((text) => text.includes(title));
+  if (index < 0) {
+    throw new Error(`entry column not found: ${title}; headers=${JSON.stringify(headers)}`);
+  }
+  return index;
 }
 
 function assertDeepEqual(name, actual, expected) {

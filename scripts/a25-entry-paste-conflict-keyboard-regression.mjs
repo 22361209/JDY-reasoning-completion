@@ -119,15 +119,27 @@ async function activeCandidateCode(page) {
 }
 
 async function readFirstLine(page) {
+  const productNameIndex = await entryColumnIndex(page, "商品名称");
+  const specIndex = await entryColumnIndex(page, "规格型号");
+  const row = page.getByTestId("sales-entry-row").first();
   return {
     productCode: await page.getByTestId("sales-line-product").inputValue(),
-    productName: (await page.getByTestId("sales-entry-row").first().locator("td").nth(2).innerText()).trim(),
-    spec: (await page.getByTestId("sales-entry-row").first().locator("td").nth(3).innerText()).trim(),
+    productName: (await row.locator("td").nth(productNameIndex).innerText()).trim(),
+    spec: (await row.locator("td").nth(specIndex).innerText()).trim(),
     warehouseCode: await page.getByTestId("sales-line-warehouse").inputValue(),
     qty: Number(await page.getByTestId("sales-line-qty").inputValue()),
     unitPrice: Number(await page.getByTestId("sales-line-price").inputValue()),
     amount: (await page.getByTestId("sales-line-amount").innerText()).trim()
   };
+}
+
+async function entryColumnIndex(page, title) {
+  const headers = await page.locator(".entry-table thead th:visible").evaluateAll((nodes) => nodes.map((node) => node.textContent?.trim() ?? ""));
+  const index = headers.findIndex((text) => text.includes(title));
+  if (index < 0) {
+    throw new Error(`entry column not found: ${title}; headers=${JSON.stringify(headers)}`);
+  }
+  return index;
 }
 
 function assertEqual(name, actual, expected) {

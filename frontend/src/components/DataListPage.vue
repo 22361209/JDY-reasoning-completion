@@ -152,7 +152,8 @@
         @checkbox-all="syncSelected"
         @resizable-change="handleColumnResize"
       >
-        <vxe-column type="checkbox" width="42" fixed="left" />
+        <vxe-column type="checkbox" width="42" fixed="left" :resizable="false" />
+        <vxe-column type="seq" title="序号" width="48" fixed="left" align="center" :resizable="false" />
         <vxe-column
           v-for="column in visibleColumns"
           :key="column.field"
@@ -195,12 +196,12 @@
               v-else-if="isOpenableDocumentList && column.field === 'billNo'"
               class="list-cell-link"
               type="button"
-              :data-testid="`open-document-${row.billNo}`"
+              :data-testid="`open-document-${cellValue(row, column)}`"
               @click.stop="openDocument(row)"
             >
-              {{ row[column.field] }}
+              {{ cellValue(row, column) }}
             </button>
-            <span v-else>{{ row[column.field] }}</span>
+            <span v-else>{{ cellValue(row, column) }}</span>
           </template>
         </vxe-column>
       </vxe-table>
@@ -1056,7 +1057,7 @@ function resetColumns() {
   const defaults = (isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column }));
   const saved = loadColumnPreferences();
   if (!saved.length) {
-    columns.value = defaults;
+    columns.value = normalizeListColumns(defaults);
     return;
   }
   const defaultByField = new Map(defaults.map((column) => [column.field, column]));
@@ -1069,15 +1070,15 @@ function resetColumns() {
     restored.push({
       ...current,
       width: savedColumn.width ?? current.width,
-      fixed: savedColumn.fixed ?? "",
+      fixed: "" as const,
       visible: savedColumn.visible
     });
   });
   const restoredFields = new Set(restored.map((column) => column.field));
-  columns.value = [
+  columns.value = normalizeListColumns([
     ...restored,
     ...defaults.filter((column) => !restoredFields.has(column.field))
-  ];
+  ]);
 }
 
 async function reload() {
@@ -1088,7 +1089,7 @@ async function reload() {
   selectedRows.value = [];
   const response = await fetchListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters });
   if (response.ok && response.data) {
-    rows.value = response.data.rows;
+    rows.value = response.data.rows.map(normalizeListRow);
     total.value = response.data.total;
     listState.value = response.data.rows.length ? "ready" : "empty";
     tableVersion.value += 1;
@@ -1516,7 +1517,7 @@ function trackColumnMouseDrag(event: MouseEvent) {
   const element = document.elementFromPoint(event.clientX, event.clientY);
   const header = element?.closest<HTMLElement>(".column-header-cell");
   const field = header?.dataset.columnField;
-  if (field) {
+  if (field && columns.value.some((column) => column.field === field)) {
     dragOverColumnField.value = field;
   }
 }
@@ -1542,7 +1543,7 @@ function finishColumnMouseDrag() {
     targetColumn.fixed = "";
   }
   nextColumns.splice(targetIndex, 0, sourceColumn);
-  columns.value = nextColumns;
+  columns.value = normalizeListColumns(nextColumns);
   tableVersion.value += 1;
   saveColumnPreferences();
   finishColumnDrag();
@@ -1573,7 +1574,7 @@ function closeColumnSettings() {
 
 function resetColumnsToDefault() {
   localStorage.removeItem(columnPreferenceKey());
-  columns.value = (isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column }));
+  columns.value = normalizeListColumns((isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column })));
   tableVersion.value += 1;
 }
 
@@ -1594,9 +1595,30 @@ function saveColumnPreferences() {
   const preference = columns.value.map((column) => ({
     field: column.field,
     width: column.width,
-    fixed: column.fixed ?? "",
+    fixed: "" as const,
     visible: column.visible
   }));
   localStorage.setItem(columnPreferenceKey(), JSON.stringify(preference));
+}
+
+function normalizeListRow(row: Record<string, unknown>) {
+  if ((row.billNo == null || row.billNo === "") && typeof row.bill_no === "string") {
+    return { ...row, billNo: row.bill_no };
+  }
+  return row;
+}
+
+function cellValue(row: Record<string, unknown>, column: ListColumn) {
+  if (column.field === "billNo" && (row.billNo == null || row.billNo === "")) {
+    return row.bill_no ?? "";
+  }
+  return row[column.field] ?? "";
+}
+
+function normalizeListColumns(nextColumns: ListColumn[]) {
+  return nextColumns.map((column) => ({
+    ...column,
+    fixed: "" as const
+  }));
 }
 </script>
