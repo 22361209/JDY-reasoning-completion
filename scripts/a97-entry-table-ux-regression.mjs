@@ -140,8 +140,9 @@ try {
   await page.getByTestId("query-sales-order-form").click();
   await page.getByTestId("list-keyword").fill(sourceBillNo);
   await page.getByTestId("list-query").click();
-  await page.getByTestId("column-drag-billNo").waitFor({ state: "visible" });
-  const headerBox = await page.getByTestId("column-drag-billNo").boundingBox();
+  const visibleBillNoHeader = page.locator('[data-testid="column-drag-billNo"]:visible').first();
+  await visibleBillNoHeader.waitFor({ state: "visible" });
+  const headerBox = await visibleBillNoHeader.boundingBox();
   assert(headerBox, "list column header should have bounding box");
   await page.mouse.move(headerBox.x + 20, headerBox.y + 15);
   await page.mouse.down();

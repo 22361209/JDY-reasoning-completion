@@ -134,7 +134,7 @@ async function readPurchaseInLines(page, count) {
   };
   for (let index = 0; index < count; index += 1) {
     const suffix = index === 0 ? "" : `-${index + 1}`;
-    values.sources.push((await page.getByTestId(`purchase-in-line-source-trace${suffix}`).innerText()).trim());
+    values.sources.push(await lineSourceText(page, "purchase-in", index));
     values.products.push(await page.getByTestId(`purchase-in-line-product${suffix}`).inputValue());
     values.warehouses.push(await page.getByTestId(`purchase-in-line-warehouse${suffix}`).inputValue());
     values.qtys.push(Number(await page.getByTestId(`purchase-in-line-qty${suffix}`).inputValue()));
@@ -142,6 +142,13 @@ async function readPurchaseInLines(page, count) {
     values.remarks.push(await page.getByTestId(`purchase-in-line-remark${suffix}`).inputValue());
   }
   return values;
+}
+
+async function lineSourceText(page, prefix, index) {
+  const suffix = index === 0 ? "" : `-${index + 1}`;
+  const orderNo = (await page.getByTestId(`${prefix}-line-source-order-no${suffix}`).innerText()).trim();
+  const lineNo = (await page.getByTestId(`${prefix}-line-source-line-no${suffix}`).innerText()).trim();
+  return `${orderNo} / ${lineNo}`;
 }
 
 const data = await createData();

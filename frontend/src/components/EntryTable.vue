@@ -28,14 +28,20 @@
     <button type="button" data-testid="entry-column-settings" @click="columnDialogOpen = true">列设置</button>
   </div>
   <div class="entry-table">
-    <table>
+    <table :style="{ width: `${entryTableWidth}px`, minWidth: `${entryTableWidth}px` }">
       <colgroup>
         <col v-for="column in visibleColumns" :key="column.key" :style="{ width: `${column.width}px` }" />
       </colgroup>
       <thead>
         <tr>
           <th v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)">
-            <div class="column-header-cell entry-column-header" :data-column-field="column.key">
+            <div
+              class="column-header-cell entry-column-header"
+              :class="{ dragging: draggingColumnKey === column.key, 'drag-over': dragOverColumnKey === column.key }"
+              :data-testid="`entry-column-drag-${column.key}`"
+              :data-column-field="column.key"
+              @mousedown.left="startColumnMouseDrag(column, $event)"
+            >
               <span class="column-header-title">{{ column.title }}</span>
               <button
                 v-if="column.configurable !== false"
@@ -190,6 +196,18 @@
                 </span>
               </span>
             </template>
+            <template v-else-if="column.key === 'sourceOrderNo'">
+              <button
+                v-if="line.sourceOrderNo"
+                class="source-line-link"
+                type="button"
+                :data-testid="`${lineSourceOrderNoTestId(lineIndex)}-open`"
+                @click="emit('traceSourceOrder', line.sourceLineNo, line.sourceOrderNo)"
+              >
+                {{ line.sourceOrderNo }}
+              </button>
+              <span v-else>-</span>
+            </template>
             <template v-else-if="column.key === 'sourceLineNo'">
               <button
                 v-if="line.sourceOrderNo && line.sourceLineNo"
@@ -308,6 +326,15 @@
     @apply="applyColumnFilter"
     @clear="clearColumnFilter"
   />
+
+  <div
+    v-if="draggingColumnKey"
+    class="column-drag-ghost"
+    :style="{ left: `${dragGhostLeft}px`, top: `${dragGhostTop}px` }"
+    data-testid="entry-column-drag-ghost"
+  >
+    {{ draggingColumnTitle }}
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -344,7 +371,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "selection" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
+type EntryColumnKey = "selection" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -429,6 +456,10 @@ const filterPopoverTop = ref(0);
 const resizingColumnKey = ref<EntryColumnKey | null>(null);
 const resizeStartX = ref(0);
 const resizeStartWidth = ref(0);
+const draggingColumnKey = ref<EntryColumnKey | "">("");
+const dragOverColumnKey = ref<EntryColumnKey | "">("");
+const dragGhostLeft = ref(0);
+const dragGhostTop = ref(0);
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 const numericColumns = new Set<EntryColumnKey>(["qty", "executedQty", "remainingQty", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 
@@ -439,7 +470,8 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "spec", title: "规格型号", width: 150, visible: true },
   { key: "warehouse", title: "仓库", width: 130, visible: true },
   { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
-  { key: "sourceLineNo", title: "源单/行号", width: 150, visible: props.showSourceLineColumn },
+  { key: "sourceOrderNo", title: "源单号", width: 142, visible: props.showSourceLineColumn },
+  { key: "sourceLineNo", title: "源单行号", width: 86, visible: props.showSourceLineColumn },
   { key: "qty", title: "数量", width: 104, visible: true, numeric: true },
   { key: "executedQty", title: props.executionQtyLabel || "已执行", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
@@ -455,12 +487,14 @@ const defaultColumns = computed<EntryColumn[]>(() => [
 
 const visibleColumns = computed(() => columns.value.filter((column) => isColumnAvailable(column) && column.visible));
 const configurableColumns = computed(() => columns.value.filter((column) => column.configurable !== false && isColumnAvailable(column)));
+const entryTableWidth = computed(() => Math.max(1180, visibleColumns.value.reduce((sum, column) => sum + Math.max(48, Number(column.width) || 96), 0)));
 const firstVisibleColumnKey = computed(() => visibleColumns.value[0]?.key ?? "productCode");
 const rowMenuStyle = computed(() => ({ left: `${rowMenuLeft.value}px`, top: `${rowMenuTop.value}px` }));
 const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0)));
 const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).amount, 0).toFixed(2));
 const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).taxAmount, 0).toFixed(2));
 const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
+const draggingColumnTitle = computed(() => columns.value.find((column) => column.key === draggingColumnKey.value)?.title ?? "");
 
 watch(() => [
   props.testPrefix,
@@ -477,6 +511,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("click", closeRowMenu);
   window.removeEventListener("mousemove", trackColumnResize);
   window.removeEventListener("mouseup", finishColumnResize);
+  window.removeEventListener("mousemove", trackColumnMouseDrag);
+  window.removeEventListener("mouseup", finishColumnMouseDrag);
 });
 
 function resetColumns() {
@@ -518,6 +554,9 @@ function isColumnAvailable(column: EntryColumn) {
     return Boolean(props.showTaxColumns);
   }
   if (column.key === "sourceLineNo") {
+    return props.showSourceLineColumn;
+  }
+  if (column.key === "sourceOrderNo") {
     return props.showSourceLineColumn;
   }
   if (column.key === "executedQty" || column.key === "remainingQty") {
@@ -662,6 +701,8 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
       return line.warehouseCode;
     case "targetWarehouse":
       return line.targetWarehouseCode ?? "";
+    case "sourceOrderNo":
+      return line.sourceOrderNo ?? "";
     case "sourceLineNo":
       return lineSourceLineNo(line);
     case "qty":
@@ -696,6 +737,64 @@ function startColumnResize(column: EntryColumn, event: MouseEvent) {
   resizeStartWidth.value = Number(column.width) || 96;
   window.addEventListener("mousemove", trackColumnResize);
   window.addEventListener("mouseup", finishColumnResize, { once: true });
+}
+
+function startColumnMouseDrag(column: EntryColumn, event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (target.closest("button") || target.closest(".entry-column-resizer")) {
+    return;
+  }
+  if (column.configurable === false) {
+    return;
+  }
+  event.preventDefault();
+  draggingColumnKey.value = column.key;
+  dragOverColumnKey.value = column.key;
+  dragGhostLeft.value = event.clientX + 10;
+  dragGhostTop.value = event.clientY + 10;
+  window.addEventListener("mousemove", trackColumnMouseDrag);
+  window.addEventListener("mouseup", finishColumnMouseDrag, { once: true });
+}
+
+function trackColumnMouseDrag(event: MouseEvent) {
+  if (!draggingColumnKey.value) {
+    return;
+  }
+  dragGhostLeft.value = event.clientX + 10;
+  dragGhostTop.value = event.clientY + 10;
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  const header = element?.closest<HTMLElement>(".entry-column-header");
+  const key = header?.dataset.columnField as EntryColumnKey | undefined;
+  if (key && columns.value.some((column) => column.key === key && column.configurable !== false)) {
+    dragOverColumnKey.value = key;
+  }
+}
+
+function finishColumnMouseDrag() {
+  const sourceKey = draggingColumnKey.value;
+  const targetKey = dragOverColumnKey.value;
+  if (!sourceKey || !targetKey || sourceKey === targetKey) {
+    finishColumnDrag();
+    return;
+  }
+  const sourceIndex = columns.value.findIndex((column) => column.key === sourceKey);
+  const targetIndex = columns.value.findIndex((column) => column.key === targetKey);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    finishColumnDrag();
+    return;
+  }
+  const next = [...columns.value];
+  const [sourceColumn] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, sourceColumn);
+  columns.value = next;
+  persistColumnPreferences();
+  finishColumnDrag();
+}
+
+function finishColumnDrag() {
+  window.removeEventListener("mousemove", trackColumnMouseDrag);
+  draggingColumnKey.value = "";
+  dragOverColumnKey.value = "";
 }
 
 function trackColumnResize(event: MouseEvent) {
@@ -782,7 +881,7 @@ function lineRemainingQty(line: EntryLine) {
 }
 
 function lineSourceLineNo(line: EntryLine) {
-  return line.sourceOrderNo && line.sourceLineNo ? `${line.sourceOrderNo} / #${line.sourceLineNo}` : "-";
+  return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
 }
 
 function lineLineNo(line: EntryLine, index: number) {
@@ -832,6 +931,10 @@ function lineQtyTestId(index: number) {
 
 function lineSourceLineNoTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-source-line-no` : `${props.testPrefix}-line-source-line-no-${index + 1}`;
+}
+
+function lineSourceOrderNoTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-source-order-no` : `${props.testPrefix}-line-source-order-no-${index + 1}`;
 }
 
 function lineSourceTraceTestId(index: number) {
@@ -905,6 +1008,9 @@ function lineMenuTestId(index: number) {
 function columnCellTestId(key: EntryColumnKey, index: number) {
   if (key === "sourceLineNo") {
     return lineSourceLineNoTestId(index);
+  }
+  if (key === "sourceOrderNo") {
+    return lineSourceOrderNoTestId(index);
   }
   if (key === "executedQty") {
     return lineExecutedQtyTestId(index);

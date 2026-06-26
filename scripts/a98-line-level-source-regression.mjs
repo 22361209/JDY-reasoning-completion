@@ -83,7 +83,7 @@ async function createData() {
 async function openNewSalesOut(page) {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
-  await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
 }
 
 async function selectSourceLines(page, orderA, orderB) {
@@ -98,8 +98,10 @@ async function selectSourceLines(page, orderA, orderB) {
 }
 
 async function lineSourceText(page, index) {
-  const testId = index === 0 ? "sales-out-line-source-trace" : `sales-out-line-source-trace-${index + 1}`;
-  return (await page.getByTestId(testId).innerText()).trim();
+  const suffix = index === 0 ? "" : `-${index + 1}`;
+  const orderNo = (await page.getByTestId(`sales-out-line-source-order-no${suffix}`).innerText()).trim();
+  const lineNo = (await page.getByTestId(`sales-out-line-source-line-no${suffix}`).innerText()).trim();
+  return `${orderNo} / ${lineNo}`;
 }
 
 const data = await createData();
@@ -117,7 +119,7 @@ try {
   const sourceTexts = [await lineSourceText(page, 0), await lineSourceText(page, 1)];
   assert(sourceTexts.includes(`${data.orderA} / #1`), `line sources should include order A, got ${sourceTexts.join(",")}`);
   assert(sourceTexts.includes(`${data.orderB} / #1`), `line sources should include order B, got ${sourceTexts.join(",")}`);
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "header source order should stay empty after multi-source selection");
+  assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "header source order input should be removed after multi-source selection");
 
   const popupPromise = page.waitForEvent("popup");
   await page.getByTestId("sales-out-line-source-trace").click();

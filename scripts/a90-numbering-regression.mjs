@@ -83,7 +83,9 @@ async function verifyDirectSalesOutNewForm() {
       return input instanceof HTMLInputElement && /^XSCKD\d{6}$/.test(input.value);
     });
     const billNo = await page.getByTestId("sales-out-bill-no").inputValue();
-    const sourceOrderNo = await page.getByTestId("sales-out-source-order-no").inputValue();
+    const sourceOrderNo = await page.getByTestId("sales-out-source-order-no").count() === 0
+      ? ""
+      : await page.getByTestId("sales-out-source-order-no").inputValue();
     const partyCode = await page.getByTestId("sales-out-party-code").inputValue();
     await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
 

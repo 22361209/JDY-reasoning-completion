@@ -117,14 +117,14 @@ async function openSalesOrderList(page, billNo) {
 async function openNewSalesOut(page) {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
-  await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
 }
 
 async function readSalesOutLines(page) {
   return {
     sources: [
-      (await page.getByTestId("sales-out-line-source-trace").textContent()).trim(),
-      (await page.getByTestId("sales-out-line-source-trace-2").textContent()).trim()
+      await lineSourceText(page, "sales-out", 0),
+      await lineSourceText(page, "sales-out", 1)
     ],
     products: [
       await page.getByTestId("sales-out-line-product").inputValue(),
@@ -153,6 +153,13 @@ async function readSalesOutLines(page) {
   };
 }
 
+async function lineSourceText(page, prefix, index) {
+  const suffix = index === 0 ? "" : `-${index + 1}`;
+  const orderNo = (await page.getByTestId(`${prefix}-line-source-order-no${suffix}`).innerText()).trim();
+  const lineNo = (await page.getByTestId(`${prefix}-line-source-line-no${suffix}`).innerText()).trim();
+  return `${orderNo} / ${lineNo}`;
+}
+
 function assertSalesOutLines(name, actual, expected) {
   assertArray(`${name} products`, actual.products, expected.products);
   assertArray(`${name} warehouses`, actual.warehouses, expected.warehouses);
@@ -176,9 +183,9 @@ try {
   await loginAsAdmin(page);
   await openSalesOrderList(page, data.listPushOrderNo);
   await page.getByTestId("push-sales-out").click();
-  await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   assert(await page.getByTestId("push-confirm-dialog").count() === 0, "sales pushdown confirm dialog should not appear");
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "direct push should not put source order on header");
+  assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "direct push should not keep source order on header");
   const directPushLines = await readSalesOutLines(page);
   assertSalesOutLines("direct push", directPushLines, data.expected);
   assertLineSources("direct push", directPushLines, data.listPushOrderNo);
@@ -191,11 +198,16 @@ try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await openNewSalesOut(page);
-  await page.getByTestId("sales-out-source-order-no").fill(data.sourceInputOrderNo);
-  await page.getByTestId("sales-out-load-source-order").click();
+  await page.getByTestId("sales-out-party-code").fill("KH-001");
+  await page.getByTestId("sales-out-open-source-selector").click();
+  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-source-selector-search").fill(data.sourceInputOrderNo);
+  await page.getByTestId(`sales-out-source-line-${data.sourceInputOrderNo}:1`).check();
+  await page.getByTestId(`sales-out-source-line-${data.sourceInputOrderNo}:2`).check();
+  await page.getByTestId("sales-out-source-selector-ok").click();
   await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
   assert(await page.getByTestId("sales-out-party-code").inputValue() === "KH-001", "source order should carry customer code");
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "source input should be cleared after appending lines");
+  assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "source input should be removed after A102");
   const sourceInputLines = await readSalesOutLines(page);
   assertSalesOutLines("source order input", sourceInputLines, data.expected);
   assertLineSources("source order input", sourceInputLines, data.sourceInputOrderNo);
@@ -213,7 +225,7 @@ try {
   await page.getByTestId(`sales-out-source-line-${data.customerPickOrderNo}:2`).check();
   await page.getByTestId("sales-out-source-selector-ok").click();
   await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "customer selector should not put source order on header");
+  assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "customer selector should not put source order on header");
   const customerPickLines = await readSalesOutLines(page);
   assertSalesOutLines("customer selector", customerPickLines, data.expected);
   assertLineSources("customer selector", customerPickLines, data.customerPickOrderNo);

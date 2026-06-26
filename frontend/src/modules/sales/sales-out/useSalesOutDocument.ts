@@ -352,15 +352,17 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!isDraft.value) {
       return;
     }
-    const customerCode = form.partyCode.trim();
-    if (!customerCode) {
-      message.value = "请先选择客户。";
-      return;
-    }
     sourceSelectorOpen.value = true;
-    sourceSelectorLoading.value = true;
     sourceSelectorMessage.value = "";
     sourceSelectorSelected.value = {};
+    const customerCode = form.partyCode.trim();
+    if (!customerCode) {
+      sourceSelectorLoading.value = false;
+      sourceSelectorLines.value = [];
+      sourceSelectorMessage.value = "请先在单头选择客户，再从该客户的已审核销售订单中选源单。";
+      return;
+    }
+    sourceSelectorLoading.value = true;
     const result = await fetchSelectableSalesOrderLines(customerCode);
     sourceSelectorLoading.value = false;
     if (!result.ok) {

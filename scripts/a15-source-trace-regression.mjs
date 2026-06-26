@@ -159,8 +159,10 @@ async function readFormQtys(page, prefix, count) {
 async function readSourceLineNos(page, prefix, count) {
   const values = [];
   for (let index = 0; index < count; index += 1) {
-    const testId = index === 0 ? `${prefix}-line-source-trace` : `${prefix}-line-source-trace-${index + 1}`;
-    values.push((await page.getByTestId(testId).innerText()).trim());
+    const suffix = index === 0 ? "" : `-${index + 1}`;
+    const orderNo = (await page.getByTestId(`${prefix}-line-source-order-no${suffix}`).innerText()).trim();
+    const lineNo = (await page.getByTestId(`${prefix}-line-source-line-no${suffix}`).innerText()).trim();
+    values.push(`${orderNo} / ${lineNo}`);
   }
   return values;
 }
@@ -198,11 +200,9 @@ try {
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
   const salesOutSourceLines = await readSourceLineNos(page, "sales-out", 3);
   assertArray("sales out line-level source order", salesOutSourceLines, [`${data.salesOrderNo} / #1`, `${data.salesOrderNo} / #2`, `${data.salesOrderNo} / #3`]);
-  if (await page.getByTestId("trace-source-order").isDisabled()) {
-    throw new Error("sales out trace button should be enabled");
-  }
+  await page.getByTestId("sales-out-line-source-trace").waitFor({ state: "visible" });
   const salesPopupPromise = page.waitForEvent("popup");
-  await page.getByTestId("trace-source-order").click();
+  await page.getByTestId("sales-out-line-source-trace").click();
   const salesPopup = await salesPopupPromise;
   await salesPopup.waitForLoadState("domcontentloaded");
   const salesPopupText = await salesPopup.locator("body").innerText();

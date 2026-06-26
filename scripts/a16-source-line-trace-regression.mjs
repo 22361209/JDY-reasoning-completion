@@ -136,8 +136,10 @@ async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
 async function readSourceLineNos(page, prefix, count) {
   const values = [];
   for (let index = 0; index < count; index += 1) {
-    const testId = index === 0 ? `${prefix}-line-source-trace` : `${prefix}-line-source-trace-${index + 1}`;
-    values.push((await page.getByTestId(testId).innerText()).trim());
+    const suffix = index === 0 ? "" : `-${index + 1}`;
+    const orderNo = (await page.getByTestId(`${prefix}-line-source-order-no${suffix}`).innerText()).trim();
+    const lineNo = (await page.getByTestId(`${prefix}-line-source-line-no${suffix}`).innerText()).trim();
+    values.push(`${orderNo} / ${lineNo}`);
   }
   return values;
 }

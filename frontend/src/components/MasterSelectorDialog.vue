@@ -19,11 +19,13 @@
         <aside class="master-selector-dialog__tree">
           <strong>全部{{ label }}</strong>
           <span>启用资料</span>
+          <span>最近使用</span>
         </aside>
         <div class="master-selector-dialog__table">
           <table>
             <thead>
               <tr>
+                <th class="selector-pick-col">选择</th>
                 <th>{{ label }}编码</th>
                 <th>{{ label }}名称</th>
                 <th>规格</th>
@@ -32,10 +34,10 @@
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="4">加载中...</td>
+                <td colspan="5">加载中...</td>
               </tr>
               <tr v-else-if="rows.length === 0">
-                <td colspan="4">暂无可选资料</td>
+                <td colspan="5">暂无可选资料</td>
               </tr>
               <template v-else>
                 <tr
@@ -46,6 +48,7 @@
                   @click="emit('select', row)"
                   @keydown.enter.prevent="emit('select', row)"
                 >
+                  <td><span class="selector-row-radio" /></td>
                   <td><strong>{{ row.code }}</strong></td>
                   <td>{{ row.name }}</td>
                   <td>{{ row.spec || "-" }}</td>

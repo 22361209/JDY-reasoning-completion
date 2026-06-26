@@ -115,6 +115,7 @@
       <button v-if="isStockAlertList" type="button" :disabled="!canMaintainStockAlert" data-testid="stock-alert-settings" @click="openStockAlertSettings">安全库存设置</button>
       <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
       <button v-if="!isStockAlertList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
+      <button v-if="isReverseableDocumentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow || !selectedRows.every(isAuditedRow)" data-testid="batch-reverse" @click="confirmAction('反审核')">反审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">销售出库</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
@@ -131,6 +132,7 @@
       </div>
       <span class="selected-count">已选中 {{ selectedRows.length }} 条</span>
       <span v-if="exportMessage" class="list-export-message" data-testid="list-export-message">{{ exportMessage }}</span>
+      <span v-if="batchMessage" class="list-export-message" data-testid="list-batch-message">{{ batchMessage }}</span>
     </div>
 
     <div class="vxe-wrap" data-testid="vxe-list-table">
@@ -340,7 +342,7 @@
         <p>确定要{{ pendingAction }}已选中的 {{ selectedRows.length }} 条数据吗？</p>
         <div class="dialog-actions">
           <button type="button" @click="pendingAction = ''">取消</button>
-          <button class="danger-action" type="button" @click="pendingAction = ''">确定</button>
+          <button class="danger-action" type="button" @click="submitPendingAction">确定</button>
         </div>
       </div>
     </div>
@@ -363,6 +365,7 @@ import {
   type StockAlertSetting,
   type ListFilterPreset
 } from "../services/listApi";
+import { reverseDocument, type DocumentType } from "../services/documentApi";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
 import { useSessionStore } from "../stores/session";
 
@@ -412,6 +415,7 @@ const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
 const pendingAction = ref("");
+const batchMessage = ref("");
 const rows = ref<Record<string, unknown>[]>([]);
 const total = ref(0);
 const selectedRows = ref<Record<string, unknown>[]>([]);
@@ -967,6 +971,7 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
 };
 const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));
+const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
 const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
   return Boolean(
@@ -995,6 +1000,23 @@ const displayedRows = computed(() => rows.value);
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => selectedRows.value.some((row) => isRowLocked(row)));
 const draggingColumnTitle = computed(() => columns.value.find((column) => column.field === draggingColumnField.value)?.title ?? "");
+
+const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
+  "sales-order-form-list": "salesOrder",
+  "sales-out-list": "salesOut",
+  "sales-out-form-list": "salesOut",
+  "purchase-order-form-list": "purchaseOrder",
+  "purchase-in-list": "purchaseIn",
+  "purchase-in-form-list": "purchaseIn",
+  "material-issue-form-list": "materialIssue",
+  "product-in-form-list": "productIn",
+  "other-in-form-list": "otherStockIn",
+  "other-out-form-list": "otherStockOut",
+  "stock-transfer-form-list": "stockTransfer",
+  "stock-count-form-list": "stockCount",
+  "stock-count-gain-form-list": "stockCountGain",
+  "stock-count-loss-form-list": "stockCountLoss"
+};
 
 watch(() => props.listKey, () => {
   resetColumns();
@@ -1333,6 +1355,38 @@ function statusClass(value: unknown) {
 
 function confirmAction(action: string) {
   pendingAction.value = action;
+}
+
+async function submitPendingAction() {
+  const action = pendingAction.value;
+  pendingAction.value = "";
+  if (action === "反审核") {
+    await submitBatchReverse();
+    return;
+  }
+  batchMessage.value = `${action}已确认，当前批次只接入反审核实际提交。`;
+}
+
+async function submitBatchReverse() {
+  const type = documentActionTypeByListKey[props.listKey];
+  const targets = selectedRows.value
+    .filter(isAuditedRow)
+    .map((row) => String(row.billNo ?? ""))
+    .filter(Boolean);
+  if (!type || targets.length === 0) {
+    batchMessage.value = "请选择已审核单据再反审核。";
+    return;
+  }
+  const results = await Promise.all(targets.map((billNo) => reverseDocument(type, billNo)));
+  const failed = results.filter((result) => !result.ok);
+  batchMessage.value = failed.length
+    ? `反审核完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查下游单据约束"}`
+    : `已反审核 ${targets.length} 张单据，状态回到草稿。`;
+  await reload();
+}
+
+function isAuditedRow(row: Record<string, unknown>) {
+  return row.status === "已审核";
 }
 
 function pushDownSalesOut() {

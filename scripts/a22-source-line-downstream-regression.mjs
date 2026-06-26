@@ -194,7 +194,8 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, salesDialogScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesDialogScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await page.getByText(`${data.salesOrderNo} / #3`).waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-line-source-order-no").filter({ hasText: data.salesOrderNo }).waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-line-source-line-no").filter({ hasText: "#3" }).waitFor({ state: "visible" });
   const salesOpenScreenshot = `a22-sales-downstream-open-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesOpenScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesOpenScreenshot}`);
@@ -214,7 +215,8 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, purchaseDialogScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseDialogScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await page.getByText(`${data.purchaseOrderNo} / #3`).waitFor({ state: "visible" });
+  await page.getByTestId("purchase-in-line-source-order-no").filter({ hasText: data.purchaseOrderNo }).waitFor({ state: "visible" });
+  await page.getByTestId("purchase-in-line-source-line-no").filter({ hasText: "#3" }).waitFor({ state: "visible" });
   const purchaseOpenScreenshot = `a22-purchase-downstream-open-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseOpenScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseOpenScreenshot}`);

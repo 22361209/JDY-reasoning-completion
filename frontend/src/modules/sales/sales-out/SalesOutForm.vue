@@ -13,12 +13,17 @@
     :can-void="document.canVoid.value"
     :can-delete="document.canDelete.value"
     :can-output="true"
+    :show-source-select="true"
+    :can-source-select="document.isDraft.value"
+    source-select-label="选源单"
+    source-select-test-id="sales-out-open-source-selector"
     @create="document.startNew"
     @save="document.save()"
     @audit="document.audit"
     @reverse="document.openRiskyAction('reverse')"
     @red-reverse="document.openRiskyAction('redReverse')"
     @void-document="document.voidCurrent"
+    @source-select="document.openCustomerSourceSelector"
     @delete-document="noop"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -29,11 +34,6 @@
         <div v-if="document.form.redReverseBillNo || document.form.redSourceBillNo" class="source-order-field source-order-field--links">
           <button v-if="document.form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="document.openRedReverseBill">红字单 {{ document.form.redReverseBillNo }}</button>
           <button v-if="document.form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="document.openRedSourceBill">来源原单 {{ document.form.redSourceBillNo }}</button>
-        </div>
-        <div class="source-order-field">
-          <label>追加源订单<input v-model="document.form.sourceOrderNo" data-testid="sales-out-source-order-no" @input="document.markDirty" @change="document.loadSourceOrderNo" @keydown.enter.prevent="document.loadSourceOrderNo" /></label>
-          <button type="button" data-testid="sales-out-load-source-order" @click="document.loadSourceOrderNo">从源订单追加明细</button>
-          <button type="button" :disabled="!document.canTraceSourceOrder.value" data-testid="trace-source-order" @click="document.traceSourceOrder()">行级源单追溯</button>
         </div>
         <div class="form-head-field form-head-field-with-action">
           <label>
@@ -69,7 +69,6 @@
               </span>
             </span>
           </label>
-          <button class="inline-pick-button" type="button" data-testid="sales-out-open-source-selector" @click="document.openCustomerSourceSelector">选单</button>
         </div>
         <label>客户名称<input :value="document.form.partyName || ''" data-testid="sales-out-party-name" readonly /></label>
         <label>业务日期<input v-model="document.form.billDate" data-testid="sales-out-bill-date" @input="document.markDirty" /></label>
@@ -151,7 +150,7 @@
   <div v-if="document.sourceSelectorOpen.value" class="modal-mask" data-testid="sales-out-source-selector-dialog">
     <div class="dialog source-selector-dialog">
       <h3>选择销售订单</h3>
-      <p>{{ document.form.partyCode }} {{ document.form.partyName || '' }} 已下单且有剩余可出数量的销售订单明细。</p>
+      <p>{{ document.form.partyCode || '未限定客户' }} {{ document.form.partyName || '' }} 已下单且有剩余可出数量的销售订单明细。</p>
       <div class="source-selector-toolbar">
         <input
           v-model="sourceSelectorKeyword"

@@ -116,7 +116,7 @@ async function pushOrderFromList(page, billNo) {
   await row.waitFor({ state: "visible" });
   await row.locator(".vxe-checkbox--icon").first().click();
   await page.getByTestId("push-sales-out").click();
-  await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
 }
 
 const { salesOrderNo, customerName } = await createSalesOrder();
@@ -140,15 +140,17 @@ try {
   screenshots.push(`verification/playwright/${orderScreenshot}`);
 
   await page.getByTestId("push-sales-out-from-order-detail").click();
-  await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
+  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   const pushed = {
-    headerSourceOrderNo: await page.getByTestId("sales-out-source-order-no").inputValue(),
+    headerSourceOrderNo: await page.getByTestId("sales-out-source-order-no").count() === 0
+      ? ""
+      : await page.getByTestId("sales-out-source-order-no").inputValue(),
     customerCode: await page.getByTestId("sales-out-party-code").inputValue(),
     customerName: await page.getByTestId("sales-out-party-name").inputValue(),
     ownerName: await page.getByTestId("sales-out-owner-name").inputValue(),
     sourceLines: [
-      (await page.getByTestId("sales-out-line-source-line-no").innerText()).trim(),
-      (await page.getByTestId("sales-out-line-source-line-no-2").innerText()).trim()
+      await lineSourceText(page, "sales-out", 0),
+      await lineSourceText(page, "sales-out", 1)
     ],
     products: [
       await page.getByTestId("sales-out-line-product").inputValue(),
@@ -238,4 +240,11 @@ try {
   console.log(JSON.stringify(result, null, 2));
 } finally {
   await browser.close();
+}
+
+async function lineSourceText(page, prefix, index) {
+  const suffix = index === 0 ? "" : `-${index + 1}`;
+  const orderNo = (await page.getByTestId(`${prefix}-line-source-order-no${suffix}`).innerText()).trim();
+  const lineNo = (await page.getByTestId(`${prefix}-line-source-line-no${suffix}`).innerText()).trim();
+  return `${orderNo} / ${lineNo}`;
 }
