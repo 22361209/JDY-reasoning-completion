@@ -107,7 +107,8 @@ try {
     seq: node.className.includes("col--seq")
   })));
   assert(firstListHeaders[0]?.fixed && firstListHeaders[0]?.checkbox, `list first column should be fixed checkbox: ${JSON.stringify(firstListHeaders)}`);
-  assert(firstListHeaders[1]?.fixed && (firstListHeaders[1]?.seq || firstListHeaders[1]?.text.includes("序号")), `list second column should be fixed sequence: ${JSON.stringify(firstListHeaders)}`);
+  assert(!firstListHeaders.some((header) => header.seq || header.text.includes("序号")), `list should not render sequence column after A112: ${JSON.stringify(firstListHeaders)}`);
+  assert(firstListHeaders[1]?.text.includes("单据编号"), `list second visible column should be bill number after checkbox: ${JSON.stringify(firstListHeaders)}`);
 
   await page.getByTestId("list-detail-view-toggle").click();
   await page.getByTestId("column-drag-productCode").waitFor({ state: "visible" });

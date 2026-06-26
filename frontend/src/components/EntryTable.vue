@@ -28,7 +28,7 @@
     <button type="button" data-testid="entry-column-settings" @click="columnDialogOpen = true">列设置</button>
     <button v-if="showStockColumns" type="button" data-testid="refresh-entry-stock" @click="emit('refreshStock')">更新</button>
   </div>
-  <div class="entry-table">
+  <TableCoreFrame class="entry-table" kind="entry" test-id="entry-table-core">
     <table :style="{ width: `${entryTableWidth}px`, minWidth: `${entryTableWidth}px` }">
       <colgroup>
         <col v-for="column in visibleColumns" :key="column.key" :style="{ width: `${column.width}px` }" />
@@ -46,34 +46,22 @@
                 @change="toggleAllLines(($event.target as HTMLInputElement).checked)"
               />
             </template>
-            <div
+            <TableCoreHeaderCell
               v-else
-              class="column-header-cell entry-column-header"
-              :class="{ dragging: draggingColumnKey === column.key, 'drag-over': dragOverColumnKey === column.key }"
-              :data-testid="`entry-column-drag-${column.key}`"
-              :data-column-field="column.key"
-              @mousedown.left="startColumnMouseDrag(column, $event)"
-            >
-              <span class="column-header-title">{{ column.title }}</span>
-              <button
-                v-if="column.configurable !== false"
-                class="column-filter-button"
-                type="button"
-                :class="{ active: Boolean(columnFilters[column.key]?.value) || ['为空', '不为空'].includes(columnFilters[column.key]?.operator ?? '') }"
-                :title="`${column.title}过滤`"
-                :data-testid="`entry-column-filter-${column.key}`"
-                @mousedown.stop
-                @click.stop="openColumnFilter(column, $event)"
-              >
-                ⌄
-              </button>
-              <span
-                v-if="column.configurable !== false"
-                class="entry-column-resizer"
-                :data-testid="`entry-column-resize-${column.key}`"
-                @mousedown.stop.prevent="startColumnResize(column, $event)"
-              />
-            </div>
+              :title="column.title"
+              :column-key="column.key"
+              :test-id="`entry-column-drag-${column.key}`"
+              :filter-test-id="`entry-column-filter-${column.key}`"
+              :resize-test-id="`entry-column-resize-${column.key}`"
+              :filterable="column.configurable !== false"
+              :resizable="column.configurable !== false"
+              :filter-active="Boolean(columnFilters[column.key]?.value) || ['为空', '不为空'].includes(columnFilters[column.key]?.operator ?? '')"
+              :dragging="draggingColumnKey === column.key"
+              :drag-over="dragOverColumnKey === column.key"
+              @drag-start="startColumnMouseDrag(column, $event)"
+              @filter="openColumnFilter(column, $event)"
+              @resize-start="startColumnResize(column, $event)"
+            />
           </th>
         </tr>
       </thead>
@@ -324,7 +312,7 @@
         </tr>
       </tbody>
     </table>
-  </div>
+  </TableCoreFrame>
 
   <ColumnSettingsDialog
     :open="columnDialogOpen"
@@ -365,6 +353,8 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { taxAmounts } from "../app/taxAmounts";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
+import TableCoreFrame from "./table/TableCoreFrame.vue";
+import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
 
 export interface EntryLine {
   lineNo?: number;
@@ -807,7 +797,7 @@ function startColumnResize(column: EntryColumn, event: MouseEvent) {
 
 function startColumnMouseDrag(column: EntryColumn, event: MouseEvent) {
   const target = event.target as HTMLElement;
-  if (target.closest("button") || target.closest(".entry-column-resizer")) {
+  if (target.closest("button") || target.closest(".table-core-column-resizer")) {
     return;
   }
   if (column.configurable === false || isFrozenEntryColumn(column.key)) {
@@ -829,7 +819,7 @@ function trackColumnMouseDrag(event: MouseEvent) {
   dragGhostLeft.value = event.clientX + 10;
   dragGhostTop.value = event.clientY + 10;
   const element = document.elementFromPoint(event.clientX, event.clientY);
-  const header = element?.closest<HTMLElement>(".entry-column-header");
+  const header = element?.closest<HTMLElement>(".table-core-header-cell");
   const key = header?.dataset.columnField as EntryColumnKey | undefined;
   if (key && columns.value.some((column) => column.key === key && column.configurable !== false && !isFrozenEntryColumn(column.key))) {
     dragOverColumnKey.value = key;

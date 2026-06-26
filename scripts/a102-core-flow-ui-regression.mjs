@@ -148,8 +148,8 @@ try {
   const sourceLineCell = (await page.getByTestId("sales-out-line-source-line-no").textContent())?.replace(/\s+/g, " ").trim();
   assert(sourceOrderCell === source.noticeNo, `source column should show delivery notice no only, got ${sourceOrderCell}`);
   assert(sourceLineCell?.includes("#1"), `source line column should show line no, got ${sourceLineCell}`);
-  assert(await page.locator(".entry-column-header", { hasText: "源单号" }).count() > 0, "entry table should have source order header");
-  assert(await page.locator(".entry-column-header", { hasText: "源单行号" }).count() > 0, "entry table should have source line header");
+  assert(await page.locator(".table-core-header-cell", { hasText: "源单号" }).count() > 0, "entry table should have source order header");
+  assert(await page.locator(".table-core-header-cell", { hasText: "源单行号" }).count() > 0, "entry table should have source line header");
 
   const productOpenButton = page.getByTestId("sales-out-line-product-open-selector");
   const hiddenOpacity = await productOpenButton.evaluate((node) => getComputedStyle(node).opacity);
