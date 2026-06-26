@@ -58,6 +58,7 @@ type PreparedEntryLines = {
   documentLines: {
     productCode: string;
     warehouseCode: string;
+    sourceOrderNo?: string;
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
@@ -114,7 +115,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const canReverse = computed(() => form.status === "AUDITED");
   const canVoid = computed(() => form.status === "DRAFT");
   const canDelete = computed(() => false);
-  const canTraceSourceOrder = computed(() => Boolean(form.sourceOrderNo?.trim()));
+  const canTraceSourceOrder = computed(() => Boolean(form.lines.some((line) => line.sourceOrderNo?.trim())));
   const statusLabel = computed(() => {
     const labels: Record<OrderForm["status"], string> = {
       DRAFT: "草稿",
@@ -128,7 +129,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
-  const showSourceLineColumn = computed(() => Boolean(form.sourceOrderNo));
+  const showSourceLineColumn = computed(() => Boolean(form.lines.some((line) => line.sourceOrderNo?.trim())));
   const entryTableColspan = computed(() => 11 + (showSourceLineColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const redReverseBillNo = computed(() => `HC-${form.billNo}`);
@@ -168,10 +169,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   function fillFromDetail(detail: DocumentDetail) {
     const document = detail.document;
     form.billNo = document.billNo;
-    form.sourceOrderNo = document.sourceOrderNo || undefined;
+    form.sourceOrderNo = "";
     form.redReverseBillNo = document.redReverseBillNo || undefined;
     form.redSourceBillNo = document.redSourceBillNo || undefined;
-    form.partyCode = document.sourceOrderNo && document.customerCode === "SC" ? document.sourceOrderNo : document.customerCode || "";
+    form.partyCode = document.customerCode || "";
     form.partyName = document.customer || "";
     form.billDate = document.billDate;
     form.department = document.department || "销售部";
@@ -186,6 +187,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         spec: String(line.spec ?? ""),
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
         lineNo: normalizedOptionalInt(line.lineNo),
+        sourceOrderNo: String(line.sourceOrderNo ?? ""),
         sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
         qty: Number(line.qty ?? 0),
         executedQty: line.shippedQty === undefined ? undefined : normalizedQty(line.shippedQty),
@@ -226,7 +228,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
 
   function applyPushDownDraft(draft: SalesOutPushDownDraft) {
     form.billNo = draft.billNo;
-    form.sourceOrderNo = draft.sourceOrderNo;
+    form.sourceOrderNo = "";
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = draft.partyCode;
@@ -242,6 +244,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceOrderNo: draft.sourceOrderNo,
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
@@ -255,7 +258,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
 
   function applySalesOrderLines(order: SalesOrderDetail["order"], lines: PendingPushLine[], loadedMessage: string) {
     const today = new Date();
-    form.sourceOrderNo = order.billNo;
+    form.sourceOrderNo = "";
     form.partyCode = order.customerCode || "";
     form.partyName = order.customer || "";
     form.billDate = [
@@ -271,6 +274,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceOrderNo: order.billNo,
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0),
@@ -280,6 +284,46 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }));
     message.value = loadedMessage;
     options.markDirty();
+  }
+
+  function appendSalesOrderLines(order: SalesOrderDetail["order"], lines: PendingPushLine[], loadedMessage: string) {
+    const today = new Date();
+    if (!form.partyCode) {
+      form.partyCode = order.customerCode || "";
+      form.partyName = order.customer || "";
+    }
+    form.billDate = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0")
+    ].join("-");
+    form.department = order.department || form.department || "销售部";
+    form.ownerName = options.userName() || order.ownerName || "本地管理员";
+    form.isTaxInclusive = Boolean(order.isTaxInclusive);
+    appendFormLines(lines.map((line) => ({
+      productCode: String(line.productCode ?? ""),
+      productName: String(line.productName ?? ""),
+      spec: String(line.spec ?? ""),
+      warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceOrderNo: order.billNo,
+      sourceLineNo: line.sourceLineNo,
+      qty: normalizedQty(line.remainingQty),
+      unitPrice: Number(line.unitPrice ?? 0),
+      taxRate: Number(line.taxRate ?? 13),
+      lineRemark: String(line.lineRemark ?? ""),
+      planDeliveryDate: String(line.planDeliveryDate ?? "")
+    })));
+    form.sourceOrderNo = "";
+    message.value = loadedMessage;
+    options.markDirty();
+  }
+
+  function appendFormLines(lines: OrderLineForm[]) {
+    if (form.lines.length === 1 && isStarterLine(form.lines[0])) {
+      form.lines = lines;
+      return;
+    }
+    form.lines.push(...lines);
   }
 
   async function loadSourceOrderNo() {
@@ -301,7 +345,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       message.value = `销售订单 ${sourceOrderNo} 已无剩余可出数量。`;
       return;
     }
-    applySalesOrderLines(result.data.order, lines, `已按源订单 ${sourceOrderNo} 拉入剩余可出分录`);
+    appendSalesOrderLines(result.data.order, lines, `已从源订单 ${sourceOrderNo} 追加 ${lines.length} 行剩余可出明细`);
   }
 
   async function openCustomerSourceSelector() {
@@ -345,24 +389,19 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceSelectorMessage.value = "请至少勾选一条销售订单明细。";
       return;
     }
-    const sourceOrderNos = Array.from(new Set(selectedLines.map((line) => line.billNo)));
-    if (sourceOrderNos.length > 1) {
-      sourceSelectorMessage.value = "当前单头只支持一张源销售订单，请先选择同一订单的多行明细。";
-      return;
-    }
     const first = selectedLines[0];
     if (!first) {
       return;
     }
-    form.sourceOrderNo = first.billNo;
+    form.sourceOrderNo = "";
     form.partyCode = first.customerCode;
     form.partyName = first.customer || form.partyName || "";
     form.department = first.department || form.department || "销售部";
     form.isTaxInclusive = Boolean(first.isTaxInclusive);
-    form.lines = selectedLines.map((line) => selectableLineToFormLine(line));
+    appendFormLines(selectedLines.map((line) => selectableLineToFormLine(line)));
     sourceSelectorOpen.value = false;
     sourceSelectorMessage.value = "";
-    message.value = `已从${first.billNo}选入 ${selectedLines.length} 行剩余可出明细`;
+    message.value = `已追加 ${selectedLines.length} 行销售订单剩余可出明细`;
     options.markDirty();
   }
 
@@ -508,12 +547,12 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }
   }
 
-  function traceSourceOrder(sourceLineNo?: number) {
-    const billNo = form.sourceOrderNo?.trim();
+  function traceSourceOrder(sourceLineNo?: number, sourceOrderNo?: string) {
+    const billNo = sourceOrderNo?.trim() || form.lines.find((line) => line.sourceOrderNo?.trim())?.sourceOrderNo?.trim();
     if (!billNo) {
       return;
     }
-    options.requestOpenDocument({ type: "salesOrder", billNo, sourceLineNo: sourceLineNo ?? form.lines.find((line) => line.sourceLineNo)?.sourceLineNo ?? null });
+    options.requestOpenDocument({ type: "salesOrder", billNo, sourceLineNo: sourceLineNo ?? form.lines.find((line) => line.sourceOrderNo === billNo && line.sourceLineNo)?.sourceLineNo ?? null });
   }
 
   function openDownstreamTrace(line: OrderLineForm, index: number) {
@@ -1199,6 +1238,7 @@ function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
+    sourceOrderNo: String(line.billNo ?? ""),
     sourceLineNo: normalizedOptionalInt(line.lineNo),
     qty: normalizedQty(line.remainingQty),
     unitPrice: Number(line.unitPrice ?? 0),
@@ -1222,6 +1262,7 @@ function toDocumentLines(lines: OrderLineForm[]) {
   return lines.map((line) => ({
     productCode: line.productCode,
     warehouseCode: line.warehouseCode,
+    sourceOrderNo: line.sourceOrderNo,
     sourceLineNo: line.sourceLineNo,
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0),
@@ -1252,6 +1293,16 @@ function isBlankEntryLine(line: OrderLineForm) {
     && !String(line.planDeliveryDate ?? "").trim()
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
+}
+
+function isStarterLine(line: OrderLineForm | undefined) {
+  return Boolean(line)
+    && !line?.sourceOrderNo
+    && !line?.sourceLineNo
+    && String(line?.productCode ?? "") === "CP-001"
+    && String(line?.warehouseCode ?? "") === "CK-001"
+    && [1, 5].includes(normalizedQty(line?.qty))
+    && normalizedQty(line?.unitPrice) === 86;
 }
 
 function entryLineProductCode(line: OrderLineForm) {

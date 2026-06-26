@@ -122,6 +122,10 @@ async function openNewSalesOut(page) {
 
 async function readSalesOutLines(page) {
   return {
+    sources: [
+      (await page.getByTestId("sales-out-line-source-trace").textContent()).trim(),
+      (await page.getByTestId("sales-out-line-source-trace-2").textContent()).trim()
+    ],
     products: [
       await page.getByTestId("sales-out-line-product").inputValue(),
       await page.getByTestId("sales-out-line-product-2").inputValue()
@@ -158,6 +162,10 @@ function assertSalesOutLines(name, actual, expected) {
   assertArray(`${name} plan dates`, actual.planDates, expected.planDates);
 }
 
+function assertLineSources(name, actual, sourceOrderNo) {
+  assertArray(`${name} line sources`, actual.sources, [`${sourceOrderNo} / #1`, `${sourceOrderNo} / #2`]);
+}
+
 const data = await createData();
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
@@ -170,9 +178,10 @@ try {
   await page.getByTestId("push-sales-out").click();
   await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
   assert(await page.getByTestId("push-confirm-dialog").count() === 0, "sales pushdown confirm dialog should not appear");
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === data.listPushOrderNo, "direct push source order mismatch");
+  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "direct push should not put source order on header");
   const directPushLines = await readSalesOutLines(page);
   assertSalesOutLines("direct push", directPushLines, data.expected);
+  assertLineSources("direct push", directPushLines, data.listPushOrderNo);
   await page.getByTestId("sales-out-line-qty").fill("5");
   assert(Number(await page.getByTestId("sales-out-line-qty").inputValue()) === 5, "direct push qty should be edited in sales out form");
   const directShot = `a93-sales-direct-push-${batch}.png`;
@@ -186,9 +195,10 @@ try {
   await page.getByTestId("sales-out-load-source-order").click();
   await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
   assert(await page.getByTestId("sales-out-party-code").inputValue() === "KH-001", "source order should carry customer code");
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === data.sourceInputOrderNo, "source input order mismatch");
+  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "source input should be cleared after appending lines");
   const sourceInputLines = await readSalesOutLines(page);
   assertSalesOutLines("source order input", sourceInputLines, data.expected);
+  assertLineSources("source order input", sourceInputLines, data.sourceInputOrderNo);
   const sourceShot = `a93-sales-source-order-load-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, sourceShot), fullPage: true });
   screenshots.push(`verification/playwright/${sourceShot}`);
@@ -203,9 +213,10 @@ try {
   await page.getByTestId(`sales-out-source-line-${data.customerPickOrderNo}:2`).check();
   await page.getByTestId("sales-out-source-selector-ok").click();
   await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
-  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === data.customerPickOrderNo, "customer selector source order mismatch");
+  assert(await page.getByTestId("sales-out-source-order-no").inputValue() === "", "customer selector should not put source order on header");
   const customerPickLines = await readSalesOutLines(page);
   assertSalesOutLines("customer selector", customerPickLines, data.expected);
+  assertLineSources("customer selector", customerPickLines, data.customerPickOrderNo);
   const selectorShot = `a93-sales-customer-source-selector-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, selectorShot), fullPage: true });
   screenshots.push(`verification/playwright/${selectorShot}`);

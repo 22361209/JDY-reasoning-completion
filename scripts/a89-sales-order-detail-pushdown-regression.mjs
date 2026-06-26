@@ -54,7 +54,7 @@ function stockQty() {
 }
 
 function salesOutCount() {
-  return dbNumber(`SELECT count(*) FROM sales_out WHERE source_order_id = (SELECT id FROM sales_order WHERE bill_no = '${salesOrderNo}')`);
+  return dbNumber(`SELECT count(DISTINCT so.id) FROM sales_out so JOIN sales_out_line l ON l.bill_id = so.id WHERE l.source_order_no = '${salesOrderNo}'`);
 }
 
 async function seed() {
@@ -150,7 +150,8 @@ const reverseBlocked = await api(`/api/sales-orders/${encodeURIComponent(salesOr
 
 assert(flow.afterQty === flow.beforeQty - qty, `stock should decrease by ${qty}: ${flow.beforeQty} -> ${flow.afterQty}`);
 assert(salesOutDetail.document.status === "AUDITED", `sales out should be AUDITED, got ${salesOutDetail.document.status}`);
-assert(salesOutDetail.document.sourceOrderNo === salesOrderNo, "sales out should keep source order no");
+assert(!salesOutDetail.document.sourceOrderNo, "sales out header should not keep a single source order no");
+assert(salesOutDetail.lines[0]?.sourceOrderNo === salesOrderNo, "sales out line should keep source order no");
 assert(salesOutCount() === 1, "one sales out should be generated from source order");
 assert(sourceDetail.order.status === "AUDITED", `source order should stay AUDITED, got ${sourceDetail.order.status}`);
 assert(sourceDetail.lines.every((line) => Number(line.remainingQty ?? 0) === 0), "source order should have no remaining outbound qty");

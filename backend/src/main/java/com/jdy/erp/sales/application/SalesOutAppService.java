@@ -78,7 +78,7 @@ public class SalesOutAppService {
         var billRows = jdbcTemplate.queryForList("""
             SELECT so.id::text AS id,
                    so.bill_no AS "billNo",
-                   src.bill_no AS "sourceOrderNo",
+                   NULL AS "sourceOrderNo",
                    c.code AS "customerCode",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
@@ -106,7 +106,6 @@ public class SalesOutAppService {
             FROM sales_out so
             JOIN md_customer c ON c.id = so.customer_id
             LEFT JOIN sys_user creator ON creator.id = so.created_by
-            LEFT JOIN sales_order src ON src.id = so.source_order_id
             WHERE so.bill_no = ?
             """, BillStatus.RED_REVERSED.name(), BillStatus.RED_REVERSED.name(), billNo);
         if (billRows.isEmpty()) {
@@ -114,7 +113,8 @@ public class SalesOutAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
@@ -141,7 +141,6 @@ public class SalesOutAppService {
     public Map<String, Object> saveDraft(SalesOutDraftRequest request) {
         var billNo = numberingService.assignBillNo("salesOut", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
-        var sourceOrderId = sourceOrderId(request.sourceOrderNo());
         var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
@@ -166,7 +165,7 @@ public class SalesOutAppService {
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
             """,
             billNo,
-            sourceOrderId,
+            null,
             customerId,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),
             request.department(),
@@ -179,7 +178,7 @@ public class SalesOutAppService {
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM sales_out_line WHERE bill_id = ?::uuid", billId);
-        insertLines(billId, request.lines(), isTaxInclusive);
+        insertLines(billId, request.sourceOrderNo(), request.lines(), isTaxInclusive);
         return bill;
     }
 
@@ -196,19 +195,19 @@ public class SalesOutAppService {
             "sales_out",
             "销售出库单不存在或已审核"
         );
-        var sourceOrderId = row.get("sourceOrderId");
         var lines = postingLines(billNo);
-        if (sourceOrderId != null) {
-            for (var line : lines) {
+        for (var line : lines) {
+            var sourceOrderId = sourceOrderIdFromLine(line);
+            if (sourceOrderId != null) {
                 conversionService.increaseExecutedQuantity(
                     SALES_ORDER_OUT_SPEC,
-                    String.valueOf(sourceOrderId),
+                    sourceOrderId,
                     line.get("sourceLineNo"),
                     (BigDecimal) line.get("qty")
                 );
             }
-            conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, String.valueOf(sourceOrderId));
         }
+        refreshSalesSourceStatuses(lines);
         for (var line : lines) {
             postingPipeline.post(new PostingContext(
                 InventoryPostingHook.CHANNEL,
@@ -236,7 +235,6 @@ public class SalesOutAppService {
             "sales_out",
             "销售出库单不存在或不能反审核"
         );
-        var sourceOrderId = row.get("sourceOrderId");
         var lines = postingLines(billNo);
         for (var line : lines) {
             postingPipeline.post(new PostingContext(
@@ -248,17 +246,18 @@ public class SalesOutAppService {
                 "SALES_OUT_REVERSE:" + billNo
             ));
         }
-        if (sourceOrderId != null) {
-            for (var line : lines) {
+        for (var line : lines) {
+            var sourceOrderId = sourceOrderIdFromLine(line);
+            if (sourceOrderId != null) {
                 conversionService.decreaseExecutedQuantity(
                     SALES_ORDER_OUT_SPEC,
-                    String.valueOf(sourceOrderId),
+                    sourceOrderId,
                     line.get("sourceLineNo"),
                     (BigDecimal) line.get("qty")
                 );
             }
-            conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, String.valueOf(sourceOrderId));
         }
+        refreshSalesSourceStatuses(lines);
         postingPipeline.post(financeContext(row, "SALES_OUT_REVERSE"));
         return row;
     }
@@ -319,11 +318,12 @@ public class SalesOutAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
+                line.get("sourceOrderNo"),
                 line.get("sourceLineNo"),
                 line.get("productId"),
                 line.get("warehouseId"),
@@ -344,18 +344,17 @@ public class SalesOutAppService {
                 "SALES_OUT_RED",
                 "SALES_OUT_RED:" + redBillNo
             ));
-            if (source.get("sourceOrderId") != null) {
+            var sourceOrderId = sourceOrderIdFromLine(line);
+            if (sourceOrderId != null) {
                 conversionService.decreaseExecutedQuantity(
                     SALES_ORDER_OUT_SPEC,
-                    String.valueOf(source.get("sourceOrderId")),
+                    sourceOrderId,
                     line.get("sourceLineNo"),
                     qty
                 );
             }
         }
-        if (source.get("sourceOrderId") != null) {
-            conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, String.valueOf(source.get("sourceOrderId")));
-        }
+        refreshSalesSourceStatuses(lines);
         postingPipeline.post(new PostingContext(
             FinancePosting.CHANNEL,
             null,
@@ -372,19 +371,25 @@ public class SalesOutAppService {
         return redBill;
     }
 
-    private void insertLines(Object billId, List<SalesOutLineRequest> lines, boolean isTaxInclusive) {
+    private void insertLines(Object billId, String defaultSourceOrderNo, List<SalesOutLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
+            Integer sourceLineNo = line.sourceLineNo();
+            if (sourceLineNo == null && sourceOrderNo != null) {
+                sourceLineNo = lineNo;
+            }
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
-                line.sourceLineNo() == null ? lineNo : line.sourceLineNo(),
+                sourceOrderNo,
+                sourceLineNo,
                 productId,
                 warehouseId,
                 line.qty(),
@@ -413,7 +418,12 @@ public class SalesOutAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo", COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT l.line_no AS "lineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
+                   p.code AS "productCode",
+                   w.code AS "warehouseCode",
+                   l.qty
             FROM sales_out_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -451,7 +461,8 @@ public class SalesOutAppService {
     private List<Map<String, Object>> redSourceLines(String billNo) {
         return jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
                    p.code AS "productCode",
                    w.code AS "warehouseCode",
                    l.product_id::text AS "productId",
@@ -481,7 +492,23 @@ public class SalesOutAppService {
         }
     }
 
-    public record SalesOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark, String planDeliveryDate) {
+    private String sourceOrderIdFromLine(Map<String, Object> line) {
+        var sourceOrderNo = line.get("sourceOrderNo");
+        if (sourceOrderNo == null || String.valueOf(sourceOrderNo).isBlank() || line.get("sourceLineNo") == null) {
+            return null;
+        }
+        return sourceOrderId(String.valueOf(sourceOrderNo));
+    }
+
+    private void refreshSalesSourceStatuses(List<Map<String, Object>> lines) {
+        lines.stream()
+            .map(this::sourceOrderIdFromLine)
+            .filter(id -> id != null && !id.isBlank())
+            .distinct()
+            .forEach(id -> conversionService.refreshSourceStatus(SALES_ORDER_OUT_SPEC, id));
+    }
+
+    public record SalesOutLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark, String planDeliveryDate) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

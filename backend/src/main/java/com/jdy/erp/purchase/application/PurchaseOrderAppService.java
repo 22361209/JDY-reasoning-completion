@@ -103,15 +103,16 @@ public class PurchaseOrderAppService {
                    '采购入库单' AS "typeLabel",
                    pi.status,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
+                   l.source_line_no AS "sourceLineNo",
                    l.line_no AS "downstreamLineNo",
                    l.qty,
                    l.amount,
                    l.price_tax_total AS "priceTaxTotal"
             FROM purchase_in_line l
             JOIN purchase_in pi ON pi.id = l.bill_id
-            WHERE pi.source_order_id = ?::uuid
-              AND COALESCE(l.source_line_no, l.line_no) = ?
+            JOIN purchase_order src ON src.bill_no = l.source_order_no
+            WHERE src.id = ?::uuid
+              AND l.source_line_no = ?
               AND pi.status = ?
             ORDER BY pi.bill_date DESC, pi.bill_no DESC, l.line_no
             """, sourceOrderId, sourceLineNo, BillStatus.AUDITED.name());

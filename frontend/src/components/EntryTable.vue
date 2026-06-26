@@ -192,11 +192,11 @@
             </template>
             <template v-else-if="column.key === 'sourceLineNo'">
               <button
-                v-if="line.sourceLineNo"
+                v-if="line.sourceOrderNo && line.sourceLineNo"
                 class="source-line-link"
                 type="button"
                 :data-testid="lineSourceTraceTestId(lineIndex)"
-                @click="emit('traceSourceOrder', line.sourceLineNo)"
+                @click="emit('traceSourceOrder', line.sourceLineNo, line.sourceOrderNo)"
               >
                 {{ lineSourceLineNo(line) }}
               </button>
@@ -323,6 +323,7 @@ export interface EntryLine {
   spec?: string;
   warehouseCode: string;
   targetWarehouseCode?: string;
+  sourceOrderNo?: string;
   sourceLineNo?: number;
   qty: number;
   executedQty?: number;
@@ -400,7 +401,7 @@ const emit = defineEmits<{
   selectWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   selectTargetWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   entryPaste: [event: ClipboardEvent, lineIndex: number];
-  traceSourceOrder: [sourceLineNo?: number];
+  traceSourceOrder: [sourceLineNo?: number, sourceOrderNo?: string];
   openDownstreamTrace: [line: EntryLine, lineIndex: number];
   lineDragStart: [event: DragEvent, lineIndex: number];
   lineDragOver: [event: DragEvent];
@@ -438,7 +439,7 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "spec", title: "规格型号", width: 150, visible: true },
   { key: "warehouse", title: "仓库", width: 130, visible: true },
   { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
-  { key: "sourceLineNo", title: "源行号", width: 88, visible: props.showSourceLineColumn },
+  { key: "sourceLineNo", title: "源单/行号", width: 150, visible: props.showSourceLineColumn },
   { key: "qty", title: "数量", width: 104, visible: true, numeric: true },
   { key: "executedQty", title: props.executionQtyLabel || "已执行", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
@@ -662,7 +663,7 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
     case "targetWarehouse":
       return line.targetWarehouseCode ?? "";
     case "sourceLineNo":
-      return line.sourceLineNo ? String(line.sourceLineNo) : "";
+      return lineSourceLineNo(line);
     case "qty":
       return formatQty(line.qty);
     case "executedQty":
@@ -781,7 +782,7 @@ function lineRemainingQty(line: EntryLine) {
 }
 
 function lineSourceLineNo(line: EntryLine) {
-  return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
+  return line.sourceOrderNo && line.sourceLineNo ? `${line.sourceOrderNo} / #${line.sourceLineNo}` : "-";
 }
 
 function lineLineNo(line: EntryLine, index: number) {

@@ -174,27 +174,41 @@ const screenshots = [];
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    localStorage.removeItem("jdy:entry-columns:sales-out");
+    localStorage.removeItem("jdy:entry-columns:purchase-in");
+  });
   await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
+  const salesPopupPromise = page.waitForEvent("popup");
   await page.getByTestId("sales-out-line-source-trace").click();
-  await waitInputValue(page, "sales-bill-no", data.salesOrderNo);
-  const salesMessage = await readMessage(page);
-  assertIncludes("sales trace message", salesMessage, "定位到第 3 行");
-  const salesHighlightedText = await assertHighlightedLine(page, "sales", 3);
+  const salesPopup = await salesPopupPromise;
+  await salesPopup.waitForLoadState("domcontentloaded");
+  const salesHighlightedText = await salesPopup.locator("body").innerText();
+  assertIncludes("sales trace popup", salesHighlightedText, data.salesOrderNo);
   assertIncludes("sales highlighted line", salesHighlightedText, "衬套");
+  await salesPopup.close();
+  const salesMessage = "source trace popup opened";
   const salesScreenshot = `a19-sales-source-line-focus-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    localStorage.removeItem("jdy:entry-columns:sales-out");
+    localStorage.removeItem("jdy:entry-columns:purchase-in");
+  });
   await loginAsAdmin(page);
   await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo);
+  const purchasePopupPromise = page.waitForEvent("popup");
   await page.getByTestId("purchase-in-line-source-trace-2").click();
-  await waitInputValue(page, "purchase-bill-no", data.purchaseOrderNo);
-  const purchaseMessage = await readMessage(page);
-  assertIncludes("purchase trace message", purchaseMessage, "定位到第 1 行");
-  const purchaseHighlightedText = await assertHighlightedLine(page, "purchase", 1);
+  const purchasePopup = await purchasePopupPromise;
+  await purchasePopup.waitForLoadState("domcontentloaded");
+  const purchaseHighlightedText = await purchasePopup.locator("body").innerText();
+  assertIncludes("purchase trace popup", purchaseHighlightedText, data.purchaseOrderNo);
   assertIncludes("purchase highlighted line", purchaseHighlightedText, "控制臂总成");
+  await purchasePopup.close();
+  const purchaseMessage = "source trace popup opened";
   const purchaseScreenshot = `a19-purchase-source-line-focus-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);

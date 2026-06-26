@@ -135,7 +135,8 @@ public class SalesOrderAppService {
         var downstreamCount = jdbcTemplate.queryForObject("""
             SELECT COUNT(*)
             FROM sales_order so
-            JOIN sales_out sout ON sout.source_order_id = so.id
+            JOIN sales_out_line sout_l ON sout_l.source_order_no = so.bill_no
+            JOIN sales_out sout ON sout.id = sout_l.bill_id
             WHERE so.bill_no = ? AND sout.status = ?
             """, Long.class, billNo, BillStatus.AUDITED.name());
         if (downstreamCount != null && downstreamCount > 0) {
@@ -280,7 +281,8 @@ public class SalesOrderAppService {
                    l.price_tax_total AS "priceTaxTotal"
             FROM sales_out_line l
             JOIN sales_out so ON so.id = l.bill_id
-            WHERE so.source_order_id = ?::uuid
+            JOIN sales_order src ON src.bill_no = l.source_order_no
+            WHERE src.id = ?::uuid
               AND COALESCE(l.source_line_no, l.line_no) = ?
               AND so.status = ?
             ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no

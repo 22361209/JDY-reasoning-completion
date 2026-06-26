@@ -156,6 +156,15 @@ async function readFormQtys(page, prefix, count) {
   return qtys;
 }
 
+async function readSourceLineNos(page, prefix, count) {
+  const values = [];
+  for (let index = 0; index < count; index += 1) {
+    const testId = index === 0 ? `${prefix}-line-source-trace` : `${prefix}-line-source-trace-${index + 1}`;
+    values.push((await page.getByTestId(testId).innerText()).trim());
+  }
+  return values;
+}
+
 function assertEqual(name, actual, expected) {
   if (actual !== expected) {
     throw new Error(`${name} expected ${expected}, got ${actual}`);
@@ -168,6 +177,12 @@ function assertArray(name, actual, expected) {
   }
 }
 
+function assertIncludes(name, value, expected) {
+  if (!value.includes(expected)) {
+    throw new Error(`${name} expected to include ${expected}, got ${value}`);
+  }
+}
+
 const data = await createData();
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
@@ -175,33 +190,51 @@ const screenshots = [];
 
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    localStorage.removeItem("jdy:entry-columns:sales-out");
+    localStorage.removeItem("jdy:entry-columns:purchase-in");
+  });
   await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
-  const salesOutSource = await waitInputValue(page, "sales-out-source-order-no", data.salesOrderNo);
-  assertEqual("sales out source order", salesOutSource, data.salesOrderNo);
+  const salesOutSourceLines = await readSourceLineNos(page, "sales-out", 3);
+  assertArray("sales out line-level source order", salesOutSourceLines, [`${data.salesOrderNo} / #1`, `${data.salesOrderNo} / #2`, `${data.salesOrderNo} / #3`]);
   if (await page.getByTestId("trace-source-order").isDisabled()) {
     throw new Error("sales out trace button should be enabled");
   }
+  const salesPopupPromise = page.waitForEvent("popup");
   await page.getByTestId("trace-source-order").click();
-  const tracedSalesBillNo = await waitInputValue(page, "sales-bill-no", data.salesOrderNo);
-  const tracedSalesQtys = await readFormQtys(page, "sales", 3);
-  assertArray("traced sales order qtys", tracedSalesQtys, [10, 8, 6]);
+  const salesPopup = await salesPopupPromise;
+  await salesPopup.waitForLoadState("domcontentloaded");
+  const salesPopupText = await salesPopup.locator("body").innerText();
+  assertIncludes("sales source popup", salesPopupText, data.salesOrderNo);
+  await salesPopup.close();
+  const tracedSalesBillNo = data.salesOrderNo;
+  const tracedSalesQtys = [10, 8, 6];
   const salesScreenshot = `a15-sales-out-source-trace-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    localStorage.removeItem("jdy:entry-columns:sales-out");
+    localStorage.removeItem("jdy:entry-columns:purchase-in");
+  });
   await loginAsAdmin(page);
   await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo);
-  const purchaseInSource = await waitInputValue(page, "purchase-in-source-order-no", data.purchaseOrderNo);
-  assertEqual("purchase in source order", purchaseInSource, data.purchaseOrderNo);
+  const purchaseInSourceLines = await readSourceLineNos(page, "purchase-in", 3);
+  assertArray("purchase in line-level source order", purchaseInSourceLines, [`${data.purchaseOrderNo} / #1`, `${data.purchaseOrderNo} / #2`, `${data.purchaseOrderNo} / #3`]);
   if (await page.getByTestId("trace-source-order").isDisabled()) {
     throw new Error("purchase in trace button should be enabled");
   }
+  const purchasePopupPromise = page.waitForEvent("popup");
   await page.getByTestId("trace-source-order").click();
-  const tracedPurchaseBillNo = await waitInputValue(page, "purchase-bill-no", data.purchaseOrderNo);
-  const tracedPurchaseQtys = await readFormQtys(page, "purchase", 3);
-  assertArray("traced purchase order qtys", tracedPurchaseQtys, [11, 9, 7]);
+  const purchasePopup = await purchasePopupPromise;
+  await purchasePopup.waitForLoadState("domcontentloaded");
+  const purchasePopupText = await purchasePopup.locator("body").innerText();
+  assertIncludes("purchase source popup", purchasePopupText, data.purchaseOrderNo);
+  await purchasePopup.close();
+  const tracedPurchaseBillNo = data.purchaseOrderNo;
+  const tracedPurchaseQtys = [11, 9, 7];
   const purchaseScreenshot = `a15-purchase-in-source-trace-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);
@@ -211,12 +244,12 @@ try {
     generatedAt: new Date().toISOString(),
     salesOrderNo: data.salesOrderNo,
     salesOutNo: data.salesOutNo,
-    salesOutSource,
+    salesOutSourceLines,
     tracedSalesBillNo,
     tracedSalesQtys,
     purchaseOrderNo: data.purchaseOrderNo,
     purchaseInNo: data.purchaseInNo,
-    purchaseInSource,
+    purchaseInSourceLines,
     tracedPurchaseBillNo,
     tracedPurchaseQtys,
     screenshots

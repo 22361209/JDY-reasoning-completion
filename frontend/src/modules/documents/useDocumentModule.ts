@@ -76,6 +76,7 @@ type PreparedEntryLines = {
     warehouseCode: string;
     targetWarehouseCode?: string;
     sourceLineNo?: number;
+    sourceOrderNo?: string;
     qty: number;
     unitPrice: number;
     taxRate?: number;
@@ -127,8 +128,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const canReverse = computed(() => Boolean(config.reversible && config.saveType && form.status === "AUDITED"));
   const canVoid = computed(() => Boolean(config.saveType && config.reversible && form.status === "DRAFT"));
   const canDelete = computed(() => false);
-  const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo?.trim()));
-  const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.sourceOrderNo));
+  const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
+  const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
   const showTaxMode = computed(() => Boolean(config.showTaxMode));
@@ -203,6 +204,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
         targetWarehouseCode: String(line.targetWarehouseCode ?? config.defaultTargetWarehouseCode ?? "CK-002"),
         lineNo: normalizedOptionalInt(line.lineNo),
+        sourceOrderNo: String(line.sourceOrderNo ?? ""),
         sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
         qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
@@ -255,7 +257,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     lines: PendingPushLine[];
   }) {
     form.billNo = draft.billNo;
-    form.sourceOrderNo = draft.sourceOrderNo;
+    form.sourceOrderNo = "";
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = draft.partyCode;
@@ -271,6 +273,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
+      sourceOrderNo: draft.sourceOrderNo,
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
@@ -435,8 +438,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
   }
 
-  function traceSourceOrder(sourceLineNo?: number) {
-    const billNo = form.sourceOrderNo?.trim();
+  function traceSourceOrder(sourceLineNo?: number, sourceOrderNo?: string) {
+    const billNo = sourceOrderNo?.trim() || form.lines.find((line) => line.sourceOrderNo?.trim())?.sourceOrderNo?.trim() || form.sourceOrderNo?.trim();
     if (!billNo || !config.sourceTraceType) {
       return;
     }
@@ -1125,6 +1128,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         warehouseCode: line.warehouseCode,
         targetWarehouseCode: config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : undefined,
         sourceLineNo: line.sourceLineNo,
+        sourceOrderNo: line.sourceOrderNo,
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
         taxRate: Number(line.taxRate ?? 13),

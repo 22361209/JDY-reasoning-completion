@@ -224,9 +224,9 @@ try {
   await loginAsAdmin(page);
   await openListAndPush(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo, "push-sales-out");
   await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
-  const salesSource = await page.getByTestId("sales-out-source-order-no").inputValue();
-  if (salesSource !== data.salesOrderNo) {
-    throw new Error(`sales source order expected ${data.salesOrderNo}, got ${salesSource}`);
+  const salesSource = (await page.getByTestId("sales-out-line-source-trace").innerText()).trim();
+  if (salesSource !== `${data.salesOrderNo} / #1`) {
+    throw new Error(`sales line source expected ${data.salesOrderNo} / #1, got ${salesSource}`);
   }
   const salesQtys = await assertQtys(page, "sales-out", data.expectedSalesRemaining);
   const salesRemarks = await assertInputValues(page, "sales-out", "remark", salesLines.map((line) => line.lineRemark));
@@ -238,10 +238,10 @@ try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await openListAndPush(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo, "push-purchase-in");
-  await page.getByTestId("purchase-in-source-order-no").waitFor({ state: "visible" });
-  const purchaseSource = await page.getByTestId("purchase-in-source-order-no").inputValue();
-  if (purchaseSource !== data.purchaseOrderNo) {
-    throw new Error(`purchase source order expected ${data.purchaseOrderNo}, got ${purchaseSource}`);
+  await page.getByTestId("purchase-in-line-source-trace").waitFor({ state: "visible" });
+  const purchaseSource = (await page.getByTestId("purchase-in-line-source-trace").innerText()).trim();
+  if (purchaseSource !== `${data.purchaseOrderNo} / #1`) {
+    throw new Error(`purchase line source expected ${data.purchaseOrderNo} / #1, got ${purchaseSource}`);
   }
   const purchaseQtys = await assertQtys(page, "purchase-in", data.expectedPurchaseRemaining);
   const purchaseScreenshot = `a9-purchase-remaining-pushdown-${batch}.png`;

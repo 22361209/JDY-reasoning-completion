@@ -190,7 +190,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await waitInputValue(page, "sales-out-source-order-no", data.salesOrderNo);
+  await page.getByText(`${data.salesOrderNo} / #3`).waitFor({ state: "visible" });
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
@@ -205,7 +205,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await waitInputValue(page, "purchase-in-source-order-no", data.purchaseOrderNo);
+  await page.getByText(`${data.purchaseOrderNo} / #3`).waitFor({ state: "visible" });
 
   const result = {
     batch,

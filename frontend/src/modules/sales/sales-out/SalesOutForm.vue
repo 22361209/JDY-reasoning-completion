@@ -31,9 +31,9 @@
           <button v-if="document.form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="document.openRedSourceBill">来源原单 {{ document.form.redSourceBillNo }}</button>
         </div>
         <div class="source-order-field">
-          <label>源订单号<input v-model="document.form.sourceOrderNo" data-testid="sales-out-source-order-no" @input="document.markDirty" @change="document.loadSourceOrderNo" @keydown.enter.prevent="document.loadSourceOrderNo" /></label>
-          <button type="button" data-testid="sales-out-load-source-order" @click="document.loadSourceOrderNo">拉入明细</button>
-          <button type="button" :disabled="!document.canTraceSourceOrder.value" data-testid="trace-source-order" @click="document.traceSourceOrder()">{{ document.form.sourceOrderNo || "追踪源单" }}</button>
+          <label>追加源订单<input v-model="document.form.sourceOrderNo" data-testid="sales-out-source-order-no" @input="document.markDirty" @change="document.loadSourceOrderNo" @keydown.enter.prevent="document.loadSourceOrderNo" /></label>
+          <button type="button" data-testid="sales-out-load-source-order" @click="document.loadSourceOrderNo">从源订单追加明细</button>
+          <button type="button" :disabled="!document.canTraceSourceOrder.value" data-testid="trace-source-order" @click="document.traceSourceOrder()">行级源单追溯</button>
         </div>
         <div class="form-head-field form-head-field-with-action">
           <label>

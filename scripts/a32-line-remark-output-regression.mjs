@@ -54,7 +54,7 @@ await requireRequest("/api/sales-orders/draft", {
 });
 
 const csv = await requireRequest(`/api/documents/sales-order/${encodeURIComponent(billNo)}/export.csv`);
-assertIncludes("csv header", csv, "行号,商品编码,商品名称,规格型号,仓库,数量,单价,金额,备注");
+assertIncludes("csv header", csv, "行号,源单号,商品编码,商品名称,规格型号,仓库,数量,单价,金额,备注");
 assertIncludes("csv first remark", csv, firstRemark);
 assertIncludes("csv second remark", csv, secondRemark);
 
@@ -71,7 +71,7 @@ const result = {
   firstRemark,
   secondRemark,
   csvChecks: {
-    hasRemarkHeader: csv.includes("行号,商品编码,商品名称,规格型号,仓库,数量,单价,金额,备注"),
+    hasRemarkHeader: csv.includes("行号,源单号,商品编码,商品名称,规格型号,仓库,数量,单价,金额,备注"),
     hasFirstRemark: csv.includes(firstRemark),
     hasSecondRemark: csv.includes(secondRemark)
   },

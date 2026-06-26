@@ -11,6 +11,7 @@ interface DocumentDraftPayload {
     productCode: string;
     warehouseCode: string;
     targetWarehouseCode?: string;
+    sourceOrderNo?: string;
     sourceLineNo?: number;
     qty: number;
     unitPrice: number;
@@ -127,6 +128,7 @@ export interface DocumentDetail {
   };
   lines: Array<{
     lineNo?: number | string;
+    sourceOrderNo?: string;
     sourceLineNo?: number | string;
     productCode?: string;
     productName?: string;

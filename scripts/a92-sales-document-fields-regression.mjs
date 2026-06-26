@@ -142,7 +142,7 @@ try {
   await page.getByTestId("push-sales-out-from-order-detail").click();
   await page.getByTestId("sales-out-source-order-no").waitFor({ state: "visible" });
   const pushed = {
-    sourceOrderNo: await page.getByTestId("sales-out-source-order-no").inputValue(),
+    headerSourceOrderNo: await page.getByTestId("sales-out-source-order-no").inputValue(),
     customerCode: await page.getByTestId("sales-out-party-code").inputValue(),
     customerName: await page.getByTestId("sales-out-party-name").inputValue(),
     ownerName: await page.getByTestId("sales-out-owner-name").inputValue(),
@@ -175,11 +175,11 @@ try {
       await page.getByTestId("sales-out-line-plan-delivery-date-2").inputValue()
     ]
   };
-  assert(pushed.sourceOrderNo === salesOrderNo, `pushed source order mismatch: ${pushed.sourceOrderNo}`);
+  assert(pushed.headerSourceOrderNo === "", `pushed header source order should be empty: ${pushed.headerSourceOrderNo}`);
   assert(pushed.customerCode === "KH-001", `pushed customer code mismatch: ${pushed.customerCode}`);
   assert(pushed.customerName === customerName, `pushed customer name mismatch: ${pushed.customerName}`);
   assert(pushed.ownerName === "本地管理员", `pushed owner mismatch: ${pushed.ownerName}`);
-  assertArray("pushed source line nos", pushed.sourceLines, ["#1", "#2"]);
+  assertArray("pushed line-level source refs", pushed.sourceLines, [`${salesOrderNo} / #1`, `${salesOrderNo} / #2`]);
   assertArray("pushed duplicate products", pushed.products, ["CP-001", "CP-001"]);
   assertArray("pushed warehouses", pushed.warehouses, ["CK-001", "CK-001"]);
   assertArray("pushed remaining qtys", pushed.qtys, [6, 4]);

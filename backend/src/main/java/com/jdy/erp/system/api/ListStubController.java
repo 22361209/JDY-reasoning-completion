@@ -413,10 +413,17 @@ public class ListStubController {
                        ELSE '已审核'
                    END AS status,
                    trim(to_char(pi.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(src.source_bill_no, '') AS "sourceBillNo",
                    COALESCE(w.name, '') AS warehouse
             FROM purchase_in pi
             JOIN md_supplier s ON s.id = pi.supplier_id
             LEFT JOIN purchase_in_line l ON l.bill_id = pi.id AND l.line_no = 1
+            LEFT JOIN (
+                SELECT bill_id, string_agg(DISTINCT source_order_no, '、' ORDER BY source_order_no) AS source_bill_no
+                FROM purchase_in_line
+                WHERE source_order_no IS NOT NULL AND source_order_no <> ''
+                GROUP BY bill_id
+            ) src ON src.bill_id = pi.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY pi.updated_at DESC
             """));
@@ -436,10 +443,17 @@ public class ListStubController {
                        ELSE '已审核'
                    END AS status,
                    trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(src.source_bill_no, '') AS "sourceBillNo",
                    COALESCE(w.name, '') AS warehouse
             FROM sales_out so
             JOIN md_customer c ON c.id = so.customer_id
             LEFT JOIN sales_out_line l ON l.bill_id = so.id AND l.line_no = 1
+            LEFT JOIN (
+                SELECT bill_id, string_agg(DISTINCT source_order_no, '、' ORDER BY source_order_no) AS source_bill_no
+                FROM sales_out_line
+                WHERE source_order_no IS NOT NULL AND source_order_no <> ''
+                GROUP BY bill_id
+            ) src ON src.bill_id = so.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY so.updated_at DESC
             """));

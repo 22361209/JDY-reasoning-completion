@@ -136,7 +136,7 @@ async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
 async function readSourceLineNos(page, prefix, count) {
   const values = [];
   for (let index = 0; index < count; index += 1) {
-    const testId = index === 0 ? `${prefix}-line-source-line-no` : `${prefix}-line-source-line-no-${index + 1}`;
+    const testId = index === 0 ? `${prefix}-line-source-trace` : `${prefix}-line-source-trace-${index + 1}`;
     values.push((await page.getByTestId(testId).innerText()).trim());
   }
   return values;
@@ -172,7 +172,7 @@ try {
   await loginAsAdmin(page);
   await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
   const salesOutSourceLines = await readSourceLineNos(page, "sales-out", 2);
-  assertArray("sales out source line nos", salesOutSourceLines, ["#3", "#1"]);
+  assertArray("sales out source line nos", salesOutSourceLines, [`${data.salesOrderNo} / #3`, `${data.salesOrderNo} / #1`]);
   const salesScreenshot = `a16-sales-out-source-line-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
@@ -181,7 +181,7 @@ try {
   await loginAsAdmin(page);
   await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo);
   const purchaseInSourceLines = await readSourceLineNos(page, "purchase-in", 2);
-  assertArray("purchase in source line nos", purchaseInSourceLines, ["#3", "#1"]);
+  assertArray("purchase in source line nos", purchaseInSourceLines, [`${data.purchaseOrderNo} / #3`, `${data.purchaseOrderNo} / #1`]);
   const purchaseScreenshot = `a16-purchase-in-source-line-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);

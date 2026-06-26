@@ -194,7 +194,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, salesDialogScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesDialogScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await waitInputValue(page, "sales-out-source-order-no", data.salesOrderNo);
+  await page.getByText(`${data.salesOrderNo} / #3`).waitFor({ state: "visible" });
   const salesOpenScreenshot = `a22-sales-downstream-open-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesOpenScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesOpenScreenshot}`);
@@ -214,7 +214,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, purchaseDialogScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseDialogScreenshot}`);
   await page.getByTestId("downstream-doc-open").click();
-  await waitInputValue(page, "purchase-in-source-order-no", data.purchaseOrderNo);
+  await page.getByText(`${data.purchaseOrderNo} / #3`).waitFor({ state: "visible" });
   const purchaseOpenScreenshot = `a22-purchase-downstream-open-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseOpenScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseOpenScreenshot}`);

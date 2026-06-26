@@ -77,7 +77,7 @@ public class PurchaseInAppService {
         var billRows = jdbcTemplate.queryForList("""
             SELECT pi.id::text AS id,
                    pi.bill_no AS "billNo",
-                   po.bill_no AS "sourceOrderNo",
+                   NULL AS "sourceOrderNo",
                    s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
@@ -102,7 +102,6 @@ public class PurchaseInAppService {
                    ) AS "redSourceBillNo"
             FROM purchase_in pi
             JOIN md_supplier s ON s.id = pi.supplier_id
-            LEFT JOIN purchase_order po ON po.id = pi.source_order_id
             WHERE pi.bill_no = ?
             """, BillStatus.RED_REVERSED.name(), BillStatus.RED_REVERSED.name(), billNo);
         if (billRows.isEmpty()) {
@@ -110,7 +109,8 @@ public class PurchaseInAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
@@ -136,7 +136,6 @@ public class PurchaseInAppService {
     public Map<String, Object> saveDraft(PurchaseInDraftRequest request) {
         var billNo = numberingService.assignBillNo("purchaseIn", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
-        var sourceOrderId = sourceOrderId(request.sourceOrderNo());
         var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
@@ -158,7 +157,7 @@ public class PurchaseInAppService {
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
             """,
             billNo,
-            sourceOrderId,
+            null,
             supplierId,
             LocalDate.parse(validationService.required(request.billDate(), "业务日期")),
             request.department(),
@@ -169,7 +168,7 @@ public class PurchaseInAppService {
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM purchase_in_line WHERE bill_id = ?::uuid", billId);
-        insertLines("purchase_in_line", "bill_id", billId, request.lines(), isTaxInclusive);
+        insertLines("purchase_in_line", "bill_id", billId, request.sourceOrderNo(), request.lines(), isTaxInclusive);
         return bill;
     }
 
@@ -186,19 +185,19 @@ public class PurchaseInAppService {
             "purchase_in",
             "采购入库单不存在或已审核"
         );
-        var sourceOrderId = row.get("sourceOrderId");
         var lines = postingLines(billNo);
-        if (sourceOrderId != null) {
-            for (var line : lines) {
+        for (var line : lines) {
+            var sourceOrderId = sourceOrderIdFromLine(line);
+            if (sourceOrderId != null) {
                 conversionService.increaseExecutedQuantity(
                     PURCHASE_ORDER_IN_SPEC,
-                    String.valueOf(sourceOrderId),
+                    sourceOrderId,
                     line.get("sourceLineNo"),
                     (BigDecimal) line.get("qty")
                 );
             }
-            conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, String.valueOf(sourceOrderId));
         }
+        refreshPurchaseSourceStatuses(lines);
         for (var line : lines) {
             postingPipeline.post(new PostingContext(
                 InventoryPostingHook.CHANNEL,
@@ -226,7 +225,6 @@ public class PurchaseInAppService {
             "purchase_in",
             "采购入库单不存在或不能反审核"
         );
-        var sourceOrderId = row.get("sourceOrderId");
         var lines = postingLines(billNo);
         for (var line : lines) {
             postingPipeline.post(new PostingContext(
@@ -238,17 +236,18 @@ public class PurchaseInAppService {
                 "PURCHASE_IN_REVERSE:" + billNo
             ));
         }
-        if (sourceOrderId != null) {
-            for (var line : lines) {
+        for (var line : lines) {
+            var sourceOrderId = sourceOrderIdFromLine(line);
+            if (sourceOrderId != null) {
                 conversionService.decreaseExecutedQuantity(
                     PURCHASE_ORDER_IN_SPEC,
-                    String.valueOf(sourceOrderId),
+                    sourceOrderId,
                     line.get("sourceLineNo"),
                     (BigDecimal) line.get("qty")
                 );
             }
-            conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, String.valueOf(sourceOrderId));
         }
+        refreshPurchaseSourceStatuses(lines);
         postingPipeline.post(financeContext(row, "PURCHASE_IN_REVERSE"));
         return row;
     }
@@ -307,7 +306,8 @@ public class PurchaseInAppService {
         );
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
                    p.code AS "productCode",
                    w.code AS "warehouseCode",
                    l.product_id::text AS "productId",
@@ -329,11 +329,12 @@ public class PurchaseInAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO purchase_in_line (bill_id, line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
-                VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_in_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
+                line.get("sourceOrderNo"),
                 line.get("sourceLineNo"),
                 line.get("productId"),
                 line.get("warehouseId"),
@@ -353,18 +354,17 @@ public class PurchaseInAppService {
                 "PURCHASE_IN_RED",
                 "PURCHASE_IN_RED:" + redBillNo
             ));
-            if (source.get("sourceOrderId") != null) {
+            var sourceOrderId = sourceOrderIdFromLine(line);
+            if (sourceOrderId != null) {
                 conversionService.decreaseExecutedQuantity(
                     PURCHASE_ORDER_IN_SPEC,
-                    String.valueOf(source.get("sourceOrderId")),
+                    sourceOrderId,
                     line.get("sourceLineNo"),
                     qty
                 );
             }
         }
-        if (source.get("sourceOrderId") != null) {
-            conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, String.valueOf(source.get("sourceOrderId")));
-        }
+        refreshPurchaseSourceStatuses(lines);
         postingPipeline.post(new PostingContext(
             FinancePosting.CHANNEL,
             null,
@@ -381,14 +381,19 @@ public class PurchaseInAppService {
         return redBill;
     }
 
-    private void insertLines(String table, String billIdColumn, Object billId, List<PurchaseInLineRequest> lines, boolean isTaxInclusive) {
+    private void insertLines(String table, String billIdColumn, Object billId, String defaultSourceOrderNo, List<PurchaseInLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
             var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
-            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark) VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)",
-                billId, lineNo, line.sourceLineNo() == null ? lineNo : line.sourceLineNo(), productId, warehouseId, line.qty(), line.unitPrice(), amounts.amount(), amounts.taxRate(), amounts.taxAmount(), amounts.priceTaxTotal(), validationService.optionalText(line.lineRemark()));
+            var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
+            Integer sourceLineNo = line.sourceLineNo();
+            if (sourceLineNo == null && sourceOrderNo != null) {
+                sourceLineNo = lineNo;
+            }
+            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark) VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)",
+                billId, lineNo, sourceOrderNo, sourceLineNo, productId, warehouseId, line.qty(), line.unitPrice(), amounts.amount(), amounts.taxRate(), amounts.taxAmount(), amounts.priceTaxTotal(), validationService.optionalText(line.lineRemark()));
             lineNo += 1;
         }
     }
@@ -406,7 +411,12 @@ public class PurchaseInAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo", COALESCE(l.source_line_no, l.line_no) AS "sourceLineNo", p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT l.line_no AS "lineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
+                   p.code AS "productCode",
+                   w.code AS "warehouseCode",
+                   l.qty
             FROM purchase_in_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -441,6 +451,22 @@ public class PurchaseInAppService {
         return LocalDate.parse(String.valueOf(value));
     }
 
+    private String sourceOrderIdFromLine(Map<String, Object> line) {
+        var sourceOrderNo = line.get("sourceOrderNo");
+        if (sourceOrderNo == null || String.valueOf(sourceOrderNo).isBlank() || line.get("sourceLineNo") == null) {
+            return null;
+        }
+        return sourceOrderId(String.valueOf(sourceOrderNo));
+    }
+
+    private void refreshPurchaseSourceStatuses(List<Map<String, Object>> lines) {
+        lines.stream()
+            .map(this::sourceOrderIdFromLine)
+            .filter(id -> id != null && !id.isBlank())
+            .distinct()
+            .forEach(id -> conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, id));
+    }
+
     public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, Boolean isTaxInclusive, List<PurchaseInLineRequest> lines) {
         public PurchaseInDraftRequest {
             if (lines == null || lines.isEmpty()) {
@@ -449,7 +475,7 @@ public class PurchaseInAppService {
         }
     }
 
-    public record PurchaseInLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark) {
+    public record PurchaseInLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

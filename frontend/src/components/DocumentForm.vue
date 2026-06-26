@@ -33,8 +33,7 @@
     <div v-if="isDocumentForm" class="form-layout">
       <section class="form-head-fields">
         <div v-if="isStockDocumentForm" class="source-order-field">
-          <label>源订单号<input v-model="form.sourceOrderNo" :data-testid="`${testPrefix}-source-order-no`" @input="emit('markDirty')" /></label>
-          <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="emit('traceSourceOrder')">追踪源单</button>
+          <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="emit('traceSourceOrder')">行级源单追溯</button>
           <button v-if="form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="emit('openRedReverseBill')">红字单 {{ form.redReverseBillNo }}</button>
           <button v-if="form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="emit('openRedSourceBill')">来源原单 {{ form.redSourceBillNo }}</button>
         </div>
@@ -131,7 +130,7 @@
         @select-warehouse-option="(option, lineIndex, selectorId) => emit('selectWarehouseOption', option, lineIndex, selectorId)"
         @select-target-warehouse-option="(option, lineIndex, selectorId) => emit('selectTargetWarehouseOption', option, lineIndex, selectorId)"
         @entry-paste="(event, lineIndex) => emit('entryPaste', event, lineIndex)"
-        @trace-source-order="emit('traceSourceOrder', $event)"
+        @trace-source-order="(sourceLineNo, sourceOrderNo) => emit('traceSourceOrder', sourceLineNo, sourceOrderNo)"
         @open-downstream-trace="(line, lineIndex) => emit('openDownstreamTrace', line, lineIndex)"
         @line-drag-start="(event, lineIndex) => emit('lineDragStart', event, lineIndex)"
         @line-drag-over="emit('lineDragOver', $event)"
@@ -274,7 +273,7 @@ const emit = defineEmits<{
   selectWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   selectTargetWarehouseOption: [option: MasterOption, lineIndex: number, selectorId: string];
   entryPaste: [event: ClipboardEvent, lineIndex: number];
-  traceSourceOrder: [sourceLineNo?: number];
+  traceSourceOrder: [sourceLineNo?: number, sourceOrderNo?: string];
   openDownstreamTrace: [line: EntryLine, lineIndex: number];
   lineDragStart: [event: DragEvent, lineIndex: number];
   lineDragOver: [event: DragEvent];

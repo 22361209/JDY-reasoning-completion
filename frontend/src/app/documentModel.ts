@@ -27,6 +27,7 @@ export interface OrderLineForm {
   spec?: string;
   warehouseCode: string;
   targetWarehouseCode?: string;
+  sourceOrderNo?: string;
   sourceLineNo?: number;
   qty: number;
   executedQty?: number;

@@ -1094,6 +1094,19 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
   clearActiveDirty();
 }
 async function openDocumentFromModule(payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }) {
+  if (
+    (tabs.activeTab.value.id === outboundTabId && payload.type === "salesOrder")
+    || (tabs.activeTab.value.id === purchaseInTabId && payload.type === "purchaseOrder")
+  ) {
+    const result = await fetchDocumentDetail(payload.type, payload.billNo);
+    if (!result.ok || !result.data) {
+      formMessage.value = result.message || "源单详情加载失败。";
+      return;
+    }
+    openSourceTraceWindow(payload.type, result.data, payload.sourceLineNo ?? null);
+    formMessage.value = payload.sourceLineNo ? `已在新页签打开源单 ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已在新页签打开源单 ${payload.billNo}`;
+    return;
+  }
   if (payload.type === outboundDocumentType) {
     const result = await fetchDocumentDetail(payload.type, payload.billNo);
     if (!result.ok || !result.data) {
@@ -1138,6 +1151,32 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
   scrollHighlightedSourceLineIntoView();
   formMessage.value = payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`;
   clearActiveDirty();
+}
+
+function openSourceTraceWindow(type: OpenableDocumentType, detail: DocumentDetail, sourceLineNo: number | null) {
+  const title = type === "purchaseOrder" ? "采购订单" : "销售订单";
+  const document = detail.document;
+  const source = detail.lines.map((line) => {
+    const lineNo = Number(line.lineNo ?? 0);
+    const active = sourceLineNo && lineNo === sourceLineNo;
+    return `<tr${active ? " class=\"active\"" : ""}><td>${escapeTraceHtml(String(line.lineNo ?? ""))}</td><td>${escapeTraceHtml(String(line.productCode ?? ""))}</td><td>${escapeTraceHtml(String(line.productName ?? ""))}</td><td>${escapeTraceHtml(String(line.qty ?? ""))}</td><td>${escapeTraceHtml(String(line.remainingQty ?? ""))}</td><td>${escapeTraceHtml(String(line.lineRemark ?? ""))}</td></tr>`;
+  }).join("");
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeTraceHtml(title)} ${escapeTraceHtml(document.billNo)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;color:#1f2937}h1{font-size:20px;margin:0 0 12px}.meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 16px;margin-bottom:16px;color:#475569;font-size:13px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #d8e0eb;padding:8px;text-align:left}th{background:#f3f7fb}.active{background:#fff7ed;outline:2px solid #f97316}</style></head><body><h1>${escapeTraceHtml(title)} ${escapeTraceHtml(document.billNo)}</h1><section class="meta"><div>日期：${escapeTraceHtml(document.billDate)}</div><div>状态：${escapeTraceHtml(document.status)}</div><div>部门：${escapeTraceHtml(document.department ?? "")}</div><div>往来：${escapeTraceHtml(document.customer ?? document.supplier ?? "")}</div></section><table><thead><tr><th>行号</th><th>商品编码</th><th>商品名称</th><th>数量</th><th>剩余</th><th>备注</th></tr></thead><tbody>${source}</tbody></table></body></html>`;
+  const opened = window.open("", "_blank");
+  if (opened) {
+    opened.document.open();
+    opened.document.write(html);
+    opened.document.close();
+  }
+}
+
+function escapeTraceHtml(value: string | undefined) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; ref: { value: { applyDetail: (detail: DocumentDetail, message?: string, sourceLineNo?: number | null) => void; startNew: () => void } | null } } {
   switch (type) {
@@ -1190,7 +1229,9 @@ async function openOutboundFromSalesOrder(row: Record<string, unknown>) {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
-  const lines = result.data.lines.map((line) => toPendingPushLine(line, "shippedQty")).filter((line) => line.remainingQty > 0);
+  const lines = result.data.lines
+    .map((line) => ({ ...toPendingPushLine(line, "shippedQty"), sourceOrderNo: sourceBillNo }))
+    .filter((line) => line.remainingQty > 0);
   if (lines.length === 0) {
     formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可出数量`;
     return;
@@ -1373,7 +1414,9 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     String(today.getMonth() + 1).padStart(2, "0"),
     String(today.getDate()).padStart(2, "0")
   ].join("-");
-  const lines = result.data.lines.map((line) => toPendingPushLine(line, "receivedQty")).filter((line) => line.remainingQty > 0);
+  const lines = result.data.lines
+    .map((line) => ({ ...toPendingPushLine(line, "receivedQty"), sourceOrderNo: sourceBillNo }))
+    .filter((line) => line.remainingQty > 0);
   if (lines.length === 0) {
     formMessage.value = `${"采购"}${"订单"} ${sourceBillNo} 已无剩余可入数量`;
     return;
