@@ -83,7 +83,7 @@
             <option value="tax">含税</option>
           </select>
         </label>
-        <label class="form-head-field-wide">单据备注<input v-model="document.form.remark" data-testid="sales-out-remark" @input="document.markDirty" /></label>
+        <label class="form-head-field-wide">单据备注<textarea v-model="document.form.remark" data-testid="sales-out-remark" @input="document.markDirty" /></label>
       </section>
 
       <EntryTable
@@ -153,37 +153,32 @@
       <h3>选择销售订单</h3>
       <p>{{ document.form.partyCode }} {{ document.form.partyName || '' }} 已下单且有剩余可出数量的销售订单明细。</p>
       <div class="source-selector-toolbar">
-        <span>勾选同一张销售订单的一行或多行明细，确认后带入销售出库单。</span>
+        <input
+          v-model="sourceSelectorKeyword"
+          data-testid="sales-out-source-selector-search"
+          placeholder="客户/商品/订单号"
+        />
+        <button type="button" data-testid="sales-out-source-selector-select-all" @click="selectAllVisibleSourceLines">全选</button>
+        <button type="button" data-testid="sales-out-source-selector-column-settings" @click="sourceColumnDialogOpen = true">列设置</button>
         <strong data-testid="sales-out-source-selector-count">{{ selectedSourceLineCount }}</strong>
       </div>
       <div class="source-selector-table">
         <table>
           <thead>
             <tr>
-              <th></th>
-              <th>销售订单</th>
-              <th>行号</th>
-              <th>日期</th>
-              <th>商品编码</th>
-              <th>商品名称</th>
-              <th>仓库</th>
-              <th>订单数量</th>
-              <th>已出库</th>
-              <th>剩余可出</th>
-              <th>单价</th>
-              <th>交期</th>
+              <th v-for="column in visibleSourceColumns" :key="column.key" :style="{ width: `${column.width}px` }">{{ column.title }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="document.sourceSelectorLoading.value">
-              <td colspan="12">加载中...</td>
+              <td :colspan="visibleSourceColumns.length">加载中...</td>
             </tr>
-            <tr v-else-if="document.sourceSelectorLines.value.length === 0">
-              <td colspan="12">暂无可选明细</td>
+            <tr v-else-if="filteredSourceSelectorLines.length === 0">
+              <td :colspan="visibleSourceColumns.length">暂无可选明细</td>
             </tr>
             <template v-else>
-              <tr v-for="line in document.sourceSelectorLines.value" :key="document.sourceSelectorLineKey(line)">
-                <td>
+              <tr v-for="line in filteredSourceSelectorLines" :key="document.sourceSelectorLineKey(line)">
+                <td v-if="isSourceColumnVisible('selection')">
                   <input
                     type="checkbox"
                     :checked="Boolean(document.sourceSelectorSelected.value[document.sourceSelectorLineKey(line)])"
@@ -191,17 +186,18 @@
                     @change="document.toggleSourceSelectorLine(line, ($event.target as HTMLInputElement).checked)"
                   />
                 </td>
-                <td>{{ line.billNo }}</td>
-                <td>#{{ line.lineNo }}</td>
-                <td>{{ line.billDate }}</td>
-                <td>{{ line.productCode }}</td>
-                <td>{{ line.productName || line.spec || '-' }}</td>
-                <td>{{ line.warehouseCode }}</td>
-                <td>{{ document.formatQty(line.sourceQty) }}</td>
-                <td>{{ document.formatQty(line.shippedQty) }}</td>
-                <td>{{ document.formatQty(line.remainingQty) }}</td>
-                <td>{{ document.formatAmount(line.unitPrice) }}</td>
-                <td>{{ line.planDeliveryDate || '-' }}</td>
+                <td v-if="isSourceColumnVisible('billNo')">{{ line.billNo }}</td>
+                <td v-if="isSourceColumnVisible('lineNo')">#{{ line.lineNo }}</td>
+                <td v-if="isSourceColumnVisible('customer')">{{ line.customerCode }} {{ line.customer || '' }}</td>
+                <td v-if="isSourceColumnVisible('billDate')">{{ line.billDate }}</td>
+                <td v-if="isSourceColumnVisible('productCode')">{{ line.productCode }}</td>
+                <td v-if="isSourceColumnVisible('productName')">{{ line.productName || line.spec || '-' }}</td>
+                <td v-if="isSourceColumnVisible('warehouseCode')">{{ line.warehouseCode }}</td>
+                <td v-if="isSourceColumnVisible('sourceQty')">{{ document.formatQty(line.sourceQty) }}</td>
+                <td v-if="isSourceColumnVisible('shippedQty')">{{ document.formatQty(line.shippedQty) }}</td>
+                <td v-if="isSourceColumnVisible('remainingQty')">{{ document.formatQty(line.remainingQty) }}</td>
+                <td v-if="isSourceColumnVisible('unitPrice')">{{ document.formatAmount(line.unitPrice) }}</td>
+                <td v-if="isSourceColumnVisible('planDeliveryDate')">{{ line.planDeliveryDate || '-' }}</td>
               </tr>
             </template>
           </tbody>
@@ -214,6 +210,16 @@
       </div>
     </div>
   </div>
+
+  <ColumnSettingsDialog
+    :open="sourceColumnDialogOpen"
+    title="列设置"
+    :columns="sourceSelectorColumns"
+    dialog-test-id="sales-out-source-selector-column-settings-dialog"
+    ok-test-id="sales-out-source-selector-column-settings-ok"
+    @reset="resetSourceColumns"
+    @confirm="sourceColumnDialogOpen = false"
+  />
 
   <DocumentDialogs
     :pending-zero-entry-save="document.pendingZeroEntrySave.value"
@@ -277,10 +283,12 @@ import EntryTable from "../../../components/EntryTable.vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
+import ColumnSettingsDialog from "../../../components/table/ColumnSettingsDialog.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
+import type { SelectableSalesOrderLine } from "../../../services/salesOrderApi";
 import { useSalesOutDocument, type SalesOutPushDownDraft } from "./useSalesOutDocument";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps<{
   title: string;
@@ -315,6 +323,56 @@ const taxMode = computed({
 });
 
 const selectedSourceLineCount = computed(() => `${Object.values(document.sourceSelectorSelected.value).filter(Boolean).length} 行已选`);
+const sourceSelectorKeyword = ref("");
+const sourceColumnDialogOpen = ref(false);
+const sourceSelectorColumns = ref([
+  { key: "selection", title: "选", width: 42, visible: true, configurable: false },
+  { key: "billNo", title: "销售订单", width: 150, visible: true },
+  { key: "lineNo", title: "行号", width: 70, visible: true },
+  { key: "customer", title: "客户", width: 190, visible: true },
+  { key: "billDate", title: "日期", width: 120, visible: true },
+  { key: "productCode", title: "商品编码", width: 130, visible: true },
+  { key: "productName", title: "商品名称", width: 180, visible: true },
+  { key: "warehouseCode", title: "仓库", width: 110, visible: true },
+  { key: "sourceQty", title: "订单数量", width: 100, visible: true },
+  { key: "shippedQty", title: "已出库", width: 100, visible: true },
+  { key: "remainingQty", title: "剩余可出", width: 110, visible: true },
+  { key: "unitPrice", title: "单价", width: 100, visible: true },
+  { key: "planDeliveryDate", title: "交期", width: 120, visible: true }
+]);
+const visibleSourceColumns = computed(() => sourceSelectorColumns.value.filter((column) => column.visible));
+const filteredSourceSelectorLines = computed(() => {
+  const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
+  if (!keyword) {
+    return document.sourceSelectorLines.value;
+  }
+  return document.sourceSelectorLines.value.filter((line) => sourceLineSearchText(line).includes(keyword));
+});
+
+function sourceLineSearchText(line: SelectableSalesOrderLine) {
+  return [
+    line.customerCode,
+    line.customer,
+    line.productCode,
+    line.productName,
+    line.spec,
+    line.billNo
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function isSourceColumnVisible(key: string) {
+  return sourceSelectorColumns.value.some((column) => column.key === key && column.visible);
+}
+
+function selectAllVisibleSourceLines() {
+  filteredSourceSelectorLines.value.forEach((line) => document.toggleSourceSelectorLine(line, true));
+}
+
+function resetSourceColumns() {
+  sourceSelectorColumns.value.forEach((column) => {
+    column.visible = true;
+  });
+}
 
 function noop() {
 }

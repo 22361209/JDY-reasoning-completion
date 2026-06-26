@@ -226,25 +226,15 @@
       <button type="button" :disabled="query.page * query.pageSize >= total" @click="goPage(query.page + 1)">下一页</button>
     </footer>
 
-    <div v-if="columnDialogOpen" class="modal-mask" data-testid="column-settings-dialog">
-      <div class="dialog column-dialog">
-        <h3>列设置</h3>
-        <div class="column-setting-list">
-          <div v-for="column in columns" :key="column.field" class="column-setting-row">
-            <label><input v-model="column.visible" type="checkbox" /> {{ column.title }}</label>
-            <select v-model="column.fixed">
-              <option value="">不固定</option>
-              <option value="left">固定左侧</option>
-              <option value="right">固定右侧</option>
-            </select>
-          </div>
-        </div>
-        <div class="dialog-actions">
-          <button type="button" @click="resetColumnsToDefault">恢复默认</button>
-          <button class="primary-action" type="button" data-testid="column-settings-ok" @click="closeColumnSettings">确定</button>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsDialog
+      :open="columnDialogOpen"
+      title="列设置"
+      :columns="columns"
+      dialog-test-id="column-settings-dialog"
+      ok-test-id="column-settings-ok"
+      @reset="resetColumnsToDefault"
+      @confirm="closeColumnSettings"
+    />
 
     <component
       :is="masterFormComponent"
@@ -259,35 +249,27 @@
       @update-field="masterMaintenance.updateField"
     />
 
+    <ColumnFilterPopover
+      :open="filterDialogOpen && Boolean(activeFilterColumn)"
+      :operators="filterOperators"
+      :operator="activeFilterOperator"
+      :value="activeFilterValue"
+      :left="filterPopoverLeft"
+      :top="filterPopoverTop"
+      test-id="column-filter-dialog"
+      @update:operator="activeFilterOperator = $event"
+      @update:value="activeFilterValue = $event"
+      @apply="applyColumnFilter"
+      @clear="clearColumnFilter"
+    />
+
     <div
-      v-if="filterDialogOpen && activeFilterColumn"
-      class="column-filter-popover"
-      :style="{ left: `${filterPopoverLeft}px`, top: `${filterPopoverTop}px` }"
-      data-testid="column-filter-dialog"
+      v-if="draggingColumnField"
+      class="column-drag-ghost"
+      :style="{ left: `${dragGhostLeft}px`, top: `${dragGhostTop}px` }"
+      data-testid="column-drag-ghost"
     >
-      <div class="filter-operator-list">
-        <button
-          v-for="operator in filterOperators"
-          :key="operator"
-          type="button"
-          :class="{ active: activeFilterOperator === operator }"
-          @click="activeFilterOperator = operator"
-        >
-          {{ operator }}
-        </button>
-      </div>
-      <div class="column-filter-input-row">
-          <input
-            v-model="activeFilterValue"
-            data-testid="column-filter-input"
-            placeholder="输入过滤关键字"
-            @keydown.enter="applyColumnFilter"
-          />
-      </div>
-      <div class="column-filter-actions">
-        <button type="button" @click="clearColumnFilter">重置</button>
-        <button class="primary-action" type="button" data-testid="column-filter-ok" @click="applyColumnFilter">确定</button>
-      </div>
+      {{ draggingColumnTitle }}
     </div>
 
     <div v-if="pendingAction" class="modal-mask" data-testid="batch-confirm-dialog">
@@ -305,6 +287,8 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
+import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import {
   deleteListPreset,
   exportListRows,
@@ -378,6 +362,8 @@ const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
 const draggingColumnField = ref("");
 const dragOverColumnField = ref("");
+const dragGhostLeft = ref(0);
+const dragGhostTop = ref(0);
 const query = reactive({
   keyword: "",
   status: "",
@@ -911,6 +897,7 @@ const visibleColumns = computed(() => columns.value.filter((column) => column.vi
 const displayedRows = computed(() => rows.value);
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => selectedRows.value.some((row) => isRowLocked(row)));
+const draggingColumnTitle = computed(() => columns.value.find((column) => column.field === draggingColumnField.value)?.title ?? "");
 
 watch(() => props.listKey, () => {
   resetColumns();
@@ -1237,7 +1224,7 @@ function openColumnFilter(column: ListColumn, event: MouseEvent) {
   activeFilterOperator.value = columnFilters[column.field]?.operator ?? "包含";
   activeFilterValue.value = columnFilters[column.field]?.value ?? "";
   filterPopoverLeft.value = Math.min(rect.right - 136, window.innerWidth - 150);
-  filterPopoverTop.value = rect.bottom + 4;
+  filterPopoverTop.value = Math.min(rect.bottom + 4, window.innerHeight - 260);
   filterDialogOpen.value = true;
 }
 
@@ -1273,6 +1260,8 @@ function startColumnMouseDrag(column: ListColumn, event: MouseEvent) {
   event.preventDefault();
   draggingColumnField.value = column.field;
   dragOverColumnField.value = column.field;
+  dragGhostLeft.value = event.clientX + 10;
+  dragGhostTop.value = event.clientY + 10;
   window.addEventListener("mousemove", trackColumnMouseDrag);
   window.addEventListener("mouseup", finishColumnMouseDrag, { once: true });
 }
@@ -1281,6 +1270,8 @@ function trackColumnMouseDrag(event: MouseEvent) {
   if (!draggingColumnField.value) {
     return;
   }
+  dragGhostLeft.value = event.clientX + 10;
+  dragGhostTop.value = event.clientY + 10;
   const element = document.elementFromPoint(event.clientX, event.clientY);
   const header = element?.closest<HTMLElement>(".column-header-cell");
   const field = header?.dataset.columnField;

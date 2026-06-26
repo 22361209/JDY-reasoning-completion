@@ -34,13 +34,36 @@
       </colgroup>
       <thead>
         <tr>
-          <th v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)">{{ column.title }}</th>
+          <th v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)">
+            <div class="column-header-cell entry-column-header" :data-column-field="column.key">
+              <span class="column-header-title">{{ column.title }}</span>
+              <button
+                v-if="column.configurable !== false"
+                class="column-filter-button"
+                type="button"
+                :class="{ active: Boolean(columnFilters[column.key]?.value) || ['为空', '不为空'].includes(columnFilters[column.key]?.operator ?? '') }"
+                :title="`${column.title}过滤`"
+                :data-testid="`entry-column-filter-${column.key}`"
+                @mousedown.stop
+                @click.stop="openColumnFilter(column, $event)"
+              >
+                ⌄
+              </button>
+              <span
+                v-if="column.configurable !== false"
+                class="entry-column-resizer"
+                :data-testid="`entry-column-resize-${column.key}`"
+                @mousedown.stop.prevent="startColumnResize(column, $event)"
+              />
+            </div>
+          </th>
         </tr>
       </thead>
       <tbody>
         <tr
           v-for="(line, lineIndex) in lines"
           :key="lineIndex"
+          v-show="lineMatchesFilters(line, lineIndex)"
           :class="{ 'is-dragging': draggingLineIndex === lineIndex, 'is-source-target': isHighlightedSourceLine(line, lineIndex) }"
           :draggable="isDraft"
           :data-testid="`${testPrefix}-entry-row`"
@@ -262,28 +285,36 @@
     </table>
   </div>
 
-  <div v-if="columnDialogOpen" class="modal-mask" data-testid="entry-column-settings-dialog">
-    <div class="dialog column-dialog">
-      <h3>分录列设置</h3>
-      <div class="column-setting-list">
-        <div v-for="(column, index) in configurableColumns" :key="column.key" class="column-setting-row">
-          <label><input v-model="column.visible" type="checkbox" /> {{ column.title }}</label>
-          <input v-model.number="column.width" class="column-width-input" type="number" min="64" max="360" />
-          <button type="button" :disabled="index === 0" @click="moveColumn(column.key, -1)">上移</button>
-          <button type="button" :disabled="index === configurableColumns.length - 1" @click="moveColumn(column.key, 1)">下移</button>
-        </div>
-      </div>
-      <div class="dialog-actions">
-        <button type="button" @click="resetColumnsToDefault">恢复默认</button>
-        <button class="primary-action" type="button" data-testid="entry-column-settings-ok" @click="closeColumnSettings">确定</button>
-      </div>
-    </div>
-  </div>
+  <ColumnSettingsDialog
+    :open="columnDialogOpen"
+    title="列设置"
+    :columns="columns"
+    dialog-test-id="entry-column-settings-dialog"
+    ok-test-id="entry-column-settings-ok"
+    @reset="resetColumnsToDefault"
+    @confirm="closeColumnSettings"
+  />
+
+  <ColumnFilterPopover
+    :open="filterDialogOpen && Boolean(activeFilterColumn)"
+    :operators="filterOperators"
+    :operator="activeFilterOperator"
+    :value="activeFilterValue"
+    :left="filterPopoverLeft"
+    :top="filterPopoverTop"
+    test-id="entry-column-filter-dialog"
+    @update:operator="activeFilterOperator = $event"
+    @update:value="activeFilterValue = $event"
+    @apply="applyColumnFilter"
+    @clear="clearColumnFilter"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { taxAmounts } from "../app/taxAmounts";
+import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
+import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 
 export interface EntryLine {
   lineNo?: number;
@@ -318,8 +349,14 @@ interface EntryColumn {
   title: string;
   width: number;
   visible: boolean;
+  fixed?: "" | "left" | "right";
   configurable?: boolean;
   numeric?: boolean;
+}
+
+interface ColumnFilter {
+  operator: string;
+  value: string;
 }
 
 const props = defineProps<{
@@ -376,11 +413,22 @@ const emit = defineEmits<{
 }>();
 
 const columnDialogOpen = ref(false);
+const filterDialogOpen = ref(false);
 const openMenuLineIndex = ref<number | null>(null);
 const rowMenuLeft = ref(0);
 const rowMenuTop = ref(0);
 const columns = ref<EntryColumn[]>([]);
 const selectedLines = ref<Record<number, boolean>>({});
+const columnFilters = reactive<Record<string, ColumnFilter>>({});
+const activeFilterColumn = ref<EntryColumn | null>(null);
+const activeFilterOperator = ref("包含");
+const activeFilterValue = ref("");
+const filterPopoverLeft = ref(0);
+const filterPopoverTop = ref(0);
+const resizingColumnKey = ref<EntryColumnKey | null>(null);
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
+const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 const numericColumns = new Set<EntryColumnKey>(["qty", "executedQty", "remainingQty", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 
 const defaultColumns = computed<EntryColumn[]>(() => [
@@ -426,6 +474,8 @@ watch(() => [
 
 onBeforeUnmount(() => {
   document.removeEventListener("click", closeRowMenu);
+  window.removeEventListener("mousemove", trackColumnResize);
+  window.removeEventListener("mouseup", finishColumnResize);
 });
 
 function resetColumns() {
@@ -436,19 +486,19 @@ function resetColumns() {
     columns.value = defaults.map((column) => ({ ...column }));
     return;
   }
-  const restored = saved
-    .map((savedColumn) => {
-      const current = defaultByKey.get(savedColumn.key);
-      if (!current) {
-        return null;
-      }
-      return {
-        ...current,
-        width: Number.isFinite(savedColumn.width) ? savedColumn.width : current.width,
-        visible: savedColumn.visible
-      };
-    })
-    .filter((column): column is EntryColumn => Boolean(column));
+  const restored: EntryColumn[] = [];
+  saved.forEach((savedColumn) => {
+    const current = defaultByKey.get(savedColumn.key);
+    if (!current) {
+      return;
+    }
+    restored.push({
+      ...current,
+      width: Number.isFinite(savedColumn.width) ? savedColumn.width : current.width,
+      visible: savedColumn.visible,
+      fixed: savedColumn.fixed ?? ""
+    });
+  });
   const restoredKeys = new Set(restored.map((column) => column.key));
   columns.value = [
     ...restored,
@@ -510,7 +560,8 @@ function persistColumnPreferences() {
   localStorage.setItem(columnPreferenceKey(), JSON.stringify(columns.value.map((column) => ({
     key: column.key,
     width: Math.max(64, Number(column.width) || 64),
-    visible: column.visible
+    visible: column.visible,
+    fixed: column.fixed ?? ""
   }))));
 }
 
@@ -534,6 +585,135 @@ function selectedLineIndexes() {
   return props.lines
     .map((_, index) => index)
     .filter((index) => selectedLines.value[index]);
+}
+
+function openColumnFilter(column: EntryColumn, event: MouseEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  activeFilterColumn.value = column;
+  activeFilterOperator.value = columnFilters[column.key]?.operator ?? "包含";
+  activeFilterValue.value = columnFilters[column.key]?.value ?? "";
+  filterPopoverLeft.value = Math.min(rect.right - 136, window.innerWidth - 150);
+  filterPopoverTop.value = Math.min(rect.bottom + 4, window.innerHeight - 260);
+  filterDialogOpen.value = true;
+}
+
+function applyColumnFilter() {
+  const column = activeFilterColumn.value;
+  if (!column) {
+    return;
+  }
+  const value = activeFilterValue.value.trim();
+  if (value || ["为空", "不为空"].includes(activeFilterOperator.value)) {
+    columnFilters[column.key] = { operator: activeFilterOperator.value, value };
+  } else {
+    delete columnFilters[column.key];
+  }
+  filterDialogOpen.value = false;
+}
+
+function clearColumnFilter() {
+  if (activeFilterColumn.value) {
+    delete columnFilters[activeFilterColumn.value.key];
+  }
+  activeFilterValue.value = "";
+  filterDialogOpen.value = false;
+}
+
+function lineMatchesFilters(line: EntryLine, index: number) {
+  return Object.entries(columnFilters).every(([key, filter]) => matchesColumnFilter(entryColumnValue(line, index, key as EntryColumnKey), filter));
+}
+
+function matchesColumnFilter(rawValue: string, filter: ColumnFilter) {
+  const source = rawValue.trim().toLowerCase();
+  const value = filter.value.trim().toLowerCase();
+  switch (filter.operator) {
+    case "不包含":
+      return !source.includes(value);
+    case "等于":
+      return source === value;
+    case "不等于":
+      return source !== value;
+    case "以……开始":
+      return source.startsWith(value);
+    case "以……结束":
+      return source.endsWith(value);
+    case "为空":
+      return !source;
+    case "不为空":
+      return Boolean(source);
+    case "包含":
+    default:
+      return source.includes(value);
+  }
+}
+
+function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
+  switch (key) {
+    case "selection":
+      return selectedLines.value[index] ? "已选" : "";
+    case "productCode":
+      return line.productCode;
+    case "productName":
+      return productInfo(line).name;
+    case "spec":
+      return productInfo(line).spec;
+    case "warehouse":
+      return line.warehouseCode;
+    case "targetWarehouse":
+      return line.targetWarehouseCode ?? "";
+    case "sourceLineNo":
+      return line.sourceLineNo ? String(line.sourceLineNo) : "";
+    case "qty":
+      return formatQty(line.qty);
+    case "executedQty":
+      return lineExecutedQty(line);
+    case "remainingQty":
+      return lineRemainingQty(line);
+    case "unitPrice":
+      return formatQty(line.unitPrice);
+    case "taxRate":
+      return formatQty(line.taxRate ?? 0);
+    case "amount":
+      return lineAmount(line);
+    case "taxAmount":
+      return lineTaxAmount(line);
+    case "priceTaxTotal":
+      return linePriceTaxTotal(line);
+    case "planDeliveryDate":
+      return line.planDeliveryDate ?? "";
+    case "remark":
+      return line.lineRemark ?? "";
+    case "actions":
+    default:
+      return "";
+  }
+}
+
+function startColumnResize(column: EntryColumn, event: MouseEvent) {
+  resizingColumnKey.value = column.key;
+  resizeStartX.value = event.clientX;
+  resizeStartWidth.value = Number(column.width) || 96;
+  window.addEventListener("mousemove", trackColumnResize);
+  window.addEventListener("mouseup", finishColumnResize, { once: true });
+}
+
+function trackColumnResize(event: MouseEvent) {
+  if (!resizingColumnKey.value) {
+    return;
+  }
+  const target = columns.value.find((column) => column.key === resizingColumnKey.value);
+  if (!target) {
+    return;
+  }
+  target.width = Math.max(64, Math.min(420, resizeStartWidth.value + event.clientX - resizeStartX.value));
+}
+
+function finishColumnResize() {
+  if (resizingColumnKey.value) {
+    persistColumnPreferences();
+  }
+  resizingColumnKey.value = null;
+  window.removeEventListener("mousemove", trackColumnResize);
 }
 
 function openRowMenu(lineIndex: number, event: MouseEvent) {

@@ -90,7 +90,7 @@
             <option value="tax">含税</option>
           </select>
         </label>
-        <label class="form-head-field-wide">单据备注<input v-model="form.remark" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
+        <label class="form-head-field-wide">单据备注<textarea v-model="form.remark" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
       </section>
 
       <EntryTable
