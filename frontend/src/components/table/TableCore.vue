@@ -14,6 +14,7 @@
                   :key="column.key"
                   :class="headerCellClass(column)"
                   :style="cellStyle(column)"
+                  @mousedown.left="emit('columnDragStart', column, $event)"
                 >
                   <slot name="header-cell" :column="column" :start-resize="startColumnResize">
                     <TableCoreHeaderCell
@@ -69,6 +70,16 @@
               </tr>
               <slot name="body-extra" />
             </tbody>
+          </table>
+        </div>
+        <div v-if="$slots.footer" class="table-core-footer-wrapper">
+          <table :style="tableStyle">
+            <colgroup>
+              <col v-for="column in columns" :key="column.key" :style="{ width: `${columnWidth(column)}px` }" />
+            </colgroup>
+            <tfoot>
+              <slot name="footer" />
+            </tfoot>
           </table>
         </div>
       </div>

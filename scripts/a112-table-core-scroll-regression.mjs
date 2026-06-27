@@ -87,7 +87,18 @@ async function tableMetrics(page) {
       const node = document.querySelector(selector);
       if (!node) return null;
       const style = getComputedStyle(node);
-      return { scrollLeft: node.scrollLeft, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth, overflowX: style.overflowX, overflowY: style.overflowY };
+      return {
+        scrollLeft: node.scrollLeft,
+        clientWidth: node.clientWidth,
+        scrollWidth: node.scrollWidth,
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
+        backgroundImage: style.backgroundImage,
+        flexGrow: style.flexGrow,
+        minHeight: style.minHeight
+      };
     };
     const text = (selector) => [...document.querySelectorAll(selector)]
       .filter((node) => {
@@ -112,7 +123,13 @@ async function tableMetrics(page) {
     return {
       listScroll: scroll(".vxe-wrap"),
       listBodyScroll: scroll(".vxe-wrap .vxe-table--body-wrapper"),
+      listFrameRect: rect(".vxe-wrap"),
+      listBodyRect: rect(".vxe-wrap .vxe-table--body-wrapper"),
+      listPaginationRect: rect(".list-pagination"),
       entryScroll: scroll(".entry-table"),
+      entryBodyScroll: scroll(".entry-table .table-core-body-wrapper"),
+      entryBodyRect: rect(".entry-table .table-core-body-wrapper"),
+      entryFooterRect: rect(".entry-table .table-core-footer-wrapper"),
       listHeaders: text(".vxe-wrap .vxe-header--column").slice(0, 8),
       entryHeaders: text(".entry-table thead th").slice(0, 8),
       listCoreHeaderCount: document.querySelectorAll(".vxe-wrap .table-core-header-cell").length,
@@ -173,7 +190,14 @@ try {
   await screenshot(page, "a112b-header-core-scrollbar", screenshots);
   const headerMetrics = await tableMetrics(page);
   assert(headerMetrics.listScroll.overflowX === "scroll", `header view outer scrollbar should be always on: ${JSON.stringify(headerMetrics.listScroll)}`);
-  assert(headerMetrics.listBodyScroll.overflowY === "scroll", `header view vertical scrollbar should be always on: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
+  assert(headerMetrics.listBodyScroll.overflowX === "hidden", `header view body should not own horizontal scroll: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
+  assert(headerMetrics.listBodyScroll.overflowY === "auto", `header view body should use auto vertical scroll: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
+  assert(headerMetrics.listBodyScroll.clientHeight > 336, `header view body should grow beyond legacy fixed 336px: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
+  assert(headerMetrics.listBodyScroll.backgroundImage.includes("repeating-linear-gradient"), `header view empty space should continue grid lines: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
+  assert(
+    headerMetrics.listPaginationRect && headerMetrics.listFrameRect && headerMetrics.listPaginationRect.y >= headerMetrics.listFrameRect.bottom - 1,
+    `pagination should stay directly below the flexed table frame: ${JSON.stringify(headerMetrics)}`
+  );
   assert(headerMetrics.listCoreHeaderCount > 0, `header view should render shared table core header cells: ${JSON.stringify(headerMetrics)}`);
   const beforeResize = await headerWidths(page);
   await dragBillNoWidth(page, 44);
@@ -184,6 +208,10 @@ try {
 
   await page.getByTestId(`open-document-${orderNo}`).click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
+  await page.waitForFunction((expected) => {
+    const input = document.querySelector("[data-testid='sales-bill-no']");
+    return input instanceof HTMLInputElement && input.value === expected;
+  }, orderNo);
   const openedBillNo = await page.getByTestId("sales-bill-no").inputValue();
   assert(openedBillNo === orderNo, `opened sales order should show seeded bill no before tab switch: ${openedBillNo}`);
   await page.getByTestId("tab-sales-order-form-list").click();
@@ -233,6 +261,13 @@ try {
   const entryMetrics = await tableMetrics(page);
   assert(entryMetrics.entryScroll.scrollWidth > entryMetrics.entryScroll.clientWidth + 8, `entry table should have real horizontal overflow: ${JSON.stringify(entryMetrics.entryScroll)}`);
   assert(entryMetrics.entryScroll.scrollLeft > 0, `entry horizontal scroll should move right: ${JSON.stringify(entryMetrics.entryScroll)}`);
+  assert(entryMetrics.entryBodyScroll.overflowX === "hidden", `entry body should not own horizontal scroll: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
+  assert(entryMetrics.entryBodyScroll.overflowY === "auto", `entry body should use auto vertical scroll: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
+  assert(entryMetrics.entryBodyScroll.backgroundImage.includes("repeating-linear-gradient"), `entry empty space should continue grid lines: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
+  assert(
+    entryMetrics.entryFooterRect && entryMetrics.entryBodyRect && entryMetrics.entryFooterRect.y >= entryMetrics.entryBodyRect.bottom - 1,
+    `entry footer should render outside the scrollable body: ${JSON.stringify(entryMetrics)}`
+  );
   assert(entryMetrics.stockOnHandVisible && entryMetrics.stockAvailableVisible && entryMetrics.stockReservedVisible, `stock columns should be visible after horizontal scroll: ${JSON.stringify(entryMetrics)}`);
   assert(entryMetrics.entryHeaders.some((header) => header.includes("序号")), `entry table must keep sequence column: ${JSON.stringify(entryMetrics.entryHeaders)}`);
 

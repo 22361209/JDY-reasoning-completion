@@ -4,7 +4,7 @@
     :class="{ dragging, 'drag-over': dragOver }"
     :data-testid="testId"
     :data-column-field="columnKey"
-    @mousedown.left="emit('dragStart', $event)"
+    @mousedown.left.stop="emit('dragStart', $event)"
   >
     <span class="column-header-title">{{ title }}</span>
     <button

@@ -295,7 +295,7 @@
               </div>
             </div>
     </template>
-    <template #body-extra>
+    <template #footer>
         <tr class="entry-total-row">
           <td v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)" :data-testid="column.key === totalAmountColumnKey ? 'document-total-amount' : undefined">
             <template v-if="column.key === firstVisibleColumnKey">合计</template>
