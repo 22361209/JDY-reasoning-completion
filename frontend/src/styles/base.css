@@ -2491,7 +2491,16 @@ table {
   min-height: 28px;
   margin: -2px -6px;
   padding-top: 3px;
+  padding-right: 34px;
   padding-bottom: 3px;
+}
+
+.table-core-frame--entry .column-header-actions {
+  right: -2px;
+}
+
+.table-core-frame--entry .table-core-column-resizer {
+  right: -20px;
 }
 
 .sr-only {
