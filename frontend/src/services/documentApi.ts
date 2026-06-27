@@ -185,6 +185,28 @@ export interface SalesUnitPriceQuote {
   sourceBillNo?: string;
 }
 
+export interface SalesUnitPriceSource {
+  value: number | string | null;
+  available: boolean;
+  label: string;
+  sourceBillNo?: string;
+}
+
+export interface SalesUnitPriceSourcesByProduct {
+  productCode: string;
+  defaultPrice?: SalesUnitPriceSource;
+  recentPrice?: SalesUnitPriceSource;
+  historyMaxPrice?: SalesUnitPriceSource;
+  historyMinPrice?: SalesUnitPriceSource;
+  historyAvgPrice?: SalesUnitPriceSource;
+  costPrice?: SalesUnitPriceSource;
+}
+
+export interface SalesUnitPriceSourcesResponse {
+  customerCode: string;
+  products: Record<string, SalesUnitPriceSourcesByProduct>;
+}
+
 export async function saveDocumentDraft(type: DocumentType, payload: DocumentDraftPayload) {
   const body = toBackendPayload(type, payload);
   return callDocument(`${endpointByType[type]}/draft`, "POST", body);
@@ -197,6 +219,19 @@ export async function fetchSalesUnitPriceQuote(customerCode: string, productCode
     return { ok: false, message: result.message || "销售价格查询失败。" };
   }
   return { ok: true, message: "", data: result.data as SalesUnitPriceQuote };
+}
+
+export async function fetchSalesUnitPriceSources(customerCode: string, productCodes: string[]): Promise<{ ok: boolean; message: string; data?: SalesUnitPriceSourcesResponse }> {
+  const uniqueCodes = Array.from(new Set(productCodes.map((code) => code.trim()).filter(Boolean)));
+  if (!customerCode.trim() || uniqueCodes.length === 0) {
+    return { ok: false, message: "请先选择客户和商品。" };
+  }
+  const search = new URLSearchParams({ customerCode, productCodes: uniqueCodes.join(",") });
+  const result = await callDocument(`/api/sales-prices/unit-price-sources?${search.toString()}`, "GET");
+  if (!result.ok || !result.data) {
+    return { ok: false, message: result.message || "销售价格来源查询失败。" };
+  }
+  return { ok: true, message: "", data: result.data as SalesUnitPriceSourcesResponse };
 }
 
 export async function fetchNextBillNo(type: DocumentType) {

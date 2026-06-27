@@ -23,13 +23,17 @@
                       :test-id="column.dragTestId"
                       :filter-test-id="column.filterTestId"
                       :resize-test-id="column.resizeTestId"
+                      :bulk-fill-test-id="column.bulkFillTestId"
                       :filterable="column.filterable !== false"
                       :resizable="column.resizable !== false"
                       :filter-active="Boolean(column.filterActive)"
+                      :bulk-fillable="Boolean(column.bulkFillable)"
+                      :bulk-fill-active="Boolean(column.bulkFillActive)"
                       :dragging="Boolean(column.dragging)"
                       :drag-over="Boolean(column.dragOver)"
                       @drag-start="emit('columnDragStart', column, $event)"
                       @filter="emit('columnFilter', column, $event)"
+                      @bulk-fill="emit('columnBulkFill', column, $event)"
                       @resize-start="startColumnResize(column, $event)"
                     />
                   </slot>
@@ -105,10 +109,13 @@ export interface TableCoreColumn {
   filterable?: boolean;
   resizable?: boolean;
   filterActive?: boolean;
+  bulkFillable?: boolean;
+  bulkFillActive?: boolean;
   dragging?: boolean;
   dragOver?: boolean;
   dragTestId?: string;
   filterTestId?: string;
+  bulkFillTestId?: string;
   resizeTestId?: string;
   headerClass?: ClassValue;
   cellClass?: ClassValue;
@@ -145,6 +152,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   columnDragStart: [column: TableCoreColumn, event: MouseEvent];
   columnFilter: [column: TableCoreColumn, event: MouseEvent];
+  columnBulkFill: [column: TableCoreColumn, event: MouseEvent];
   columnResize: [payload: { column: TableCoreColumn; width: number }];
   columnResizeEnd: [payload: { column: TableCoreColumn; width: number }];
   rowContextmenu: [row: Row, rowIndex: number, event: MouseEvent];

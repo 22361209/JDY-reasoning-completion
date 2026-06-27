@@ -115,6 +115,8 @@
         :show-source-line-column="document.showSourceLineColumn.value"
         :show-execution-columns="false"
         :show-plan-delivery-date-column="true"
+        :enable-sales-price-bulk="true"
+        :sales-price-customer-code="document.form.partyCode"
         :entry-table-colspan="document.entryTableColspan.value"
         :entry-total-colspan="document.entryTotalColspan.value"
         :total-amount="document.totalAmount.value"

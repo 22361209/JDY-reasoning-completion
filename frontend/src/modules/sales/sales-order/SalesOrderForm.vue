@@ -34,6 +34,7 @@
     :show-execution-columns="document.showExecutionColumns.value"
     :show-plan-delivery-date-column="document.showPlanDeliveryDateColumn.value"
     :show-stock-columns="document.showStockColumns.value"
+    :enable-sales-price-bulk="true"
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
     :total-amount="document.totalAmount.value"

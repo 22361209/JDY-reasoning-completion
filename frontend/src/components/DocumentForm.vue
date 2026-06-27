@@ -124,6 +124,8 @@
         :show-target-warehouse-column="showTargetWarehouseColumn"
         :show-plan-delivery-date-column="showPlanDeliveryDateColumn"
         :show-stock-columns="showStockColumns"
+        :enable-sales-price-bulk="enableSalesPriceBulk"
+        :sales-price-customer-code="form.partyCode"
         :execution-qty-label="executionQtyLabel"
         :remaining-qty-label="remainingQtyLabel"
         :entry-table-colspan="entryTableColspan"
@@ -231,6 +233,7 @@ withDefaults(defineProps<{
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
   showStockColumns?: boolean;
+  enableSalesPriceBulk?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   entryTableColspan: number;
@@ -267,7 +270,8 @@ withDefaults(defineProps<{
   showPushDown: false,
   canPushDown: false,
   pushDownLabel: "下推",
-  pushDownTestId: "push-down-document"
+  pushDownTestId: "push-down-document",
+  enableSalesPriceBulk: false
 });
 
 const emit = defineEmits<{

@@ -21,4 +21,9 @@ public class SalesPriceController {
     public Map<String, Object> unitPrice(@RequestParam String customerCode, @RequestParam String productCode) {
         return priceMemoryService.unitPrice(customerCode, productCode);
     }
+
+    @GetMapping("/unit-price-sources")
+    public Map<String, Object> unitPriceSources(@RequestParam String customerCode, @RequestParam String productCodes) {
+        return priceMemoryService.unitPriceSources(customerCode, productCodes);
+    }
 }

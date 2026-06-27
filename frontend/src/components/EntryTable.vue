@@ -1,30 +1,5 @@
 <template>
   <div class="entry-tools">
-    <label>
-      批量仓库
-      <input
-        :value="batchWarehouseCode"
-        :disabled="!isDraft"
-        data-testid="batch-warehouse-code"
-        @input="emit('update:batchWarehouseCode', ($event.target as HTMLInputElement).value)"
-        @keydown.enter="emit('applyBatchWarehouse')"
-      />
-    </label>
-    <button type="button" :disabled="!isDraft" data-testid="apply-batch-warehouse" @click="emit('applyBatchWarehouse')">应用</button>
-    <template v-if="showPlanDeliveryDateColumn">
-      <label>
-        批量交期
-        <input
-          :value="batchPlanDeliveryDate"
-          :disabled="!isDraft"
-          type="date"
-          data-testid="batch-plan-delivery-date"
-          @input="emit('update:batchPlanDeliveryDate', ($event.target as HTMLInputElement).value)"
-          @keydown.enter="emit('applyBatchPlanDeliveryDate', selectedLineIndexes())"
-        />
-      </label>
-      <button type="button" :disabled="!isDraft" data-testid="apply-batch-plan-delivery-date" @click="emit('applyBatchPlanDeliveryDate', selectedLineIndexes())">应用交期</button>
-    </template>
     <button type="button" data-testid="entry-column-settings" @click="columnDialogOpen = true">列设置</button>
     <button v-if="showStockColumns" type="button" data-testid="refresh-entry-stock" @click="emit('refreshStock')">更新</button>
   </div>
@@ -73,10 +48,14 @@
         :filterable="column.filterable !== false"
         :resizable="column.resizable !== false"
         :filter-active="Boolean(column.filterActive)"
+        :bulk-fillable="Boolean(column.bulkFillable)"
+        :bulk-fill-active="bulkFillColumnKey === column.key"
+        :bulk-fill-test-id="column.bulkFillTestId"
         :dragging="Boolean(column.dragging)"
         :drag-over="Boolean(column.dragOver)"
         @drag-start="startEntryColumnMouseDrag(column, $event)"
         @filter="openEntryColumnFilter(column, $event)"
+        @bulk-fill="openEntryBulkFill(column, $event)"
         @resize-start="startResize(column, $event)"
       />
     </template>
@@ -124,7 +103,25 @@
                 :data-testid="lineSelectTestId(lineIndex)"
               />
             </template>
-            <span v-else-if="column.key === 'rowNo'" class="entry-row-no">{{ lineLineNo(line, lineIndex) }}</span>
+            <span v-else-if="column.key === 'rowNo'" class="entry-row-no">
+              <span class="entry-row-no__value">{{ lineLineNo(line, lineIndex) }}</span>
+              <span class="entry-row-no__quick-actions">
+                <button
+                  type="button"
+                  :disabled="!isDraft"
+                  :data-testid="lineInsertTestId(lineIndex)"
+                  title="在下方新增行"
+                  @click.stop="emit('insertLineAfter', lineIndex)"
+                >+</button>
+                <button
+                  type="button"
+                  :disabled="!isDraft || lines.length <= 1"
+                  :data-testid="lineDeleteTestId(lineIndex)"
+                  title="删除本行"
+                  @click.stop="emit('removeLine', lineIndex)"
+                >-</button>
+              </span>
+            </span>
             <span v-else-if="column.key === 'productName'" class="entry-cell-text">{{ productInfo(line).name }}</span>
             <span v-else-if="column.key === 'spec'" class="entry-cell-text">{{ productInfo(line).spec }}</span>
             <template v-else-if="column.key === 'warehouse'">
@@ -274,14 +271,30 @@
             <span v-else-if="column.key === 'amount'" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</span>
             <span v-else-if="column.key === 'taxAmount'" :data-testid="lineTaxAmountTestId(lineIndex)">{{ lineTaxAmount(line) }}</span>
             <span v-else-if="column.key === 'priceTaxTotal'" :data-testid="linePriceTaxTotalTestId(lineIndex)">{{ linePriceTaxTotal(line) }}</span>
-            <input
+            <span
               v-else-if="column.key === 'planDeliveryDate'"
-              v-model="line.planDeliveryDate"
-              type="date"
-              :disabled="!isDraft"
-              :data-testid="linePlanDeliveryDateTestId(lineIndex)"
-              @input="emit('markDirty')"
-            />
+              class="entry-date-cell"
+              :class="{ 'is-disabled': !isDraft }"
+            >
+              <input
+                :value="line.planDeliveryDate || ''"
+                :disabled="!isDraft"
+                :data-testid="linePlanDeliveryDateTestId(lineIndex)"
+                placeholder="YYYY-MM-DD"
+                @input="line.planDeliveryDate = ($event.target as HTMLInputElement).value; emit('markDirty')"
+                @keydown.enter.prevent="commitLineDate(lineIndex)"
+                @blur="commitLineDate(lineIndex)"
+              />
+              <button
+                type="button"
+                class="entry-date-picker-button"
+                :disabled="!isDraft"
+                :data-testid="`${linePlanDeliveryDateTestId(lineIndex)}-calendar`"
+                title="选择日期"
+                @mousedown.prevent
+                @click="openLineDatePicker(lineIndex, $event)"
+              />
+            </span>
             <input v-else-if="column.key === 'remark'" v-model="line.lineRemark" :disabled="!isDraft" :data-testid="lineRemarkTestId(lineIndex)" @input="emit('markDirty')" />
             <div v-else-if="column.key === 'actions'" class="entry-row-actions">
               <button class="line-action line-menu-trigger" type="button" :data-testid="lineMenuTestId(lineIndex)" title="行操作" @click="toggleRowMenu(lineIndex, $event)">⋮</button>
@@ -338,6 +351,101 @@
   />
 
   <div
+    v-if="bulkFillColumnKey"
+    class="column-bulk-popover"
+    :style="{ left: `${bulkFillLeft}px`, top: `${bulkFillTop}px` }"
+    data-testid="entry-column-bulk-dialog"
+    @click.stop
+    @mousedown.stop
+  >
+    <template v-if="bulkFillColumnKey === 'planDeliveryDate'">
+      <strong>批量填充日期</strong>
+      <span class="entry-date-cell column-bulk-date-input">
+        <input
+          v-model="bulkDateValue"
+          data-testid="entry-bulk-date-input"
+          placeholder="2026-05-01"
+          @keydown.enter.prevent="applyBulkDate"
+        />
+        <button
+          type="button"
+          class="entry-date-picker-button"
+          title="选择日期"
+          @mousedown.prevent
+          @click="openBulkDatePicker"
+        />
+      </span>
+      <button type="button" class="primary-action" data-testid="entry-bulk-date-ok" @click="applyBulkDate">确定</button>
+    </template>
+    <template v-else-if="bulkFillColumnKey === 'warehouse'">
+      <strong>批量填充仓库</strong>
+      <input
+        v-model="bulkWarehouseValue"
+        data-testid="entry-bulk-warehouse-input"
+        placeholder="仓库编码"
+        @keydown.enter.prevent="applyBulkWarehouse"
+      />
+      <button type="button" class="primary-action" data-testid="entry-bulk-warehouse-ok" @click="applyBulkWarehouse">确定</button>
+    </template>
+    <template v-else-if="bulkFillColumnKey === 'unitPrice'">
+      <strong>单价</strong>
+      <select v-model="bulkPriceSourceKey" data-testid="entry-bulk-price-source">
+        <option
+          v-for="source in bulkPriceSourceOptions"
+          :key="source.key"
+          :value="source.key"
+        >
+          {{ source.label }}
+        </option>
+      </select>
+      <select v-model="bulkPriceOperator" class="column-bulk-price-operator" data-testid="entry-bulk-price-operator">
+        <option value="+">+</option>
+        <option value="-">-</option>
+        <option value="*">*</option>
+        <option value="/">/</option>
+      </select>
+      <input
+        v-model="bulkPriceFactor"
+        class="column-bulk-price-factor"
+        data-testid="entry-bulk-price-factor"
+        placeholder="系数"
+        @keydown.enter.prevent="applyBulkPrice"
+      />
+      <button type="button" class="primary-action" data-testid="entry-bulk-price-ok" @click="applyBulkPrice">确定</button>
+      <small v-if="bulkPriceMessage" class="column-bulk-message" data-testid="entry-bulk-price-message">{{ bulkPriceMessage }}</small>
+    </template>
+  </div>
+
+  <div
+    v-if="datePickerOpen"
+    class="entry-date-popover"
+    :style="{ left: `${datePickerLeft}px`, top: `${datePickerTop}px` }"
+    data-testid="entry-date-picker"
+    @click.stop
+    @mousedown.stop
+  >
+    <div class="entry-date-popover__head">
+      <button type="button" @click="shiftDatePickerMonth(-1)">‹</button>
+      <strong>{{ datePickerYear }}年 {{ datePickerMonth + 1 }}月</strong>
+      <button type="button" @click="shiftDatePickerMonth(1)">›</button>
+    </div>
+    <div class="entry-date-popover__week">
+      <span v-for="day in weekDays" :key="day">{{ day }}</span>
+    </div>
+    <div class="entry-date-popover__grid">
+      <button
+        v-for="day in datePickerDays"
+        :key="day.key"
+        type="button"
+        :class="{ muted: !day.inMonth, selected: day.value === activeDatePickerValue }"
+        @click="selectDatePickerDay(day.value)"
+      >
+        {{ day.label }}
+      </button>
+    </div>
+  </div>
+
+  <div
     v-if="draggingColumnKey"
     class="column-drag-ghost"
     :style="{ left: `${dragGhostLeft}px`, top: `${dragGhostTop}px` }"
@@ -350,6 +458,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { taxAmounts } from "../app/taxAmounts";
+import { fetchSalesUnitPriceSources, type SalesUnitPriceSource, type SalesUnitPriceSourcesByProduct } from "../services/documentApi";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
@@ -398,6 +507,7 @@ interface EntryColumn {
   fixed?: "" | "left" | "right";
   configurable?: boolean;
   numeric?: boolean;
+  bulkFillable?: boolean;
 }
 
 interface ColumnFilter {
@@ -424,6 +534,8 @@ const props = defineProps<{
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
   showStockColumns?: boolean;
+  enableSalesPriceBulk?: boolean;
+  salesPriceCustomerCode?: string;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   entryTableColspan: number;
@@ -478,8 +590,32 @@ const draggingColumnKey = ref<EntryColumnKey | "">("");
 const dragOverColumnKey = ref<EntryColumnKey | "">("");
 const dragGhostLeft = ref(0);
 const dragGhostTop = ref(0);
+const bulkFillColumnKey = ref<EntryColumnKey | "">("");
+const bulkFillLeft = ref(0);
+const bulkFillTop = ref(0);
+const bulkDateValue = ref("");
+const bulkWarehouseValue = ref("");
+const bulkPriceSourceKey = ref("defaultPrice");
+const bulkPriceOperator = ref("+");
+const bulkPriceFactor = ref("0");
+const bulkPriceMessage = ref("");
+const datePickerOpen = ref(false);
+const datePickerTarget = ref<{ type: "line"; lineIndex: number } | { type: "bulk" } | null>(null);
+const datePickerLeft = ref(0);
+const datePickerTop = ref(0);
+const datePickerYear = ref(new Date().getFullYear());
+const datePickerMonth = ref(new Date().getMonth());
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
+const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
+const bulkPriceSourceOptions = [
+  { key: "defaultPrice", label: "默认价格" },
+  { key: "recentPrice", label: "最近成交价" },
+  { key: "historyMaxPrice", label: "历史最高价" },
+  { key: "historyMinPrice", label: "历史最低价" },
+  { key: "historyAvgPrice", label: "平均价" },
+  { key: "costPrice", label: "成本价" }
+] as const;
 
 const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "selection", title: "", width: 44, visible: true, fixed: "left", configurable: false },
@@ -487,7 +623,7 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "productCode", title: "商品编码", width: 140, visible: true },
   { key: "productName", title: "商品名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
-  { key: "warehouse", title: "仓库", width: 130, visible: true },
+  { key: "warehouse", title: "仓库", width: 130, visible: true, bulkFillable: true },
   { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
   { key: "sourceOrderNo", title: "源单号", width: 142, visible: props.showSourceLineColumn },
   { key: "sourceLineNo", title: "源单行号", width: 86, visible: props.showSourceLineColumn },
@@ -498,12 +634,12 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "stockReserved", title: "锁定库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
   { key: "stockAvailable", title: "可用库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
   { key: "stockInTransit", title: "在途库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
-  { key: "unitPrice", title: "单价", width: 104, visible: true, numeric: true },
+  { key: "unitPrice", title: "单价", width: 104, visible: true, numeric: true, bulkFillable: Boolean(props.enableSalesPriceBulk) },
   { key: "taxRate", title: "税率%", width: 88, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
   { key: "taxAmount", title: "税额", width: 104, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "priceTaxTotal", title: "价税合计", width: 124, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "planDeliveryDate", title: "交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn) },
+  { key: "planDeliveryDate", title: "交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn), bulkFillable: true },
   { key: "remark", title: "备注", width: 210, visible: true },
   { key: "actions", title: "操作", width: 56, visible: true, configurable: false }
 ]);
@@ -520,10 +656,12 @@ const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.
   filterable: column.configurable !== false,
   resizable: column.configurable !== false,
   filterActive: Boolean(columnFilters[column.key]?.value) || ["为空", "不为空"].includes(columnFilters[column.key]?.operator ?? ""),
+  bulkFillable: Boolean(column.bulkFillable) && props.isDraft,
   dragging: draggingColumnKey.value === column.key,
   dragOver: dragOverColumnKey.value === column.key,
   dragTestId: `entry-column-drag-${column.key}`,
   filterTestId: `entry-column-filter-${column.key}`,
+  bulkFillTestId: `entry-column-bulk-${column.key}`,
   resizeTestId: `entry-column-resize-${column.key}`,
   headerClass: columnClass(column),
   cellClass: columnClass(column)
@@ -536,6 +674,28 @@ const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + ta
 const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
 const draggingColumnTitle = computed(() => columns.value.find((column) => column.key === draggingColumnKey.value)?.title ?? "");
 const allLinesSelected = computed(() => props.lines.length > 0 && props.lines.every((_, index) => selectedLines.value[index]));
+const activeDatePickerValue = computed(() => {
+  if (datePickerTarget.value?.type === "line") {
+    return normalizeDateInput(props.lines[datePickerTarget.value.lineIndex]?.planDeliveryDate || "");
+  }
+  return normalizeDateInput(bulkDateValue.value);
+});
+const datePickerDays = computed(() => {
+  const first = new Date(datePickerYear.value, datePickerMonth.value, 1);
+  const startOffset = (first.getDay() + 6) % 7;
+  const start = new Date(datePickerYear.value, datePickerMonth.value, 1 - startOffset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(start);
+    current.setDate(start.getDate() + index);
+    const value = formatDateValue(current);
+    return {
+      key: value,
+      value,
+      label: String(current.getDate()),
+      inMonth: current.getMonth() === datePickerMonth.value
+    };
+  });
+});
 
 watch(() => [
   props.testPrefix,
@@ -551,6 +711,7 @@ watch(() => [
 
 onBeforeUnmount(() => {
   document.removeEventListener("click", closeRowMenu);
+  document.removeEventListener("click", closeFloatingPanels);
   window.removeEventListener("mousemove", trackColumnMouseDrag);
   window.removeEventListener("mouseup", finishColumnMouseDrag);
 });
@@ -836,6 +997,31 @@ function openEntryColumnFilter(column: TableCoreColumn, event: MouseEvent) {
   }
 }
 
+function openEntryBulkFill(column: TableCoreColumn, event: MouseEvent) {
+  const entryColumn = entryColumnByKey(column.key);
+  if (!entryColumn?.bulkFillable || !props.isDraft) {
+    return;
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  closeFloatingPanels();
+  bulkFillColumnKey.value = entryColumn.key;
+  bulkFillLeft.value = Math.min(rect.left, window.innerWidth - 470);
+  bulkFillTop.value = Math.min(rect.bottom + 4, window.innerHeight - 290);
+  if (entryColumn.key === "planDeliveryDate") {
+    bulkDateValue.value = normalizeDateInput(props.batchPlanDeliveryDate || bulkDateValue.value) || "";
+  }
+  if (entryColumn.key === "warehouse") {
+    bulkWarehouseValue.value = props.batchWarehouseCode || bulkWarehouseValue.value;
+  }
+  if (entryColumn.key === "unitPrice") {
+    bulkPriceMessage.value = "";
+    bulkPriceSourceKey.value = bulkPriceSourceKey.value || "defaultPrice";
+    bulkPriceOperator.value = bulkPriceOperator.value || "+";
+    bulkPriceFactor.value = bulkPriceFactor.value || "0";
+  }
+  setTimeout(() => document.addEventListener("click", closeFloatingPanels, { once: true }));
+}
+
 function resizeEntryColumn({ column, width }: { column: TableCoreColumn; width: number }) {
   const target = entryColumnByKey(column.key);
   if (target) {
@@ -959,6 +1145,211 @@ function toggleRowMenu(lineIndex: number, event: MouseEvent) {
 function closeRowMenu() {
   openMenuLineIndex.value = null;
   document.removeEventListener("click", closeRowMenu);
+}
+
+function closeFloatingPanels() {
+  bulkFillColumnKey.value = "";
+  datePickerOpen.value = false;
+  datePickerTarget.value = null;
+  document.removeEventListener("click", closeFloatingPanels);
+}
+
+function stopFloatingClose(event: MouseEvent) {
+  event.stopPropagation();
+}
+
+function targetLineIndexes() {
+  const selected = selectedLineIndexes();
+  return selected.length ? selected : props.lines.map((_, index) => index);
+}
+
+function applyBulkWarehouse() {
+  const value = bulkWarehouseValue.value.trim();
+  if (!value) {
+    return;
+  }
+  emit("update:batchWarehouseCode", value);
+  targetLineIndexes().forEach((index) => {
+    props.lines[index].warehouseCode = value;
+  });
+  emit("markDirty");
+  emit("applyBatchWarehouse");
+  closeFloatingPanels();
+}
+
+function applyBulkDate() {
+  const normalized = normalizeDateInput(bulkDateValue.value);
+  if (!normalized) {
+    return;
+  }
+  bulkDateValue.value = normalized;
+  emit("update:batchPlanDeliveryDate", normalized);
+  targetLineIndexes().forEach((index) => {
+    props.lines[index].planDeliveryDate = normalized;
+  });
+  emit("markDirty");
+  emit("applyBatchPlanDeliveryDate", targetLineIndexes());
+  closeFloatingPanels();
+}
+
+async function applyBulkPrice() {
+  const indexes = targetLineIndexes().filter((index) => props.lines[index]?.productCode?.trim());
+  if (!indexes.length) {
+    bulkPriceMessage.value = "没有可填充的商品行";
+    return;
+  }
+  const customerCode = (props.salesPriceCustomerCode || "").trim();
+  if (!customerCode) {
+    bulkPriceMessage.value = "请先选择客户";
+    return;
+  }
+  const factor = Number(bulkPriceFactor.value);
+  if (!Number.isFinite(factor)) {
+    bulkPriceMessage.value = "系数格式不正确";
+    return;
+  }
+  const productCodes = indexes.map((index) => props.lines[index].productCode);
+  const result = await fetchSalesUnitPriceSources(customerCode, productCodes);
+  if (!result.ok || !result.data) {
+    bulkPriceMessage.value = result.message || "价格来源查询失败";
+    return;
+  }
+  let applied = 0;
+  indexes.forEach((index) => {
+    const line = props.lines[index];
+    const productSources = result.data?.products?.[line.productCode] as SalesUnitPriceSourcesByProduct | undefined;
+    const source = productSources?.[bulkPriceSourceKey.value as keyof SalesUnitPriceSourcesByProduct];
+    if (!isPriceSource(source)) {
+      return;
+    }
+    const sourceValue = Number(source.value);
+    if (!source.available || !Number.isFinite(sourceValue)) {
+      return;
+    }
+    const nextPrice = calculateBulkPrice(sourceValue, factor, bulkPriceOperator.value);
+    if (nextPrice == null) {
+      return;
+    }
+    line.unitPrice = nextPrice;
+    applied += 1;
+  });
+  if (!applied) {
+    bulkPriceMessage.value = "选中商品没有可用价格来源";
+    return;
+  }
+  emit("markDirty");
+  bulkPriceMessage.value = `已填充 ${applied} 行`;
+  closeFloatingPanels();
+}
+
+function isPriceSource(value: unknown): value is SalesUnitPriceSource {
+  return Boolean(value && typeof value === "object" && "value" in value && "available" in value);
+}
+
+function calculateBulkPrice(sourceValue: number, factor: number, operator: string) {
+  let value = sourceValue;
+  if (operator === "+") {
+    value = sourceValue + factor;
+  } else if (operator === "-") {
+    value = sourceValue - factor;
+  } else if (operator === "*") {
+    value = sourceValue * factor;
+  } else if (operator === "/") {
+    if (factor === 0) {
+      bulkPriceMessage.value = "除数不能为 0";
+      return null;
+    }
+    value = sourceValue / factor;
+  }
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return Number(Math.max(0, value).toFixed(6));
+}
+
+function commitLineDate(lineIndex: number) {
+  const line = props.lines[lineIndex];
+  if (!line?.planDeliveryDate) {
+    return;
+  }
+  const normalized = normalizeDateInput(line.planDeliveryDate);
+  if (normalized) {
+    line.planDeliveryDate = normalized;
+    emit("markDirty");
+  }
+}
+
+function openLineDatePicker(lineIndex: number, event: MouseEvent) {
+  const line = props.lines[lineIndex];
+  if (!line || !props.isDraft) {
+    return;
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  openDatePicker({ type: "line", lineIndex }, line.planDeliveryDate, rect.left, rect.bottom + 4);
+}
+
+function openBulkDatePicker(event: MouseEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  openDatePicker({ type: "bulk" }, bulkDateValue.value, rect.left, rect.bottom + 4);
+}
+
+function openDatePicker(target: { type: "line"; lineIndex: number } | { type: "bulk" }, value: string | undefined, left: number, top: number) {
+  const parsed = parseDateInput(value || "") ?? new Date();
+  datePickerTarget.value = target;
+  datePickerYear.value = parsed.getFullYear();
+  datePickerMonth.value = parsed.getMonth();
+  datePickerLeft.value = Math.min(left, window.innerWidth - 290);
+  datePickerTop.value = Math.min(top, window.innerHeight - 270);
+  datePickerOpen.value = true;
+  setTimeout(() => document.addEventListener("click", closeFloatingPanels, { once: true }));
+}
+
+function shiftDatePickerMonth(delta: number) {
+  const next = new Date(datePickerYear.value, datePickerMonth.value + delta, 1);
+  datePickerYear.value = next.getFullYear();
+  datePickerMonth.value = next.getMonth();
+}
+
+function selectDatePickerDay(value: string) {
+  const target = datePickerTarget.value;
+  if (!target) {
+    return;
+  }
+  if (target.type === "line") {
+    props.lines[target.lineIndex].planDeliveryDate = value;
+  } else {
+    bulkDateValue.value = value;
+  }
+  emit("markDirty");
+  datePickerOpen.value = false;
+  datePickerTarget.value = null;
+}
+
+function normalizeDateInput(value: string | undefined) {
+  const date = parseDateInput(value || "");
+  return date ? formatDateValue(date) : "";
+}
+
+function parseDateInput(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (!match) {
+    return null;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return date;
+}
+
+function formatDateValue(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 function runLineAction(action: "insert" | "delete" | "copy", lineIndex: number) {
