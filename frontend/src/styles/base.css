@@ -1405,7 +1405,7 @@ input:disabled {
 }
 
 .table-core-frame {
-  --table-core-row-height: 21px;
+  --table-core-row-height: 32px;
   --table-core-grid-line-width: 1px;
   --table-core-grid-line-color: #e5ebf2;
   width: 100%;
@@ -1420,25 +1420,11 @@ input:disabled {
   overflow-x: scroll;
   overflow-y: hidden;
   scrollbar-gutter: stable;
+  font-size: 13px;
 }
 
 .table-core-frame::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  left: 0;
-  right: 0;
-  top: 24px;
-  bottom: 12px;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(var(--table-core-row-height) - var(--table-core-grid-line-width)),
-      var(--table-core-grid-line-color) calc(var(--table-core-row-height) - var(--table-core-grid-line-width)),
-      var(--table-core-grid-line-color) var(--table-core-row-height)
-    );
+  content: none;
 }
 
 .table-core-frame::-webkit-scrollbar {
@@ -1461,11 +1447,11 @@ input:disabled {
 }
 
 .vxe-wrap {
-  --vxe-ui-table-row-height-default: 21px;
-  --vxe-ui-table-row-height-medium: 21px;
-  --vxe-ui-table-row-height-small: 21px;
-  --vxe-ui-table-row-height-mini: 21px;
-  --vxe-ui-table-row-line-height: 17px;
+  --vxe-ui-table-row-height-default: 32px;
+  --vxe-ui-table-row-height-medium: 32px;
+  --vxe-ui-table-row-height-small: 32px;
+  --vxe-ui-table-row-height-mini: 32px;
+  --vxe-ui-table-row-line-height: 20px;
   --vxe-ui-table-cell-padding-default: 2px;
   --vxe-ui-table-cell-padding-medium: 2px;
   --vxe-ui-table-cell-padding-small: 2px;
@@ -1553,18 +1539,20 @@ input:disabled {
 }
 
 .data-list-native-table .vxe-header--column {
-  height: 24px;
+  height: 28px;
   background: #f3f6f9;
   color: #405064;
   padding: 0 8px;
   font-weight: 600;
+  font-size: 13px;
 }
 
 .data-list-native-table .vxe-body--column {
   height: var(--table-core-row-height);
-  padding: 1px 8px;
+  padding: 2px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 20px;
 }
 
 .data-list-native-table .vxe-cell {
@@ -1572,7 +1560,7 @@ input:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 18px;
+  line-height: 20px;
 }
 
 .data-list-native-table .vxe-body--row:nth-child(even) .vxe-body--column {
@@ -1631,20 +1619,20 @@ input:disabled {
 .vxe-wrap .vxe-table--render-default.size--mini .vxe-body--column,
 .vxe-wrap .vxe-table--render-default.size--mini .vxe-footer--column {
   height: var(--table-core-row-height) !important;
-  line-height: 17px !important;
+  line-height: 20px !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
 
 .vxe-wrap .vxe-table--render-default.size--mini .vxe-header--column {
-  height: 24px !important;
-  line-height: 18px !important;
+  height: 28px !important;
+  line-height: 20px !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
 
 .vxe-wrap .vxe-table--render-default .vxe-cell {
-  line-height: 18px;
+  line-height: 20px;
   padding: 1px 8px !important;
   box-sizing: border-box;
 }

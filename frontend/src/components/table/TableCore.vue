@@ -171,7 +171,7 @@ const tableWidth = computed(() => Math.max(
   props.minWidth,
   props.columns.reduce((sum, column) => sum + columnWidth(column), 0)
 ));
-const tableStyle = computed(() => ({ width: `${tableWidth.value}px`, minWidth: `${tableWidth.value}px` }));
+const tableStyle = computed(() => ({ width: `${tableWidth.value}px`, minWidth: "100%" }));
 
 onBeforeUnmount(() => {
   window.removeEventListener("mousemove", trackColumnResize);
