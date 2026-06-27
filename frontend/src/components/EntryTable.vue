@@ -28,59 +28,59 @@
     <button type="button" data-testid="entry-column-settings" @click="columnDialogOpen = true">列设置</button>
     <button v-if="showStockColumns" type="button" data-testid="refresh-entry-stock" @click="emit('refreshStock')">更新</button>
   </div>
-  <TableCoreFrame class="entry-table" kind="entry" test-id="entry-table-core">
-    <table :style="{ width: `${entryTableWidth}px`, minWidth: `${entryTableWidth}px` }">
-      <colgroup>
-        <col v-for="column in visibleColumns" :key="column.key" :style="{ width: `${column.width}px` }" />
-      </colgroup>
-      <thead>
-        <tr>
-          <th v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)">
-            <template v-if="column.key === 'selection'">
-              <input
-                :checked="allLinesSelected"
-                type="checkbox"
-                :disabled="!isDraft"
-                aria-label="全选分录"
-                data-testid="entry-select-all"
-                @change="toggleAllLines(($event.target as HTMLInputElement).checked)"
-              />
-            </template>
-            <TableCoreHeaderCell
-              v-else
-              :title="column.title"
-              :column-key="column.key"
-              :test-id="`entry-column-drag-${column.key}`"
-              :filter-test-id="`entry-column-filter-${column.key}`"
-              :resize-test-id="`entry-column-resize-${column.key}`"
-              :filterable="column.configurable !== false"
-              :resizable="column.configurable !== false"
-              :filter-active="Boolean(columnFilters[column.key]?.value) || ['为空', '不为空'].includes(columnFilters[column.key]?.operator ?? '')"
-              :dragging="draggingColumnKey === column.key"
-              :drag-over="dragOverColumnKey === column.key"
-              @drag-start="startColumnMouseDrag(column, $event)"
-              @filter="openColumnFilter(column, $event)"
-              @resize-start="startColumnResize(column, $event)"
-            />
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="(line, lineIndex) in lines"
-          :key="lineIndex"
-          v-show="lineMatchesFilters(line, lineIndex)"
-          :class="{ 'is-dragging': draggingLineIndex === lineIndex, 'is-source-target': isHighlightedSourceLine(line, lineIndex) }"
-          :draggable="isDraft"
-          :data-testid="`${testPrefix}-entry-row`"
-          :data-line-no="lineLineNo(line, lineIndex)"
-          @contextmenu.prevent="openRowMenu(lineIndex, $event)"
-          @dragstart="emit('lineDragStart', $event, lineIndex)"
-          @dragover.prevent="emit('lineDragOver', $event)"
-          @drop.prevent="emit('lineDrop', lineIndex)"
-          @dragend="emit('lineDragEnd')"
-        >
-          <td v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)" :data-testid="columnCellTestId(column.key, lineIndex)">
+  <TableCore
+    kind="entry"
+    test-id="entry-table-core"
+    frame-class="entry-table"
+    table-class="entry-native-table"
+    :columns="entryCoreColumns"
+    :rows="lines"
+    :min-width="1180"
+    :max-resize-width="420"
+    :row-visible="lineMatchesFilters"
+    :row-class="entryRowClass"
+    :row-attrs="entryRowAttrs"
+    :row-draggable="() => isDraft"
+    :cell-attrs="entryCellAttrs"
+    @column-drag-start="startEntryColumnMouseDrag"
+    @column-filter="openEntryColumnFilter"
+    @column-resize="resizeEntryColumn"
+    @column-resize-end="finishEntryColumnResize"
+    @row-contextmenu="handleEntryRowContextmenu"
+    @row-dragstart="handleEntryRowDragstart"
+    @row-dragover="handleEntryRowDragover"
+    @row-drop="handleEntryRowDrop"
+    @row-dragend="handleEntryRowDragend"
+  >
+    <template #header-cell="{ column, startResize }">
+      <template v-if="column.key === 'selection'">
+        <input
+          :checked="allLinesSelected"
+          type="checkbox"
+          :disabled="!isDraft"
+          aria-label="全选分录"
+          data-testid="entry-select-all"
+          @change="toggleAllLines(($event.target as HTMLInputElement).checked)"
+        />
+      </template>
+      <TableCoreHeaderCell
+        v-else
+        :title="column.title"
+        :column-key="column.key"
+        :test-id="column.dragTestId"
+        :filter-test-id="column.filterTestId"
+        :resize-test-id="column.resizeTestId"
+        :filterable="column.filterable !== false"
+        :resizable="column.resizable !== false"
+        :filter-active="Boolean(column.filterActive)"
+        :dragging="Boolean(column.dragging)"
+        :drag-over="Boolean(column.dragOver)"
+        @drag-start="startEntryColumnMouseDrag(column, $event)"
+        @filter="openEntryColumnFilter(column, $event)"
+        @resize-start="startResize(column, $event)"
+      />
+    </template>
+    <template #cell="{ row: line, column, rowIndex: lineIndex }">
             <template v-if="column.key === 'productCode'">
               <span class="master-selector in-cell">
                 <input
@@ -294,8 +294,8 @@
                 <button class="line-action" type="button" :disabled="isDraft" :data-testid="lineFreezeTestId(lineIndex)" @click="emit('lineLifecycle', lineLineNo(line, lineIndex), line.lineFrozenStatus === 'FROZEN' ? 'unfreeze' : 'freeze')">{{ line.lineFrozenStatus === 'FROZEN' ? '解冻行' : '冻结行' }}</button>
               </div>
             </div>
-          </td>
-        </tr>
+    </template>
+    <template #body-extra>
         <tr class="entry-total-row">
           <td v-for="column in visibleColumns" :key="column.key" :class="columnClass(column)" :data-testid="column.key === totalAmountColumnKey ? 'document-total-amount' : undefined">
             <template v-if="column.key === firstVisibleColumnKey">合计</template>
@@ -310,9 +310,8 @@
             <button type="button" :disabled="!isDraft" aria-label="+ 增加明细行" data-testid="add-document-line" @click="emit('addLine')">+ 增加明细</button>
           </td>
         </tr>
-      </tbody>
-    </table>
-  </TableCoreFrame>
+    </template>
+  </TableCore>
 
   <ColumnSettingsDialog
     :open="columnDialogOpen"
@@ -353,7 +352,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { taxAmounts } from "../app/taxAmounts";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
-import TableCoreFrame from "./table/TableCoreFrame.vue";
+import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
 
 export interface EntryLine {
@@ -475,9 +474,6 @@ const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
 const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
-const resizingColumnKey = ref<EntryColumnKey | null>(null);
-const resizeStartX = ref(0);
-const resizeStartWidth = ref(0);
 const draggingColumnKey = ref<EntryColumnKey | "">("");
 const dragOverColumnKey = ref<EntryColumnKey | "">("");
 const dragGhostLeft = ref(0);
@@ -514,7 +510,24 @@ const defaultColumns = computed<EntryColumn[]>(() => [
 
 const visibleColumns = computed(() => columns.value.filter((column) => isColumnAvailable(column) && column.visible));
 const configurableColumns = computed(() => columns.value.filter((column) => column.configurable !== false && isColumnAvailable(column)));
-const entryTableWidth = computed(() => Math.max(1180, visibleColumns.value.reduce((sum, column) => sum + Math.max(48, Number(column.width) || 96), 0)));
+const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.map((column) => ({
+  key: column.key,
+  title: column.title,
+  width: column.width,
+  minWidth: column.configurable === false ? Math.min(column.width, 48) : 64,
+  align: numericColumns.has(column.key) ? "right" : "left",
+  fixed: column.fixed,
+  filterable: column.configurable !== false,
+  resizable: column.configurable !== false,
+  filterActive: Boolean(columnFilters[column.key]?.value) || ["为空", "不为空"].includes(columnFilters[column.key]?.operator ?? ""),
+  dragging: draggingColumnKey.value === column.key,
+  dragOver: dragOverColumnKey.value === column.key,
+  dragTestId: `entry-column-drag-${column.key}`,
+  filterTestId: `entry-column-filter-${column.key}`,
+  resizeTestId: `entry-column-resize-${column.key}`,
+  headerClass: columnClass(column),
+  cellClass: columnClass(column)
+})));
 const firstVisibleColumnKey = computed(() => visibleColumns.value.find((column) => !isFrozenEntryColumn(column.key))?.key ?? "productCode");
 const rowMenuStyle = computed(() => ({ left: `${rowMenuLeft.value}px`, top: `${rowMenuTop.value}px` }));
 const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0)));
@@ -538,8 +551,6 @@ watch(() => [
 
 onBeforeUnmount(() => {
   document.removeEventListener("click", closeRowMenu);
-  window.removeEventListener("mousemove", trackColumnResize);
-  window.removeEventListener("mouseup", finishColumnResize);
   window.removeEventListener("mousemove", trackColumnMouseDrag);
   window.removeEventListener("mouseup", finishColumnMouseDrag);
 });
@@ -787,12 +798,79 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
   }
 }
 
-function startColumnResize(column: EntryColumn, event: MouseEvent) {
-  resizingColumnKey.value = column.key;
-  resizeStartX.value = event.clientX;
-  resizeStartWidth.value = Number(column.width) || 96;
-  window.addEventListener("mousemove", trackColumnResize);
-  window.addEventListener("mouseup", finishColumnResize, { once: true });
+function entryColumnByKey(key: string) {
+  return columns.value.find((column) => column.key === key);
+}
+
+function entryRowClass(line: EntryLine, lineIndex: number) {
+  return {
+    "is-dragging": props.draggingLineIndex === lineIndex,
+    "is-source-target": isHighlightedSourceLine(line, lineIndex)
+  };
+}
+
+function entryRowAttrs(line: EntryLine, lineIndex: number) {
+  return {
+    "data-testid": `${props.testPrefix}-entry-row`,
+    "data-line-no": lineLineNo(line, lineIndex)
+  };
+}
+
+function entryCellAttrs(_line: EntryLine, column: TableCoreColumn, lineIndex: number) {
+  return {
+    "data-testid": columnCellTestId(column.key as EntryColumnKey, lineIndex)
+  };
+}
+
+function startEntryColumnMouseDrag(column: TableCoreColumn, event: MouseEvent) {
+  const entryColumn = entryColumnByKey(column.key);
+  if (entryColumn) {
+    startColumnMouseDrag(entryColumn, event);
+  }
+}
+
+function openEntryColumnFilter(column: TableCoreColumn, event: MouseEvent) {
+  const entryColumn = entryColumnByKey(column.key);
+  if (entryColumn) {
+    openColumnFilter(entryColumn, event);
+  }
+}
+
+function resizeEntryColumn({ column, width }: { column: TableCoreColumn; width: number }) {
+  const target = entryColumnByKey(column.key);
+  if (target) {
+    target.width = Math.max(64, Math.min(420, width));
+  }
+}
+
+function finishEntryColumnResize({ column, width }: { column: TableCoreColumn; width: number }) {
+  resizeEntryColumn({ column, width });
+  if (entryColumnByKey(column.key)) {
+    persistColumnPreferences();
+  }
+}
+
+function handleEntryRowContextmenu(_line: EntryLine, lineIndex: number, event: MouseEvent) {
+  event.preventDefault();
+  openRowMenu(lineIndex, event);
+}
+
+function handleEntryRowDragstart(_line: EntryLine, lineIndex: number, event: DragEvent) {
+  emit("lineDragStart", event, lineIndex);
+}
+
+function handleEntryRowDragover(_line: EntryLine, _lineIndex: number, event: DragEvent) {
+  event.preventDefault();
+  emit("lineDragOver", event);
+}
+
+function handleEntryRowDrop(_line: EntryLine, lineIndex: number, event: DragEvent) {
+  event.preventDefault();
+  emit("lineDrop", lineIndex);
+}
+
+function handleEntryRowDragend() {
+  emit("lineDragEnd");
 }
 
 function startColumnMouseDrag(column: EntryColumn, event: MouseEvent) {
@@ -856,25 +934,6 @@ function finishColumnDrag() {
   window.removeEventListener("mousemove", trackColumnMouseDrag);
   draggingColumnKey.value = "";
   dragOverColumnKey.value = "";
-}
-
-function trackColumnResize(event: MouseEvent) {
-  if (!resizingColumnKey.value) {
-    return;
-  }
-  const target = columns.value.find((column) => column.key === resizingColumnKey.value);
-  if (!target) {
-    return;
-  }
-  target.width = Math.max(64, Math.min(420, resizeStartWidth.value + event.clientX - resizeStartX.value));
-}
-
-function finishColumnResize() {
-  if (resizingColumnKey.value) {
-    persistColumnPreferences();
-  }
-  resizingColumnKey.value = null;
-  window.removeEventListener("mousemove", trackColumnResize);
 }
 
 function openRowMenu(lineIndex: number, event: MouseEvent) {
