@@ -1782,6 +1782,8 @@ input:disabled {
   margin-left: auto;
   width: 16px;
   height: 16px;
+  display: grid;
+  place-items: center;
   border: 1px solid transparent;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.72);
@@ -1800,24 +1802,26 @@ input:disabled {
 .column-filter-button::before {
   content: "";
   position: absolute;
-  left: 4px;
+  left: 50%;
   top: 4px;
   width: 0;
   height: 0;
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
   border-top: 5px solid currentColor;
+  transform: translateX(-50%);
 }
 
 .column-filter-button::after {
   content: "";
   position: absolute;
-  left: 7px;
+  left: 50%;
   top: 9px;
   width: 2px;
   height: 4px;
   background: currentColor;
   border-radius: 0 0 1px 1px;
+  transform: translateX(-50%);
 }
 
 .column-bulk-button::before {
@@ -1825,7 +1829,7 @@ input:disabled {
   display: block;
   width: 11px;
   height: 11px;
-  margin: 2px auto 0;
+  margin: 0;
   border: 1px solid currentColor;
   border-radius: 2px;
   background:
@@ -2230,12 +2234,12 @@ input:disabled {
 }
 
 .master-selector__open::before {
-  content: "...";
-  display: block;
-  margin-top: -6px;
-  color: #315f8f;
-  font-size: 12px;
-  letter-spacing: 0;
+  content: "";
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: -5px 0 0 currentColor, 5px 0 0 currentColor;
 }
 
 .master-selector__menu {
@@ -2610,14 +2614,33 @@ thead .entry-frozen-cell {
 .entry-row-no__quick-actions button {
   width: 14px;
   height: 14px;
+  position: relative;
   display: inline-grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
   padding: 0;
   color: #ffffff;
-  font-size: 12px;
-  line-height: 1;
+  font-size: 0;
+  line-height: 0;
+}
+
+.entry-row-no__quick-actions button::before,
+.entry-row-no__quick-actions button:first-child::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.entry-row-no__quick-actions button:first-child::after {
+  width: 2px;
+  height: 8px;
 }
 
 .entry-row-no__quick-actions button:first-child {
