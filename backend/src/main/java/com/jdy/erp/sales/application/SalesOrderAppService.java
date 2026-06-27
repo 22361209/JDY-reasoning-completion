@@ -213,13 +213,22 @@ public class SalesOrderAppService {
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
                    COALESCE(b.qty_reserved, 0) AS "stockReserved",
                    COALESCE(b.qty_available, 0) AS "stockAvailable",
-                   0 AS "stockInTransit"
+                   COALESCE(it.qty, 0) AS "stockInTransit"
             FROM sales_order so
             JOIN md_customer c ON c.id = so.customer_id
             JOIN sales_order_line l ON l.order_id = so.id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT pol.product_id, pol.warehouse_id,
+                       SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                WHERE po.status = 'AUDITED'
+                  AND pol.qty > pol.received_qty
+                GROUP BY pol.product_id, pol.warehouse_id
+            ) it ON it.product_id = l.product_id AND it.warehouse_id = l.warehouse_id
             LEFT JOIN (
                 SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
                 FROM delivery_notice_line dnl
@@ -284,12 +293,21 @@ public class SalesOrderAppService {
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
                    COALESCE(b.qty_reserved, 0) AS "stockReserved",
                    COALESCE(b.qty_available, 0) AS "stockAvailable",
-                   0 AS "stockInTransit"
+                   COALESCE(it.qty, 0) AS "stockInTransit"
             FROM sales_order_line l
             JOIN sales_order so ON so.id = l.order_id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT pol.product_id, pol.warehouse_id,
+                       SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                WHERE po.status = 'AUDITED'
+                  AND pol.qty > pol.received_qty
+                GROUP BY pol.product_id, pol.warehouse_id
+            ) it ON it.product_id = l.product_id AND it.warehouse_id = l.warehouse_id
             LEFT JOIN (
                 SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
                 FROM delivery_notice_line dnl

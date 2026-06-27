@@ -202,13 +202,22 @@ public class DeliveryNoticeAppService {
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
                    COALESCE(b.qty_reserved, 0) AS "stockReserved",
                    COALESCE(b.qty_available, 0) AS "stockAvailable",
-                   0 AS "stockInTransit"
+                   COALESCE(it.qty, 0) AS "stockInTransit"
             FROM delivery_notice dn
             JOIN md_customer c ON c.id = dn.customer_id
             JOIN delivery_notice_line l ON l.bill_id = dn.id
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
             LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT pol.product_id, pol.warehouse_id,
+                       SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                WHERE po.status = 'AUDITED'
+                  AND pol.qty > pol.received_qty
+                GROUP BY pol.product_id, pol.warehouse_id
+            ) it ON it.product_id = l.product_id AND it.warehouse_id = l.warehouse_id
             LEFT JOIN (
                 SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
                 FROM sales_out_line sol
@@ -283,12 +292,21 @@ public class DeliveryNoticeAppService {
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
                    COALESCE(b.qty_reserved, 0) AS "stockReserved",
                    COALESCE(b.qty_available, 0) AS "stockAvailable",
-                   0 AS "stockInTransit"
+                   COALESCE(it.qty, 0) AS "stockInTransit"
             FROM delivery_notice_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
             JOIN delivery_notice dn ON dn.id = l.bill_id
             LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT pol.product_id, pol.warehouse_id,
+                       SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                WHERE po.status = 'AUDITED'
+                  AND pol.qty > pol.received_qty
+                GROUP BY pol.product_id, pol.warehouse_id
+            ) it ON it.product_id = l.product_id AND it.warehouse_id = l.warehouse_id
             LEFT JOIN (
                 SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
                 FROM sales_out_line sol
@@ -325,10 +343,19 @@ public class DeliveryNoticeAppService {
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
                    COALESCE(b.qty_reserved, 0) AS "stockReserved",
                    COALESCE(b.qty_available, 0) AS "stockAvailable",
-                   0 AS "stockInTransit"
+                   COALESCE(it.qty, 0) AS "stockInTransit"
             FROM delivery_notice_line l
             JOIN delivery_notice dn ON dn.id = l.bill_id
             LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN (
+                SELECT pol.product_id, pol.warehouse_id,
+                       SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                WHERE po.status = 'AUDITED'
+                  AND pol.qty > pol.received_qty
+                GROUP BY pol.product_id, pol.warehouse_id
+            ) it ON it.product_id = l.product_id AND it.warehouse_id = l.warehouse_id
             WHERE dn.bill_no = ?
             ORDER BY l.line_no
             """, billNo);

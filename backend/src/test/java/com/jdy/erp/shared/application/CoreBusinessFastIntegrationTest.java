@@ -8,8 +8,12 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 
 import com.jdy.erp.inventory.application.InventoryPostingService;
+import com.jdy.erp.sales.application.DeliveryNoticeAppService;
+import com.jdy.erp.sales.application.SalesOrderAppService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
@@ -41,6 +45,12 @@ class CoreBusinessFastIntegrationTest {
 
     @Autowired
     private PostingPipeline postingPipeline;
+
+    @Autowired
+    private SalesOrderAppService salesOrderAppService;
+
+    @Autowired
+    private DeliveryNoticeAppService deliveryNoticeAppService;
 
     @MockitoBean
     private CurrentSessionService currentSessionService;
@@ -144,7 +154,40 @@ class CoreBusinessFastIntegrationTest {
             .hasMessageContaining("可用库存不足");
     }
 
+    @Test
+    void purchaseInTransitAggregatesAuditedUnreceivedPurchaseOrderRemainders() {
+        var productCode = billNo("CP-A109-IT");
+        var warehouseCode = billNo("CK-A109-IT");
+        var salesBillNo = billNo("XSDD-A109-IT");
+        var deliveryBillNo = billNo("FHTZD-A109-IT");
+        insertProduct(productCode);
+        insertWarehouse(warehouseCode);
+        insertSalesOrder(salesBillNo, "AUDITED", productCode, warehouseCode);
+        insertDeliveryNotice(deliveryBillNo, "AUDITED", productCode, warehouseCode);
+
+        assertTransit(firstLine(salesOrderAppService.detail(salesBillNo)), "0");
+        assertTransit(firstLine(deliveryNoticeAppService.stockSnapshot(deliveryBillNo)), "0");
+
+        insertPurchaseOrderLine("CGDD-A109-IT-1", "AUDITED", productCode, warehouseCode, "10", "3");
+        assertTransit(firstLine(salesOrderAppService.detail(salesBillNo)), "7");
+
+        insertPurchaseOrderLine("CGDD-A109-IT-2", "AUDITED", productCode, warehouseCode, "5", "0");
+        insertPurchaseOrderLine("CGDD-A109-IT-DRAFT", "DRAFT", productCode, warehouseCode, "20", "0");
+        insertPurchaseOrderLine("CGDD-A109-IT-FULL", "AUDITED", productCode, warehouseCode, "8", "8");
+        insertPurchaseOrderLine("CGDD-A109-IT-OVER", "AUDITED", productCode, warehouseCode, "2", "3");
+
+        assertTransit(firstLine(salesOrderAppService.detail(salesBillNo)), "12");
+        assertTransit(lineByBillNo(salesOrderAppService.selectableLines("KH-001"), salesBillNo), "12");
+        assertTransit(firstLine(deliveryNoticeAppService.detail(deliveryBillNo)), "12");
+        assertTransit(lineByBillNo(deliveryNoticeAppService.selectableLines("KH-001"), deliveryBillNo), "12");
+        assertTransit(firstLine(deliveryNoticeAppService.stockSnapshot(deliveryBillNo)), "12");
+    }
+
     private void insertSalesOrder(String billNo, String status) {
+        insertSalesOrder(billNo, status, "CP-001", "CK-001");
+    }
+
+    private void insertSalesOrder(String billNo, String status, String productCode, String warehouseCode) {
         var orderId = jdbcTemplate.queryForObject("""
             INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, owner_name)
             VALUES (?, ?::uuid, DATE '2026-06-26', 'A111', ?, 100, 'A111')
@@ -153,7 +196,7 @@ class CoreBusinessFastIntegrationTest {
         jdbcTemplate.update("""
             INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
             VALUES (?::uuid, 1, ?::uuid, ?::uuid, 1, 100, 100)
-            """, orderId, productId("CP-001"), warehouseId("CK-001"));
+            """, orderId, productId(productCode), warehouseId(warehouseCode));
     }
 
     private void insertDeliveryNoticeFromOrder(String sourceOrderNo) {
@@ -166,6 +209,44 @@ class CoreBusinessFastIntegrationTest {
             INSERT INTO delivery_notice_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_amount, price_tax_total)
             VALUES (?::uuid, 1, ?, 1, ?::uuid, ?::uuid, 1, 100, 100, 13, 113)
             """, noticeId, sourceOrderNo, productId("CP-001"), warehouseId("CK-001"));
+    }
+
+    private void insertDeliveryNotice(String billNo, String status, String productCode, String warehouseCode) {
+        var noticeId = jdbcTemplate.queryForObject("""
+            INSERT INTO delivery_notice (bill_no, customer_id, bill_date, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, DATE '2026-06-26', ?, 100, 'A109')
+            RETURNING id::text
+            """, String.class, billNo, customerId("KH-001"), status);
+        jdbcTemplate.update("""
+            INSERT INTO delivery_notice_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_amount, price_tax_total)
+            VALUES (?::uuid, 1, ?::uuid, ?::uuid, 1, 100, 100, 13, 113)
+            """, noticeId, productId(productCode), warehouseId(warehouseCode));
+    }
+
+    private void insertPurchaseOrderLine(String billNoPrefix, String status, String productCode, String warehouseCode, String qty, String receivedQty) {
+        var orderId = jdbcTemplate.queryForObject("""
+            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, DATE '2026-06-26', 'A109', ?, 100, 'A109')
+            RETURNING id::text
+            """, String.class, billNo(billNoPrefix), supplierId("GYS-001"), status);
+        jdbcTemplate.update("""
+            INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, qty, received_qty, unit_price, amount)
+            VALUES (?::uuid, 1, ?::uuid, ?::uuid, ?::numeric, ?::numeric, 10, 100)
+            """, orderId, productId(productCode), warehouseId(warehouseCode), qty, receivedQty);
+    }
+
+    private void insertProduct(String code) {
+        jdbcTemplate.update("""
+            INSERT INTO md_product (code, name, spec, category, unit, enabled)
+            VALUES (?, ?, 'A109', '成品总成', '只', TRUE)
+            """, code, code);
+    }
+
+    private void insertWarehouse(String code) {
+        jdbcTemplate.update("""
+            INSERT INTO md_warehouse (code, name, allow_negative_stock, enabled)
+            VALUES (?, ?, FALSE, TRUE)
+            """, code, code);
     }
 
     private void resetStock(String productCode, String warehouseCode, String onHand, String reserved) {
@@ -213,6 +294,10 @@ class CoreBusinessFastIntegrationTest {
         return idByCode("md_product", code);
     }
 
+    private String supplierId(String code) {
+        return idByCode("md_supplier", code);
+    }
+
     private String warehouseId(String code) {
         return idByCode("md_warehouse", code);
     }
@@ -223,5 +308,22 @@ class CoreBusinessFastIntegrationTest {
 
     private String billNo(String prefix) {
         return prefix + "-" + System.nanoTime();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> firstLine(Map<String, Object> payload) {
+        return ((List<Map<String, Object>>) payload.get("lines")).get(0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> lineByBillNo(Map<String, Object> payload, String billNo) {
+        return ((List<Map<String, Object>>) payload.get("lines")).stream()
+            .filter(line -> billNo.equals(line.get("billNo")))
+            .findFirst()
+            .orElseThrow();
+    }
+
+    private void assertTransit(Map<String, Object> line, String expected) {
+        assertThat((BigDecimal) line.get("stockInTransit")).isEqualByComparingTo(expected);
     }
 }
