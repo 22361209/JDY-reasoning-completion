@@ -21,6 +21,7 @@ import {
 import { fetchListRows } from "../../services/listApi";
 import {
   auditDocument,
+  deleteDocument,
   exportDocument,
   fetchDocumentDetail,
   fetchNextBillNo,
@@ -159,7 +160,12 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const canUnclose = computed(() => Boolean(config.saveType && form.closeStatus === "CLOSED"));
   const canFreeze = computed(() => Boolean(config.saveType && form.status === "AUDITED" && form.frozenStatus !== "FROZEN"));
   const canUnfreeze = computed(() => Boolean(config.saveType && form.frozenStatus === "FROZEN"));
-  const canDelete = computed(() => false);
+  const canDelete = computed(() => Boolean(
+    config.saveType === "salesOrder" &&
+    runtime.hasPermission(config.auditPermission) &&
+    form.status === "DRAFT" &&
+    form.billNo
+  ));
   const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
@@ -460,6 +466,22 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       form.status = typeof reversed?.status === "string" ? formStatusByBackendStatus[reversed.status] ?? "DRAFT" : "DRAFT";
       runtime.clearDirty();
     }
+  }
+
+  async function deleteCurrent() {
+    if (!config.saveType || !canDelete.value) {
+      message.value = "只有草稿销售订单可以删除。";
+      return;
+    }
+    const deletedBillNo = form.billNo;
+    const result = await deleteDocument(config.saveType, deletedBillNo);
+    if (!result.ok) {
+      message.value = result.message || "删除失败。";
+      return;
+    }
+    runtime.clearDirty();
+    await startNew();
+    message.value = `已删除草稿单据 ${deletedBillNo}，并生成新草稿号。`;
   }
 
   function openLifecycleAction(action: LifecycleDocumentAction, lineNo?: number) {
@@ -1245,6 +1267,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     openRiskyAction,
     cancelRiskyAction,
     confirmRiskyAction,
+    deleteCurrent,
     openLifecycleAction,
     cancelLifecycleAction,
     confirmLifecycleAction,

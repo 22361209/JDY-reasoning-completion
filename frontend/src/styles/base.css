@@ -1718,6 +1718,10 @@ input:disabled {
 }
 
 .table-core-header-cell {
+  --table-core-header-margin: -3px -6px;
+  --table-core-header-padding: 2px 34px 2px 8px;
+  --table-core-header-actions-right: 6px;
+  --table-core-header-resizer-right: -12px;
   width: 100%;
   min-height: 22px;
   min-width: 0;
@@ -1725,8 +1729,8 @@ input:disabled {
   align-items: center;
   gap: 4px;
   cursor: move;
-  margin: -3px -6px;
-  padding: 2px 34px 2px 8px;
+  margin: var(--table-core-header-margin);
+  padding: var(--table-core-header-padding);
   position: relative;
   box-sizing: border-box;
 }
@@ -1768,7 +1772,7 @@ input:disabled {
 .column-header-actions {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: var(--table-core-header-actions-right);
   display: inline-flex;
   align-items: center;
   gap: 1px;
@@ -1855,7 +1859,7 @@ input:disabled {
 .table-core-column-resizer {
   position: absolute;
   top: 0;
-  right: -12px;
+  right: var(--table-core-header-resizer-right);
   bottom: 0;
   width: 12px;
   z-index: 2;
@@ -2125,7 +2129,7 @@ input:disabled {
 
 .form-head-fields {
   display: grid;
-  grid-template-columns: 270px 270px 270px minmax(280px, 1fr);
+  grid-template-columns: repeat(4, 270px);
   gap: 10px 22px;
   background: #ffffff;
   border: 1px solid #d4dde8;
@@ -2157,7 +2161,7 @@ input:disabled {
   min-width: 0;
   height: 25px;
   border: 0;
-  border-bottom: 1px solid #c7d2df;
+  border-bottom: 1px solid #d9e1ea;
   border-radius: 0;
   padding: 0 22px 0 0;
   background: #ffffff;
@@ -2210,7 +2214,7 @@ input:disabled {
 .master-selector > input {
   width: 100%;
   min-width: 0;
-  padding-right: 27px;
+  padding-right: 22px;
 }
 
 .master-selector__open {
@@ -2218,8 +2222,8 @@ input:disabled {
   z-index: 2;
   top: 50%;
   right: 4px;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   display: inline-grid;
   place-items: center;
   transform: translateY(-50%);
@@ -2238,11 +2242,11 @@ input:disabled {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 3px;
-  height: 3px;
+  width: 2px;
+  height: 2px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: -5px 0 0 currentColor, 5px 0 0 currentColor;
+  box-shadow: -4px 0 0 currentColor, 4px 0 0 currentColor;
   transform: translate(-50%, -50%);
 }
 
@@ -2488,19 +2492,11 @@ table {
 }
 
 .table-core-frame--entry .table-core-header-cell {
+  --table-core-header-margin: -2px -6px;
+  --table-core-header-padding: 3px 34px 3px 8px;
+  --table-core-header-actions-right: -2px;
+  --table-core-header-resizer-right: -20px;
   min-height: 28px;
-  margin: -2px -6px;
-  padding-top: 3px;
-  padding-right: 34px;
-  padding-bottom: 3px;
-}
-
-.table-core-frame--entry .column-header-actions {
-  right: -2px;
-}
-
-.table-core-frame--entry .table-core-column-resizer {
-  right: -20px;
 }
 
 .sr-only {
@@ -2555,10 +2551,22 @@ td input {
 
 .entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) {
   height: 32px;
+  padding-left: 2px;
+  padding-right: 2px;
 }
 
 .entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input {
-  height: 26px;
+  height: 28px;
+  border-color: transparent;
+  background: transparent;
+  padding: 0 2px;
+}
+
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input:hover,
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input:focus {
+  border-color: #cfd9e5;
+  background: #ffffff;
+  outline: 0;
 }
 
 .entry-table td input:disabled {

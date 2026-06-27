@@ -271,6 +271,10 @@ export async function reverseDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/reverse`, "POST");
 }
 
+export async function deleteDocument(type: DocumentType, billNo: string) {
+  return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}`, "DELETE");
+}
+
 export async function voidDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/void`, "POST");
 }

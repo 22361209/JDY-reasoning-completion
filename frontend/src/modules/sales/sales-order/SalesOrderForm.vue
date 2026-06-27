@@ -24,7 +24,7 @@
     :can-unclose="document.canUnclose.value"
     :can-freeze="document.canFreeze.value"
     :can-unfreeze="document.canUnfreeze.value"
-    :can-delete="false"
+    :can-delete="document.canDelete.value"
     :show-push-down="showPushDownSalesOut"
     :can-push-down="canPushDownSalesOut"
     push-down-label="下推发货通知"
@@ -69,7 +69,7 @@
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
     @push-down="emit('pushDownDeliveryNotice', { billNo: document.form.billNo })"
-    @delete-document="noop"
+    @delete-document="document.deleteCurrent"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
     @show-existing="emit('showExisting')"
@@ -201,8 +201,6 @@ const dialogHandlers = {
   cancelPendingEntryPaste: document.cancelPendingEntryPaste,
   confirmPendingEntryPaste: document.confirmPendingEntryPaste
 };
-
-function noop() {}
 
 async function loadByBillNo(billNo: string) {
   await document.loadByBillNo(billNo);
