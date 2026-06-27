@@ -68,3 +68,26 @@ http://127.0.0.1:5088/
 | `backend/` | Spring Boot 3.5.15 + Java 21 模块化单体 |
 | `frontend/` | Vue 3 + TypeScript 产品前台 |
 | `infra/` | PostgreSQL 和 Redis 本地开发依赖 |
+
+## 仓库边界
+
+本仓库定位为落地实现仓库，长期只保留代码、必要脚本、架构文档、验收报告和少量精选证据。金蝶原始采集资料、批量截图、临时 Playwright 产物、大体积对照素材应放在调研/资料仓库或本地资料目录，不和实现代码混提交。
+
+验证运行产物默认写入 `verification/`，该目录按本地临时产物处理，不进入 Git。需要长期保留的验收截图，应随验收报告归档到 `docs/验收报告/` 下的稳定路径。
+
+## 本地一键启动
+
+```bash
+./scripts/dev-up.sh
+```
+
+脚本会自动启动 PostgreSQL/Redis、本地后端和前端；已在运行时不会重复启动。访问 `http://127.0.0.1:5173/`，账号 `admin`，密码 `admin123`。
+
+常用配套命令：
+
+```bash
+./scripts/dev-status.sh
+./scripts/dev-down.sh
+```
+
+日志默认写入 `verification/logs/`。

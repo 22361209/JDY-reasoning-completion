@@ -8,4 +8,8 @@ backend/target/
 .playwright-cli/
 *.log
 outputs/**/*.inspect.ndjson
-verification/playwright/debug-*.png
+
+# Verification runtime artifacts are local by default.
+# Keep curated report evidence under docs/验收报告/ or another reviewed path.
+verification/
+!verification/.gitkeep
