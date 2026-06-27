@@ -2230,16 +2230,20 @@ input:disabled {
   color: #2f5f8f;
   font-weight: 700;
   font-size: 0;
-  line-height: 1;
+  line-height: 0;
 }
 
 .master-selector__open::before {
   content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 3px;
   height: 3px;
   border-radius: 50%;
   background: currentColor;
   box-shadow: -5px 0 0 currentColor, 5px 0 0 currentColor;
+  transform: translate(-50%, -50%);
 }
 
 .master-selector__menu {
