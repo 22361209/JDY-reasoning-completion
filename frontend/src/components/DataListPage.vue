@@ -114,6 +114,11 @@
       <button v-if="isReverseableDocumentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow || !selectedRows.every(isAuditedRow)" data-testid="batch-reverse" @click="confirmAction('反审核')">反审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">发货通知</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
+      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchClose" data-testid="batch-close" @click="confirmAction('关闭')">关闭</button>
+      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchUnclose" data-testid="batch-unclose" @click="confirmAction('反关闭')">反关闭</button>
+      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchFreeze" data-testid="batch-freeze" @click="confirmAction('冻结')">冻结</button>
+      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchUnfreeze" data-testid="batch-unfreeze" @click="confirmAction('解冻')">解冻</button>
+      <button v-if="isLifecycleDocumentList" class="danger-action" type="button" :disabled="!canBatchVoid" data-testid="batch-void" @click="confirmAction('作废')">作废</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
       <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
         {{ isDetailView ? "整单视图" : "明细视图" }}
@@ -340,8 +345,21 @@
       <div class="dialog">
         <h3>操作确认</h3>
         <p>确定要{{ pendingAction }}已选中的 {{ selectedRows.length }} 条数据吗？</p>
+        <label v-if="pendingActionRequiresReason" class="batch-confirm-field">
+          原因
+          <input v-model="pendingReason" data-testid="batch-action-reason" placeholder="请输入操作原因" />
+        </label>
+        <label v-if="pendingAction === '作废'" class="batch-confirm-field">
+          当前账号
+          <input v-model="pendingVoidUsername" data-testid="batch-void-username" placeholder="当前账号" />
+        </label>
+        <label v-if="pendingAction === '作废'" class="batch-confirm-field">
+          密码
+          <input v-model="pendingVoidPassword" data-testid="batch-void-password" type="password" placeholder="请输入密码确认" />
+        </label>
+        <p v-if="pendingActionMessage" class="form-message batch-confirm-message" data-testid="batch-action-message">{{ pendingActionMessage }}</p>
         <div class="dialog-actions">
-          <button type="button" @click="pendingAction = ''">取消</button>
+          <button type="button" @click="closePendingAction">取消</button>
           <button class="danger-action" type="button" @click="submitPendingAction">确定</button>
         </div>
       </div>
@@ -367,7 +385,7 @@ import {
   type StockAlertSetting,
   type ListFilterPreset
 } from "../services/listApi";
-import { reverseDocument, type DocumentType } from "../services/documentApi";
+import { lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
 import { useSessionStore } from "../stores/session";
 
@@ -416,6 +434,10 @@ const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
 const pendingAction = ref("");
+const pendingReason = ref("");
+const pendingVoidUsername = ref("");
+const pendingVoidPassword = ref("");
+const pendingActionMessage = ref("");
 const batchMessage = ref("");
 const rows = ref<Record<string, unknown>[]>([]);
 const total = ref(0);
@@ -1010,6 +1032,15 @@ const openableDocumentType = computed(() => documentOpenTypeByListKey[props.list
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));
 const supportsDetailView = computed(() => isOpenableDocumentList.value);
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
+const isLifecycleDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]) && !isDetailView.value);
+const selectedBillRows = computed(() => selectedRows.value.filter((row) => String(row.billNo ?? "").trim()));
+const canOperateLifecycle = computed(() => canMaintainCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value);
+const canBatchClose = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus !== "CLOSED" && row.frozenStatus !== "FROZEN"));
+const canBatchUnclose = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => row.closeStatus === "CLOSED"));
+const canBatchFreeze = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
+const canBatchUnfreeze = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => row.frozenStatus === "FROZEN"));
+const canBatchVoid = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => row.status === "草稿"));
+const pendingActionRequiresReason = computed(() => ["关闭", "冻结", "作废"].includes(pendingAction.value));
 const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
   return Boolean(
@@ -1457,16 +1488,48 @@ function statusClass(value: unknown) {
 
 function confirmAction(action: string) {
   pendingAction.value = action;
+  pendingReason.value = "";
+  pendingVoidPassword.value = "";
+  pendingActionMessage.value = "";
+  pendingVoidUsername.value = "admin";
 }
 
 async function submitPendingAction() {
   const action = pendingAction.value;
-  pendingAction.value = "";
+  pendingActionMessage.value = "";
+  if (pendingActionRequiresReason.value && !pendingReason.value.trim()) {
+    pendingActionMessage.value = "请填写操作原因。";
+    return;
+  }
+  if (action === "作废" && (!pendingVoidUsername.value.trim() || !pendingVoidPassword.value)) {
+    pendingActionMessage.value = "作废需要当前账号和密码确认。";
+    return;
+  }
+  const reason = pendingReason.value.trim();
+  const voidUsername = pendingVoidUsername.value.trim();
+  const voidPassword = pendingVoidPassword.value;
+  closePendingAction();
   if (action === "反审核") {
     await submitBatchReverse();
     return;
   }
+  if (["关闭", "反关闭", "冻结", "解冻"].includes(action)) {
+    await submitBatchLifecycle(action, reason);
+    return;
+  }
+  if (action === "作废") {
+    await submitBatchVoid(reason, voidUsername, voidPassword);
+    return;
+  }
   batchMessage.value = `${action}已确认，当前批次只接入反审核实际提交。`;
+}
+
+function closePendingAction() {
+  pendingAction.value = "";
+  pendingReason.value = "";
+  pendingVoidUsername.value = "";
+  pendingVoidPassword.value = "";
+  pendingActionMessage.value = "";
 }
 
 async function submitBatchReverse() {
@@ -1484,6 +1547,49 @@ async function submitBatchReverse() {
   batchMessage.value = failed.length
     ? `反审核完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查下游单据约束"}`
     : `已反审核 ${targets.length} 张单据，状态回到草稿。`;
+  await reload();
+}
+
+async function submitBatchLifecycle(action: string, reasonInput: string) {
+  const type = documentActionTypeByListKey[props.listKey];
+  const actionMap = {
+    "关闭": "close",
+    "反关闭": "unclose",
+    "冻结": "freeze",
+    "解冻": "unfreeze"
+  } as const;
+  const apiAction = actionMap[action as keyof typeof actionMap];
+  const targets = selectedBillRows.value.map((row) => String(row.billNo));
+  if (!type || !apiAction || targets.length === 0) {
+    batchMessage.value = `请选择可${action}的单据。`;
+    return;
+  }
+  const reason = reasonInput || `列表批量${action}`;
+  const results = await Promise.all(targets.map((billNo) => lifecycleDocument(type, billNo, apiAction, reason)));
+  const failed = results.filter((result) => !result.ok);
+  batchMessage.value = failed.length
+    ? `${action}完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查单据状态"}`
+    : `已${action} ${targets.length} 张单据。`;
+  await reload();
+}
+
+async function submitBatchVoid(reason: string, username: string, password: string) {
+  const type = documentActionTypeByListKey[props.listKey];
+  const targets = selectedBillRows.value.map((row) => String(row.billNo));
+  if (!type || targets.length === 0) {
+    batchMessage.value = "请选择可作废的草稿单据。";
+    return;
+  }
+  const payload = {
+    reason,
+    username,
+    password
+  };
+  const results = await Promise.all(targets.map((billNo) => voidDocumentHardened(type, billNo, payload)));
+  const failed = results.filter((result) => !result.ok);
+  batchMessage.value = failed.length
+    ? `作废完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查账号密码或下游约束"}`
+    : `已作废 ${targets.length} 张单据。`;
   await reload();
 }
 

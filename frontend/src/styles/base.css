@@ -1347,12 +1347,6 @@ input:disabled {
   display: inline-flex;
 }
 
-.list-more-trigger::after {
-  content: " v";
-  color: #6d7c8b;
-  font-size: 11px;
-}
-
 .list-more-menu {
   position: absolute;
   top: calc(100% + 2px);
@@ -1386,6 +1380,28 @@ input:disabled {
 
 .list-more-menu .danger-menu-action {
   color: #9b2f22;
+}
+
+.batch-confirm-field {
+  display: grid;
+  grid-template-columns: 72px minmax(220px, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: #405064;
+  font-size: 13px;
+}
+
+.batch-confirm-field input {
+  height: 28px;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  padding: 0 8px;
+}
+
+.batch-confirm-message {
+  margin: 8px 0 0;
+  color: #b44b37;
 }
 
 .selected-count {
