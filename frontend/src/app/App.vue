@@ -119,9 +119,7 @@
           <section class="home-head">
             <div>
               <h2>首页工作台</h2>
-              <p>统一外壳已承载左侧模块、顶部账套期间、内部页签和高密度主内容区。</p>
             </div>
-            <button class="primary-action" type="button" :disabled="!canOpenEntry(demoDirtyEntry)" @click="openEntry(demoDirtyEntry)">打开未保存样例</button>
           </section>
           <div class="metric-row">
             <div class="metric">
@@ -142,17 +140,23 @@
             </div>
           </div>
           <div class="quick-grid">
-            <button
-              v-for="entry in quickEntries"
-              :key="entry.id"
-              type="button"
-              class="quick-entry"
-              @click="openEntry(entry)"
-            >
-              <span>{{ entry.module }}</span>
-              <strong>{{ entry.label }}</strong>
-              <em>{{ entry.mode === 'form' ? '直达新增' : entry.mode === 'report' ? '报表/工作台' : '查询列表' }}</em>
-            </button>
+            <section v-for="group in homeQuickGroups" :key="group.module" class="quick-card">
+              <div class="quick-card__head">
+                <strong>{{ group.module }}</strong>
+                <span>{{ group.entries.length }}</span>
+              </div>
+              <div class="quick-card__body">
+                <button
+                  v-for="entry in group.entries"
+                  :key="entry.id"
+                  type="button"
+                  class="quick-entry"
+                  @click="openEntry(entry)"
+                >
+                  {{ entry.label }}
+                </button>
+              </div>
+            </section>
           </div>
         </div>
         <div v-else-if="tabs.activeTab.value.kind === 'panel'" class="panel-page">
@@ -564,11 +568,6 @@
           <p>该入口保留统一工作区页签，等待后续批次接入。</p>
         </div>
       </section>
-      <aside v-if="preferences.showAssistantRail.value" class="assist-rail">
-        <button type="button" title="帮助">?</button>
-        <button type="button" title="列设置">列</button>
-        <button type="button" title="整单">单</button>
-      </aside>
     </main>
     <div v-if="tabs.overflowMessage.value" class="modal-mask" data-testid="tab-overflow-modal">
       <div class="dialog">
@@ -707,8 +706,16 @@ const activeEntryGroups = computed(() => activeModule.value.groups
   .map((group) => ({ ...group, entries: group.entries.filter((entry) => canOpenEntry(entry)) }))
   .filter((group) => group.entries.length > 0));
 const approvedCount = computed(() => featureScope.filter((feature) => feature.decision === "build" || feature.decision === "simple").length);
-const quickEntries = computed(() => typedModuleCatalog.flatMap((module) => module.groups.flatMap((group) => group.entries)).filter((entry) => canOpenEntry(entry)).slice(0, 8));
-const demoDirtyEntry = computed<ShellEntry>(() => ({ id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" })).value;
+const homeQuickGroups = computed(() => typedModuleCatalog
+  .map((module) => ({
+    module: module.name,
+    entries: module.groups
+      .flatMap((group) => group.entries)
+      .filter((entry) => canOpenEntry(entry))
+      .slice(0, 6)
+  }))
+  .filter((group) => group.entries.length > 0)
+  .slice(0, 8));
 const pageSubtitle = computed(() => {
   if (tabs.activeTab.value.kind === "report") {
     return "查询条件、结果表、列设置和打印/引出入口在统一工作区内承载。";
