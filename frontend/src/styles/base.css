@@ -1534,6 +1534,7 @@ input:disabled {
       var(--table-core-grid-line-color) calc(var(--table-core-row-height) - var(--table-core-grid-line-width)),
       var(--table-core-grid-line-color) var(--table-core-row-height)
     );
+  background-attachment: local;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -2433,6 +2434,7 @@ table {
       var(--table-core-grid-line-color) calc(var(--table-core-row-height) - var(--table-core-grid-line-width)),
       var(--table-core-grid-line-color) var(--table-core-row-height)
     );
+  background-attachment: local;
   overflow-x: hidden;
   overflow-y: auto;
 }
