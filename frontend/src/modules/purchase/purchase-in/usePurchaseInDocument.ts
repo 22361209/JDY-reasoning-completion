@@ -18,6 +18,7 @@ export function usePurchaseInDocument(options: Parameters<typeof useDocumentModu
     showTaxMode: true,
     sourceTraceType: "purchaseOrder",
     reversible: true,
+    allowDraftDelete: true,
     initialForm: initialPurchaseInForm,
     riskySummaryTitle: "采购入库单",
     redReverseImpact: "红冲将生成负数采购入库单，原单标记已红冲，并回退采购订单已入库数量、重算入库状态。",

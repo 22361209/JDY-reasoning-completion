@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { saveDocument, auditDocument } from "./helpers/document-actions.mjs";
+import { chooseSalesOutSourceSelections, lineSourceText, openNewSalesOut } from "./helpers/sales-pages.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -94,28 +96,16 @@ async function createData() {
   };
 }
 
-async function openNewSalesOut(page) {
-  await page.getByTestId("module-销售管理").hover();
-  await page.getByTestId("entry-sales-out-form").click();
-  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
-}
-
 async function selectSourceLines(page, noticeA, noticeB) {
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await page.getByTestId("sales-out-open-source-selector").click();
-  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("sales-out-source-selector-search").fill(batch);
-  await page.getByTestId(`sales-out-source-line-${noticeA}:1`).check();
-  await page.getByTestId(`sales-out-source-line-${noticeB}:1`).check();
-  await page.getByTestId("sales-out-source-selector-ok").click();
+  await chooseSalesOutSourceSelections(page, {
+    search: batch,
+    selections: [
+      { billNo: noticeA, lineNos: [1] },
+      { billNo: noticeB, lineNos: [1] }
+    ]
+  });
   await page.getByTestId("sales-out-line-source-trace-2").waitFor({ state: "visible" });
-}
-
-async function lineSourceText(page, index) {
-  const suffix = index === 0 ? "" : `-${index + 1}`;
-  const orderNo = (await page.getByTestId(`sales-out-line-source-order-no${suffix}`).innerText()).trim();
-  const lineNo = (await page.getByTestId(`sales-out-line-source-line-no${suffix}`).innerText()).trim();
-  return `${orderNo} / ${lineNo}`;
 }
 
 const data = await createData();
@@ -130,7 +120,7 @@ try {
   await openNewSalesOut(page);
   await selectSourceLines(page, data.sourceA.noticeNo, data.sourceB.noticeNo);
 
-  const sourceTexts = [await lineSourceText(page, 0), await lineSourceText(page, 1)];
+  const sourceTexts = [await lineSourceText(page, "sales-out", 0), await lineSourceText(page, "sales-out", 1)];
   assert(sourceTexts.includes(`${data.sourceA.noticeNo} / #1`), `line sources should include notice A, got ${sourceTexts.join(",")}`);
   assert(sourceTexts.includes(`${data.sourceB.noticeNo} / #1`), `line sources should include notice B, got ${sourceTexts.join(",")}`);
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "header source order input should be removed after multi-source selection");
@@ -154,10 +144,8 @@ try {
   screenshots.push(`verification/playwright/${shot}`);
 
   const salesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
-  await page.getByTestId("save-sales-order").click();
-  await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
-  await page.getByTestId("audit-sales-order").click();
-  await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+  await saveDocument(page);
+  await auditDocument(page);
 
   const detail = await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
   assert(!detail.document.sourceOrderNo, "audited sales out header sourceOrderNo should be empty");

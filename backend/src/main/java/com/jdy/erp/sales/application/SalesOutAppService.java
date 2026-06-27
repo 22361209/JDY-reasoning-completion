@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
+import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
@@ -28,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class SalesOutAppService {
     private static final String BILL_TABLE = "sales_out";
+    private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "sales_out_line", "bill_id", "SALES", "sales_out");
     private static final SourceExecutionSpec SALES_ORDER_OUT_SPEC = new SourceExecutionSpec(
         "sales_order",
         "sales_order_line",
@@ -297,6 +299,10 @@ public class SalesOutAppService {
             "sales_out",
             "只有草稿销售出库单可以作废"
         );
+    }
+
+    public Map<String, Object> delete(String billNo) {
+        return lifecycleService.deleteDraft(LIFECYCLE_TARGET, billNo, "只有草稿销售出库单可以删除");
     }
 
     @Transactional

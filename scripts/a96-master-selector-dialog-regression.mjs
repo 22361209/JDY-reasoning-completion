@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -83,7 +84,7 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="sales-bill-no"]');
     return input instanceof HTMLInputElement && input.value.length > 0;
@@ -108,7 +109,7 @@ try {
   await page.getByTestId("module-采购管理").hover();
   await page.getByTestId("entry-purchase-order-form").click();
   await page.getByTestId("purchase-party-code").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="purchase-bill-no"]');
     return input instanceof HTMLInputElement && input.value.length > 0;

@@ -14,16 +14,31 @@
     :can-reverse="canReverse"
     :can-red-reverse="canRedReverse"
     :can-void="canVoid"
+    :show-red-reverse="showRedReverse"
+    :show-void="showVoid"
     :can-close="canClose"
     :can-unclose="canUnclose"
     :can-freeze="canFreeze"
     :can-unfreeze="canUnfreeze"
+    :show-close="showClose"
+    :show-unclose="showUnclose"
+    :show-freeze="showFreeze"
+    :show-unfreeze="showUnfreeze"
+    :show-delete="showDelete"
     :can-delete="canDelete"
     :can-output="isDocumentForm"
     :show-push-down="showPushDown"
     :can-push-down="canPushDown"
     :push-down-label="pushDownLabel"
     :push-down-test-id="pushDownTestId"
+    :show-source-select="showSourceSelect"
+    :can-source-select="canSourceSelect"
+    :source-select-label="sourceSelectLabel"
+    :source-select-test-id="sourceSelectTestId"
+    :show-extra-action="showExtraAction"
+    :can-extra-action="canExtraAction"
+    :extra-action-label="extraActionLabel"
+    :extra-action-test-id="extraActionTestId"
     @create="emit('create')"
     @save="emit('save')"
     @audit="emit('audit')"
@@ -34,7 +49,9 @@
     @unclose-document="emit('uncloseDocument')"
     @freeze-document="emit('freezeDocument')"
     @unfreeze-document="emit('unfreezeDocument')"
+    @source-select="emit('sourceSelect')"
     @push-down="emit('pushDown')"
+    @extra-action="emit('extraAction')"
     @delete-document="emit('deleteDocument')"
     @export-document="emit('exportDocument')"
     @print-document="emit('printDocument')"
@@ -43,12 +60,8 @@
   >
     <div v-if="isDocumentForm" class="form-layout">
       <section class="form-head-fields">
-        <div v-if="isStockDocumentForm" class="source-order-field">
-          <button type="button" :disabled="!canTraceSourceOrder" data-testid="trace-source-order" @click="emit('traceSourceOrder')">行级源单追溯</button>
-          <button v-if="form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="emit('openRedReverseBill')">红字单 {{ form.redReverseBillNo }}</button>
-          <button v-if="form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="emit('openRedSourceBill')">来源原单 {{ form.redSourceBillNo }}</button>
-        </div>
-        <div v-else-if="form.redReverseBillNo || form.redSourceBillNo" class="source-order-field source-order-field--links">
+        <div v-if="$slots.sourceActions || form.redReverseBillNo || form.redSourceBillNo" class="source-order-field">
+          <slot name="sourceActions" />
           <button v-if="form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="emit('openRedReverseBill')">红字单 {{ form.redReverseBillNo }}</button>
           <button v-if="form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="emit('openRedSourceBill')">来源原单 {{ form.redSourceBillNo }}</button>
         </div>
@@ -92,6 +105,7 @@
           <input :value="form.partyName || ''" :data-testid="`${testPrefix}-party-name`" readonly />
         </label>
         <label>业务日期<input v-model="form.billDate" :disabled="locked" :data-testid="`${testPrefix}-bill-date`" @input="emit('markDirty')" /></label>
+        <label v-if="showValidUntil">报价有效期<input v-model="form.validUntil" :disabled="locked" :data-testid="`${testPrefix}-valid-until`" @input="emit('markDirty')" /></label>
         <label>单据编号<input v-model="form.billNo" :disabled="locked" :data-testid="`${testPrefix}-bill-no`" @input="emit('markDirty')" /></label>
         <label>部门<input v-model="form.department" :disabled="locked" :data-testid="`${testPrefix}-department`" @input="emit('markDirty')" /></label>
         <label>录入人<input :value="form.ownerName" :data-testid="`${testPrefix}-owner-name`" readonly /></label>
@@ -194,6 +208,7 @@ interface DocumentFormState {
   ownerName: string;
   remark?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
+  validUntil?: string;
   lines: EntryLine[];
 }
 
@@ -218,15 +233,30 @@ withDefaults(defineProps<{
   canReverse: boolean;
   canRedReverse?: boolean;
   canVoid: boolean;
+  showRedReverse?: boolean;
+  showVoid?: boolean;
   canClose?: boolean;
   canUnclose?: boolean;
   canFreeze?: boolean;
   canUnfreeze?: boolean;
+  showClose?: boolean;
+  showUnclose?: boolean;
+  showFreeze?: boolean;
+  showUnfreeze?: boolean;
+  showDelete?: boolean;
   canDelete: boolean;
   showPushDown?: boolean;
   canPushDown?: boolean;
   pushDownLabel?: string;
   pushDownTestId?: string;
+  showSourceSelect?: boolean;
+  canSourceSelect?: boolean;
+  sourceSelectLabel?: string;
+  sourceSelectTestId?: string;
+  showExtraAction?: boolean;
+  canExtraAction?: boolean;
+  extraActionLabel?: string;
+  extraActionTestId?: string;
   canTraceSourceOrder: boolean;
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
@@ -240,6 +270,7 @@ withDefaults(defineProps<{
   entryTotalColspan: number;
   totalAmount: string;
   showTaxMode?: boolean;
+  showValidUntil?: boolean;
   isTaxInclusive?: boolean;
   batchWarehouseCode: string;
   batchPlanDeliveryDate?: string;
@@ -263,14 +294,30 @@ withDefaults(defineProps<{
   lockMessage: "",
   canOverrideLock: false,
   canRedReverse: undefined,
+  showRedReverse: true,
+  showVoid: true,
   canClose: false,
   canUnclose: false,
   canFreeze: false,
   canUnfreeze: false,
+  showClose: true,
+  showUnclose: true,
+  showFreeze: true,
+  showUnfreeze: true,
+  showDelete: true,
   showPushDown: false,
   canPushDown: false,
   pushDownLabel: "下推",
   pushDownTestId: "push-down-document",
+  showSourceSelect: false,
+  canSourceSelect: false,
+  sourceSelectLabel: "选源单",
+  sourceSelectTestId: "select-source-document",
+  showExtraAction: false,
+  canExtraAction: false,
+  extraActionLabel: "执行",
+  extraActionTestId: "extra-document-action",
+  showValidUntil: false,
   enableSalesPriceBulk: false
 });
 
@@ -285,7 +332,9 @@ const emit = defineEmits<{
   uncloseDocument: [];
   freezeDocument: [];
   unfreezeDocument: [];
+  sourceSelect: [];
   pushDown: [];
+  extraAction: [];
   deleteDocument: [];
   exportDocument: [];
   printDocument: [];

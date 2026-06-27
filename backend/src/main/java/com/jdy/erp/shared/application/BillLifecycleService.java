@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class BillLifecycleService {
     private static final Set<String> BILL_TABLES = Set.of(
         "sales_order",
+        "sales_quote",
         "delivery_notice",
         "sales_out",
         "purchase_order",
@@ -107,6 +108,30 @@ public class BillLifecycleService {
         }
         operationLogService.log(module, action, targetType, String.valueOf(rows.get(0).get("id")), true, null);
         return rows.get(0);
+    }
+
+    @Transactional
+    public Map<String, Object> deleteDraft(BillLifecycleTarget target, String billNo, String conflictMessage) {
+        guardTarget(target);
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, bill_no AS "billNo"
+            FROM %s
+            WHERE bill_no = ? AND status = ?
+            """.formatted(target.headerTable()), billNo, BillStatus.DRAFT.name());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflictMessage == null ? "只有草稿单据可以删除" : conflictMessage);
+        }
+        var row = rows.get(0);
+        jdbcTemplate.update("""
+            DELETE FROM %s
+            WHERE %s = ?::uuid
+            """.formatted(target.lineTable(), target.lineOwnerColumn()), row.get("id"));
+        jdbcTemplate.update("""
+            DELETE FROM %s
+            WHERE id = ?::uuid
+            """.formatted(target.headerTable()), row.get("id"));
+        operationLogService.log(target.module(), "DELETE", target.targetType(), String.valueOf(row.get("id")), true, null);
+        return row;
     }
 
     @Transactional

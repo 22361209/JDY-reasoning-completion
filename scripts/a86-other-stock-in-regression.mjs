@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { saveDocument, auditDocument } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -107,10 +108,8 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("other-stock-in-line-qty").fill(String(qty));
     await page.getByTestId("other-stock-in-line-price").fill(String(unitPrice));
     await page.keyboard.press("Escape");
-    await page.getByTestId("save-sales-order").click();
-    await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
-    await page.getByTestId("audit-sales-order").click();
-    await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+    await saveDocument(page);
+    await auditDocument(page);
     await page.getByTestId("document-status").filter({ hasText: "已审核" }).waitFor({ state: "visible" });
     await page.locator(".business-head h2").filter({ hasText: "其他入库单" }).click();
     const formShot = `a86-other-stock-in-form-audited-${batch}.png`;

@@ -25,21 +25,24 @@ try {
   await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-qty").fill("2");
   await page.getByTestId("sales-line-price").fill("86");
-  await page.getByTestId("sales-line-menu").click();
-  await page.getByTestId("sales-line-copy").click();
+  await page.getByTestId("sales-line-insert").click();
+  await page.getByTestId("sales-line-product-2").fill("PJ-014");
+  await page.getByTestId("sales-line-qty-2").fill("3");
+  await page.getByTestId("sales-line-price-2").fill("12");
 
-  const rowCountAfterCopy = await page.getByTestId("sales-entry-row").count();
-  if (rowCountAfterCopy !== 2) {
-    throw new Error(`copy row expected 2 rows, got ${rowCountAfterCopy}`);
+  const rowCountAfterInsert = await page.getByTestId("sales-entry-row").count();
+  if (rowCountAfterInsert !== 2) {
+    throw new Error(`insert row expected 2 rows, got ${rowCountAfterInsert}`);
   }
-  const copiedProduct = await page.getByTestId("sales-line-product-2").inputValue();
-  const copiedQty = Number(await page.getByTestId("sales-line-qty-2").inputValue());
-  if (copiedProduct !== "CP-001" || copiedQty !== 2) {
-    throw new Error(`copied row mismatch product=${copiedProduct} qty=${copiedQty}`);
+  const insertedProduct = await page.getByTestId("sales-line-product-2").inputValue();
+  const insertedQty = Number(await page.getByTestId("sales-line-qty-2").inputValue());
+  if (insertedProduct !== "PJ-014" || insertedQty !== 3) {
+    throw new Error(`inserted row mismatch product=${insertedProduct} qty=${insertedQty}`);
   }
 
-  await page.getByTestId("batch-warehouse-code").fill("CK-002");
-  await page.getByTestId("apply-batch-warehouse").click();
+  await page.getByTestId("entry-column-bulk-warehouse").click();
+  await page.getByTestId("entry-bulk-warehouse-input").fill("CK-002");
+  await page.getByTestId("entry-bulk-warehouse-ok").click();
   const warehouses = [
     await page.getByTestId("sales-line-warehouse").inputValue(),
     await page.getByTestId("sales-line-warehouse-2").inputValue()
@@ -65,9 +68,9 @@ try {
   const result = {
     batch,
     generatedAt: new Date().toISOString(),
-    rowCountAfterCopy,
-    copiedProduct,
-    copiedQty,
+    rowCountAfterInsert,
+    insertedProduct,
+    insertedQty,
     warehouses,
     focusedAfterArrowDown,
     focusedAfterArrowUp,

@@ -134,6 +134,13 @@ public class SalesPriceMemoryService {
             var row = recentRows.get(0);
             putSource(result, "recentPrice", price(row.get("unitPrice")), "最近成交价", String.valueOf(row.get("billNo")));
         }
+        var quoteRows = latestSalesQuoteRows(customerId, productId);
+        if (quoteRows.isEmpty()) {
+            putSource(result, "quotePrice", null, "无有效期内销售报价", null);
+        } else {
+            var row = quoteRows.get(0);
+            putSource(result, "quotePrice", price(row.get("unitPrice")), "最新有效报价", String.valueOf(row.get("billNo")));
+        }
 
         var stats = jdbcTemplate.queryForMap("""
             SELECT MIN(unit_price) AS "minPrice",
@@ -221,6 +228,21 @@ public class SalesPriceMemoryService {
                   AND so.status = ?
             ) price_history
             """ + orderAndLimitSql, customerId, productId, BillStatus.AUDITED.name(), customerId, productId, BillStatus.AUDITED.name(), customerId, productId, BillStatus.AUDITED.name());
+    }
+
+    private List<Map<String, Object>> latestSalesQuoteRows(UUID customerId, UUID productId) {
+        return jdbcTemplate.queryForList("""
+            SELECT l.unit_price AS "unitPrice", sq.bill_no AS "billNo"
+            FROM sales_quote sq
+            JOIN sales_quote_line l ON l.quote_id = sq.id
+            WHERE sq.customer_id = ?
+              AND l.product_id = ?
+              AND sq.status = ?
+              AND sq.enabled = TRUE
+              AND sq.valid_until >= CURRENT_DATE
+            ORDER BY sq.bill_date DESC, sq.updated_at DESC, sq.bill_no DESC, l.line_no DESC
+            LIMIT 1
+            """, customerId, productId, BillStatus.AUDITED.name());
     }
 
     private void putSource(Map<String, Object> target, String key, BigDecimal price, String label, String sourceBillNo) {

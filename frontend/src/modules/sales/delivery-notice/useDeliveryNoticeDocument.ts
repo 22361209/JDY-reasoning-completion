@@ -19,6 +19,7 @@ export function useDeliveryNoticeDocument(options: Parameters<typeof useDocument
     showStockColumns: true,
     sourceTraceType: "salesOrder",
     reversible: true,
+    allowDraftDelete: true,
     reverseImpact: "反审核将释放本单锁定库存；若已有下游销售出库，后端会阻断操作。",
     initialForm: initialDeliveryNoticeForm
   }, options);

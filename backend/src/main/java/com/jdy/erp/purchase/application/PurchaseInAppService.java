@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
+import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
@@ -27,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PurchaseInAppService {
     private static final String BILL_TABLE = "purchase_in";
+    private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "purchase_in_line", "bill_id", "PURCHASE", "purchase_in");
     private static final SourceExecutionSpec PURCHASE_ORDER_IN_SPEC = new SourceExecutionSpec(
         "purchase_order",
         "purchase_order_line",
@@ -265,6 +267,10 @@ public class PurchaseInAppService {
             "purchase_in",
             "只有草稿采购入库单可以作废"
         );
+    }
+
+    public Map<String, Object> delete(String billNo) {
+        return lifecycleService.deleteDraft(LIFECYCLE_TARGET, billNo, "只有草稿采购入库单可以删除");
     }
 
     @Transactional

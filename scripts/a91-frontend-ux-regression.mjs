@@ -77,9 +77,8 @@ try {
   await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-qty").fill("123456789012345");
   await page.getByTestId("sales-line-price").fill("86");
-  await page.getByTestId("sales-line-menu").click();
-  await page.getByTestId("sales-line-copy").click();
-  assert(await page.getByTestId("sales-entry-row").count() === 2, "line menu copy should keep copy function");
+  await page.getByTestId("sales-line-insert").click();
+  assert(await page.getByTestId("sales-entry-row").count() === 2, "row number plus should insert a new line");
 
   await page.getByTestId("entry-column-settings").click();
   await page.getByTestId("entry-column-settings-dialog").waitFor({ state: "visible" });

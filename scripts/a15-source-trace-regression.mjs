@@ -223,11 +223,9 @@ try {
   await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo);
   const purchaseInSourceLines = await readSourceLineNos(page, "purchase-in", 3);
   assertArray("purchase in line-level source order", purchaseInSourceLines, [`${data.purchaseOrderNo} / #1`, `${data.purchaseOrderNo} / #2`, `${data.purchaseOrderNo} / #3`]);
-  if (await page.getByTestId("trace-source-order").isDisabled()) {
-    throw new Error("purchase in trace button should be enabled");
-  }
+  await page.getByTestId("purchase-in-line-source-trace").waitFor({ state: "visible" });
   const purchasePopupPromise = page.waitForEvent("popup");
-  await page.getByTestId("trace-source-order").click();
+  await page.getByTestId("purchase-in-line-source-trace").click();
   const purchasePopup = await purchasePopupPromise;
   await purchasePopup.waitForLoadState("domcontentloaded");
   const purchasePopupText = await purchasePopup.locator("body").innerText();

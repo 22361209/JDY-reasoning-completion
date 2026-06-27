@@ -23,6 +23,8 @@
 2. 目标入口的 复刻-local 截图 + 对应 B 批次组件规格（`复刻-local/02_复刻规划/首版页面实现批次与组件复用矩阵-1880收口版.md`）
 3. 本任务相关代码文件
 
+- 新接手、不熟目录、或不确定规则放在哪里时，读 `docs/guides/repository-map.md`；业务规则和动作按钮规则也从该文件跳转。
+- 改功能、逻辑、规则、机制或动作前，先扫是否已有复用点：`docs/guides/*`（规则口径）、`scripts/helpers/*`（回归动作）、`frontend/src/components` 与模块 composable（产品范式）。能复用先复用；需要新机制时先沉淀共享层，再改具体入口。
 - 范围以 `config/approved-feature-scope.json` + `config/implementation-overrides.json` 为准，别擅自扩范围。
 - 验收 = 业务逻辑门禁（`docs/11`）+ 对照截图的视觉相似度。
 - 收尾覆盖更新 `docs/09` 快照。

@@ -21,6 +21,7 @@ import { taxAmounts } from "../../../app/taxAmounts";
 import { fetchListRows } from "../../../services/listApi";
 import {
   auditDocument,
+  deleteDocument,
   exportDocument,
   fetchDocumentDetail,
   fetchNextBillNo,
@@ -114,6 +115,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const pendingEntryPaste = ref<PendingEntryPaste | null>(null);
   const pendingLifecycleAction = ref<LifecycleDocumentAction | null>(null);
   const pendingLifecycleLineNo = ref<number | null>(null);
+  const pendingDeleteDocument = ref(false);
+  const hasPersistedDraft = ref(false);
   const lifecycleReason = ref("");
   const voidUsername = ref("");
   const voidPassword = ref("");
@@ -135,7 +138,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const canUnclose = computed(() => form.closeStatus === "CLOSED");
   const canFreeze = computed(() => form.status === "AUDITED" && form.frozenStatus !== "FROZEN");
   const canUnfreeze = computed(() => form.frozenStatus === "FROZEN");
-  const canDelete = computed(() => false);
+  const showDelete = computed(() => true);
+  const canDelete = computed(() => Boolean(options.hasPermission("sales.out.audit") && form.status === "DRAFT" && hasPersistedDraft.value && form.billNo));
   const canTraceSourceOrder = computed(() => Boolean(form.lines.some((line) => line.sourceOrderNo?.trim())));
   const statusLabel = computed(() => {
     const labels: Record<OrderForm["status"], string> = {
@@ -182,7 +186,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.status = "DRAFT";
     form.closeStatus = "OPEN";
     form.frozenStatus = "NORMAL";
-    form.lines = [defaultLine()];
+    form.lines = [blankLine()];
+    hasPersistedDraft.value = false;
     const billNoResult = await fetchNextBillNo("salesOut");
     form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
@@ -230,6 +235,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
       }))
       : [defaultLine()];
+    hasPersistedDraft.value = true;
   }
 
   async function loadByBillNo(billNo: string) {
@@ -268,6 +274,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.remark = "";
     form.isTaxInclusive = false;
     form.status = "DRAFT";
+    hasPersistedDraft.value = false;
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
       productName: String(line.productName ?? ""),
@@ -281,7 +288,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
-      planDeliveryDate: String(line.planDeliveryDate ?? "")
+      planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
     }));
     message.value = `已由${draft.sourceOrderNo}按剩余数量生成销售出库单草稿`;
     options.markDirty();
@@ -311,7 +318,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
-      planDeliveryDate: String(line.planDeliveryDate ?? "")
+      planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
     }));
     message.value = loadedMessage;
     options.markDirty();
@@ -342,7 +349,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
-      planDeliveryDate: String(line.planDeliveryDate ?? "")
+      planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
     })));
     form.sourceOrderNo = "";
     message.value = loadedMessage;
@@ -350,7 +357,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function appendFormLines(lines: OrderLineForm[]) {
-    if (form.lines.length === 1 && isStarterLine(form.lines[0])) {
+    if (form.lines.length === 1 && (isStarterLine(form.lines[0]) || isBlankEntryLine(form.lines[0]))) {
       form.lines = lines;
       return;
     }
@@ -472,6 +479,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         form.billNo = saved.billNo;
       }
       form.status = "DRAFT";
+      hasPersistedDraft.value = true;
       options.clearDirty();
     }
   }
@@ -487,6 +495,37 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       form.status = "AUDITED";
       options.clearDirty();
     }
+  }
+
+  async function deleteCurrent() {
+    if (!canDelete.value) {
+      message.value = "只有草稿销售出库单可以删除。";
+      return;
+    }
+    pendingDeleteDocument.value = true;
+  }
+
+  function cancelDeleteDocument() {
+    pendingDeleteDocument.value = false;
+    message.value = "已取消删除。";
+  }
+
+  async function confirmDeleteDocument() {
+    if (!canDelete.value) {
+      pendingDeleteDocument.value = false;
+      message.value = "只有草稿销售出库单可以删除。";
+      return;
+    }
+    const deletedBillNo = form.billNo;
+    pendingDeleteDocument.value = false;
+    const result = await deleteDocument("salesOut", deletedBillNo);
+    if (!result.ok) {
+      message.value = result.message || "删除失败。";
+      return;
+    }
+    options.clearDirty();
+    await startNew();
+    message.value = `已删除草稿销售出库单 ${deletedBillNo}，并生成新草稿号。`;
   }
 
   function openRiskyAction(action: RiskyDocumentAction) {
@@ -639,11 +678,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-    return { productCode: "CP-001", warehouseCode, qty: 1, unitPrice: 86, taxRate: 13, lineRemark: "", planDeliveryDate: "" };
+    return { productCode: "", warehouseCode, qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
   }
 
   function blankLine(): OrderLineForm {
-    return { productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: "" };
+    return { productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
   }
 
   function addLine() {
@@ -739,8 +778,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!planDate) {
       return;
     }
-    const targetIndexes = lineIndexes.length > 0 ? lineIndexes : form.lines.map((_, index) => index);
-    targetIndexes.forEach((index) => {
+    lineIndexes.forEach((index) => {
       const line = form.lines[index];
       if (line) {
         line.planDeliveryDate = planDate;
@@ -1140,6 +1178,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     pendingEntryPaste,
     pendingLifecycleAction,
     pendingLifecycleLineNo,
+    pendingDeleteDocument,
     lifecycleReason,
     voidUsername,
     voidPassword,
@@ -1153,6 +1192,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     canUnclose,
     canFreeze,
     canUnfreeze,
+    showDelete,
     canDelete,
     canTraceSourceOrder,
     statusLabel,
@@ -1182,6 +1222,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     openRiskyAction,
     cancelRiskyAction,
     confirmRiskyAction,
+    deleteCurrent,
+    cancelDeleteDocument,
+    confirmDeleteDocument,
     openLifecycleAction,
     cancelLifecycleAction,
     confirmLifecycleAction,
@@ -1281,6 +1324,7 @@ function backendStatusLabel(status: string | undefined) {
 
 function downstreamTypeLabel(type: OpenableDocumentType) {
   const labels: Record<OpenableDocumentType, string> = {
+    salesQuote: "销售报价单",
     salesOrder: "销售订单",
     deliveryNotice: "发货通知单",
     salesOut: "销售出库单",
@@ -1409,9 +1453,17 @@ function isBlankEntryLine(line: OrderLineForm) {
     && !String(line.productName ?? "").trim()
     && !String(line.spec ?? "").trim()
     && !String(line.lineRemark ?? "").trim()
-    && !String(line.planDeliveryDate ?? "").trim()
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
+}
+
+function todayText() {
+  const today = new Date();
+  return [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0")
+  ].join("-");
 }
 
 function isStarterLine(line: OrderLineForm | undefined) {

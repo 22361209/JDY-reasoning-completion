@@ -62,6 +62,7 @@ try {
   adminScreenshot = `a59-formal-login-admin-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, adminScreenshot), fullPage: true });
 
+  await page.getByTestId("session-account-menu").click();
   await page.getByTestId("session-logout").click();
   await page.getByTestId("login-page").waitFor({ state: "visible" });
   const postLogoutManagedUsers = await browserFetch(page, "/api/system/managed-users");

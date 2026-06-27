@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument } from "./helpers/document-actions.mjs";
+import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -167,12 +169,12 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.getByTestId("sales-party-code").fill(customerCode);
   await page.getByTestId("sales-line-product").fill(productA);
   await page.getByTestId("sales-line-warehouse").fill("CK-001");
   await page.getByTestId("sales-line-qty").fill("1");
-  await page.getByRole("button", { name: "+ 增加明细行" }).click();
+  await addEntryLineBelow(page);
   await page.getByTestId("sales-line-product-2").fill(productB);
   await page.getByTestId("sales-line-warehouse-2").fill("CK-001");
   await page.getByTestId("sales-line-qty-2").fill("1");

@@ -131,6 +131,47 @@ public class PurchaseOrderAppService {
         }).toList();
     }
 
+    public Map<String, Object> selectableLines(String supplierCode) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT po.bill_no AS "billNo",
+                   s.code AS "supplierCode",
+                   s.name AS supplier,
+                   to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   po.department,
+                   po.owner_name AS "ownerName",
+                   po.is_tax_inclusive AS "isTaxInclusive",
+                   l.line_no AS "lineNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   w.code AS "warehouseCode",
+                   l.qty AS "sourceQty",
+                   l.received_qty AS "receivedQty",
+                   GREATEST(0, l.qty - l.received_qty) AS "remainingQty",
+                   l.line_close_status AS "lineCloseStatus",
+                   l.line_frozen_status AS "lineFrozenStatus",
+                   l.unit_price AS "unitPrice",
+                   l.tax_rate AS "taxRate",
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
+                   COALESCE(l.line_remark, '') AS "lineRemark"
+            FROM purchase_order po
+            JOIN md_supplier s ON s.id = po.supplier_id
+            JOIN purchase_order_line l ON l.order_id = po.id
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            WHERE s.code = ?
+              AND po.status = ?
+              AND po.close_status = 'OPEN'
+              AND po.frozen_status = 'NORMAL'
+              AND l.line_close_status = 'OPEN'
+              AND l.line_frozen_status = 'NORMAL'
+              AND GREATEST(0, l.qty - l.received_qty) > 0
+            ORDER BY po.bill_date DESC, po.bill_no DESC, l.line_no
+            """, supplierCode == null ? "" : supplierCode.trim(), BillStatus.AUDITED.name());
+        return Map.of("supplierCode", supplierCode == null ? "" : supplierCode.trim(), "lines", rows);
+    }
+
     @Transactional
     public Map<String, Object> saveDraft(PurchaseOrderDraftRequest request) {
         var billNo = numberingService.assignBillNo("purchaseOrder", request.billNo());

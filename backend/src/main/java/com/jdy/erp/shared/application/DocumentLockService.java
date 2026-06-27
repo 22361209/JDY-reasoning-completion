@@ -19,6 +19,7 @@ public class DocumentLockService {
     private static final String OVERRIDE_PERMISSION = "document.lock.override";
     private static final Set<String> DOCUMENT_TYPES = Set.of(
         "salesOrder",
+        "salesQuote",
         "deliveryNotice",
         "salesOut",
         "purchaseOrder",

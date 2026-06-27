@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import com.jdy.erp.shared.application.BillLifecycleService;
+import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
@@ -22,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class SalesOrderAppService {
     private static final String BILL_TABLE = "sales_order";
+    private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "sales_order_line", "order_id", "SALES", "sales_order");
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -103,11 +105,13 @@ public class SalesOrderAppService {
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO sales_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_order_line (order_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
+                validationService.optionalText(line.sourceOrderNo()),
+                line.sourceLineNo(),
                 productId,
                 warehouseId,
                 line.qty(),
@@ -164,15 +168,7 @@ public class SalesOrderAppService {
     }
 
     public Map<String, Object> delete(String billNo) {
-        var deleted = jdbcTemplate.queryForList("""
-            DELETE FROM sales_order
-            WHERE bill_no = ? AND status = 'DRAFT'
-            RETURNING id::text AS id, bill_no AS "billNo"
-            """, billNo);
-        if (deleted.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿销售订单可以删除");
-        }
-        return deleted.get(0);
+        return lifecycleService.deleteDraft(LIFECYCLE_TARGET, billNo, "只有草稿销售订单可以删除");
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -274,6 +270,8 @@ public class SalesOrderAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
@@ -377,6 +375,8 @@ public class SalesOrderAppService {
     public record SalesOrderLineRequest(
         String productCode,
         String warehouseCode,
+        String sourceOrderNo,
+        Integer sourceLineNo,
         BigDecimal qty,
         BigDecimal unitPrice,
         BigDecimal taxRate,

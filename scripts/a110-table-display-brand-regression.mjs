@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -87,7 +88,42 @@ async function metricsFor(page) {
         height: computed.height,
         display: computed.display,
         alignItems: computed.alignItems,
-        textAlign: computed.textAlign
+        textAlign: computed.textAlign,
+        backgroundColor: computed.backgroundColor,
+        borderColor: computed.borderColor,
+        color: computed.color
+      };
+    };
+    const headerMetrics = (selector) => {
+      const header = document.querySelector(selector);
+      const th = header?.closest("th");
+      if (!header || !th) return null;
+      const box = (node) => {
+        if (!node) return null;
+        const rect = node.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom };
+      };
+      const thRect = box(th);
+      const headerRect = box(header);
+      const titleRect = box(header.querySelector(".column-header-title"));
+      const actionsRect = box(header.querySelector(".column-header-actions"));
+      const bulkRect = box(header.querySelector(".column-bulk-button"));
+      const filterRect = box(header.querySelector(".column-filter-button"));
+      const resizerRect = box(header.querySelector(".table-core-column-resizer"));
+      return {
+        thRect,
+        headerRect,
+        titleRect,
+        actionsRect,
+        bulkRect,
+        filterRect,
+        resizerRect,
+        actionsRightGapToTh: thRect && actionsRect ? Math.round(thRect.right - actionsRect.right) : null,
+        filterRightGapToTh: thRect && filterRect ? Math.round(thRect.right - filterRect.right) : null,
+        bulkRightGapToTh: thRect && bulkRect ? Math.round(thRect.right - bulkRect.right) : null,
+        resizerCenterDeltaToThRight: thRect && resizerRect ? Math.round((resizerRect.x + resizerRect.width / 2) - thRect.right) : null,
+        titleToActionsGap: titleRect && actionsRect ? Math.round(actionsRect.x - titleRect.right) : null,
+        headerRightGapToTh: thRect && headerRect ? Math.round(thRect.right - headerRect.right) : null
       };
     };
     return {
@@ -106,7 +142,12 @@ async function metricsFor(page) {
       listFilterRect: rect("[data-testid='column-filter-qty']"),
       listHeaderRect: rect("[data-testid='column-drag-qty']"),
       entryFilterRect: rect("[data-testid='entry-column-filter-qty']"),
-      entryHeaderRect: rect("[data-testid='entry-column-drag-qty']")
+      entryQtyBulkRect: rect("[data-testid='entry-column-bulk-qty']"),
+      entryQtyBulkStyle: style("[data-testid='entry-column-bulk-qty']"),
+      entryHeaderRect: rect("[data-testid='entry-column-drag-qty']"),
+      entryQtyHeaderMetrics: headerMetrics("[data-testid='entry-column-drag-qty']"),
+      entryUnitPriceHeaderMetrics: headerMetrics("[data-testid='entry-column-drag-unitPrice']"),
+      entryWarehouseHeaderMetrics: headerMetrics("[data-testid='entry-column-drag-warehouse']")
     };
   });
 }
@@ -147,13 +188,20 @@ try {
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.getByTestId("sales-party-code").fill("KH-001");
   await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-warehouse").fill("CK-001");
   await page.getByTestId("sales-line-qty").fill("1234.5678");
   await page.getByTestId("sales-line-price").fill("86.25");
+  await page.getByTestId("sales-line-insert").click();
+  await page.getByTestId("sales-line-qty-2").waitFor({ state: "visible" });
   await page.getByTestId("entry-column-drag-qty").waitFor({ state: "visible" });
+  await page.getByTestId("entry-column-bulk-qty").click();
+  await page.getByTestId("entry-bulk-qty-input").fill("7.5");
+  await page.getByTestId("entry-bulk-qty-ok").click();
+  const qtyAfterBulkFill = await page.getByTestId("sales-line-qty").inputValue();
+  const blankQtyAfterBulkFill = await page.getByTestId("sales-line-qty-2").inputValue();
   await capture(page, "entry-table-scrollbar", screenshots);
   const entryMetrics = await metricsFor(page);
 
@@ -167,7 +215,14 @@ try {
     entryQtyPaddingRight: Number.parseFloat(entryMetrics.entryQtyCellStyle?.paddingRight ?? "0"),
     entryQtyInputPaddingRight: Number.parseFloat(entryMetrics.entryQtyInputStyle?.paddingRight ?? "0"),
     entryFilterRightGap: rightGap(entryMetrics.entryFilterRect, entryMetrics.entryHeaderRect),
+    entryQtyBulkRightGap: rightGap(entryMetrics.entryQtyBulkRect, entryMetrics.entryHeaderRect),
+    entryQtyBulkButtonBackground: entryMetrics.entryQtyBulkStyle?.backgroundColor ?? "",
+    entryQtyAfterBulkFill: qtyAfterBulkFill,
+    blankEntryQtyAfterBulkFill: blankQtyAfterBulkFill,
     listFilterRightGap: rightGap(detailMetrics.listFilterRect, detailMetrics.listHeaderRect),
+    entryQtyHeader: entryMetrics.entryQtyHeaderMetrics,
+    entryUnitPriceHeader: entryMetrics.entryUnitPriceHeaderMetrics,
+    entryWarehouseHeader: entryMetrics.entryWarehouseHeaderMetrics,
     entryQtyCellHeight: entryMetrics.entryQtyCellRect?.height ?? 0,
     entryQtyInputHeight: entryMetrics.entryQtyInputRect?.height ?? 0
   };
@@ -183,6 +238,15 @@ try {
     assert(checks.entryQtyInputHeight <= checks.entryQtyCellHeight + 2, `entry input should not be clipped vertically: ${JSON.stringify(checks)}`);
     assert(checks.entryFilterRightGap !== null && checks.listFilterRightGap !== null, "filter buttons should be measurable");
     assert(Math.abs(checks.entryFilterRightGap - checks.listFilterRightGap) <= 3, `entry filter right gap should match list filter: ${JSON.stringify(checks)}`);
+    assert(checks.entryQtyAfterBulkFill === "7.5", `entry qty bulk fill should update qty input, got ${checks.entryQtyAfterBulkFill}`);
+    assert(checks.blankEntryQtyAfterBulkFill === "0", `entry qty bulk fill should not touch blank product rows, got ${checks.blankEntryQtyAfterBulkFill}`);
+    assert(checks.entryQtyBulkRightGap !== null && checks.entryQtyBulkRightGap <= 24, `entry qty bulk fill button should stay in header action group: ${JSON.stringify(checks.entryQtyHeader)}`);
+    assert(checks.entryQtyBulkButtonBackground === "rgb(243, 246, 249)", `entry qty bulk fill button background should match header: ${checks.entryQtyBulkButtonBackground}`);
+    assert(checks.entryUnitPriceHeader?.actionsRightGapToTh !== null && checks.entryUnitPriceHeader.actionsRightGapToTh <= 8, `entry unit price header actions should align to real th right edge: ${JSON.stringify(checks.entryUnitPriceHeader)}`);
+    assert(checks.entryUnitPriceHeader?.resizerCenterDeltaToThRight !== null && Math.abs(checks.entryUnitPriceHeader.resizerCenterDeltaToThRight) <= 1, `entry unit price resize hotspot should center on real th edge: ${JSON.stringify(checks.entryUnitPriceHeader)}`);
+    assert(checks.entryUnitPriceHeader?.titleToActionsGap !== null && checks.entryUnitPriceHeader.titleToActionsGap >= 4, `entry unit price title should not overlap actions: ${JSON.stringify(checks.entryUnitPriceHeader)}`);
+    assert(checks.entryWarehouseHeader?.actionsRightGapToTh !== null && checks.entryWarehouseHeader.actionsRightGapToTh <= 8, `entry warehouse bulk action should align to real th right edge: ${JSON.stringify(checks.entryWarehouseHeader)}`);
+    assert(checks.entryWarehouseHeader?.resizerCenterDeltaToThRight !== null && Math.abs(checks.entryWarehouseHeader.resizerCenterDeltaToThRight) <= 1, `entry warehouse resize hotspot should center on real th edge: ${JSON.stringify(checks.entryWarehouseHeader)}`);
   }
 
   const result = {

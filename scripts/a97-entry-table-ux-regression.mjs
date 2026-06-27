@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument, openSalesOutSourceSelector } from "./helpers/document-actions.mjs";
+import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -110,7 +112,7 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.getByTestId("sales-out-party-code").fill("KH-001");
 
   const remarkTag = await page.getByTestId("sales-out-remark").evaluate((node) => node.tagName.toLowerCase());
@@ -135,7 +137,7 @@ try {
   await page.getByTestId("sales-out-line-product").fill("CP-001");
   await page.getByTestId("sales-out-line-warehouse").fill("CK-001");
   await page.getByTestId("sales-out-line-qty").fill("1");
-  await page.getByTestId("add-document-line").click();
+  await addEntryLineBelow(page, "sales-out");
   await page.getByTestId("sales-out-line-product-2").fill("PJ-014");
   await page.getByTestId("sales-out-line-warehouse-2").fill("CK-002");
   await page.getByTestId("sales-out-line-qty-2").fill("1");
@@ -152,8 +154,7 @@ try {
   const productCellAfter = await page.getByTestId("sales-out-line-product").locator("..").boundingBox();
   assert(productCellBefore && productCellAfter && productCellAfter.width > productCellBefore.width + 30, "entry column width drag should widen product column");
 
-  await page.getByTestId("sales-out-open-source-selector").click();
-  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
+  await openSalesOutSourceSelector(page);
   await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
   await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceTableScroll = await page.locator(".source-selector-table").evaluate((node) => ({

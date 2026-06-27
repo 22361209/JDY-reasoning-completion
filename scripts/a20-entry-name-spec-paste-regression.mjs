@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { saveDocument } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -57,6 +58,15 @@ async function dispatchPaste(page, testId, text) {
     },
     { id: testId, value: text }
   );
+}
+
+async function clickNewDocument(page) {
+  await page.getByTestId("new-document").click();
+  const dialog = page.getByTestId("new-document-unsaved-dialog");
+  if (await dialog.isVisible().catch(() => false)) {
+    await page.getByTestId("new-document-unsaved-confirm").click();
+    await dialog.waitFor({ state: "hidden" });
+  }
 }
 
 async function readLines(page) {
@@ -119,7 +129,7 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="sales-bill-no"]');
     return input instanceof HTMLInputElement && input.value.length > 0;
@@ -138,8 +148,7 @@ try {
     throw new Error(`total expected 567.26, got ${totalAfterPaste}`);
   }
 
-  await page.getByTestId("save-sales-order").click();
-  await page.getByText("草稿已保存").waitFor({ state: "visible" });
+  await saveDocument(page);
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),

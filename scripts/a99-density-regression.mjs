@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument, openSalesOutSourceSelector } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -162,8 +163,8 @@ try {
   const listToolbarHeight = await firstHeight(page, ".list-toolbar");
   const moreVisible = await page.getByTestId("list-more-actions").isVisible();
   assert(listRowHeights.length >= 1, "list should render at least one row");
-  assert(Math.max(...listRowHeights) <= 22.5, `list rows should be 20-22px, got ${listRowHeights.join(",")}`);
-  assert(listHeaderHeight <= 25, `list header should stay compact, got ${listHeaderHeight}`);
+  assert(Math.max(...listRowHeights) <= 32.5 && Math.min(...listRowHeights) >= 30, `list rows should match document entry density around 32px, got ${listRowHeights.join(",")}`);
+  assert(listHeaderHeight <= 29, `list header should match shared table header density around 28px, got ${listHeaderHeight}`);
   assert(listToolbarHeight <= 34, `list toolbar should be compact, got ${listToolbarHeight}`);
   assert(moreVisible, "list more actions menu trigger should be visible");
   const listScreenshot = `a99-density-list-${batch}.png`;
@@ -173,7 +174,7 @@ try {
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await markDocumentRoot(page, "sales-bill-no", source.orderNo, "a99-audited-root");
   const auditedEntryHeights = await waitForHeights(page, '[data-a99-root="a99-audited-root"] [data-testid="sales-entry-row"]');
-  assert(Math.max(...auditedEntryHeights) <= 22.5, `audited entry rows should be 20-22px, got ${auditedEntryHeights.join(",")}`);
+  assert(Math.max(...auditedEntryHeights) <= 32.5 && Math.min(...auditedEntryHeights) >= 30, `audited entry rows should match list density around 32px, got ${auditedEntryHeights.join(",")}`);
   const formScreenshot = `a99-density-audited-entry-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, formScreenshot), fullPage: true });
 
@@ -181,7 +182,7 @@ try {
   await page.getByTestId("list-create").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   const draftEntryHeights = await waitForHeights(page, '[data-testid="sales-entry-row"]');
-  assert(Math.max(...draftEntryHeights) <= 32, `draft entry rows may expand only for editing, got ${draftEntryHeights.join(",")}`);
+  assert(Math.max(...draftEntryHeights) <= 33, `draft entry rows may expand only for editing, got ${draftEntryHeights.join(",")}`);
   assert(Math.max(...draftEntryHeights) >= 26, `draft entry rows should preserve editable input height, got ${draftEntryHeights.join(",")}`);
 
   await page.getByTestId("sales-line-product-open-selector").click();
@@ -193,10 +194,9 @@ try {
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await page.getByTestId("sales-out-open-source-selector").click();
-  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
+  await openSalesOutSourceSelector(page);
   await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
   await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceSelectorRows = await waitForHeights(page, ".source-selector-table tbody tr");

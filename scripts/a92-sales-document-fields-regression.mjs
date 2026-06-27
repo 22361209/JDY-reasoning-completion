@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument, saveDocument, auditDocument } from "./helpers/document-actions.mjs";
+import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -194,15 +196,12 @@ try {
   assertArray("pushed line remarks", pushed.remarks, ["A92 第一行备注", "A92 第二行备注"]);
   assertArray("pushed plan dates", pushed.planDates, [firstPlanDate, secondPlanDate]);
 
-  await page.getByTestId("save-sales-order").click();
-  await page.getByText("草稿已保存").waitFor({ state: "visible" });
-  await page.getByTestId("audit-sales-order").click();
-  await page.getByText("审核成功").waitFor({ state: "visible" });
+  await saveDocument(page);
+  await auditDocument(page);
   await page.getByTestId("push-sales-out-from-delivery-notice").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   await page.getByTestId("sales-out-remark").fill(`A92 出库备注 ${batch}`);
-  await page.getByTestId("save-sales-order").click();
-  await page.getByText("草稿已保存").waitFor({ state: "visible" });
+  await saveDocument(page);
   const salesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
 
   const outScreenshot = `a92-sales-out-pushdown-fields-${batch}.png`;
@@ -212,14 +211,17 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
-  await page.getByRole("button", { name: "+ 增加明细行" }).click();
+  await clickNewDocument(page);
+  await addEntryLineBelow(page);
+  await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-plan-delivery-date").fill(firstPlanDate);
-  await page.getByTestId("batch-plan-delivery-date").fill(batchPlanDate);
-  await page.getByTestId("sales-line-select-2").check();
-  await page.getByTestId("apply-batch-plan-delivery-date").click();
-  assert(await page.getByTestId("sales-line-plan-delivery-date").inputValue() === firstPlanDate, "unselected line plan date should stay unchanged");
-  assert(await page.getByTestId("sales-line-plan-delivery-date-2").inputValue() === batchPlanDate, "selected line plan date should be batch-filled");
+  await page.getByTestId("entry-column-bulk-planDeliveryDate").click();
+  await page.getByTestId("entry-bulk-date-input").fill(batchPlanDate);
+  await page.getByTestId("entry-bulk-date-ok").click();
+  const productLineBatchDate = await page.getByTestId("sales-line-plan-delivery-date").inputValue();
+  const blankLineBatchDate = await page.getByTestId("sales-line-plan-delivery-date-2").inputValue();
+  assert(productLineBatchDate === batchPlanDate, `product line plan date should be batch-filled, got ${productLineBatchDate}`);
+  assert(blankLineBatchDate !== batchPlanDate, `blank line plan date should not be batch-filled, got ${blankLineBatchDate}`);
 
   const batchFillScreenshot = `a92-sales-order-batch-plan-date-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, batchFillScreenshot), fullPage: true });

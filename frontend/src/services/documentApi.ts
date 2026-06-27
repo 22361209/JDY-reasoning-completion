@@ -7,6 +7,7 @@ interface DocumentDraftPayload {
   ownerName: string;
   remark?: string;
   isTaxInclusive?: boolean;
+  validUntil?: string;
   lines: Array<{
     productCode: string;
     warehouseCode: string;
@@ -25,6 +26,7 @@ interface DocumentDraftPayload {
 
 const endpointByType = {
   salesOrder: "/api/sales-orders",
+  salesQuote: "/api/sales-quotes",
   deliveryNotice: "/api/delivery-notices",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
@@ -41,6 +43,7 @@ const endpointByType = {
 
 const detailEndpointByType = {
   salesOrder: "/api/sales-orders",
+  salesQuote: "/api/sales-quotes",
   deliveryNotice: "/api/delivery-notices",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
@@ -57,6 +60,7 @@ const detailEndpointByType = {
 
 const outputTypeByDocumentType = {
   salesOrder: "sales-order",
+  salesQuote: "sales-quote",
   deliveryNotice: "delivery-notice",
   purchaseOrder: "purchase-order",
   purchaseIn: "purchase-in",
@@ -143,6 +147,8 @@ export interface DocumentDetail {
     redReverseBillNo?: string;
     redSourceBillNo?: string;
     isTaxInclusive?: boolean;
+    enabled?: boolean;
+    validUntil?: string;
   };
   lines: Array<{
     lineNo?: number | string;
@@ -195,6 +201,7 @@ export interface SalesUnitPriceSource {
 export interface SalesUnitPriceSourcesByProduct {
   productCode: string;
   defaultPrice?: SalesUnitPriceSource;
+  quotePrice?: SalesUnitPriceSource;
   recentPrice?: SalesUnitPriceSource;
   historyMaxPrice?: SalesUnitPriceSource;
   historyMinPrice?: SalesUnitPriceSource;
@@ -328,9 +335,10 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     ownerName: payload.ownerName,
     remark: payload.remark,
     isTaxInclusive: payload.isTaxInclusive,
+    validUntil: payload.validUntil,
     lines: payload.lines
   };
-  if (type === "salesOut" || type === "salesOrder" || type === "deliveryNotice" || type === "otherStockOut") {
+  if (type === "salesOut" || type === "salesOrder" || type === "salesQuote" || type === "deliveryNotice" || type === "otherStockOut") {
     return { ...base, customerCode: payload.partyCode };
   }
   return { ...base, supplierCode: payload.partyCode };

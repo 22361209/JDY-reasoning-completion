@@ -277,9 +277,9 @@
     />
 
     <div
-      v-if="draggingColumnField"
+      v-if="columnReorder.draggingKey.value"
       class="column-drag-ghost"
-      :style="{ left: `${dragGhostLeft}px`, top: `${dragGhostTop}px` }"
+      :style="{ left: `${columnReorder.dragGhostLeft.value}px`, top: `${columnReorder.dragGhostTop.value}px` }"
       data-testid="column-drag-ghost"
     >
       {{ draggingColumnTitle }}
@@ -368,11 +368,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
+import { useColumnReorder } from "./table/useColumnReorder";
 import {
   deleteListPreset,
   deleteStockAlertSetting,
@@ -395,6 +396,8 @@ interface ListColumn {
   width?: number;
   minWidth?: number;
   fixed?: "" | "left" | "right";
+  locked?: boolean;
+  reorderable?: boolean;
   align?: "left" | "center" | "right";
   visible: boolean;
 }
@@ -412,7 +415,7 @@ interface ColumnFilter {
   value: string;
 }
 
-type OpenableDocumentType = "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
+type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
 const props = defineProps<{
   listKey: string;
@@ -462,10 +465,6 @@ const activeFilterValue = ref("");
 const columnFilters = reactive<Record<string, ColumnFilter>>({});
 const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
-const draggingColumnField = ref("");
-const dragOverColumnField = ref("");
-const dragGhostLeft = ref(0);
-const dragGhostTop = ref(0);
 const query = reactive({
   keyword: "",
   status: "",
@@ -564,6 +563,22 @@ const definitions: Record<string, ListDefinition> = {
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "outStatus", title: "出库状态", width: 110, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "owner", title: "经办人", width: 120, visible: true }
+    ]
+  },
+  "sales-quote-form-list": {
+    title: "销售报价单列表",
+    subtitle: "销售报价单保存客户报价，审核且有效期内可作为销售订单选源单依据。",
+    keywordPlaceholder: "单据编号、客户、商品",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "customer", title: "客户/对象", width: 220, visible: true },
+      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "validUntil", title: "报价有效期", width: 130, visible: true },
+      { field: "validStatus", title: "有效状态", width: 110, visible: true },
+      { field: "amount", title: "报价金额", width: 120, align: "right", visible: true },
       { field: "owner", title: "经办人", width: 120, visible: true }
     ]
   },
@@ -970,6 +985,7 @@ const isOperationLogList = computed(() => props.listKey === "operation-log-list"
 const isStockAlertList = computed(() => props.listKey === "stock-alert-list");
 const isDetailView = ref(false);
 const auditPermissionByListKey: Partial<Record<string, string>> = {
+  "sales-quote-form-list": "sales.order.audit",
   "sales-order-form-list": "sales.order.audit",
   "delivery-notice-form-list": "sales.out.audit",
   "sales-out-list": "sales.out.audit",
@@ -991,6 +1007,7 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "customer-master-list": "master.data.manage",
   "supplier-master-list": "master.data.manage",
   "warehouse-master-list": "master.data.manage",
+  "sales-quote-form-list": "sales.order.audit",
   "sales-order-form-list": "sales.order.audit",
   "delivery-notice-form-list": "sales.out.audit",
   "sales-out-list": "sales.out.audit",
@@ -1012,6 +1029,7 @@ const canAuditCurrentList = computed(() => !isDetailView.value && session.hasPer
 const canMaintainCurrentList = computed(() => !isDetailView.value && session.hasPermission(maintainPermissionByListKey[props.listKey]));
 const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
+  "sales-quote-form-list": "salesQuote",
   "sales-order-form-list": "salesOrder",
   "delivery-notice-form-list": "deliveryNotice",
   "sales-out-list": "salesOut",
@@ -1071,7 +1089,21 @@ const displayedRows = computed(() => rows.value);
 const allDisplayedRowsSelected = computed(() => displayedRows.value.length > 0 && displayedRows.value.every((row) => isRowSelected(row)));
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => false);
-const draggingColumnTitle = computed(() => columns.value.find((column) => column.field === draggingColumnField.value)?.title ?? "");
+const columnReorder = useColumnReorder<ListColumn>({
+  getColumns: () => columns.value,
+  setColumns: (nextColumns) => {
+    columns.value = nextColumns;
+    tableVersion.value += 1;
+  },
+  getKey: (column) => column.field,
+  getTitle: (column) => column.title,
+  normalize: normalizeListColumns,
+  onReorder: () => {
+    saveColumnPreferences();
+    void syncRenderedColumnWidths();
+  }
+});
+const draggingColumnTitle = columnReorder.draggingTitle;
 const listTableMinWidth = computed(() => {
   const utilityColumnsWidth = 42;
   const contentWidth = visibleColumns.value.reduce((sum, column) => sum + (column.width ?? column.minWidth ?? 120), utilityColumnsWidth);
@@ -1098,8 +1130,8 @@ const listCoreColumns = computed<TableCoreColumn[]>(() => [
     filterable: true,
     resizable: true,
     filterActive: Boolean(columnFilters[column.field]?.value),
-    dragging: draggingColumnField.value === column.field,
-    dragOver: dragOverColumnField.value === column.field,
+    dragging: columnReorder.draggingKey.value === column.field,
+    dragOver: columnReorder.dragOverKey.value === column.field,
     dragTestId: `column-drag-${column.field}`,
     filterTestId: `column-filter-${column.field}`,
     resizeTestId: `column-resize-${column.field}`,
@@ -1109,6 +1141,7 @@ const listCoreColumns = computed<TableCoreColumn[]>(() => [
 ]);
 
 const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
+  "sales-quote-form-list": "salesQuote",
   "sales-order-form-list": "salesOrder",
   "delivery-notice-form-list": "deliveryNotice",
   "sales-out-list": "salesOut",
@@ -1137,11 +1170,6 @@ onMounted(() => {
   reload();
 });
 
-onBeforeUnmount(() => {
-  window.removeEventListener("mousemove", trackColumnMouseDrag);
-  window.removeEventListener("mouseup", finishColumnMouseDrag);
-});
-
 function resetColumns() {
   const defaults = (isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column }));
   const saved = loadColumnPreferences();
@@ -1159,7 +1187,8 @@ function resetColumns() {
     restored.push({
       ...current,
       width: savedColumn.width ?? current.width,
-      fixed: "" as const,
+      reorderable: savedColumn.reorderable ?? current.reorderable,
+      locked: savedColumn.locked ?? current.locked,
       visible: savedColumn.visible
     });
   });
@@ -1667,7 +1696,7 @@ function listCellTitle(row: Record<string, unknown>, column: TableCoreColumn) {
 function startListColumnMouseDrag(column: TableCoreColumn, event: MouseEvent) {
   const listColumn = columns.value.find((item) => item.field === column.key);
   if (listColumn) {
-    startColumnMouseDrag(listColumn, event);
+    columnReorder.start(listColumn, event);
   }
 }
 
@@ -1704,68 +1733,6 @@ function clearColumnFilter() {
   filterDialogOpen.value = false;
   query.page = 1;
   reload();
-}
-
-function startColumnMouseDrag(column: ListColumn, event: MouseEvent) {
-  const target = event.target as HTMLElement;
-  if (target.closest("button") || target.closest(".vxe-resizable") || target.closest(".table-core-column-resizer")) {
-    return;
-  }
-  event.preventDefault();
-  draggingColumnField.value = column.field;
-  dragOverColumnField.value = column.field;
-  dragGhostLeft.value = event.clientX + 10;
-  dragGhostTop.value = event.clientY + 10;
-  window.addEventListener("mousemove", trackColumnMouseDrag);
-  window.addEventListener("mouseup", finishColumnMouseDrag, { once: true });
-}
-
-function trackColumnMouseDrag(event: MouseEvent) {
-  if (!draggingColumnField.value) {
-    return;
-  }
-  dragGhostLeft.value = event.clientX + 10;
-  dragGhostTop.value = event.clientY + 10;
-  const element = document.elementFromPoint(event.clientX, event.clientY);
-  const header = element?.closest<HTMLElement>(".column-header-cell");
-  const field = header?.dataset.columnField;
-  if (field && columns.value.some((column) => column.field === field)) {
-    dragOverColumnField.value = field;
-  }
-}
-
-function finishColumnMouseDrag() {
-  const targetField = dragOverColumnField.value;
-  const sourceField = draggingColumnField.value;
-  if (!sourceField || !targetField || sourceField === targetField) {
-    finishColumnDrag();
-    return;
-  }
-  const sourceIndex = columns.value.findIndex((column) => column.field === sourceField);
-  const targetIndex = columns.value.findIndex((column) => column.field === targetField);
-  if (sourceIndex === -1 || targetIndex === -1) {
-    finishColumnDrag();
-    return;
-  }
-  const nextColumns = [...columns.value];
-  const [sourceColumn] = nextColumns.splice(sourceIndex, 1);
-  sourceColumn.fixed = "";
-  const targetColumn = nextColumns.find((column) => column.field === targetField);
-  if (targetColumn) {
-    targetColumn.fixed = "";
-  }
-  nextColumns.splice(targetIndex, 0, sourceColumn);
-  columns.value = normalizeListColumns(nextColumns);
-  tableVersion.value += 1;
-  saveColumnPreferences();
-  void syncRenderedColumnWidths();
-  finishColumnDrag();
-}
-
-function finishColumnDrag() {
-  window.removeEventListener("mousemove", trackColumnMouseDrag);
-  draggingColumnField.value = "";
-  dragOverColumnField.value = "";
 }
 
 function resizeListColumn({ column, width }: { column: TableCoreColumn; width: number }) {
@@ -1813,7 +1780,8 @@ function saveColumnPreferences() {
   const preference = columns.value.map((column) => ({
     field: column.field,
     width: column.width,
-    fixed: "" as const,
+    reorderable: column.reorderable,
+    locked: column.locked,
     visible: column.visible
   }));
   localStorage.setItem(columnPreferenceKey(), JSON.stringify(preference));

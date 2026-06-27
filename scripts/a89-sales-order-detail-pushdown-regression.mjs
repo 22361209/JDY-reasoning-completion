@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { saveDocument, auditDocument } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -113,10 +114,8 @@ async function runFrontendFlow() {
     await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
     generatedDeliveryNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
     assert(/^FHTZD\d{6}$/.test(generatedDeliveryNoticeNo), `expected generated delivery notice bill no, got ${generatedDeliveryNoticeNo}`);
-    await page.getByTestId("save-sales-order").click();
-    await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
-    await page.getByTestId("audit-sales-order").click();
-    await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+    await saveDocument(page);
+    await auditDocument(page);
     const noticeShot = `a89-delivery-notice-from-detail-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, noticeShot), fullPage: true });
     screenshots.push(`verification/playwright/${noticeShot}`);
@@ -125,10 +124,8 @@ async function runFrontendFlow() {
     await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
     generatedSalesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
     assert(/^XSCKD\d{6}$/.test(generatedSalesOutNo), `expected generated sales out bill no, got ${generatedSalesOutNo}`);
-    await page.getByTestId("save-sales-order").click();
-    await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
-    await page.getByTestId("audit-sales-order").click();
-    await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+    await saveDocument(page);
+    await auditDocument(page);
     const outShot = `a89-sales-out-from-detail-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, outShot), fullPage: true });
     screenshots.push(`verification/playwright/${outShot}`);

@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -225,7 +226,7 @@ try {
   await page.getByTestId("tab-sales-order-form-list").click();
   await page.getByTestId("list-create").click();
   await page.getByTestId("sales-bill-no").waitFor({ state: "visible" });
-  await page.getByRole("button", { name: "+ 增加明细行" }).click();
+  await addEntryLineBelow(page);
   await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
   const newLine = {
     product: await page.getByTestId("sales-line-product-2").inputValue(),

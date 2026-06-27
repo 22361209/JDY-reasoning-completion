@@ -65,6 +65,8 @@ export interface DocumentModuleOptions {
   riskySummaryTitle?: string;
   redReverseImpact?: string;
   reverseImpact?: string;
+  allowDraftDelete?: boolean;
+  allowZeroQty?: boolean;
 }
 
 interface RuntimeOptions {
@@ -125,7 +127,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   });
   const message = ref("");
   const batchWarehouseCode = ref("CK-001");
-  const batchPlanDeliveryDate = ref("");
+  const batchPlanDeliveryDate = ref(defaultPlanDeliveryDate());
   const activeSelector = ref("");
   const selectorOptions = ref<MasterOption[]>([]);
   const selectorCursorIndex = ref(0);
@@ -146,6 +148,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const pendingRiskyDocumentAction = ref<RiskyDocumentAction | null>(null);
   const pendingLifecycleAction = ref<LifecycleDocumentAction | null>(null);
   const pendingLifecycleLineNo = ref<number | null>(null);
+  const pendingDeleteDocument = ref(false);
+  const hasPersistedDraft = ref(false);
   const lifecycleReason = ref("");
   const voidUsername = ref("");
   const voidPassword = ref("");
@@ -160,10 +164,13 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const canUnclose = computed(() => Boolean(config.saveType && form.closeStatus === "CLOSED"));
   const canFreeze = computed(() => Boolean(config.saveType && form.status === "AUDITED" && form.frozenStatus !== "FROZEN"));
   const canUnfreeze = computed(() => Boolean(config.saveType && form.frozenStatus === "FROZEN"));
+  const showDelete = computed(() => Boolean(config.allowDraftDelete));
   const canDelete = computed(() => Boolean(
-    config.saveType === "salesOrder" &&
+    config.allowDraftDelete &&
+    config.saveType &&
     runtime.hasPermission(config.auditPermission) &&
     form.status === "DRAFT" &&
+    hasPersistedDraft.value &&
     form.billNo
   ));
   const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
@@ -220,10 +227,12 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.ownerName = runtime.userName() || "本地管理员";
     form.remark = "";
     form.isTaxInclusive = false;
+    form.validUntil = config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined;
     form.status = "DRAFT";
     form.closeStatus = "OPEN";
     form.frozenStatus = "NORMAL";
-    form.lines = [defaultLine()];
+    form.lines = [blankLine()];
+    hasPersistedDraft.value = false;
     const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
     form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
     message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
@@ -247,6 +256,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
     form.isTaxInclusive = Boolean(document.isTaxInclusive);
+    form.enabled = document.enabled ?? true;
+    form.validUntil = document.validUntil || (config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.closeStatus = document.closeStatus ?? "OPEN";
     form.frozenStatus = document.frozenStatus ?? "NORMAL";
@@ -274,10 +285,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         stockAvailable: line.stockAvailable,
         stockInTransit: line.stockInTransit,
         lineRemark: String(line.lineRemark ?? ""),
-        planDeliveryDate: String(line.planDeliveryDate ?? ""),
+        planDeliveryDate: String(line.planDeliveryDate ?? "") || defaultPlanDeliveryDateForDocument(),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
       }))
       : [defaultLine()];
+    hasPersistedDraft.value = true;
   }
 
   async function loadByBillNo(billNo: string, loadedMessage = "") {
@@ -352,7 +364,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.ownerName = draft.ownerName;
     form.remark = "";
     form.isTaxInclusive = false;
+    form.validUntil = config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined;
     form.status = "DRAFT";
+    hasPersistedDraft.value = false;
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
       productName: String(line.productName ?? ""),
@@ -364,7 +378,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
-      planDeliveryDate: String(line.planDeliveryDate ?? "")
+      planDeliveryDate: String(line.planDeliveryDate ?? "") || defaultPlanDeliveryDateForDocument()
     }));
     message.value = `已由${draft.sourceOrderNo}按确认数量生成${config.title}草稿`;
     runtime.markDirty();
@@ -379,12 +393,16 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       pendingZeroEntrySave.value = null;
     }
     message.value = "";
+    if (config.documentType === "salesQuote" && !String(form.validUntil ?? "").trim()) {
+      message.value = "报价有效期不能为空。";
+      return;
+    }
     const preparedLines = prepareEntryLinesForSave(form.lines);
     if (!preparedLines.ok) {
       message.value = preparedLines.message;
       return;
     }
-    const zeroWarnings = zeroEntryWarnings(preparedLines.formLines);
+    const zeroWarnings = zeroEntryWarnings(preparedLines.formLines, Boolean(config.allowZeroQty));
     if (!allowZeroValues && zeroWarnings.length > 0) {
       pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
       return;
@@ -399,6 +417,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       ownerName: form.ownerName,
       remark: form.remark,
       isTaxInclusive: Boolean(form.isTaxInclusive),
+      validUntil: form.validUntil,
       lines: preparedLines.documentLines
     });
     message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
@@ -408,6 +427,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         form.billNo = saved.billNo;
       }
       form.status = "DRAFT";
+      hasPersistedDraft.value = true;
       runtime.clearDirty();
     }
   }
@@ -470,10 +490,25 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 
   async function deleteCurrent() {
     if (!config.saveType || !canDelete.value) {
-      message.value = "只有草稿销售订单可以删除。";
+      message.value = `只有草稿${config.title}可以删除。`;
+      return;
+    }
+    pendingDeleteDocument.value = true;
+  }
+
+  function cancelDeleteDocument() {
+    pendingDeleteDocument.value = false;
+    message.value = "已取消删除。";
+  }
+
+  async function confirmDeleteDocument() {
+    if (!config.saveType || !canDelete.value) {
+      pendingDeleteDocument.value = false;
+      message.value = `只有草稿${config.title}可以删除。`;
       return;
     }
     const deletedBillNo = form.billNo;
+    pendingDeleteDocument.value = false;
     const result = await deleteDocument(config.saveType, deletedBillNo);
     if (!result.ok) {
       message.value = result.message || "删除失败。";
@@ -481,7 +516,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     runtime.clearDirty();
     await startNew();
-    message.value = `已删除草稿单据 ${deletedBillNo}，并生成新草稿号。`;
+    message.value = `已删除草稿${config.title} ${deletedBillNo}，并生成新草稿号。`;
   }
 
   function openLifecycleAction(action: LifecycleDocumentAction, lineNo?: number) {
@@ -700,8 +735,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!planDate) {
       return;
     }
-    const targetIndexes = lineIndexes.length > 0 ? lineIndexes : form.lines.map((_, index) => index);
-    targetIndexes.forEach((index) => {
+    lineIndexes.forEach((index) => {
       const line = form.lines[index];
       if (line) {
         line.planDeliveryDate = planDate;
@@ -1223,6 +1257,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     pendingRiskyDocumentAction,
     pendingLifecycleAction,
     pendingLifecycleLineNo,
+    pendingDeleteDocument,
     lifecycleReason,
     voidUsername,
     voidPassword,
@@ -1235,6 +1270,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     canUnclose,
     canFreeze,
     canUnfreeze,
+    showDelete,
     canDelete,
     canTraceSourceOrder,
     showSourceLineColumn,
@@ -1268,6 +1304,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     cancelRiskyAction,
     confirmRiskyAction,
     deleteCurrent,
+    cancelDeleteDocument,
+    confirmDeleteDocument,
     openLifecycleAction,
     cancelLifecycleAction,
     confirmLifecycleAction,
@@ -1321,14 +1359,14 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
     return {
-      productCode: "CP-001",
+      productCode: "",
       warehouseCode,
       targetWarehouseCode: config.showTargetWarehouseColumn ? config.defaultTargetWarehouseCode ?? "CK-002" : undefined,
-      qty: 1,
-      unitPrice: config.defaultUnitPrice,
+      qty: 0,
+      unitPrice: 0,
       taxRate: 13,
       lineRemark: "",
-      planDeliveryDate: ""
+      planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
   }
 
@@ -1341,8 +1379,12 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       unitPrice: 0,
       taxRate: 13,
       lineRemark: "",
-      planDeliveryDate: ""
+      planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
+  }
+
+  function defaultPlanDeliveryDateForDocument() {
+    return supportsPlanDeliveryDate(config.documentType) ? defaultPlanDeliveryDate() : "";
   }
 
   function snapshotState(): DocumentModuleSnapshot {
@@ -1413,12 +1455,29 @@ async function scrollHighlightedSourceLineIntoView(sourceLineNo: number) {
 }
 
 function todayText() {
-  const today = new Date();
+  return formatDateText(new Date());
+}
+
+function defaultPlanDeliveryDate() {
+  return todayText();
+}
+
+function formatDateText(date: Date) {
   return [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0")
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
   ].join("-");
+}
+
+function defaultSalesQuoteValidUntil() {
+  const date = new Date();
+  date.setDate(date.getDate() + 30);
+  return formatDateText(date);
+}
+
+function supportsPlanDeliveryDate(documentType: string) {
+  return documentType === "salesOrder" || documentType === "deliveryNotice";
 }
 
 function normalizedQty(value: number | string | undefined) {
@@ -1508,6 +1567,7 @@ function backendStatusLabel(status: string | undefined) {
 
 function downstreamTypeLabel(type: OpenableDocumentType) {
   const labels: Record<OpenableDocumentType, string> = {
+    salesQuote: "销售报价单",
     salesOrder: "销售订单",
     deliveryNotice: "发货通知单",
     salesOut: "销售出库单",
@@ -1546,7 +1606,6 @@ function isBlankEntryLine(line: OrderLineForm) {
     && !String(line.productName ?? "").trim()
     && !String(line.spec ?? "").trim()
     && !String(line.lineRemark ?? "").trim()
-    && !String(line.planDeliveryDate ?? "").trim()
     && normalizedQty(line.qty) === 0
     && normalizedQty(line.unitPrice) === 0;
 }
@@ -1563,13 +1622,13 @@ function entryLineTargetWarehouseCode(line: OrderLineForm) {
   return String(line.targetWarehouseCode ?? "").trim() || "CK-002";
 }
 
-function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
+function zeroEntryWarnings(lines: OrderLineForm[], allowZeroQty = false): ZeroEntryWarning[] {
   return lines
     .map((line, index) => {
       const qty = normalizedQty(line.qty);
       const unitPrice = normalizedQty(line.unitPrice);
       const reasons = [
-        qty === 0 ? "数量为 0" : "",
+        qty === 0 && !allowZeroQty ? "数量为 0" : "",
         unitPrice === 0 ? "单价为 0" : ""
       ].filter(Boolean);
       return {

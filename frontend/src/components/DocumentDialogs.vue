@@ -149,6 +149,21 @@
     </div>
   </div>
 
+  <div v-if="pendingDeleteDocument" class="modal-mask" data-testid="delete-document-dialog">
+    <div class="dialog risky-action-dialog">
+      <h3>删除确认</h3>
+      <p>即将删除草稿{{ deleteDocumentTitle }} {{ currentBillNo }}。</p>
+      <div class="downstream-impact-note danger-note">
+        <strong>影响提示</strong>
+        <span>删除后该草稿单据不会出现在普通业务列表中；删除操作会写入操作日志供管理员审计。</span>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" data-testid="delete-document-cancel" @click="emit('cancelDeleteDocument')">取消</button>
+        <button class="danger-action" type="button" data-testid="delete-document-confirm" @click="emit('confirmDeleteDocument')">确认删除</button>
+      </div>
+    </div>
+  </div>
+
   <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
     <div ref="entryPasteDialogRef" class="dialog entry-paste-conflict-dialog" tabindex="-1" @keydown="emit('handleEntryPasteConflictKeydown', $event)">
       <h3>选择商品</h3>
@@ -193,6 +208,8 @@ const props = defineProps<{
   pendingRiskyDocumentAction: RiskyDocumentAction | null;
   pendingLifecycleAction: LifecycleDocumentAction | null;
   pendingLifecycleLineNo: number | null;
+  pendingDeleteDocument?: boolean;
+  deleteDocumentTitle?: string;
   pendingEntryPaste: PendingEntryPaste | null;
   currentBillNo: string;
   currentOrderStatusLabel: string;
@@ -226,6 +243,8 @@ const emit = defineEmits<{
   confirmRiskyDocumentAction: [];
   cancelLifecycleAction: [];
   confirmLifecycleAction: [];
+  cancelDeleteDocument: [];
+  confirmDeleteDocument: [];
   updateLifecycleReason: [value: string];
   updateVoidUsername: [value: string];
   updateVoidPassword: [value: string];

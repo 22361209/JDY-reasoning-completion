@@ -1,5 +1,5 @@
 <template>
-  <StandardDocument
+  <DocumentForm
     :title="title"
     :subtitle="subtitle"
     :status-label="document.statusLabel.value"
@@ -9,20 +9,58 @@
     :can-override-lock="canOverrideLock"
     :dirty="dirty"
     :message="document.message.value"
-    :can-save="document.isDraft.value"
+    :form="document.form"
+    test-prefix="sales-out"
+    party-label="客户"
+    party-type="customer"
+    :is-document-form="true"
+    :is-stock-document-form="true"
+    :is-draft="document.isDraft.value"
     :can-audit="document.canAudit.value"
     :can-reverse="document.canReverse.value"
+    :can-red-reverse="document.canReverse.value"
     :can-void="document.canVoid.value"
     :can-close="document.canClose.value"
     :can-unclose="document.canUnclose.value"
     :can-freeze="document.canFreeze.value"
     :can-unfreeze="document.canUnfreeze.value"
+    :show-delete="document.showDelete.value"
     :can-delete="document.canDelete.value"
-    :can-output="true"
     :show-source-select="true"
     :can-source-select="document.isDraft.value"
-    source-select-label="选发货通知"
+    source-select-label="选源单"
     source-select-test-id="sales-out-open-source-selector"
+    :can-trace-source-order="document.canTraceSourceOrder.value"
+    :show-source-line-column="document.showSourceLineColumn.value"
+    :show-execution-columns="false"
+    :show-plan-delivery-date-column="true"
+    :enable-sales-price-bulk="true"
+    :entry-table-colspan="document.entryTableColspan.value"
+    :entry-total-colspan="document.entryTotalColspan.value"
+    :total-amount="document.totalAmount.value"
+    :show-tax-mode="true"
+    :is-tax-inclusive="Boolean(document.form.isTaxInclusive)"
+    :batch-warehouse-code="document.batchWarehouseCode.value"
+    :batch-plan-delivery-date="document.batchPlanDeliveryDate.value"
+    :active-selector="document.activeSelector.value"
+    :selector-options="document.selectorOptions.value"
+    :selector-cursor-index="document.selectorCursorIndex.value"
+    :master-selector-dialog-open="document.masterSelectorDialogOpen.value"
+    :master-selector-dialog-type="document.masterSelectorDialogType.value"
+    :master-selector-dialog-title="document.masterSelectorDialogTitle.value"
+    :master-selector-dialog-label="document.masterSelectorDialogLabel.value"
+    :master-selector-dialog-keyword="document.masterSelectorDialogKeyword.value"
+    :master-selector-dialog-rows="document.masterSelectorDialogRows.value"
+    :master-selector-dialog-total="document.masterSelectorDialogTotal.value"
+    :master-selector-dialog-loading="document.masterSelectorDialogLoading.value"
+    :master-selector-dialog-message="document.masterSelectorDialogMessage.value"
+    :known-product-options="knownProductOptions"
+    :dragging-line-index="document.draggingLineIndex.value"
+    :highlighted-source-bill-no="document.highlightedSourceBillNo.value"
+    :highlighted-source-line-no="document.highlightedSourceLineNo.value"
+    @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
+    @update:batch-plan-delivery-date="document.batchPlanDeliveryDate.value = $event"
+    @update:is-tax-inclusive="document.form.isTaxInclusive = $event; document.markDirty()"
     @create="document.startNew"
     @save="document.save()"
     @audit="document.audit"
@@ -34,134 +72,40 @@
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
     @source-select="document.openCustomerSourceSelector"
-    @delete-document="noop"
+    @delete-document="document.deleteCurrent"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
     @show-existing="emit('showExisting')"
     @override-lock="emit('overrideLock')"
+    @open-red-reverse-bill="document.openRedReverseBill"
+    @open-red-source-bill="document.openRedSourceBill"
+    @apply-batch-warehouse="document.applyBatchWarehouse"
+    @apply-batch-plan-delivery-date="document.applyBatchPlanDeliveryDate"
+    @mark-dirty="document.markDirty"
+    @search-master-options="document.searchMasterOptions"
+    @handle-master-input="document.handleMasterInput"
+    @handle-selector-keydown="document.handleSelectorKeydown"
+    @open-master-selector-dialog="document.openMasterSelectorDialog"
+    @close-master-selector-dialog="document.closeMasterSelectorDialog"
+    @search-master-selector-dialog="document.searchMasterSelectorDialog"
+    @select-master-selector-dialog-row="document.selectMasterSelectorDialogRow"
+    @select-party-option="(option) => document.selectPartyOption(option, 'sales-out-party')"
+    @select-line-product="document.selectLineProduct"
+    @select-warehouse-option="document.selectWarehouseOption"
+    @entry-paste="document.handleEntryPaste"
+    @trace-source-order="document.traceSourceOrder"
+    @open-downstream-trace="document.openDownstreamTrace"
+    @line-drag-start="document.handleLineDragStart"
+    @line-drag-over="document.handleLineDragOver"
+    @line-drop="document.handleLineDrop"
+    @line-drag-end="document.draggingLineIndex.value = null"
+    @insert-line-after="document.insertLineAfter"
+    @remove-line="document.removeLine"
+    @copy-line="document.copyLine"
+    @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
+    @add-line="document.addLine"
   >
-    <div class="form-layout">
-      <section class="form-head-fields">
-        <div v-if="document.form.redReverseBillNo || document.form.redSourceBillNo" class="source-order-field source-order-field--links">
-          <button v-if="document.form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="document.openRedReverseBill">红字单 {{ document.form.redReverseBillNo }}</button>
-          <button v-if="document.form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="document.openRedSourceBill">来源原单 {{ document.form.redSourceBillNo }}</button>
-        </div>
-        <div class="form-head-field form-head-field-with-action">
-          <label>
-            客户编码
-            <span class="master-selector">
-              <input
-                v-model="document.form.partyCode"
-                :disabled="locked"
-                data-testid="sales-out-party-code"
-                @focus="document.searchMasterOptions('customer', document.form.partyCode, 'sales-out-party')"
-                @input="document.handleMasterInput('customer', document.form.partyCode, 'sales-out-party')"
-                @keydown="document.handleSelectorKeydown($event, 'sales-out-party')"
-              />
-              <button
-                class="master-selector__open"
-                type="button"
-                :disabled="locked"
-                data-testid="sales-out-party-open-selector"
-                title="整列表选择"
-                aria-label="整列表选择"
-                @mousedown.prevent
-                @click="document.openMasterSelectorDialog('customer', 'sales-out-party', document.form.partyCode)"
-              >...</button>
-              <span v-if="document.activeSelector.value === 'sales-out-party'" class="master-selector__menu">
-                <button
-                  v-for="(option, optionIndex) in document.selectorOptions.value"
-                  :key="option.code"
-                  type="button"
-                  :class="{ selected: document.selectorCursorIndex.value === optionIndex }"
-                  @mousedown.prevent="document.selectPartyOption(option, 'sales-out-party')"
-                >
-                  <strong>{{ option.code }}</strong>
-                  <span>{{ option.name }}</span>
-                </button>
-              </span>
-            </span>
-          </label>
-        </div>
-        <label>客户名称<input :value="document.form.partyName || ''" data-testid="sales-out-party-name" readonly /></label>
-        <label>业务日期<input v-model="document.form.billDate" :disabled="locked" data-testid="sales-out-bill-date" @input="document.markDirty" /></label>
-        <label>单据编号<input v-model="document.form.billNo" :disabled="locked" data-testid="sales-out-bill-no" @input="document.markDirty" /></label>
-        <label>部门<input v-model="document.form.department" :disabled="locked" data-testid="sales-out-department" @input="document.markDirty" /></label>
-        <label>录入人<input :value="document.form.ownerName" data-testid="sales-out-owner-name" readonly /></label>
-        <label class="tax-mode-field">
-          价格口径
-          <select v-model="taxMode" :disabled="locked" data-testid="sales-out-tax-mode" @change="document.markDirty">
-            <option value="net">不含税</option>
-            <option value="tax">含税</option>
-          </select>
-        </label>
-        <label class="form-head-field-wide">单据备注<textarea v-model="document.form.remark" :disabled="locked" data-testid="sales-out-remark" @input="document.markDirty" /></label>
-      </section>
-
-      <EntryTable
-        :lines="document.form.lines"
-        test-prefix="sales-out"
-        :is-draft="document.isDraft.value && !locked"
-        :batch-warehouse-code="document.batchWarehouseCode.value"
-        :batch-plan-delivery-date="document.batchPlanDeliveryDate.value"
-        :active-selector="document.activeSelector.value"
-        :selector-options="document.selectorOptions.value"
-        :selector-cursor-index="document.selectorCursorIndex.value"
-        :known-product-options="knownProductOptions"
-        :dragging-line-index="document.draggingLineIndex.value"
-        :highlighted-source-bill-no="document.highlightedSourceBillNo.value"
-        :highlighted-source-line-no="document.highlightedSourceLineNo.value"
-        :current-bill-no="document.form.billNo"
-        :show-source-line-column="document.showSourceLineColumn.value"
-        :show-execution-columns="false"
-        :show-plan-delivery-date-column="true"
-        :enable-sales-price-bulk="true"
-        :sales-price-customer-code="document.form.partyCode"
-        :entry-table-colspan="document.entryTableColspan.value"
-        :entry-total-colspan="document.entryTotalColspan.value"
-        :total-amount="document.totalAmount.value"
-        :is-tax-inclusive="Boolean(document.form.isTaxInclusive)"
-        :show-tax-columns="true"
-        @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
-        @update:batch-plan-delivery-date="document.batchPlanDeliveryDate.value = $event"
-        @apply-batch-warehouse="document.applyBatchWarehouse"
-        @apply-batch-plan-delivery-date="document.applyBatchPlanDeliveryDate"
-        @mark-dirty="document.markDirty"
-        @search-master-options="document.searchMasterOptions"
-        @handle-master-input="document.handleMasterInput"
-        @handle-selector-keydown="document.handleSelectorKeydown"
-        @open-master-selector-dialog="document.openMasterSelectorDialog"
-        @select-line-product="document.selectLineProduct"
-        @select-warehouse-option="document.selectWarehouseOption"
-        @entry-paste="document.handleEntryPaste"
-        @trace-source-order="document.traceSourceOrder"
-        @open-downstream-trace="document.openDownstreamTrace"
-        @line-drag-start="document.handleLineDragStart"
-        @line-drag-over="document.handleLineDragOver"
-        @line-drop="document.handleLineDrop"
-        @line-drag-end="document.draggingLineIndex.value = null"
-        @insert-line-after="document.insertLineAfter"
-        @remove-line="document.removeLine"
-        @copy-line="document.copyLine"
-        @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
-        @add-line="document.addLine"
-      />
-    </div>
-  </StandardDocument>
-
-  <MasterSelectorDialog
-    :open="document.masterSelectorDialogOpen.value"
-    :title="document.masterSelectorDialogTitle.value"
-    :label="document.masterSelectorDialogLabel.value"
-    :keyword="document.masterSelectorDialogKeyword.value"
-    :rows="document.masterSelectorDialogRows.value"
-    :total="document.masterSelectorDialogTotal.value"
-    :loading="document.masterSelectorDialogLoading.value"
-    :message="document.masterSelectorDialogMessage.value"
-    @close="document.closeMasterSelectorDialog"
-    @search="document.searchMasterSelectorDialog"
-    @select="document.selectMasterSelectorDialogRow"
-  />
+  </DocumentForm>
 
   <div v-if="document.sourceSelectorOpen.value" class="modal-mask" data-testid="sales-out-source-selector-dialog">
     <div class="dialog source-selector-dialog">
@@ -243,6 +187,8 @@
     :pending-risky-document-action="document.pendingRiskyDocumentAction.value"
     :pending-lifecycle-action="document.pendingLifecycleAction.value"
     :pending-lifecycle-line-no="document.pendingLifecycleLineNo.value"
+    :pending-delete-document="document.pendingDeleteDocument.value"
+    delete-document-title="销售出库单"
     :pending-entry-paste="document.pendingEntryPaste.value"
     :current-bill-no="document.form.billNo"
     :current-order-status-label="document.statusLabel.value"
@@ -273,6 +219,8 @@
     @confirm-risky-document-action="document.confirmRiskyAction"
     @cancel-lifecycle-action="document.cancelLifecycleAction"
     @confirm-lifecycle-action="document.confirmLifecycleAction"
+    @cancel-delete-document="document.cancelDeleteDocument"
+    @confirm-delete-document="document.confirmDeleteDocument"
     @update-lifecycle-reason="document.lifecycleReason.value = $event"
     @update-void-username="document.voidUsername.value = $event"
     @update-void-password="document.voidPassword.value = $event"
@@ -284,10 +232,8 @@
 </template>
 
 <script setup lang="ts">
-import EntryTable from "../../../components/EntryTable.vue";
-import StandardDocument from "../../../components/StandardDocument.vue";
+import DocumentForm from "../../../components/DocumentForm.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
-import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import ColumnSettingsDialog from "../../../components/table/ColumnSettingsDialog.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
@@ -321,13 +267,6 @@ const document = useSalesOutDocument({
   markDirty: () => emit("markDirty"),
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
-});
-
-const taxMode = computed({
-  get: () => document.form.isTaxInclusive ? "tax" : "net",
-  set: (value: string) => {
-    document.form.isTaxInclusive = value === "tax";
-  }
 });
 
 const selectedSourceLineCount = computed(() => `${Object.values(document.sourceSelectorSelected.value).filter(Boolean).length} 行已选`);
@@ -380,9 +319,6 @@ function resetSourceColumns() {
   sourceSelectorColumns.value.forEach((column) => {
     column.visible = true;
   });
-}
-
-function noop() {
 }
 
 async function loadByBillNo(billNo: string) {

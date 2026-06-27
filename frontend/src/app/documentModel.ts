@@ -92,6 +92,8 @@ export interface OrderForm {
   ownerName: string;
   remark?: string;
   isTaxInclusive?: boolean;
+  enabled?: boolean;
+  validUntil?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   closeStatus?: "OPEN" | "CLOSED" | string;
   frozenStatus?: "NORMAL" | "FROZEN" | string;
@@ -108,6 +110,7 @@ export interface PendingPushLine extends OrderLineForm {
 export const zeroReasonOptions = ["赠品", "样品", "补录", "其他已确认"];
 
 export const printTemplateDocumentTypes = [
+  { documentType: "sales-quote", documentTitle: "销售报价单" },
   { documentType: "sales-order", documentTitle: "销售订单" },
   { documentType: "delivery-notice", documentTitle: "发货通知单" },
   { documentType: "purchase-order", documentTitle: "采购订单" },
@@ -154,6 +157,18 @@ export const initialSalesOrderForm: OrderForm = {
   isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86, taxRate: 13 }]
+};
+
+export const initialSalesQuoteForm: OrderForm = {
+  billNo: "",
+  partyCode: "",
+  billDate: "2026-06-23",
+  validUntil: "2026-07-23",
+  department: "销售部",
+  ownerName: "本地管理员",
+  isTaxInclusive: false,
+  status: "DRAFT",
+  lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 0, unitPrice: 86, taxRate: 13 }]
 };
 
 export const initialPurchaseOrderForm: OrderForm = {

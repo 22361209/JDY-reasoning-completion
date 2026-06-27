@@ -8,6 +8,7 @@ import com.jdy.erp.sales.application.SalesOutAppService.RedReverseRequest;
 import com.jdy.erp.sales.application.SalesOutAppService.SalesOutDraftRequest;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -57,6 +58,12 @@ public class SalesOutController {
     @RequirePermission("sales.out.audit")
     public Map<String, Object> voidBill(@PathVariable String billNo) {
         return salesOutAppService.voidBill(billNo);
+    }
+
+    @DeleteMapping("/{billNo}")
+    @RequirePermission("sales.out.audit")
+    public Map<String, Object> delete(@PathVariable String billNo) {
+        return salesOutAppService.delete(billNo);
     }
 
     @PostMapping("/{billNo}/red-reverse")

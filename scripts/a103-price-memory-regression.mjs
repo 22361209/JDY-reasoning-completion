@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument } from "./helpers/document-actions.mjs";
+import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -182,16 +184,16 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await selectMasterRow(page, "sales-party-open-selector", customerCode);
   await selectMasterRow(page, "sales-line-product-open-selector", historyProductCode);
   await assertPriceInput(page, "sales-line-price", expectedHistoryPrice, "history price");
 
-  await page.getByRole("button", { name: "+ 增加明细行" }).click();
+  await addEntryLineBelow(page);
   await selectMasterRow(page, "sales-line-product-2-open-selector", defaultProductCode);
   await assertPriceInput(page, "sales-line-price-2", expectedDefaultPrice, "default price");
 
-  await page.getByRole("button", { name: "+ 增加明细行" }).click();
+  await addEntryLineBelow(page);
   await selectMasterRow(page, "sales-line-product-3-open-selector", zeroProductCode);
   await assertPriceInput(page, "sales-line-price-3", 0, "zero fallback price");
 

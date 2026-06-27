@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument, saveDocument } from "./helpers/document-actions.mjs";
+import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -58,7 +60,7 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="sales-bill-no"]');
     return input instanceof HTMLInputElement && input.value.length > 0;
@@ -70,7 +72,7 @@ try {
   await page.getByTestId("sales-line-warehouse").fill("CK-002");
   await page.getByTestId("sales-line-qty").fill("2");
   await page.getByTestId("sales-line-price").fill("30");
-  await page.getByRole("button", { name: "+ 增加明细行" }).click();
+  await addEntryLineBelow(page);
   await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
   const newLineAfterAddButton = {
     productCode: await page.getByTestId("sales-line-product-2").inputValue(),
@@ -118,8 +120,7 @@ try {
   const screenshot = `a28-entry-new-line-blank-form-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
 
-  await page.getByTestId("save-sales-order").click();
-  await page.getByText("草稿已保存").waitFor({ state: "visible" });
+  await saveDocument(page);
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),

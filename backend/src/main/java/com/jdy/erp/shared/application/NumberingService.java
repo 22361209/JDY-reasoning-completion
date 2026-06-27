@@ -11,6 +11,7 @@ public class NumberingService {
     private static final int SEQUENCE_LENGTH = 6;
     private static final Map<String, NumberingRule> RULES = Map.ofEntries(
         Map.entry("salesOrder", new NumberingRule("XSDD", "sales_order")),
+        Map.entry("salesQuote", new NumberingRule("XSBJ", "sales_quote")),
         Map.entry("deliveryNotice", new NumberingRule("FHTZD", "delivery_notice")),
         Map.entry("salesOut", new NumberingRule("XSCKD", "sales_out")),
         Map.entry("purchaseOrder", new NumberingRule("CGDD", "purchase_order")),
@@ -36,16 +37,21 @@ public class NumberingService {
 
     public synchronized String nextBillNo(String documentType) {
         var rule = ruleFor(documentType);
-        var maxSeq = jdbcTemplate.queryForObject("""
-            SELECT COALESCE(MAX(CAST(SUBSTRING(bill_no FROM ?) AS INTEGER)), 0)
-            FROM %s
-            WHERE bill_no ~ ?
-            """.formatted(rule.tableName()),
-            Integer.class,
-            "^" + rule.prefix() + "([0-9]{" + SEQUENCE_LENGTH + "})$",
-            "^" + rule.prefix() + "[0-9]{" + SEQUENCE_LENGTH + "}$"
-        );
-        return rule.prefix() + String.format("%0" + SEQUENCE_LENGTH + "d", (maxSeq == null ? 0 : maxSeq) + 1);
+        var currentMax = currentMaxSequence(rule);
+        jdbcTemplate.update("""
+            INSERT INTO document_number_sequence (document_type, prefix, last_number)
+            VALUES (?, ?, ?)
+            ON CONFLICT (document_type) DO NOTHING
+            """, documentType, rule.prefix(), currentMax);
+        var nextSeq = jdbcTemplate.queryForObject("""
+            UPDATE document_number_sequence
+            SET last_number = GREATEST(last_number, ?) + 1,
+                prefix = ?,
+                updated_at = now()
+            WHERE document_type = ?
+            RETURNING last_number
+            """, Integer.class, currentMax, rule.prefix(), documentType);
+        return rule.prefix() + String.format("%0" + SEQUENCE_LENGTH + "d", nextSeq == null ? currentMax + 1 : nextSeq);
     }
 
     public String assignBillNo(String documentType, String requestedBillNo) {
@@ -71,6 +77,19 @@ public class NumberingService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的单据类型");
         }
         return rule;
+    }
+
+    private int currentMaxSequence(NumberingRule rule) {
+        var maxSeq = jdbcTemplate.queryForObject("""
+            SELECT COALESCE(MAX(CAST(SUBSTRING(bill_no FROM ?) AS INTEGER)), 0)
+            FROM %s
+            WHERE bill_no ~ ?
+            """.formatted(rule.tableName()),
+            Integer.class,
+            "^" + rule.prefix() + "([0-9]{" + SEQUENCE_LENGTH + "})$",
+            "^" + rule.prefix() + "[0-9]{" + SEQUENCE_LENGTH + "}$"
+        );
+        return maxSeq == null ? 0 : maxSeq;
     }
 
     private record NumberingRule(String prefix, String tableName) {

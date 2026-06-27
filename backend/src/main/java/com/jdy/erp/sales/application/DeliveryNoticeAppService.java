@@ -8,6 +8,7 @@ import java.util.Map;
 
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.shared.application.BillLifecycleService;
+import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
@@ -23,6 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class DeliveryNoticeAppService {
     private static final String BILL_TABLE = "delivery_notice";
+    private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "delivery_notice_line", "bill_id", "SALES", "delivery_notice");
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -231,6 +233,10 @@ public class DeliveryNoticeAppService {
             ORDER BY dn.bill_date DESC, dn.bill_no DESC, l.line_no
             """, customerCode == null ? "" : customerCode.trim());
         return Map.of("customerCode", customerCode == null ? "" : customerCode.trim(), "lines", rows);
+    }
+
+    public Map<String, Object> delete(String billNo) {
+        return lifecycleService.deleteDraft(LIFECYCLE_TARGET, billNo, "只有草稿发货通知单可以删除");
     }
 
     public Map<String, Object> stockSnapshot(String billNo) {

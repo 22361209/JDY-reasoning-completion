@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument, openSalesOutSourceSelector, confirmSalesOutSourceSelector } from "./helpers/document-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -102,7 +103,7 @@ try {
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
-  await page.getByTestId("new-document").click();
+  await clickNewDocument(page);
 
   const sourceHeaderInputCount = await page.getByTestId("sales-out-source-order-no").count();
   const toolbarSourceVisible = await page.getByTestId("sales-out-open-source-selector").isVisible();
@@ -117,8 +118,7 @@ try {
   assert(headerButtonStyle.borderRadius.includes("50%") || headerButtonStyle.borderRadius === "9px", `header selector should be circular, got ${JSON.stringify(headerButtonStyle)}`);
 
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await page.getByTestId("sales-out-open-source-selector").click();
-  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
+  await openSalesOutSourceSelector(page);
   const sourceDialogMetrics = await page.locator(".source-selector-dialog").evaluate((node) => ({
     width: Math.round(node.getBoundingClientRect().width),
     height: Math.round(node.getBoundingClientRect().height)
@@ -141,7 +141,7 @@ try {
   await page.locator(".column-setting-row").filter({ hasText: "单价" }).locator('input[type="checkbox"]').uncheck();
   await page.getByTestId("sales-out-source-selector-column-settings-ok").click();
   assert(await page.locator(".source-selector-table th", { hasText: "单价" }).count() === 0, "source selector column settings should hide selected column");
-  await page.getByTestId("sales-out-source-selector-ok").click();
+  await confirmSalesOutSourceSelector(page);
 
   await page.getByTestId("sales-out-line-source-order-no").waitFor({ state: "visible" });
   const sourceOrderCell = (await page.getByTestId("sales-out-line-source-order-no").textContent())?.trim();

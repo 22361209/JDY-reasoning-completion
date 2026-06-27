@@ -273,6 +273,7 @@ public class DocumentOutputController {
 
     private DocumentPayload payload(String documentType, String billNo) {
         return switch (documentType) {
+            case "sales-quote" -> salesQuotePayload(billNo);
             case "sales-order" -> salesOrderPayload(billNo);
             case "purchase-order" -> purchaseOrderPayload(billNo);
             case "purchase-in" -> stockBillPayload("purchase_in", "purchase_in_line", "md_supplier", "供应商", billNo);
@@ -288,6 +289,41 @@ public class DocumentOutputController {
 
     private DocumentPayload salesOrderPayload(String billNo) {
         return orderPayload("sales_order", "sales_order_line", "md_customer", "客户", "customer_id", billNo);
+    }
+
+    private DocumentPayload salesQuotePayload(String billNo) {
+        var header = jdbcTemplate.queryForList("""
+            SELECT b.bill_no AS "billNo",
+                   c.name AS counterparty,
+                   to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   b.status,
+                   b.total_amount AS "totalAmount"
+            FROM sales_quote b
+            JOIN md_customer c ON c.id = b.customer_id
+            WHERE b.bill_no = ?
+            """, billNo);
+        if (header.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "销售报价单不存在");
+        }
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.line_no AS "lineNo",
+                   '' AS "sourceOrderNo",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   COALESCE(w.name, '') AS warehouse,
+                   trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                   trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(l.line_remark, '') AS "lineRemark"
+            FROM sales_quote_line l
+            JOIN sales_quote b ON b.id = l.quote_id
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            WHERE b.bill_no = ?
+            ORDER BY l.line_no
+            """, billNo);
+        return new DocumentPayload(header.get(0), lines);
     }
 
     private DocumentPayload purchaseOrderPayload(String billNo) {
@@ -475,6 +511,7 @@ public class DocumentOutputController {
 
     private String title(String documentType) {
         return switch (documentType) {
+            case "sales-quote" -> "销售报价单";
             case "sales-order" -> "销售订单";
             case "purchase-order" -> "采购订单";
             case "purchase-in" -> "采购入库单";
@@ -489,7 +526,7 @@ public class DocumentOutputController {
     }
 
     private List<String> supportedDocumentTypes() {
-        return List.of("sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
+        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
     }
 
     private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {

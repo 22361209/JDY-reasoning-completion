@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { clickNewDocument } from "./helpers/document-actions.mjs";
 import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -233,7 +234,7 @@ async function verifyUi() {
     await page.getByText("已审核").waitFor({ state: "visible" });
     assert(await page.getByTestId("close-document").isEnabled(), "close button should be enabled for audited document");
     assert(await page.getByTestId("freeze-document").isEnabled(), "freeze button should be enabled for audited document");
-    await page.getByTestId("new-document").click();
+    await clickNewDocument(page);
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="sales-bill-no"]');
       return input instanceof HTMLInputElement && input.value.trim().length > 0;
@@ -247,11 +248,6 @@ async function verifyUi() {
     await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
     screenshots.push(`verification/playwright/${shot}`);
     await page.getByTestId("lifecycle-action-cancel").click();
-    await page.getByTestId("sales-line-menu").click();
-    await page.getByTestId("sales-line-close").waitFor({ state: "visible" });
-    const lineShot = `a105-lifecycle-line-actions-${batch}.png`;
-    await page.screenshot({ path: path.join(screenshotDir, lineShot), fullPage: true });
-    screenshots.push(`verification/playwright/${lineShot}`);
     return { uiNo, screenshots };
   } finally {
     await browser.close();

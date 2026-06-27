@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { saveDocument, auditDocument } from "./helpers/document-actions.mjs";
+import { assertEntryArrays, chooseSalesOutSourceLines, openNewSalesOut, openSalesOrderListAndSelect, readSalesOutLines } from "./helpers/sales-pages.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -40,12 +42,6 @@ async function requireApi(pathname, options = {}) {
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
-  }
-}
-
-function assertArray(name, actual, expected) {
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${name} expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
   }
 }
 
@@ -130,74 +126,12 @@ async function createData() {
   };
 }
 
-async function openSalesOrderList(page, billNo) {
-  await page.getByTestId("module-销售管理").hover();
-  await page.getByTestId("query-sales-order-form").click();
-  await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
-  await page.getByTestId("list-keyword").fill(billNo);
-  await page.getByTestId("list-keyword").press("Enter");
-  const row = page.locator(".vxe-body--row", { hasText: billNo }).first();
-  await row.waitFor({ state: "visible" });
-  await row.locator(".vxe-checkbox--icon").first().click();
-}
-
-async function openNewSalesOut(page) {
-  await page.getByTestId("module-销售管理").hover();
-  await page.getByTestId("entry-sales-out-form").click();
-  await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
-}
-
-async function readSalesOutLines(page) {
-  return {
-    sources: [
-      await lineSourceText(page, "sales-out", 0),
-      await lineSourceText(page, "sales-out", 1)
-    ],
-    products: [
-      await page.getByTestId("sales-out-line-product").inputValue(),
-      await page.getByTestId("sales-out-line-product-2").inputValue()
-    ],
-    warehouses: [
-      await page.getByTestId("sales-out-line-warehouse").inputValue(),
-      await page.getByTestId("sales-out-line-warehouse-2").inputValue()
-    ],
-    qtys: [
-      Number(await page.getByTestId("sales-out-line-qty").inputValue()),
-      Number(await page.getByTestId("sales-out-line-qty-2").inputValue())
-    ],
-    prices: [
-      Number(await page.getByTestId("sales-out-line-price").inputValue()),
-      Number(await page.getByTestId("sales-out-line-price-2").inputValue())
-    ],
-    remarks: [
-      await page.getByTestId("sales-out-line-remark").inputValue(),
-      await page.getByTestId("sales-out-line-remark-2").inputValue()
-    ],
-    planDates: [
-      await page.getByTestId("sales-out-line-plan-delivery-date").inputValue(),
-      await page.getByTestId("sales-out-line-plan-delivery-date-2").inputValue()
-    ]
-  };
-}
-
-async function lineSourceText(page, prefix, index) {
-  const suffix = index === 0 ? "" : `-${index + 1}`;
-  const orderNo = (await page.getByTestId(`${prefix}-line-source-order-no${suffix}`).innerText()).trim();
-  const lineNo = (await page.getByTestId(`${prefix}-line-source-line-no${suffix}`).innerText()).trim();
-  return `${orderNo} / ${lineNo}`;
-}
-
 function assertSalesOutLines(name, actual, expected) {
-  assertArray(`${name} products`, actual.products, expected.products);
-  assertArray(`${name} warehouses`, actual.warehouses, expected.warehouses);
-  assertArray(`${name} qtys`, actual.qtys, expected.qtys);
-  assertArray(`${name} prices`, actual.prices, expected.prices);
-  assertArray(`${name} remarks`, actual.remarks, expected.remarks);
-  assertArray(`${name} plan dates`, actual.planDates, expected.planDates);
+  assertEntryArrays(name, actual, expected);
 }
 
 function assertLineSources(name, actual, sourceOrderNo) {
-  assertArray(`${name} line sources`, actual.sources, [`${sourceOrderNo} / #1`, `${sourceOrderNo} / #2`]);
+  assertEntryArrays(name, actual, { sources: [`${sourceOrderNo} / #1`, `${sourceOrderNo} / #2`] });
 }
 
 const data = await createData();
@@ -208,14 +142,12 @@ const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
-  await openSalesOrderList(page, data.listPushOrderNo);
+  await openSalesOrderListAndSelect(page, data.listPushOrderNo);
   await page.getByTestId("push-sales-out").click();
   await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
   const listPushNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
-  await page.getByTestId("save-sales-order").click();
-  await page.getByText("草稿已保存").waitFor({ state: "visible", timeout: 10000 });
-  await page.getByTestId("audit-sales-order").click();
-  await page.getByText("审核成功").waitFor({ state: "visible", timeout: 10000 });
+  await saveDocument(page);
+  await auditDocument(page);
   await page.getByTestId("push-sales-out-from-delivery-notice").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   assert(await page.getByTestId("push-confirm-dialog").count() === 0, "sales pushdown confirm dialog should not appear");
@@ -233,13 +165,7 @@ try {
   await loginAsAdmin(page);
   await openNewSalesOut(page);
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await page.getByTestId("sales-out-open-source-selector").click();
-  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("sales-out-source-selector-search").fill(data.sourceInputNoticeNo);
-  await page.getByTestId(`sales-out-source-line-${data.sourceInputNoticeNo}:1`).check();
-  await page.getByTestId(`sales-out-source-line-${data.sourceInputNoticeNo}:2`).check();
-  await page.getByTestId("sales-out-source-selector-ok").click();
-  await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
+  await chooseSalesOutSourceLines(page, { billNo: data.sourceInputNoticeNo, lineNos: [1, 2], search: data.sourceInputNoticeNo });
   assert(await page.getByTestId("sales-out-party-code").inputValue() === "KH-001", "source order should carry customer code");
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "source input should be removed after A102");
   const sourceInputLines = await readSalesOutLines(page);
@@ -253,12 +179,7 @@ try {
   await loginAsAdmin(page);
   await openNewSalesOut(page);
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await page.getByTestId("sales-out-open-source-selector").click();
-  await page.getByTestId("sales-out-source-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId(`sales-out-source-line-${data.customerPickNoticeNo}:1`).check();
-  await page.getByTestId(`sales-out-source-line-${data.customerPickNoticeNo}:2`).check();
-  await page.getByTestId("sales-out-source-selector-ok").click();
-  await page.getByTestId("sales-out-line-product-2").waitFor({ state: "visible" });
+  await chooseSalesOutSourceLines(page, { billNo: data.customerPickNoticeNo, lineNos: [1, 2] });
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "customer selector should not put source order on header");
   const customerPickLines = await readSalesOutLines(page);
   assertSalesOutLines("customer selector", customerPickLines, data.expected);

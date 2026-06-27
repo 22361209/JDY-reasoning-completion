@@ -6,6 +6,7 @@ export const moduleCatalog = [
     short: "销",
     groups: [
       { title: "销售业务", entries: [
+        { id: "sales-quote-form", label: "销售报价单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" },
         { id: "sales-order-form", label: "销售订单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.order.audit" },
         { id: "delivery-notice-form", label: "发货通知单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
@@ -128,7 +129,7 @@ export const moduleCatalog = [
   }
 ];
 
-export const excludedModuleNames = ["老板参谋", "客户经营", "协同助手", "自定义中心"];
+export const excludedModuleNames: string[] = [];
 
 export const excludedModules = excludedModuleNames.map((name) => ({
   name,

@@ -277,6 +277,7 @@ public class ListStubController {
             case "customer-master-list" -> realCustomerRows();
             case "supplier-master-list" -> realSupplierRows();
             case "warehouse-master-list" -> realWarehouseRows();
+            case "sales-quote-form-list" -> salesQuoteRows();
             case "purchase-order-form-list" -> purchaseOrderRows();
             case "delivery-notice-form-list" -> deliveryNoticeRows();
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
@@ -300,6 +301,29 @@ public class ListStubController {
 
     private List<Map<String, ?>> documentDetailRows(String listKey) {
         return switch (listKey) {
+            case "sales-quote-form-list" -> queryDetailRows("""
+                SELECT concat(sq.id::text, '-', l.line_no) AS id,
+                       sq.bill_no AS "billNo",
+                       to_char(sq.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       c.name AS partner,
+                       CASE WHEN sq.status = 'DRAFT' THEN '草稿' WHEN sq.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       COALESCE(w.name, '') AS warehouse,
+                       trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       '' AS "sourceBillNo",
+                       '' AS "sourceLineNo"
+                FROM sales_quote sq
+                JOIN sales_quote_line l ON l.quote_id = sq.id
+                JOIN md_customer c ON c.id = sq.customer_id
+                JOIN md_product p ON p.id = l.product_id
+                LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY sq.updated_at DESC, l.line_no
+                """);
             case "sales-order-form-list" -> queryDetailRows("""
                 SELECT concat(so.id::text, '-', l.line_no) AS id,
                        so.bill_no AS "billNo",
@@ -742,6 +766,33 @@ public class ListStubController {
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
             ORDER BY po.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> salesQuoteRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT sq.id::text AS id,
+                   sq.bill_no AS "billNo",
+                   c.name AS customer,
+                   to_char(sq.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   to_char(sq.valid_until, 'YYYY-MM-DD') AS "validUntil",
+                   CASE
+                       WHEN sq.status = 'DRAFT' THEN '草稿'
+                       WHEN sq.status = 'REVERSED' THEN '已反审核'
+                       WHEN sq.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   CASE
+                       WHEN sq.status <> 'AUDITED' THEN '未生效'
+                       WHEN sq.enabled = FALSE THEN '已失效'
+                       WHEN sq.valid_until < CURRENT_DATE THEN '已过期'
+                       ELSE '有效'
+                   END AS "validStatus",
+                   trim(to_char(sq.total_amount, 'FM9999999990.00')) AS amount,
+                   COALESCE(sq.owner_name, '') AS owner
+            FROM sales_quote sq
+            JOIN md_customer c ON c.id = sq.customer_id
+            ORDER BY sq.updated_at DESC
             """));
     }
 

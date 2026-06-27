@@ -68,24 +68,31 @@
     </div>
     <main class="workbench">
       <header class="global-bar">
-        <div class="tenant-block">
-          <strong>{{ session.tenantName.value }}</strong>
-          <span>{{ session.periodLabel.value }}</span>
-        </div>
+        <details class="tenant-switcher">
+          <summary>
+            <strong>{{ session.tenantName.value }}</strong>
+            <span>{{ session.periodLabel.value }}</span>
+          </summary>
+          <div class="global-menu tenant-menu" data-testid="tenant-switch-menu">
+            <strong>{{ session.tenantName.value }}</strong>
+            <span>当前仅配置一个账套，后续在这里切换。</span>
+          </div>
+        </details>
         <label class="global-search">
           <span>搜索</span>
           <input v-model="keyword" placeholder="功能、单据、客户、商品" />
         </label>
         <div class="global-actions">
-          <button type="button">消息</button>
-          <button type="button">帮助</button>
-          <button type="button">反馈</button>
-          <div class="user-chip">
-            <strong data-testid="session-user-name">{{ session.userName.value }}</strong>
-            <span data-testid="session-user-role">{{ session.userRole.value }}</span>
-          </div>
-          <button type="button" data-testid="session-password-change" @click="passwordChangeDialogRef?.openPasswordDialog()">修改密码</button>
-          <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出</button>
+          <details class="user-menu">
+            <summary class="user-chip" data-testid="session-account-menu">
+              <strong data-testid="session-user-name">{{ session.userName.value }}</strong>
+              <span data-testid="session-user-role">{{ session.userRole.value }}</span>
+            </summary>
+            <div class="global-menu account-menu">
+              <button type="button" data-testid="session-password-change" @click="passwordChangeDialogRef?.openPasswordDialog()">修改密码</button>
+              <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出登录</button>
+            </div>
+          </details>
         </div>
       </header>
       <nav class="work-tabs" aria-label="内部页签" data-testid="work-tabs">
@@ -121,24 +128,6 @@
               <h2>首页工作台</h2>
             </div>
           </section>
-          <div class="metric-row">
-            <div class="metric">
-              <span>首版入口</span>
-              <strong>{{ approvedCount }}</strong>
-            </div>
-            <div class="metric">
-              <span>当前页签</span>
-              <strong>{{ tabs.tabs.value.length }}/{{ tabs.maxTabs }}</strong>
-            </div>
-            <div class="metric">
-              <span>期间状态</span>
-              <strong>打开</strong>
-            </div>
-            <div class="metric">
-              <span>库存缓存</span>
-              <strong>无</strong>
-            </div>
-          </div>
           <div class="quick-grid">
             <section v-for="group in homeQuickGroups" :key="group.module" class="quick-card">
               <div class="quick-card__head">
@@ -338,6 +327,24 @@
           @show-existing="tabs.activeTabId.value = 'sales-order-form'"
           @override-lock="overrideActiveDocumentLock"
           @push-down-delivery-notice="openDeliveryNoticeFromSalesOrder"
+          @request-open-document="openDocumentFromModule"
+        />
+        <SalesQuoteForm
+          v-else-if="isSalesQuoteForm"
+          ref="salesQuoteFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = salesQuoteTabId"
+          @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
         <SalesOutForm
@@ -607,6 +614,7 @@ import MaterialIssueForm from "../modules/production/material-issue/MaterialIssu
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
+import SalesQuoteForm from "../modules/sales/sales-quote/SalesQuoteForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
@@ -647,6 +655,7 @@ const tabs = useTabStore();
 const preferences = usePreferenceStore();
 const outboundTabId = "sales-out-form";
 const outboundDocumentType = ("sales" + "Out") as OpenableDocumentType;
+const salesQuoteTabId = "sales-quote-form";
 const deliveryNoticeTabId = "delivery-notice-form";
 const purchaseOrderTabId = "purchase-order-form";
 const purchaseInTabId = "purchase-in-form";
@@ -665,6 +674,7 @@ tabs.onBeforeClose((tab) => {
   }
 });
 const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
+const salesQuoteFormRef = ref<InstanceType<typeof SalesQuoteForm> | null>(null);
 const deliveryNoticeFormRef = ref<InstanceType<typeof DeliveryNoticeForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
@@ -752,6 +762,7 @@ const activeLockReadOnly = computed(() => Boolean(tabs.activeTab.value.lockReadO
 const activeLockMessage = computed(() => tabs.activeTab.value.lockMessage ?? "");
 const activeLockCanOverride = computed(() => Boolean(tabs.activeTab.value.lockCanOverride));
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
+const isSalesQuoteForm = computed(() => tabs.activeTab.value.id === salesQuoteTabId);
 function downstreamReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
@@ -815,6 +826,8 @@ function openEntry(entry: ShellEntry) {
 function startNewModuleDocument(entryId: string) {
   if (entryId === "sales-order-form") {
     salesOrderFormRef.value?.startNew();
+  } else if (entryId === salesQuoteTabId) {
+    salesQuoteFormRef.value?.startNew();
   } else if (entryId === deliveryNoticeTabId) {
     deliveryNoticeFormRef.value?.startNew();
   } else if (entryId === outboundTabId) {
@@ -869,6 +882,7 @@ async function openCreateDocumentFromList(payload: { type: OpenableDocumentType 
 
 function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
   const listMap: Record<string, OpenableDocumentType> = {
+    "sales-quote-form-list": "salesQuote",
     "sales-order-form-list": "salesOrder",
     "delivery-notice-form-list": "deliveryNotice",
     "sales-out-list": "salesOut",
@@ -890,6 +904,7 @@ function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
 
 function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
   const formMap: Record<string, OpenableDocumentType> = {
+    [salesQuoteTabId]: "salesQuote",
     "sales-order-form": "salesOrder",
     [deliveryNoticeTabId]: "deliveryNotice",
     [outboundTabId]: "salesOut",
@@ -1167,6 +1182,9 @@ function openSourceTraceWindow(type: OpenableDocumentType, detail: DocumentDetai
 }
 
 function sourceTraceTitle(type: OpenableDocumentType) {
+  if (type === "salesQuote") {
+    return "销售报价单";
+  }
   if (type === "purchaseOrder") {
     return "采购订单";
   }
@@ -1186,6 +1204,8 @@ function escapeTraceHtml(value: string | undefined) {
 }
 function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; title: string; module: string; ref: { value: { applyDetail: (detail: DocumentDetail, message?: string, sourceLineNo?: number | null) => void; startNew: () => void } | null } } {
   switch (type) {
+    case "salesQuote":
+      return { tabId: salesQuoteTabId, title: "销售报价单", module: "销售管理", ref: salesQuoteFormRef };
     case "deliveryNotice":
       return { tabId: deliveryNoticeTabId, title: "发货通知单", module: "销售管理", ref: deliveryNoticeFormRef };
     case "purchaseOrder":

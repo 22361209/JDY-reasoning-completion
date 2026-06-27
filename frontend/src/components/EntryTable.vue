@@ -21,7 +21,6 @@
     @column-filter="openEntryColumnFilter"
     @column-resize="resizeEntryColumn"
     @column-resize-end="finishEntryColumnResize"
-    @row-contextmenu="handleEntryRowContextmenu"
     @row-dragstart="handleEntryRowDragstart"
     @row-dragover="handleEntryRowDragover"
     @row-drop="handleEntryRowDrop"
@@ -261,7 +260,7 @@
                 :value="line.planDeliveryDate || ''"
                 :disabled="!isDraft"
                 :data-testid="linePlanDeliveryDateTestId(lineIndex)"
-                placeholder="YYYY-MM-DD"
+                placeholder="2026-05-01"
                 @input="line.planDeliveryDate = ($event.target as HTMLInputElement).value; emit('markDirty')"
                 @keydown.enter.prevent="commitLineDate(lineIndex)"
                 @blur="commitLineDate(lineIndex)"
@@ -277,17 +276,6 @@
               />
             </span>
             <input v-else-if="column.key === 'remark'" v-model="line.lineRemark" :disabled="!isDraft" :data-testid="lineRemarkTestId(lineIndex)" @input="emit('markDirty')" />
-            <div v-else-if="column.key === 'actions'" class="entry-row-actions">
-              <button class="line-action line-menu-trigger" type="button" :data-testid="lineMenuTestId(lineIndex)" title="行操作" @click="toggleRowMenu(lineIndex, $event)">⋮</button>
-              <div v-if="openMenuLineIndex === lineIndex" class="line-action-menu" :style="rowMenuStyle" data-testid="entry-line-action-menu">
-                <button class="line-action drag-handle" type="button" :disabled="!isDraft" :data-testid="lineDragHandleTestId(lineIndex)" title="拖拽调整行顺序">↕ 调整顺序</button>
-                <button class="line-action" type="button" :disabled="!isDraft" :data-testid="lineInsertTestId(lineIndex)" @click="runLineAction('insert', lineIndex)">插入</button>
-                <button class="line-action" type="button" :disabled="!isDraft || lines.length <= 1" :data-testid="lineDeleteTestId(lineIndex)" @click="runLineAction('delete', lineIndex)">删除</button>
-                <button class="line-action" type="button" :disabled="!isDraft" :data-testid="lineCopyTestId(lineIndex)" @click="runLineAction('copy', lineIndex)">复制</button>
-                <button class="line-action" type="button" :disabled="isDraft" :data-testid="lineCloseTestId(lineIndex)" @click="emit('lineLifecycle', lineLineNo(line, lineIndex), line.lineCloseStatus === 'CLOSED' ? 'unclose' : 'close')">{{ line.lineCloseStatus === 'CLOSED' ? '反关闭行' : '关闭行' }}</button>
-                <button class="line-action" type="button" :disabled="isDraft" :data-testid="lineFreezeTestId(lineIndex)" @click="emit('lineLifecycle', lineLineNo(line, lineIndex), line.lineFrozenStatus === 'FROZEN' ? 'unfreeze' : 'freeze')">{{ line.lineFrozenStatus === 'FROZEN' ? '解冻行' : '冻结行' }}</button>
-              </div>
-            </div>
     </template>
     <template #footer>
         <tr class="entry-total-row">
@@ -297,11 +285,6 @@
             <template v-else-if="column.key === 'amount'">{{ totalNetAmount }}</template>
             <template v-else-if="column.key === 'taxAmount'">{{ totalTaxAmount }}</template>
             <template v-else-if="column.key === 'priceTaxTotal'">{{ totalAmount }}</template>
-          </td>
-        </tr>
-        <tr>
-          <td :colspan="visibleColumns.length" class="add-line">
-            <button type="button" :disabled="!isDraft" aria-label="+ 增加明细行" data-testid="add-document-line" @click="emit('addLine')">+ 增加明细</button>
           </td>
         </tr>
     </template>
@@ -368,6 +351,17 @@
       />
       <button type="button" class="primary-action" data-testid="entry-bulk-warehouse-ok" @click="applyBulkWarehouse">确定</button>
     </template>
+    <template v-else-if="bulkFillColumnKey === 'qty'">
+      <strong>批量填充数量</strong>
+      <input
+        v-model="bulkQtyValue"
+        class="column-bulk-number-input"
+        data-testid="entry-bulk-qty-input"
+        placeholder="数量"
+        @keydown.enter.prevent="applyBulkQty"
+      />
+      <button type="button" class="primary-action" data-testid="entry-bulk-qty-ok" @click="applyBulkQty">确定</button>
+    </template>
     <template v-else-if="bulkFillColumnKey === 'unitPrice'">
       <strong>单价</strong>
       <select v-model="bulkPriceSourceKey" data-testid="entry-bulk-price-source">
@@ -427,9 +421,9 @@
   </div>
 
   <div
-    v-if="draggingColumnKey"
+    v-if="columnReorder.draggingKey.value"
     class="column-drag-ghost"
-    :style="{ left: `${dragGhostLeft}px`, top: `${dragGhostTop}px` }"
+    :style="{ left: `${columnReorder.dragGhostLeft.value}px`, top: `${columnReorder.dragGhostTop.value}px` }"
     data-testid="entry-column-drag-ghost"
   >
     {{ draggingColumnTitle }}
@@ -444,6 +438,7 @@ import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
+import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
 
 export interface EntryLine {
   lineNo?: number;
@@ -479,13 +474,15 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "rowNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark" | "actions";
+type EntryColumnKey = "rowNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
   width: number;
   visible: boolean;
   fixed?: "" | "left" | "right";
+  locked?: boolean;
+  reorderable?: boolean;
   configurable?: boolean;
   numeric?: boolean;
   bulkFillable?: boolean;
@@ -556,9 +553,6 @@ const emit = defineEmits<{
 
 const columnDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
-const openMenuLineIndex = ref<number | null>(null);
-const rowMenuLeft = ref(0);
-const rowMenuTop = ref(0);
 const columns = ref<EntryColumn[]>([]);
 const columnFilters = reactive<Record<string, ColumnFilter>>({});
 const activeFilterColumn = ref<EntryColumn | null>(null);
@@ -566,15 +560,12 @@ const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
 const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
-const draggingColumnKey = ref<EntryColumnKey | "">("");
-const dragOverColumnKey = ref<EntryColumnKey | "">("");
-const dragGhostLeft = ref(0);
-const dragGhostTop = ref(0);
 const bulkFillColumnKey = ref<EntryColumnKey | "">("");
 const bulkFillLeft = ref(0);
 const bulkFillTop = ref(0);
 const bulkDateValue = ref("");
 const bulkWarehouseValue = ref("");
+const bulkQtyValue = ref("");
 const bulkPriceSourceKey = ref("defaultPrice");
 const bulkPriceOperator = ref("+");
 const bulkPriceFactor = ref("0");
@@ -590,6 +581,7 @@ const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 const bulkPriceSourceOptions = [
   { key: "defaultPrice", label: "默认价格" },
+  { key: "quotePrice", label: "最新有效报价" },
   { key: "recentPrice", label: "最近成交价" },
   { key: "historyMaxPrice", label: "历史最高价" },
   { key: "historyMinPrice", label: "历史最低价" },
@@ -597,8 +589,18 @@ const bulkPriceSourceOptions = [
   { key: "costPrice", label: "成本价" }
 ] as const;
 
+const columnReorder = useColumnReorder<EntryColumn>({
+  getColumns: () => columns.value,
+  setColumns: (nextColumns) => { columns.value = nextColumns; },
+  getKey: (column) => column.key,
+  getTitle: (column) => column.title,
+  normalize: normalizeEntryColumns,
+  canReorder: (column) => column.configurable !== false && canReorderColumn(column),
+  onReorder: persistColumnPreferences
+});
+
 const defaultColumns = computed<EntryColumn[]>(() => [
-  { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", configurable: false, numeric: true },
+  { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", locked: true, configurable: false, numeric: true },
   { key: "productCode", title: "商品编码", width: 140, visible: true },
   { key: "productName", title: "商品名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
@@ -606,7 +608,7 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
   { key: "sourceOrderNo", title: "源单号", width: 142, visible: props.showSourceLineColumn },
   { key: "sourceLineNo", title: "源单行号", width: 86, visible: props.showSourceLineColumn },
-  { key: "qty", title: "数量", width: 104, visible: true, numeric: true },
+  { key: "qty", title: "数量", width: 104, visible: true, numeric: true, bulkFillable: true },
   { key: "executedQty", title: props.executionQtyLabel || "已执行", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
   { key: "stockOnHand", title: "即时库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
@@ -619,8 +621,7 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "taxAmount", title: "税额", width: 104, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "priceTaxTotal", title: "价税合计", width: 124, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "planDeliveryDate", title: "交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn), bulkFillable: true },
-  { key: "remark", title: "备注", width: 210, visible: true },
-  { key: "actions", title: "操作", width: 56, visible: true, configurable: false }
+  { key: "remark", title: "备注", width: 210, visible: true }
 ]);
 
 const visibleColumns = computed(() => columns.value.filter((column) => isColumnAvailable(column) && column.visible));
@@ -636,8 +637,8 @@ const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.
   resizable: column.configurable !== false,
   filterActive: Boolean(columnFilters[column.key]?.value) || ["为空", "不为空"].includes(columnFilters[column.key]?.operator ?? ""),
   bulkFillable: Boolean(column.bulkFillable) && props.isDraft,
-  dragging: draggingColumnKey.value === column.key,
-  dragOver: dragOverColumnKey.value === column.key,
+  dragging: columnReorder.draggingKey.value === column.key,
+  dragOver: columnReorder.dragOverKey.value === column.key,
   dragTestId: `entry-column-drag-${column.key}`,
   filterTestId: `entry-column-filter-${column.key}`,
   bulkFillTestId: `entry-column-bulk-${column.key}`,
@@ -646,12 +647,11 @@ const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.
   cellClass: columnClass(column)
 })));
 const firstVisibleColumnKey = computed(() => visibleColumns.value.find((column) => !isFrozenEntryColumn(column.key))?.key ?? "productCode");
-const rowMenuStyle = computed(() => ({ left: `${rowMenuLeft.value}px`, top: `${rowMenuTop.value}px` }));
 const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0)));
 const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).amount, 0).toFixed(2));
 const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).taxAmount, 0).toFixed(2));
 const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
-const draggingColumnTitle = computed(() => columns.value.find((column) => column.key === draggingColumnKey.value)?.title ?? "");
+const draggingColumnTitle = columnReorder.draggingTitle;
 const activeDatePickerValue = computed(() => {
   if (datePickerTarget.value?.type === "line") {
     return normalizeDateInput(props.lines[datePickerTarget.value.lineIndex]?.planDeliveryDate || "");
@@ -688,10 +688,7 @@ watch(() => [
 ], resetColumns, { immediate: true });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("click", closeRowMenu);
   document.removeEventListener("click", closeFloatingPanels);
-  window.removeEventListener("mousemove", trackColumnMouseDrag);
-  window.removeEventListener("mouseup", finishColumnMouseDrag);
 });
 
 function resetColumns() {
@@ -803,7 +800,6 @@ function columnClass(column: EntryColumn) {
     "readonly-qty": ["sourceLineNo", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"].includes(column.key),
     "amount-cell": column.key === "amount" || column.key === "taxAmount" || column.key === "priceTaxTotal",
     "tax-cell": column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal",
-    "entry-actions-cell": column.key === "actions",
     "remark-cell": column.key === "remark",
     "entry-row-no-cell": column.key === "rowNo",
     "entry-frozen-cell": isFrozenEntryColumn(column.key)
@@ -916,7 +912,6 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
       return line.planDeliveryDate ?? "";
     case "remark":
       return line.lineRemark ?? "";
-    case "actions":
     default:
       return "";
   }
@@ -949,7 +944,7 @@ function entryCellAttrs(_line: EntryLine, column: TableCoreColumn, lineIndex: nu
 function startEntryColumnMouseDrag(column: TableCoreColumn, event: MouseEvent) {
   const entryColumn = entryColumnByKey(column.key);
   if (entryColumn) {
-    startColumnMouseDrag(entryColumn, event);
+    columnReorder.start(entryColumn, event);
   }
 }
 
@@ -976,6 +971,9 @@ function openEntryBulkFill(column: TableCoreColumn, event: MouseEvent) {
   if (entryColumn.key === "warehouse") {
     bulkWarehouseValue.value = props.batchWarehouseCode || bulkWarehouseValue.value;
   }
+  if (entryColumn.key === "qty") {
+    bulkQtyValue.value = bulkQtyValue.value || "";
+  }
   if (entryColumn.key === "unitPrice") {
     bulkPriceMessage.value = "";
     bulkPriceSourceKey.value = bulkPriceSourceKey.value || "defaultPrice";
@@ -999,11 +997,6 @@ function finishEntryColumnResize({ column, width }: { column: TableCoreColumn; w
   }
 }
 
-function handleEntryRowContextmenu(_line: EntryLine, lineIndex: number, event: MouseEvent) {
-  event.preventDefault();
-  openRowMenu(lineIndex, event);
-}
-
 function handleEntryRowDragstart(_line: EntryLine, lineIndex: number, event: DragEvent) {
   emit("lineDragStart", event, lineIndex);
 }
@@ -1022,94 +1015,6 @@ function handleEntryRowDragend() {
   emit("lineDragEnd");
 }
 
-function startColumnMouseDrag(column: EntryColumn, event: MouseEvent) {
-  const target = event.target as HTMLElement;
-  if (target.closest("button") || target.closest(".table-core-column-resizer")) {
-    return;
-  }
-  if (column.configurable === false || isFrozenEntryColumn(column.key)) {
-    return;
-  }
-  event.preventDefault();
-  draggingColumnKey.value = column.key;
-  dragOverColumnKey.value = column.key;
-  dragGhostLeft.value = event.clientX + 10;
-  dragGhostTop.value = event.clientY + 10;
-  window.addEventListener("mousemove", trackColumnMouseDrag);
-  window.addEventListener("mouseup", finishColumnMouseDrag, { once: true });
-}
-
-function trackColumnMouseDrag(event: MouseEvent) {
-  if (!draggingColumnKey.value) {
-    return;
-  }
-  dragGhostLeft.value = event.clientX + 10;
-  dragGhostTop.value = event.clientY + 10;
-  const element = document.elementFromPoint(event.clientX, event.clientY);
-  const header = element?.closest<HTMLElement>(".table-core-header-cell");
-  const key = header?.dataset.columnField as EntryColumnKey | undefined;
-  if (key && columns.value.some((column) => column.key === key && column.configurable !== false && !isFrozenEntryColumn(column.key))) {
-    dragOverColumnKey.value = key;
-  }
-}
-
-function finishColumnMouseDrag() {
-  const sourceKey = draggingColumnKey.value;
-  const targetKey = dragOverColumnKey.value;
-  if (!sourceKey || !targetKey || sourceKey === targetKey) {
-    finishColumnDrag();
-    return;
-  }
-  const sourceIndex = columns.value.findIndex((column) => column.key === sourceKey);
-  const targetIndex = columns.value.findIndex((column) => column.key === targetKey);
-  if (
-    sourceIndex < 0
-    || targetIndex < 0
-    || isFrozenEntryColumn(columns.value[sourceIndex].key)
-    || isFrozenEntryColumn(columns.value[targetIndex].key)
-  ) {
-    finishColumnDrag();
-    return;
-  }
-  const next = [...columns.value];
-  const [sourceColumn] = next.splice(sourceIndex, 1);
-  next.splice(targetIndex, 0, sourceColumn);
-  columns.value = normalizeEntryColumns(next);
-  persistColumnPreferences();
-  finishColumnDrag();
-}
-
-function finishColumnDrag() {
-  window.removeEventListener("mousemove", trackColumnMouseDrag);
-  draggingColumnKey.value = "";
-  dragOverColumnKey.value = "";
-}
-
-function openRowMenu(lineIndex: number, event: MouseEvent) {
-  if (!props.isDraft) {
-    return;
-  }
-  openMenuLineIndex.value = lineIndex;
-  rowMenuLeft.value = Math.min(event.clientX, window.innerWidth - 150);
-  rowMenuTop.value = Math.min(event.clientY, window.innerHeight - 160);
-  document.addEventListener("click", closeRowMenu, { once: true });
-}
-
-function toggleRowMenu(lineIndex: number, event: MouseEvent) {
-  event.stopPropagation();
-  if (openMenuLineIndex.value === lineIndex) {
-    closeRowMenu();
-    return;
-  }
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  openRowMenu(lineIndex, new MouseEvent("contextmenu", { clientX: rect.left, clientY: rect.bottom + 4 }));
-}
-
-function closeRowMenu() {
-  openMenuLineIndex.value = null;
-  document.removeEventListener("click", closeRowMenu);
-}
-
 function closeFloatingPanels() {
   bulkFillColumnKey.value = "";
   datePickerOpen.value = false;
@@ -1122,7 +1027,10 @@ function stopFloatingClose(event: MouseEvent) {
 }
 
 function targetLineIndexes() {
-  return props.lines.map((_, index) => index);
+  return props.lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => Boolean(String(line.productCode || "").trim() || String(line.productName || "").trim()))
+    .map(({ index }) => index);
 }
 
 function applyBulkWarehouse() {
@@ -1130,8 +1038,12 @@ function applyBulkWarehouse() {
   if (!value) {
     return;
   }
+  const indexes = targetLineIndexes();
+  if (!indexes.length) {
+    return;
+  }
   emit("update:batchWarehouseCode", value);
-  targetLineIndexes().forEach((index) => {
+  indexes.forEach((index) => {
     props.lines[index].warehouseCode = value;
   });
   emit("markDirty");
@@ -1144,13 +1056,33 @@ function applyBulkDate() {
   if (!normalized) {
     return;
   }
+  const indexes = targetLineIndexes();
+  if (!indexes.length) {
+    return;
+  }
   bulkDateValue.value = normalized;
   emit("update:batchPlanDeliveryDate", normalized);
-  targetLineIndexes().forEach((index) => {
+  indexes.forEach((index) => {
     props.lines[index].planDeliveryDate = normalized;
   });
   emit("markDirty");
-  emit("applyBatchPlanDeliveryDate", targetLineIndexes());
+  emit("applyBatchPlanDeliveryDate", indexes);
+  closeFloatingPanels();
+}
+
+function applyBulkQty() {
+  const value = Number(bulkQtyValue.value);
+  if (!Number.isFinite(value) || value < 0) {
+    return;
+  }
+  const indexes = targetLineIndexes();
+  if (!indexes.length) {
+    return;
+  }
+  indexes.forEach((index) => {
+    props.lines[index].qty = value;
+  });
+  emit("markDirty");
   closeFloatingPanels();
 }
 
@@ -1314,17 +1246,6 @@ function formatDateValue(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function runLineAction(action: "insert" | "delete" | "copy", lineIndex: number) {
-  closeRowMenu();
-  if (action === "insert") {
-    emit("insertLineAfter", lineIndex);
-  } else if (action === "delete") {
-    emit("removeLine", lineIndex);
-  } else {
-    emit("copyLine", lineIndex);
-  }
-}
-
 function selectorIdForLine(lineIndex: number, field: "product" | "warehouse" | "target-warehouse") {
   return `${props.testPrefix}-line-${lineIndex}-${field}`;
 }
@@ -1460,26 +1381,6 @@ function lineDeleteTestId(index: number) {
 
 function lineInsertTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-insert` : `${props.testPrefix}-line-insert-${index + 1}`;
-}
-
-function lineCopyTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-copy` : `${props.testPrefix}-line-copy-${index + 1}`;
-}
-
-function lineCloseTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-close` : `${props.testPrefix}-line-close-${index + 1}`;
-}
-
-function lineFreezeTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-freeze` : `${props.testPrefix}-line-freeze-${index + 1}`;
-}
-
-function lineDragHandleTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-drag` : `${props.testPrefix}-line-drag-${index + 1}`;
-}
-
-function lineMenuTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-menu` : `${props.testPrefix}-line-menu-${index + 1}`;
 }
 
 function columnCellTestId(key: EntryColumnKey, index: number) {
