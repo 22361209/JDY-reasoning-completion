@@ -1,6 +1,6 @@
 <template>
   <TableCoreFrame :class="frameClass" :kind="kind" :test-id="testId">
-    <div class="table-core-inner" :class="innerClass" :style="tableStyle">
+    <div class="table-core-inner" :class="innerClass" :style="innerStyle">
       <div class="table-core-native-table" :class="tableClass">
         <div class="table-core-header-wrapper" :class="headerWrapperClass">
           <table :style="tableStyle">
@@ -171,7 +171,8 @@ const tableWidth = computed(() => Math.max(
   props.minWidth,
   props.columns.reduce((sum, column) => sum + columnWidth(column), 0)
 ));
-const tableStyle = computed(() => ({ width: `${tableWidth.value}px`, minWidth: "100%" }));
+const innerStyle = computed(() => ({ width: `${tableWidth.value}px`, minWidth: "100%" }));
+const tableStyle = computed(() => ({ width: `${tableWidth.value}px`, minWidth: `${tableWidth.value}px` }));
 
 onBeforeUnmount(() => {
   window.removeEventListener("mousemove", trackColumnResize);

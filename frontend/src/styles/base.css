@@ -1726,7 +1726,7 @@ input:disabled {
   gap: 4px;
   cursor: move;
   margin: -3px -6px;
-  padding: 2px 44px 2px 8px;
+  padding: 2px 34px 2px 8px;
   position: relative;
   box-sizing: border-box;
 }
@@ -1771,7 +1771,7 @@ input:disabled {
   right: 6px;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   transform: translateY(-50%);
 }
 
@@ -1780,15 +1780,15 @@ input:disabled {
   position: relative;
   flex: 0 0 auto;
   margin-left: auto;
-  width: 15px;
-  height: 15px;
-  border: 0;
-  border-radius: 2px;
-  background: transparent;
-  color: #64748b;
+  width: 16px;
+  height: 16px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #53677d;
   opacity: 0;
   padding: 0;
-  line-height: 15px;
+  line-height: 16px;
   font-size: 0;
 }
 
@@ -1799,13 +1799,25 @@ input:disabled {
 
 .column-filter-button::before {
   content: "";
-  display: block;
-  width: 6px;
-  height: 6px;
-  margin: 3px auto 0;
-  border-right: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
-  transform: rotate(45deg);
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+.column-filter-button::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 9px;
+  width: 2px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 0 0 1px 1px;
 }
 
 .column-bulk-button::before {
@@ -1832,19 +1844,31 @@ input:disabled {
 .column-bulk-button:hover,
 .column-bulk-button.active {
   background: #eaf4ff;
+  border-color: #b7d5f2;
   color: #1f72b8;
 }
 
 .table-core-column-resizer {
   position: absolute;
-  top: 4px;
-  right: 0;
-  bottom: 4px;
-  width: 7px;
+  top: 0;
+  right: -12px;
+  bottom: 0;
+  width: 12px;
+  z-index: 2;
   cursor: col-resize;
 }
 
-.table-core-column-resizer:hover {
+.table-core-column-resizer::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 5px;
+  width: 2px;
+  border-radius: 2px;
+}
+
+.table-core-column-resizer:hover::after {
   background: #1f72b8;
 }
 

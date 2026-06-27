@@ -151,7 +151,7 @@
       row-class="vxe-body--row"
       :columns="listCoreColumns"
       :rows="displayedRows"
-      :min-width="960"
+      :min-width="listTableMinWidth"
       :row-key="rowKey"
       :cell-title="listCellTitle"
       @column-drag-start="startListColumnMouseDrag"
@@ -1851,6 +1851,7 @@ async function syncRenderedColumnWidths() {
   const tableWidth = Math.max(widths.reduce((sum, width) => sum + width, 0), 960);
   frame.querySelectorAll<HTMLElement>(".vxe-table--header-wrapper table, .vxe-table--body-wrapper table").forEach((table) => {
     table.style.width = `${tableWidth}px`;
+    table.style.minWidth = `${tableWidth}px`;
   });
   frame.querySelectorAll<HTMLTableColElement>("colgroup col").forEach((col, index) => {
     const width = widths[index % widths.length] ?? 120;
