@@ -2510,18 +2510,6 @@ td input {
   min-width: 210px;
 }
 
-.entry-selection-cell {
-  width: 44px;
-  text-align: center;
-}
-
-.entry-selection-cell input {
-  min-width: 16px;
-  width: 16px;
-  height: 16px;
-  margin: 0 auto;
-}
-
 .entry-row-no-cell {
   width: 48px;
   text-align: center;
@@ -2539,12 +2527,8 @@ thead .entry-frozen-cell {
   background: #f3f6f9;
 }
 
-.entry-selection-cell.entry-frozen-cell {
-  left: 0;
-}
-
 .entry-row-no-cell.entry-frozen-cell {
-  left: 44px;
+  left: 0;
   box-shadow: 1px 0 0 #d4dde8;
 }
 

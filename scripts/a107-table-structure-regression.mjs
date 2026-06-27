@@ -134,19 +134,15 @@ try {
     text: node.textContent?.trim() ?? "",
     sticky: getComputedStyle(node).position,
     left: getComputedStyle(node).left,
-    checkbox: Boolean(node.querySelector('input[type="checkbox"]')),
     testId: node.getAttribute("data-testid")
   })));
-  assert(entryHeaders[0]?.checkbox && entryHeaders[0]?.sticky === "sticky" && entryHeaders[0]?.left === "0px", `entry first column should be fixed select-all checkbox: ${JSON.stringify(entryHeaders)}`);
-  assert(entryHeaders[1]?.text.includes("序号") && entryHeaders[1]?.sticky === "sticky", `entry second column should be fixed row number: ${JSON.stringify(entryHeaders)}`);
-  assert(await page.getByTestId("entry-select-all").isVisible(), "entry selection header should use select-all checkbox without text title");
-  await page.getByTestId("entry-select-all").check();
-  assert(await page.getByTestId("sales-out-line-select").isChecked(), "entry select-all should select first line");
-  assert(await page.getByTestId("sales-out-line-select-2").isChecked(), "entry select-all should select second line");
+  assert(entryHeaders[0]?.text.includes("序号") && entryHeaders[0]?.sticky === "sticky" && entryHeaders[0]?.left === "0px", `entry first column should be fixed row number: ${JSON.stringify(entryHeaders)}`);
+  assert(await page.getByTestId("entry-select-all").count() === 0, "entry table should not render a selection checkbox column");
+  assert(await page.getByTestId("sales-out-line-select").count() === 0, "entry table should not render row selection checkboxes");
 
-  const rowNo = await page.getByTestId("sales-out-line-row-no").textContent();
-  assert(rowNo?.trim() === "1", `entry second column should render row number, got ${rowNo}`);
-  const entryGridBorder = await borderRightStyle(page.locator(".entry-table tbody tr[data-testid='sales-out-entry-row'] td:visible").nth(1));
+  const rowNo = await page.getByTestId("sales-out-line-row-no").locator(".entry-row-no__value").textContent();
+  assert(rowNo?.trim() === "1", `entry first column should render row number, got ${rowNo}`);
+  const entryGridBorder = await borderRightStyle(page.locator(".entry-table tbody tr[data-testid='sales-out-entry-row'] td:visible").nth(0));
   assert(hasVisibleBorder(entryGridBorder), `entry table columns should show vertical grid line: ${JSON.stringify(entryGridBorder)}`);
 
   const productHeader = page.getByTestId("entry-column-drag-productCode");
