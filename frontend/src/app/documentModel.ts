@@ -1,6 +1,7 @@
 import type { DownstreamDocumentRef, PrintTemplateConfig } from "../services/documentApi";
 
 export interface MasterOption {
+  id?: string;
   code: string;
   name: string;
   spec?: string;
@@ -22,6 +23,7 @@ export interface EntryPasteConflict {
 
 export interface OrderLineForm {
   lineNo?: number;
+  productId?: string;
   productCode: string;
   productName?: string;
   spec?: string;

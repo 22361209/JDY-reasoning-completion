@@ -5,12 +5,41 @@ const fragments = readFileSync("frontend/src/modules/metadata/fragments.ts", "ut
 const entryTable = readFileSync("frontend/src/components/EntryTable.vue", "utf8");
 const dataListPage = readFileSync("frontend/src/components/DataListPage.vue", "utf8");
 const documentModule = readFileSync("frontend/src/modules/documents/useDocumentModule.ts", "utf8");
+const masterDataRegistry = readFileSync("frontend/src/modules/master-data/registry.ts", "utf8");
+const masterDataTypes = readFileSync("frontend/src/modules/master-data/types.ts", "utf8");
+const masterDataRecordPage = readFileSync("frontend/src/modules/master-data/MasterDataRecordPage.vue", "utf8");
+const productMasterFields = readFileSync("frontend/src/modules/master-data/product/fields.ts", "utf8");
+const customerMasterFields = readFileSync("frontend/src/modules/master-data/customer/fields.ts", "utf8");
+const supplierMasterFields = readFileSync("frontend/src/modules/master-data/supplier/fields.ts", "utf8");
+const warehouseMasterFields = readFileSync("frontend/src/modules/master-data/warehouse/fields.ts", "utf8");
 const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
 const purchaseOrderDocument = readFileSync("frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts", "utf8");
 const listStubController = readFileSync("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java", "utf8");
 const purchaseOrderAppService = readFileSync("backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java", "utf8");
 const priceTaxBackfillMigration = readFileSync("backend/src/main/resources/db/migration/V63__backfill_price_tax_totals.sql", "utf8");
 const purchaseOrderSupplierMaterialMigration = readFileSync("backend/src/main/resources/db/migration/V65__purchase_order_supplier_material_and_delivery_date.sql", "utf8");
+const productDisplaySnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V66__product_display_snapshots.sql", "utf8");
+const productSnapshotService = readFileSync("backend/src/main/java/com/jdy/erp/shared/application/ProductSnapshotService.java", "utf8");
+const documentOutputController = readFileSync("backend/src/main/java/com/jdy/erp/reports/api/DocumentOutputController.java", "utf8");
+const conversionService = readFileSync("backend/src/main/java/com/jdy/erp/shared/application/ConversionService.java", "utf8");
+const productSnapshotWriteServices = [
+  "backend/src/main/java/com/jdy/erp/sales/application/SalesQuoteAppService.java",
+  "backend/src/main/java/com/jdy/erp/sales/application/SalesOrderAppService.java",
+  "backend/src/main/java/com/jdy/erp/sales/application/DeliveryNoticeAppService.java",
+  "backend/src/main/java/com/jdy/erp/sales/application/SalesOutAppService.java",
+  "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java",
+  "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseInAppService.java",
+  "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseReturnAppService.java",
+  "backend/src/main/java/com/jdy/erp/inventory/application/OtherStockInAppService.java",
+  "backend/src/main/java/com/jdy/erp/inventory/application/OtherStockOutAppService.java",
+  "backend/src/main/java/com/jdy/erp/inventory/application/StockTransferAppService.java",
+  "backend/src/main/java/com/jdy/erp/inventory/application/StockCountAppService.java",
+  "backend/src/main/java/com/jdy/erp/inventory/application/StockCountGainAppService.java",
+  "backend/src/main/java/com/jdy/erp/inventory/application/StockCountLossAppService.java",
+  "backend/src/main/java/com/jdy/erp/production/application/ProductionTaskAppService.java",
+  "backend/src/main/java/com/jdy/erp/production/application/MaterialIssueAppService.java",
+  "backend/src/main/java/com/jdy/erp/production/application/ProductInAppService.java"
+].map((path) => readFileSync(path, "utf8")).join("\n");
 
 function assertContains(text, pattern, message) {
   if (!pattern.test(text)) {
@@ -183,6 +212,148 @@ assertContains(
   dataListPage,
   /class="list-table-tools"[\s\S]*?data-testid="list-detail-view-toggle"[\s\S]*?data-testid="column-settings"[\s\S]*?data-testid="list-refresh-stock"/,
   "整单/明细视图切换、列设置、更新库存必须集中在列表右侧工具区"
+);
+assertContains(
+  masterDataTypes,
+  /interface MasterDataField[\s\S]*?readonly\?:\s*boolean[\s\S]*?interface MasterDataDefinition[\s\S]*?listColumns:\s*ListColumnDefinition\[\][\s\S]*?selectorColumns:\s*ListColumnDefinition\[\]/,
+  "主数据定义必须集中维护列表列和选择器列，并支持全程只读字段"
+);
+assertContains(
+  dataListPage,
+  /masterListDefinitions[\s\S]*?Object\.entries\(masterDataDefinitions\)[\s\S]*?columns:\s*masterDefinition\.listColumns/,
+  "主数据列表必须从 MasterDataDefinition 读取列定义，不能继续在 DataListPage 里散写四套列"
+);
+assertContains(
+  masterDataRegistry,
+  /"product-master-list"[\s\S]*?title:\s*"物料资料"[\s\S]*?field:\s*"code",\s*title:\s*"物料编码"[\s\S]*?field:\s*"id",\s*title:\s*"系统ID"[\s\S]*?field:\s*"productType",\s*title:\s*"物料属性"[\s\S]*?field:\s*"isPurchase",\s*title:\s*"可采购"[\s\S]*?field:\s*"isProduce",\s*title:\s*"可自制"[\s\S]*?field:\s*"defaultWorkshop",\s*title:\s*"默认生产车间"[\s\S]*?field:\s*"defaultSupplierCode",\s*title:\s*"默认供应商"/,
+  "物料资料必须是本批核心主数据，包含系统ID、物料属性、业务能力和默认业务属性"
+);
+assertContains(
+  productMasterFields,
+  /label:\s*"系统ID"[\s\S]*?readonly:\s*true[\s\S]*?label:\s*"物料编码"[\s\S]*?label:\s*"物料属性"[\s\S]*?label:\s*"可采购"[\s\S]*?label:\s*"可销售"[\s\S]*?label:\s*"可库存"[\s\S]*?label:\s*"可自制"[\s\S]*?label:\s*"可委外"[\s\S]*?label:\s*"默认生产车间"[\s\S]*?label:\s*"成本价"/,
+  "物料建档页必须包含只读系统ID和一物料多业务面的核心字段"
+);
+assertContains(
+  masterDataRecordPage,
+  /:disabled="field\.readonly \|\| \(editing && field\.readonlyWhenEditing\)"/,
+  "主数据建档页必须让 readonly 字段全程不可编辑"
+);
+assertContains(
+  masterDataRegistry,
+  /selectorColumns:\s*\[\s*\{ field:\s*"code",\s*title:\s*"物料编码"/,
+  "物料选择器必须以物料编码开头，系统ID不得成为用户选择物料的主要字段"
+);
+assertNotContains(
+  masterDataRegistry,
+  /selectorColumns:\s*\[[\s\S]*?\{ field:\s*"id",\s*title:\s*"系统ID"/,
+  "物料选择器不得暴露系统ID，搜索显示仍以物料编码/物料名称为主"
+);
+for (const tableName of [
+  "sales_quote_line",
+  "sales_order_line",
+  "delivery_notice_line",
+  "sales_out_line",
+  "purchase_order_line",
+  "purchase_in_line",
+  "purchase_return_line",
+  "other_stock_in_line",
+  "other_stock_out_line",
+  "stock_transfer_line",
+  "stock_count_line",
+  "stock_count_gain_line",
+  "stock_count_loss_line",
+  "production_plan",
+  "production_task",
+  "production_task_material_snapshot",
+  "production_material_issue_line",
+  "production_completion_line"
+]) {
+  assertContains(
+    productDisplaySnapshotMigration,
+    new RegExp(`ALTER TABLE ${tableName}[\\s\\S]*?product_code_snapshot[\\s\\S]*?product_name_snapshot[\\s\\S]*?product_spec_snapshot[\\s\\S]*?UPDATE ${tableName}`),
+    `${tableName} 必须落库并回填物料编码/名称/规格显示快照`
+  );
+}
+assertContains(
+  productSnapshotService,
+  /resolve\(String productId,\s*String productCode[\s\S]*?return byId\(productId\.trim\(\), label\)[\s\S]*?return byCode\(productCode\.trim\(\), label\)[\s\S]*?WHERE id = \?::uuid/,
+  "ProductSnapshotService 必须优先用系统ID解析物料快照，并兼容旧编码录入"
+);
+assertContains(
+  documentModule,
+  /documentLines:\s*\{[\s\S]*?productId\?:\s*string[\s\S]*?productId:\s*String\(line\.productId[\s\S]*?productId:\s*String\(line\.productId \?\? ""\)\.trim\(\) \|\| undefined/,
+  "共享单据模块保存分录必须携带 productId，不能只传 productCode"
+);
+assertContains(
+  `${listStubController}\n${documentOutputController}`,
+  /COALESCE\(l\.product_code_snapshot,\s*p\.code\) AS "productCode"[\s\S]*?COALESCE\(l\.product_name_snapshot,\s*p\.name\) AS "productName"[\s\S]*?COALESCE\(l\.product_spec_snapshot,\s*p\.spec,\s*''\) AS spec/,
+  "列表、详情和打印必须优先显示单据行保存时的物料快照"
+);
+assertContains(
+  productSnapshotWriteServices,
+  /ProductSnapshotService[\s\S]*?productSnapshotService\.resolve[\s\S]*?product_code_snapshot[\s\S]*?product_name_snapshot[\s\S]*?product_spec_snapshot/,
+  "单据保存服务必须通过 ProductSnapshotService 写入物料显示快照"
+);
+for (const tableName of [
+  "sales_quote_line",
+  "sales_order_line",
+  "delivery_notice_line",
+  "sales_out_line",
+  "purchase_order_line",
+  "purchase_in_line",
+  "purchase_return_line",
+  "other_stock_in_line",
+  "other_stock_out_line",
+  "stock_transfer_line",
+  "stock_count_line",
+  "stock_count_gain_line",
+  "stock_count_loss_line",
+  "production_plan",
+  "production_task",
+  "production_task_material_snapshot",
+  "production_material_issue_line",
+  "production_completion_line"
+]) {
+  assertContains(
+    productSnapshotWriteServices,
+    new RegExp(`INSERT INTO ${tableName}[\\s\\S]*?product_code_snapshot[\\s\\S]*?product_name_snapshot[\\s\\S]*?product_spec_snapshot`),
+    `${tableName} 新增/保存时必须写入物料显示快照`
+  );
+}
+assertContains(
+  conversionService,
+  /product_code_snapshot[\s\S]*?product_name_snapshot[\s\S]*?product_spec_snapshot[\s\S]*?INSERT INTO %s[\s\S]*?product_code_snapshot[\s\S]*?product_name_snapshot[\s\S]*?product_spec_snapshot/,
+  "盘点下推生成盘盈/盘亏时必须复制源盘点行物料快照"
+);
+assertContains(
+  customerMasterFields,
+  /客户编码[\s\S]*?客户名称[\s\S]*?联系人[\s\S]*?电话[\s\S]*?地区[\s\S]*?地址[\s\S]*?状态[\s\S]*?备注/,
+  "客户资料本批只做轻主档字段"
+);
+assertNotContains(
+  customerMasterFields,
+  /信用额度|结算方式|税号|客户等级|负责业务员/,
+  "客户资料在应收应付未深入前不能暴露信用、结算、税务等后置项"
+);
+assertContains(
+  supplierMasterFields,
+  /供应商编码[\s\S]*?供应商名称[\s\S]*?联系人[\s\S]*?电话[\s\S]*?地址[\s\S]*?状态[\s\S]*?备注/,
+  "供应商资料本批只做轻主档字段"
+);
+assertNotContains(
+  supplierMasterFields,
+  /银行账号|结算方式|税号|供应商等级|采购负责人/,
+  "供应商资料在应付、付款和质量准入未深入前不能暴露银行、结算、税务等后置项"
+);
+assertContains(
+  warehouseMasterFields,
+  /仓库编码[\s\S]*?仓库名称[\s\S]*?仓库类型[\s\S]*?仓管员[\s\S]*?仓库地址[\s\S]*?状态[\s\S]*?备注/,
+  "仓库资料本批只做新建、状态管理和移仓引用所需字段"
+);
+assertNotContains(
+  warehouseMasterFields,
+  /库存策略|允许负库存/,
+  "仓库资料暂不暴露库存策略和负库存配置"
 );
 assertNotContains(
   `${source}\n${fragments}\n${entryTable}`,

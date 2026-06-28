@@ -1,4 +1,5 @@
 import type { Component } from "vue";
+import type { ListColumnDefinition } from "../metadata/types";
 
 export interface MasterDataField {
   name: string;
@@ -10,6 +11,7 @@ export interface MasterDataField {
   type?: "text" | "number" | "textarea" | "checkbox";
   span?: 1 | 2;
   required?: boolean;
+  readonly?: boolean;
   readonlyWhenEditing?: boolean;
   defaultValue?: string;
 }
@@ -17,6 +19,11 @@ export interface MasterDataField {
 export interface MasterDataDefinition {
   listKey: string;
   type: string;
+  title: string;
+  keywordPlaceholder: string;
+  statuses: string[];
+  listColumns: ListColumnDefinition[];
+  selectorColumns: ListColumnDefinition[];
   fields: MasterDataField[];
   formComponent: Component;
 }

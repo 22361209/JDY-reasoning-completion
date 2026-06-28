@@ -11,6 +11,7 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -34,6 +35,7 @@ public class DeliveryNoticeAppService {
     private final CurrentSessionService currentSessionService;
     private final TaxAmountCalculator taxAmountCalculator;
     private final InventoryPostingService inventoryPostingService;
+    private final ProductSnapshotService productSnapshotService;
 
     public DeliveryNoticeAppService(
         JdbcTemplate jdbcTemplate,
@@ -43,7 +45,8 @@ public class DeliveryNoticeAppService {
         NumberingService numberingService,
         CurrentSessionService currentSessionService,
         TaxAmountCalculator taxAmountCalculator,
-        InventoryPostingService inventoryPostingService
+        InventoryPostingService inventoryPostingService,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -53,6 +56,7 @@ public class DeliveryNoticeAppService {
         this.currentSessionService = currentSessionService;
         this.taxAmountCalculator = taxAmountCalculator;
         this.inventoryPostingService = inventoryPostingService;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -190,9 +194,10 @@ public class DeliveryNoticeAppService {
                    l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty AS "sourceQty",
                    COALESCE(out_qty.shipped_qty, 0) AS "shippedQty",
@@ -248,20 +253,23 @@ public class DeliveryNoticeAppService {
     private void insertLines(Object billId, String defaultSourceOrderNo, List<DeliveryNoticeLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
             var sourceLineNo = line.sourceLineNo() == null && sourceOrderNo != null ? lineNo : line.sourceLineNo();
             jdbcTemplate.update("""
-                INSERT INTO delivery_notice_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO delivery_notice_line (bill_id, line_no, source_order_no, source_line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
                 sourceOrderNo,
                 sourceLineNo,
-                productId,
+                product.id(),
+                product.code(),
+                product.name(),
+                product.spec(),
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
@@ -283,9 +291,10 @@ public class DeliveryNoticeAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    COALESCE(out_qty.shipped_qty, 0) AS "shippedQty",
@@ -337,7 +346,7 @@ public class DeliveryNoticeAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
-                   p.code AS "productCode",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                    w.code AS "warehouseCode",
                    l.qty
             FROM delivery_notice_line l
@@ -432,6 +441,6 @@ public class DeliveryNoticeAppService {
         }
     }
 
-    public record DeliveryNoticeLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String customerMaterialCode, String customerOrderNo, String lineRemark, String planDeliveryDate) {
+    public record DeliveryNoticeLineRequest(String productId, String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String customerMaterialCode, String customerOrderNo, String lineRemark, String planDeliveryDate) {
     }
 }

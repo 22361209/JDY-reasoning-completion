@@ -6,6 +6,7 @@ export interface SalesOrderDraftPayload {
   ownerName: string;
   lines: Array<{
     lineNo?: number | string;
+    productId?: string;
     productCode: string;
     warehouseCode: string;
     qty: number;
@@ -35,6 +36,7 @@ export interface SalesOrderDetail {
   };
   lines: Array<{
     lineNo?: number | string;
+    productId?: string;
     productCode: string;
     productName?: string;
     spec?: string;
@@ -64,6 +66,7 @@ export interface SelectableSalesOrderLine {
   ownerName?: string;
   isTaxInclusive?: boolean;
   lineNo: number | string;
+  productId?: string;
   productCode: string;
   productName?: string;
   spec?: string;

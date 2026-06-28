@@ -69,6 +69,7 @@ function parseEntryPasteRow(
   }
   const matchedWarehouse = matchMasterOption(warehouseToken || warehouseName, refs.warehouses);
   const line: OrderLineForm = {
+    productId: productMatch.product?.id ?? "",
     productCode: productMatch.product?.code ?? productToken,
     productName: productMatch.product?.name,
     spec: productMatch.product?.spec ?? productSpec,

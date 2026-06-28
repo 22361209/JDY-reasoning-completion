@@ -11,6 +11,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.http.HttpStatus;
@@ -30,8 +31,9 @@ public class ProductInAppService {
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
     private final BillLifecycleService lifecycleService;
+    private final ProductSnapshotService productSnapshotService;
 
-    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService, BillLifecycleService lifecycleService) {
+    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService, BillLifecycleService lifecycleService, ProductSnapshotService productSnapshotService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
@@ -39,6 +41,7 @@ public class ProductInAppService {
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
         this.lifecycleService = lifecycleService;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -69,9 +72,10 @@ public class ProductInAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
@@ -90,7 +94,14 @@ public class ProductInAppService {
     public Map<String, Object> complete(String billNo, CompleteRequest request) {
         var productInBillNo = numberingService.assignBillNo("productIn", request.billNo());
         var taskRows = jdbcTemplate.queryForList("""
-            SELECT t.id::text AS id, p.code AS product_code, w.code AS warehouse_code, t.qty, t.completed_qty
+            SELECT t.id::text AS id,
+                   t.product_id::text AS product_id,
+                   COALESCE(t.product_code_snapshot, p.code) AS product_code,
+                   COALESCE(t.product_name_snapshot, p.name) AS product_name,
+                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
+                   w.code AS warehouse_code,
+                   t.qty,
+                   t.completed_qty
             FROM production_task t
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
@@ -100,12 +111,13 @@ public class ProductInAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务不存在或不能完工");
         }
         var task = taskRows.get(0);
-        var requestLines = request.lines() == null || request.lines().isEmpty()
-            ? List.of(new CompleteLineRequest(String.valueOf(task.get("product_code")), String.valueOf(task.get("warehouse_code")), request.qty(), BigDecimal.ONE))
-            : request.lines();
-        var qty = requestLines.stream()
-            .map(line -> positive(line.qty(), "完工数量"))
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var requestLines = request.lines();
+        var useTaskDefaultLine = requestLines == null || requestLines.isEmpty();
+        var qty = useTaskDefaultLine
+            ? positive(request.qty(), "完工数量")
+            : requestLines.stream()
+                .map(line -> positive(line.qty(), "完工数量"))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         var completionRows = jdbcTemplate.queryForList("""
             INSERT INTO production_completion (bill_no, task_id, qty, status)
             VALUES (?, ?::uuid, ?, ?)
@@ -113,14 +125,32 @@ public class ProductInAppService {
             """, productInBillNo, task.get("id"), qty, BillStatus.AUDITED.name());
         var completionId = String.valueOf(completionRows.get(0).get("id"));
         var lineNo = 1;
-        for (var line : requestLines) {
-            var productCode = validationService.required(line.productCode(), "完工物料编码");
-            var warehouseCode = validationService.required(line.warehouseCode(), "完工仓库");
-            var lineQty = positive(line.qty(), "完工数量");
-            var unitPrice = line.unitPrice() == null ? BigDecimal.ONE : line.unitPrice();
-            insertCompletionLine(completionId, lineNo, lookupService.lookupEnabledId("md_product", productCode, "完工商品"), lookupService.lookupEnabledId("md_warehouse", warehouseCode, "完工仓库"), lineQty, unitPrice);
-            post(productCode, warehouseCode, lineQty, "PRODUCTION_COMPLETE", "PRODUCTION_COMPLETE:" + productInBillNo);
-            lineNo += 1;
+        if (useTaskDefaultLine) {
+            var warehouseCode = String.valueOf(task.get("warehouse_code"));
+            var unitPrice = BigDecimal.ONE;
+            insertCompletionLine(
+                completionId,
+                lineNo,
+                task.get("product_id"),
+                task.get("product_code"),
+                task.get("product_name"),
+                task.get("spec"),
+                lookupService.lookupEnabledId("md_warehouse", warehouseCode, "完工仓库"),
+                qty,
+                unitPrice
+            );
+            post(String.valueOf(task.get("product_code")), warehouseCode, qty, "PRODUCTION_COMPLETE", "PRODUCTION_COMPLETE:" + productInBillNo);
+        } else {
+            for (var line : requestLines) {
+                var product = productSnapshotService.resolve(line.productId(), line.productCode(), "完工商品");
+                var productCode = product.code();
+                var warehouseCode = validationService.required(line.warehouseCode(), "完工仓库");
+                var lineQty = positive(line.qty(), "完工数量");
+                var unitPrice = line.unitPrice() == null ? BigDecimal.ONE : line.unitPrice();
+                insertCompletionLine(completionId, lineNo, product.id(), product.code(), product.name(), product.spec(), lookupService.lookupEnabledId("md_warehouse", warehouseCode, "完工仓库"), lineQty, unitPrice);
+                post(productCode, warehouseCode, lineQty, "PRODUCTION_COMPLETE", "PRODUCTION_COMPLETE:" + productInBillNo);
+                lineNo += 1;
+            }
         }
         var rows = jdbcTemplate.queryForList("""
             UPDATE production_task
@@ -178,11 +208,11 @@ public class ProductInAppService {
         return redRows.get(0);
     }
 
-    private void insertCompletionLine(String completionId, Object lineNo, Object productId, Object warehouseId, BigDecimal qty, BigDecimal unitPrice) {
+    private void insertCompletionLine(String completionId, Object lineNo, Object productId, Object productCode, Object productName, Object spec, Object warehouseId, BigDecimal qty, BigDecimal unitPrice) {
         jdbcTemplate.update("""
-            INSERT INTO production_completion_line (completion_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
-            VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
-            """, completionId, lineNo, productId, warehouseId, qty, unitPrice, qty.multiply(unitPrice));
+            INSERT INTO production_completion_line (completion_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount)
+            VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?)
+            """, completionId, lineNo, productId, productCode, productName, spec, warehouseId, qty, unitPrice, qty.multiply(unitPrice));
     }
 
     private void postCompletionLines(String billNo, BigDecimal sign, String txnType, String sourceBillType) {
@@ -202,7 +232,14 @@ public class ProductInAppService {
 
     private void copyCompletionLines(String sourceBillNo, String targetCompletionId, boolean negate) {
         var lines = jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo", l.product_id::text AS "productId", l.warehouse_id::text AS "warehouseId", l.qty, l.unit_price AS "unitPrice"
+            SELECT l.line_no AS "lineNo",
+                   l.product_id::text AS "productId",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   l.product_spec_snapshot AS spec,
+                   l.warehouse_id::text AS "warehouseId",
+                   l.qty,
+                   l.unit_price AS "unitPrice"
             FROM production_completion_line l
             JOIN production_completion c ON c.id = l.completion_id
             WHERE c.bill_no = ?
@@ -210,7 +247,7 @@ public class ProductInAppService {
             """, sourceBillNo);
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
-            insertCompletionLine(targetCompletionId, line.get("lineNo"), line.get("productId"), line.get("warehouseId"), negate ? qty.negate() : qty, (BigDecimal) line.get("unitPrice"));
+            insertCompletionLine(targetCompletionId, line.get("lineNo"), line.get("productId"), line.get("productCode"), line.get("productName"), line.get("spec"), line.get("warehouseId"), negate ? qty.negate() : qty, (BigDecimal) line.get("unitPrice"));
         }
     }
 
@@ -228,6 +265,6 @@ public class ProductInAppService {
     public record CompleteRequest(String billNo, BigDecimal qty, List<CompleteLineRequest> lines) {
     }
 
-    public record CompleteLineRequest(String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitPrice) {
+    public record CompleteLineRequest(String productId, String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitPrice) {
     }
 }

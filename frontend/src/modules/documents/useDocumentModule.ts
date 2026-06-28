@@ -81,6 +81,7 @@ interface RuntimeOptions {
 type PreparedEntryLines = {
   formLines: OrderLineForm[];
   documentLines: {
+    productId?: string;
     productCode: string;
     warehouseCode: string;
     targetWarehouseCode?: string;
@@ -269,6 +270,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
         productCode: String(line.productCode ?? ""),
+        productId: String(line.productId ?? ""),
         productName: String(line.productName ?? ""),
         spec: String(line.spec ?? ""),
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -377,6 +379,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     hasPersistedDraft.value = false;
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
+      productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -975,6 +978,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       return;
     }
     line.productCode = option.code;
+    line.productId = option.id;
     line.productName = option.name;
     line.spec = option.spec ?? "";
     activeSelector.value = "";
@@ -1049,6 +1053,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     conflict.selectedCode = code;
     conflict.activeIndex = Math.max(0, conflict.candidates.findIndex((item) => item.code === code));
     line.productCode = candidate.code;
+    line.productId = candidate.id;
     line.productName = candidate.name;
     line.spec = candidate.spec ?? "";
   }
@@ -1370,9 +1375,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   };
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-    return {
-      productCode: "",
-      warehouseCode,
+      return {
+        productCode: "",
+        productId: "",
+        warehouseCode,
       targetWarehouseCode: config.showTargetWarehouseColumn ? config.defaultTargetWarehouseCode ?? "CK-002" : undefined,
       qty: 0,
       unitPrice: 0,
@@ -1388,6 +1394,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   function blankLine(): OrderLineForm {
     return {
       productCode: "",
+      productId: "",
       warehouseCode: "",
       targetWarehouseCode: config.showTargetWarehouseColumn ? "" : undefined,
       qty: 0,
@@ -1451,6 +1458,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       formLines,
       documentLines: formLines.map((line) => ({
         productCode: line.productCode,
+        productId: line.productId,
         warehouseCode: line.warehouseCode,
         targetWarehouseCode: config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : undefined,
         sourceLineNo: line.sourceLineNo,
@@ -1655,7 +1663,8 @@ function zeroEntryWarnings(lines: OrderLineForm[], allowZeroQty = false): ZeroEn
       ].filter(Boolean);
       return {
         lineNo: index + 1,
-        productCode: entryLineProductCode(line),
+      productCode: entryLineProductCode(line),
+      productId: String(line.productId ?? "").trim() || undefined,
         warehouseCode: entryLineWarehouseCode(line),
         qty,
         unitPrice,

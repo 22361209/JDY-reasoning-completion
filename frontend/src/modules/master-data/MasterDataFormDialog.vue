@@ -20,7 +20,7 @@
               <select
                 v-if="field.options"
                 :value="form[field.name]"
-                :disabled="editing && field.readonlyWhenEditing"
+                :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
                 @change="emit('updateField', field.name, ($event.target as HTMLSelectElement).value)"
               >
                 <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
@@ -30,12 +30,14 @@
                 :value="form[field.name]"
                 :placeholder="field.placeholder"
                 rows="3"
+                :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
                 @input="emit('updateField', field.name, ($event.target as HTMLTextAreaElement).value)"
               />
               <span v-else-if="field.type === 'checkbox'" class="master-checkbox-field">
                 <input
                   type="checkbox"
                   :checked="form[field.name] === 'true'"
+                  :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
                   @change="emit('updateField', field.name, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
                 />
                 <em>{{ form[field.name] === "true" ? "是" : "否" }}</em>
@@ -46,7 +48,7 @@
                 :type="field.type === 'number' ? 'number' : 'text'"
                 :step="field.type === 'number' ? '0.01' : undefined"
                 :placeholder="field.placeholder"
-                :disabled="editing && field.readonlyWhenEditing"
+                :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
                 @input="emit('updateField', field.name, ($event.target as HTMLInputElement).value)"
               />
             </label>

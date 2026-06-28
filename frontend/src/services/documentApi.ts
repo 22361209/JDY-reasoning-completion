@@ -9,6 +9,7 @@ interface DocumentDraftPayload {
   isTaxInclusive?: boolean;
   validUntil?: string;
   lines: Array<{
+    productId?: string;
     productCode: string;
     warehouseCode: string;
     targetWarehouseCode?: string;
@@ -165,6 +166,7 @@ export interface DocumentDetail {
 	    customerMaterialCode?: string;
 	    supplierMaterialCode?: string;
 	    customerOrderNo?: string;
+	    productId?: string;
 	    productCode?: string;
     productName?: string;
     spec?: string;

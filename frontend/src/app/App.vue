@@ -1414,6 +1414,7 @@ async function openOutboundFromDeliveryNotice(row: Record<string, unknown>) {
   ].join("-");
   const lines = result.data.lines
     .map((line) => ({
+      productId: String(line.productId ?? ""),
       productCode: String(line.productCode ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
@@ -1527,11 +1528,12 @@ function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
-function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; customerMaterialCode?: string; customerOrderNo?: string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
+function toPendingPushLine(line: { lineNo?: number | string; productId?: string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; customerMaterialCode?: string; customerOrderNo?: string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
   const executedQty = normalizedQty(line[executedField]);
   const remainingQty = remainingLineQty(line);
   return {
+    productId: String(line.productId ?? ""),
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
@@ -1550,15 +1552,10 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
   };
 }
 function masterTitle(listKey: string) {
-  return ({
-    "product-master-list": "商品资料",
-    "customer-master-list": "客户",
-    "supplier-master-list": "供应商",
-    "warehouse-master-list": "仓库"
-  } as Record<string, string>)[listKey] ?? "基础资料";
+  return masterDataDefinitions[listKey]?.title ?? "基础资料";
 }
-function masterModule(listKey: string) {
-  return listKey === "supplier-master-list" ? "采购管理" : "基础资料";
+function masterModule(_listKey: string) {
+  return "基础资料";
 }
 function newMasterForm(listKey: string, row: Record<string, unknown> | null) {
   const definition = masterDataDefinitions[listKey];

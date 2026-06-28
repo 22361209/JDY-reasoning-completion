@@ -183,6 +183,48 @@ class CoreBusinessFastIntegrationTest {
         assertTransit(firstLine(deliveryNoticeAppService.stockSnapshot(deliveryBillNo)), "12");
     }
 
+    @Test
+    void documentLinesKeepProductDisplaySnapshotAfterProductCodeAndNameChange() {
+        var productCode = billNo("CP-A115-SNAPSHOT");
+        var billNo = billNo("XSDD-A115-SNAPSHOT");
+        insertProduct(productCode);
+
+        salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
+            billNo,
+            "KH-001",
+            "2026-06-28",
+            "A115",
+            "A115",
+            "snapshot regression",
+            false,
+            List.of(new SalesOrderAppService.SalesOrderLineRequest(
+                null,
+                productCode,
+                "CK-001",
+                null,
+                null,
+                new BigDecimal("2"),
+                new BigDecimal("18"),
+                new BigDecimal("13"),
+                "",
+                "",
+                "",
+                "2026-06-28"
+            ))
+        ));
+
+        jdbcTemplate.update("""
+            UPDATE md_product
+            SET code = ?, name = ?, spec = ?
+            WHERE code = ?
+            """, productCode + "-NEW", productCode + "-NEW-NAME", "A115-NEW-SPEC", productCode);
+
+        var line = firstLine(salesOrderAppService.detail(billNo));
+        assertThat(line.get("productCode")).isEqualTo(productCode);
+        assertThat(line.get("productName")).isEqualTo(productCode);
+        assertThat(line.get("spec")).isEqualTo("A109");
+    }
+
     private void insertSalesOrder(String billNo, String status) {
         insertSalesOrder(billNo, status, "CP-001", "CK-001");
     }

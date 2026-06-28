@@ -379,6 +379,7 @@ function appendSourceLines(lines: OrderLineForm[]) {
 
 function selectableLineToFormLine(line: SelectableSalesQuoteLine): OrderLineForm {
   return {
+    productId: String(line.productId ?? ""),
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),

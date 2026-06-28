@@ -7,6 +7,7 @@ export interface SelectablePurchaseOrderLine {
   ownerName?: string;
   isTaxInclusive?: boolean;
   lineNo: number | string;
+  productId?: string;
   productCode: string;
   productName?: string;
   supplierMaterialCode?: string;

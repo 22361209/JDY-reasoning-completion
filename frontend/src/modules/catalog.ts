@@ -96,7 +96,7 @@ export const moduleCatalog = [
     short: "资",
     groups: [
       { title: "资料维护", entries: [
-        { id: "product-master-list", label: "商品资料", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "product-master-list", label: "物料资料", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "supplier-master-list", label: "供应商", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" }

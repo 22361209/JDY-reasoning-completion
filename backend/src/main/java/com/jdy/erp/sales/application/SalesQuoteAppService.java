@@ -9,6 +9,7 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -31,6 +32,7 @@ public class SalesQuoteAppService {
     private final NumberingService numberingService;
     private final CurrentSessionService currentSessionService;
     private final TaxAmountCalculator taxAmountCalculator;
+    private final ProductSnapshotService productSnapshotService;
 
     public SalesQuoteAppService(
         JdbcTemplate jdbcTemplate,
@@ -39,7 +41,8 @@ public class SalesQuoteAppService {
         BillLifecycleService lifecycleService,
         NumberingService numberingService,
         CurrentSessionService currentSessionService,
-        TaxAmountCalculator taxAmountCalculator
+        TaxAmountCalculator taxAmountCalculator,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -48,6 +51,7 @@ public class SalesQuoteAppService {
         this.numberingService = numberingService;
         this.currentSessionService = currentSessionService;
         this.taxAmountCalculator = taxAmountCalculator;
+        this.productSnapshotService = productSnapshotService;
     }
 
     @Transactional
@@ -94,16 +98,19 @@ public class SalesQuoteAppService {
         jdbcTemplate.update("DELETE FROM sales_quote_line WHERE quote_id = ?::uuid", quoteId);
         var lineNo = 1;
         for (var line : request.lines()) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = optionalWarehouseId(line.warehouseCode());
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO sales_quote_line (quote_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_quote_line (quote_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 quoteId,
                 lineNo,
-                productId,
+                product.id(),
+                product.code(),
+                product.name(),
+                product.spec(),
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
@@ -218,9 +225,10 @@ public class SalesQuoteAppService {
                    sq.owner_name AS "ownerName",
                    sq.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    COALESCE(w.code, 'CK-001') AS "warehouseCode",
                    l.qty AS "sourceQty",
                    l.unit_price AS "unitPrice",
@@ -256,9 +264,10 @@ public class SalesQuoteAppService {
     private List<Map<String, Object>> detailLines(String billNo) {
         return jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    COALESCE(w.code, 'CK-001') AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
@@ -311,6 +320,7 @@ public class SalesQuoteAppService {
     }
 
     public record SalesQuoteLineRequest(
+        String productId,
         String productCode,
         String warehouseCode,
         BigDecimal qty,

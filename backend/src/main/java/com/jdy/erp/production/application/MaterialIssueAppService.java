@@ -77,9 +77,10 @@ public class MaterialIssueAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
@@ -117,7 +118,9 @@ public class MaterialIssueAppService {
         var lines = jdbcTemplate.queryForList("""
             SELECT s.line_no AS "lineNo",
                    s.product_id::text AS "productId",
-                   p.code AS "materialCode",
+                   COALESCE(s.product_code_snapshot, p.code) AS "materialCode",
+                   COALESCE(s.product_name_snapshot, p.name) AS "materialName",
+                   COALESCE(s.product_spec_snapshot, p.spec, '') AS spec,
                    s.required_qty AS "requiredQty"
             FROM production_task_material_snapshot s
             JOIN md_product p ON p.id = s.product_id
@@ -129,7 +132,7 @@ public class MaterialIssueAppService {
         }
         for (var line : lines) {
             var neededQty = (BigDecimal) line.get("requiredQty");
-            insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), materialWarehouseId, neededQty, BigDecimal.ONE);
+            insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), line.get("materialCode"), line.get("materialName"), line.get("spec"), materialWarehouseId, neededQty, BigDecimal.ONE);
             post(String.valueOf(line.get("materialCode")), materialWarehouseCode, neededQty.negate(), "PRODUCTION_ISSUE", "PRODUCTION_ISSUE:" + issueBillNo);
         }
         jdbcTemplate.update("""
@@ -187,11 +190,11 @@ public class MaterialIssueAppService {
         return redRows.get(0);
     }
 
-    private void insertIssueLine(String issueId, Object lineNo, Object productId, Object warehouseId, BigDecimal qty, BigDecimal unitPrice) {
+    private void insertIssueLine(String issueId, Object lineNo, Object productId, Object productCode, Object productName, Object spec, Object warehouseId, BigDecimal qty, BigDecimal unitPrice) {
         jdbcTemplate.update("""
-            INSERT INTO production_material_issue_line (issue_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
-            VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?)
-            """, issueId, lineNo, productId, warehouseId, qty, unitPrice, qty.multiply(unitPrice));
+            INSERT INTO production_material_issue_line (issue_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount)
+            VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?)
+            """, issueId, lineNo, productId, productCode, productName, spec, warehouseId, qty, unitPrice, qty.multiply(unitPrice));
     }
 
     private void postIssueLines(String billNo, BigDecimal sign, String txnType, String sourceBillType) {
@@ -217,7 +220,14 @@ public class MaterialIssueAppService {
 
     private void copyIssueLines(String sourceBillNo, String targetIssueId, boolean negate) {
         var lines = jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo", l.product_id::text AS "productId", l.warehouse_id::text AS "warehouseId", l.qty, l.unit_price AS "unitPrice"
+            SELECT l.line_no AS "lineNo",
+                   l.product_id::text AS "productId",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   l.product_spec_snapshot AS spec,
+                   l.warehouse_id::text AS "warehouseId",
+                   l.qty,
+                   l.unit_price AS "unitPrice"
             FROM production_material_issue_line l
             JOIN production_material_issue i ON i.id = l.issue_id
             WHERE i.bill_no = ?
@@ -225,7 +235,7 @@ public class MaterialIssueAppService {
             """, sourceBillNo);
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
-            insertIssueLine(targetIssueId, line.get("lineNo"), line.get("productId"), line.get("warehouseId"), negate ? qty.negate() : qty, (BigDecimal) line.get("unitPrice"));
+            insertIssueLine(targetIssueId, line.get("lineNo"), line.get("productId"), line.get("productCode"), line.get("productName"), line.get("spec"), line.get("warehouseId"), negate ? qty.negate() : qty, (BigDecimal) line.get("unitPrice"));
         }
     }
 

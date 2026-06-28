@@ -393,6 +393,7 @@ import {
 } from "../services/listApi";
 import { lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
 import { getBillDefinitionByListKey } from "../modules/metadata/registry";
+import { masterDataDefinitions } from "../modules/master-data/registry";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
 import { useSessionStore } from "../stores/session";
 
@@ -518,83 +519,20 @@ const operationLogTargetTypes = [
   "ap_payable",
   "prod_bom"
 ];
+const masterListDefinitions = Object.fromEntries(
+  Object.entries(masterDataDefinitions).map(([listKey, masterDefinition]) => [
+    listKey,
+    {
+      title: masterDefinition.title,
+      subtitle: "",
+      keywordPlaceholder: masterDefinition.keywordPlaceholder,
+      statuses: masterDefinition.statuses,
+      columns: masterDefinition.listColumns.map((column) => ({ ...column }))
+    }
+  ])
+) as Record<string, ListDefinition>;
 const definitions: Record<string, ListDefinition> = {
-  "product-master-list": {
-    title: "商品资料",
-    subtitle: "",
-    keywordPlaceholder: "物料编码、名称、规格型号",
-    statuses: ["启用", "禁用"],
-    columns: [
-      { field: "code", title: "物料编码", width: 140, fixed: "left", visible: true },
-      { field: "name", title: "物料名称", width: 180, visible: true },
-      { field: "spec", title: "规格型号", width: 170, visible: true },
-      { field: "category", title: "物料分类", width: 130, visible: true },
-      { field: "unit", title: "主单位", width: 80, visible: true },
-      { field: "isPurchase", title: "可采购", width: 86, visible: true },
-      { field: "isSale", title: "可销售", width: 86, visible: true },
-      { field: "isInventory", title: "可库存", width: 86, visible: true },
-      { field: "isProduce", title: "可自制", width: 86, visible: true },
-      { field: "isSubcontract", title: "可委外", width: 86, visible: true },
-      { field: "defaultWarehouseCode", title: "默认仓库", width: 120, visible: true },
-      { field: "defaultWorkshop", title: "默认生产车间", width: 140, visible: true },
-      { field: "saleUnit", title: "销售单位", width: 90, visible: false },
-      { field: "purchaseUnit", title: "采购单位", width: 90, visible: false },
-      { field: "bomUnit", title: "生产/BOM单位", width: 120, visible: false },
-      { field: "defaultSupplierCode", title: "默认供应商", width: 130, visible: false },
-      { field: "issueWarehouseCode", title: "默认领料仓", width: 130, visible: false },
-      { field: "issueMethod", title: "发料方式", width: 110, visible: false },
-      { field: "taxRate", title: "税率(%)", width: 90, align: "right", visible: true },
-      { field: "defaultSalePrice", title: "默认销售价", width: 120, align: "right", visible: true },
-      { field: "minSalePrice", title: "最低销售价", width: 120, align: "right", visible: false },
-      { field: "costPrice", title: "成本价", width: 110, align: "right", visible: false },
-      { field: "status", title: "状态", width: 100, visible: true },
-      { field: "remark", title: "备注", width: 180, visible: false },
-      { field: "updatedAt", title: "最近更新时间", width: 160, visible: true }
-    ]
-  },
-  "customer-master-list": {
-    title: "客户",
-    subtitle: "",
-    keywordPlaceholder: "客户编码、客户名称、联系人",
-    statuses: ["启用", "禁用"],
-    columns: [
-      { field: "code", title: "客户编码", width: 140, fixed: "left", visible: true },
-      { field: "name", title: "客户名称", width: 220, visible: true },
-      { field: "shortName", title: "客户简称", width: 130, visible: true },
-      { field: "customerLevel", title: "客户等级", width: 110, visible: true },
-      { field: "contact", title: "联系人", width: 120, visible: true },
-      { field: "phone", title: "电话", width: 150, visible: true },
-      { field: "region", title: "地区", width: 160, visible: true },
-      { field: "taxNo", title: "税号", width: 160, visible: false },
-      { field: "settlementMethod", title: "结算方式", width: 110, visible: true },
-      { field: "creditLimit", title: "信用额度", width: 120, align: "right", visible: true },
-      { field: "ownerName", title: "负责业务员", width: 120, visible: true },
-      { field: "address", title: "地址", width: 220, visible: false },
-      { field: "remark", title: "备注", width: 180, visible: false },
-      { field: "status", title: "状态", width: 100, visible: true }
-    ]
-  },
-  "supplier-master-list": {
-    title: "供应商",
-    subtitle: "",
-    keywordPlaceholder: "供应商编码、供应商名称",
-    statuses: ["启用", "禁用"],
-    columns: [
-      { field: "code", title: "供应商编码", width: 150, fixed: "left", visible: true },
-      { field: "name", title: "供应商名称", width: 220, visible: true },
-      { field: "shortName", title: "供应商简称", width: 140, visible: true },
-      { field: "supplierLevel", title: "供应商等级", width: 120, visible: true },
-      { field: "contact", title: "联系人", width: 120, visible: true },
-      { field: "phone", title: "电话", width: 150, visible: true },
-      { field: "settlementMethod", title: "结算方式", width: 110, visible: true },
-      { field: "ownerName", title: "采购负责人", width: 120, visible: true },
-      { field: "taxNo", title: "税号", width: 160, visible: false },
-      { field: "bankAccount", title: "银行账号", width: 180, visible: false },
-      { field: "address", title: "地址", width: 220, visible: false },
-      { field: "remark", title: "备注", width: 180, visible: false },
-      { field: "status", title: "状态", width: 100, visible: true }
-    ]
-  },
+  ...masterListDefinitions,
   "sales-order-form-list": {
     title: "销售订单列表",
     subtitle: "销售订单列表承载查询、批量动作、列设置、页签锁定和分页。",
@@ -798,13 +736,13 @@ const definitions: Record<string, ListDefinition> = {
   },
   "stock-alert-list": {
     title: "库存预警查询表",
-    subtitle: "按商品与仓库的安全库存阈值直查当前库存余额，低于安全库存或高于上限时进入预警列表。",
+    subtitle: "按物料与仓库的安全库存阈值直查当前库存余额，低于安全库存或高于上限时进入预警列表。",
     keywordPlaceholder: "物料编码、物料名称、仓库",
     statuses: ["低于安全库存", "高于库存上限"],
     columns: [
       { field: "productCode", title: "物料编码", width: 140, fixed: "left", visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },
-      { field: "productCategory", title: "商品类别", width: 130, visible: true },
+      { field: "productCategory", title: "物料分类", width: 130, visible: true },
       { field: "warehouseName", title: "仓库名称", width: 140, visible: true },
       { field: "spec", title: "规格型号", width: 160, visible: true },
       { field: "unit", title: "基本单位", width: 90, visible: true },
@@ -813,23 +751,6 @@ const definitions: Record<string, ListDefinition> = {
       { field: "maxQty", title: "库存上限", width: 110, align: "right", visible: true },
       { field: "diffQty", title: "预警差量", width: 110, align: "right", visible: true },
       { field: "status", title: "安全库存状况", width: 140, visible: true }
-    ]
-  },
-  "warehouse-master-list": {
-    title: "仓库",
-    subtitle: "",
-    keywordPlaceholder: "仓库编码、仓库名称",
-    statuses: ["启用", "禁用"],
-    columns: [
-      { field: "code", title: "仓库编码", width: 140, fixed: "left", visible: true },
-      { field: "name", title: "仓库名称", width: 220, visible: true },
-      { field: "warehouseType", title: "仓库类型", width: 110, visible: true },
-      { field: "stockPolicy", title: "库存策略", width: 150, visible: true },
-      { field: "manager", title: "仓管员", width: 110, visible: true },
-      { field: "phone", title: "联系电话", width: 140, visible: true },
-      { field: "address", title: "仓库地址", width: 220, visible: false },
-      { field: "remark", title: "备注", width: 180, visible: false },
-      { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
   "receivable-list": {

@@ -475,6 +475,7 @@ import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
 
 export interface EntryLine {
   lineNo?: number;
+  productId?: string;
   customerMaterialCode?: string;
   supplierMaterialCode?: string;
   customerOrderNo?: string;

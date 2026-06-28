@@ -9,6 +9,7 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,7 @@ public class StockCountAppService {
     private final BillLifecycleService lifecycleService;
     private final NumberingService numberingService;
     private final ConversionService conversionService;
+    private final ProductSnapshotService productSnapshotService;
 
     public StockCountAppService(
         JdbcTemplate jdbcTemplate,
@@ -34,7 +36,8 @@ public class StockCountAppService {
         ValidationService validationService,
         BillLifecycleService lifecycleService,
         NumberingService numberingService,
-        ConversionService conversionService
+        ConversionService conversionService,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -42,6 +45,7 @@ public class StockCountAppService {
         this.lifecycleService = lifecycleService;
         this.numberingService = numberingService;
         this.conversionService = conversionService;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -61,9 +65,10 @@ public class StockCountAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.counted_qty AS qty,
                    l.system_qty AS "systemQty",
@@ -142,18 +147,21 @@ public class StockCountAppService {
     private void insertLines(Object billId, List<StockCountLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var countedQty = nonNegative(line.qty(), "实盘数量");
-            var systemQty = currentStockQty(productId, warehouseId);
+            var systemQty = currentStockQty(product.id(), warehouseId);
             var unitPrice = nonNegativePrice(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO stock_count_line (bill_id, line_no, product_id, warehouse_id, system_qty, counted_qty, diff_qty, unit_price, line_remark)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+                INSERT INTO stock_count_line (bill_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, system_qty, counted_qty, diff_qty, unit_price, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
-                productId,
+                product.id(),
+                product.code(),
+                product.name(),
+                product.spec(),
                 warehouseId,
                 systemQty,
                 countedQty,
@@ -198,6 +206,6 @@ public class StockCountAppService {
         }
     }
 
-    public record StockCountLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
+    public record StockCountLineRequest(String productId, String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
     }
 }

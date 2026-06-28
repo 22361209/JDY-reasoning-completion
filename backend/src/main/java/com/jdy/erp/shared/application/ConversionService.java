@@ -140,6 +140,9 @@ public class ConversionService {
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no,
                    l.product_id::text AS product_id,
+                   l.product_code_snapshot,
+                   l.product_name_snapshot,
+                   l.product_spec_snapshot,
                    l.warehouse_id::text AS warehouse_id,
                    l.diff_qty,
                    l.unit_price,
@@ -180,12 +183,15 @@ public class ConversionService {
             var qty = ((BigDecimal) line.get("diff_qty")).abs();
             var unitPrice = (BigDecimal) line.get("unit_price");
             jdbcTemplate.update("""
-                INSERT INTO %s (bill_id, line_no, product_id, warehouse_id, source_bill_id, source_line_no, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+                INSERT INTO %s (bill_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, source_bill_id, source_line_no, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
                 """.formatted(lineTable),
                 headerId,
                 line.get("line_no"),
                 line.get("product_id"),
+                line.get("product_code_snapshot"),
+                line.get("product_name_snapshot"),
+                line.get("product_spec_snapshot"),
                 line.get("warehouse_id"),
                 sourceId,
                 line.get("line_no"),

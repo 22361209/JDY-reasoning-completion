@@ -8,6 +8,7 @@ export interface SelectableSalesQuoteLine {
   ownerName?: string;
   isTaxInclusive?: boolean;
   lineNo: number | string;
+  productId?: string;
   productCode: string;
   productName?: string;
   spec?: string;

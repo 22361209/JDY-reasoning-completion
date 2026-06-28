@@ -16,6 +16,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -52,6 +53,7 @@ public class PurchaseInAppService {
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
     private final TaxAmountCalculator taxAmountCalculator;
+    private final ProductSnapshotService productSnapshotService;
 
     public PurchaseInAppService(
         JdbcTemplate jdbcTemplate,
@@ -62,7 +64,8 @@ public class PurchaseInAppService {
         ConversionService conversionService,
         OperationLogService operationLogService,
         NumberingService numberingService,
-        TaxAmountCalculator taxAmountCalculator
+        TaxAmountCalculator taxAmountCalculator,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -73,6 +76,7 @@ public class PurchaseInAppService {
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
         this.taxAmountCalculator = taxAmountCalculator;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -113,9 +117,10 @@ public class PurchaseInAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
@@ -314,7 +319,9 @@ public class PurchaseInAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
-                   p.code AS "productCode",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.product_id::text AS "productId",
                    l.warehouse_id::text AS "warehouseId",
@@ -335,14 +342,17 @@ public class PurchaseInAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO purchase_in_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
-                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_in_line (bill_id, line_no, source_order_no, source_line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
                 line.get("sourceOrderNo"),
                 line.get("sourceLineNo"),
                 line.get("productId"),
+                line.get("productCode"),
+                line.get("productName"),
+                line.get("spec"),
                 line.get("warehouseId"),
                 qty.negate(),
                 line.get("unitPrice"),
@@ -390,7 +400,7 @@ public class PurchaseInAppService {
     private void insertLines(String table, String billIdColumn, Object billId, String defaultSourceOrderNo, List<PurchaseInLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
@@ -398,8 +408,8 @@ public class PurchaseInAppService {
             if (sourceLineNo == null && sourceOrderNo != null) {
                 sourceLineNo = lineNo;
             }
-            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark) VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)",
-                billId, lineNo, sourceOrderNo, sourceLineNo, productId, warehouseId, line.qty(), line.unitPrice(), amounts.amount(), amounts.taxRate(), amounts.taxAmount(), amounts.priceTaxTotal(), validationService.optionalText(line.lineRemark()));
+            jdbcTemplate.update("INSERT INTO " + table + " (" + billIdColumn + ", line_no, source_order_no, source_line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark) VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?)",
+                billId, lineNo, sourceOrderNo, sourceLineNo, product.id(), product.code(), product.name(), product.spec(), warehouseId, line.qty(), line.unitPrice(), amounts.amount(), amounts.taxRate(), amounts.taxAmount(), amounts.priceTaxTotal(), validationService.optionalText(line.lineRemark()));
             lineNo += 1;
         }
     }
@@ -420,7 +430,7 @@ public class PurchaseInAppService {
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
-                   p.code AS "productCode",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                    w.code AS "warehouseCode",
                    l.qty
             FROM purchase_in_line l
@@ -481,7 +491,7 @@ public class PurchaseInAppService {
         }
     }
 
-    public record PurchaseInLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark) {
+    public record PurchaseInLineRequest(String productId, String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

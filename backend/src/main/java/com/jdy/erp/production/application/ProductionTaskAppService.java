@@ -72,12 +72,15 @@ public class ProductionTaskAppService {
         var billNo = numberingService.assignBillNo("productionTask", request.billNo());
         var plan = resolveOrCreatePlan(request);
         var rows = jdbcTemplate.queryForList("""
-            INSERT INTO production_task (bill_no, plan_id, bom_id, product_id, warehouse_id, qty, status)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?)
+            INSERT INTO production_task (bill_no, plan_id, bom_id, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, status)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET plan_id = EXCLUDED.plan_id,
                 bom_id = EXCLUDED.bom_id,
                 product_id = EXCLUDED.product_id,
+                product_code_snapshot = EXCLUDED.product_code_snapshot,
+                product_name_snapshot = EXCLUDED.product_name_snapshot,
+                product_spec_snapshot = EXCLUDED.product_spec_snapshot,
                 warehouse_id = EXCLUDED.warehouse_id,
                 qty = EXCLUDED.qty,
                 status = EXCLUDED.status,
@@ -88,6 +91,9 @@ public class ProductionTaskAppService {
             plan.get("id"),
             plan.get("bomId"),
             plan.get("productId"),
+            plan.get("productCode"),
+            plan.get("productName"),
+            plan.get("spec"),
             plan.get("warehouseId"),
             plan.get("plannedQty"),
             BillStatus.AUDITED.name()
@@ -105,9 +111,13 @@ public class ProductionTaskAppService {
                 SELECT p.id::text AS id,
                        p.bom_id::text AS "bomId",
                        p.product_id::text AS "productId",
+                       COALESCE(p.product_code_snapshot, mp.code) AS "productCode",
+                       COALESCE(p.product_name_snapshot, mp.name) AS "productName",
+                       COALESCE(p.product_spec_snapshot, mp.spec, '') AS spec,
                        p.warehouse_id::text AS "warehouseId",
                        p.planned_qty AS "plannedQty"
                 FROM production_plan p
+                JOIN md_product mp ON mp.id = p.product_id
                 WHERE p.bill_no = ?
                   AND p.status = 'AUDITED'
                 """, planNo);
@@ -123,8 +133,13 @@ public class ProductionTaskAppService {
     private Map<String, Object> createPlanRow(PlanRequest request) {
         var planNo = numberingService.assignBillNo("productionPlan", request.billNo());
         var bomRows = jdbcTemplate.queryForList("""
-            SELECT b.id::text AS id, b.product_id::text AS product_id
+            SELECT b.id::text AS id,
+                   b.product_id::text AS product_id,
+                   p.code AS product_code,
+                   p.name AS product_name,
+                   COALESCE(p.spec, '') AS spec
             FROM prod_bom b
+            JOIN md_product p ON p.id = b.product_id
             WHERE b.code = ? AND b.enabled = TRUE
             """, validationService.required(request.bomCode(), "BOM 编码"));
         if (bomRows.isEmpty()) {
@@ -133,11 +148,14 @@ public class ProductionTaskAppService {
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", request.warehouseCode(), "完工仓库");
         var bom = bomRows.get(0);
         var rows = jdbcTemplate.queryForList("""
-            INSERT INTO production_plan (bill_no, bom_id, product_id, warehouse_id, planned_qty, source_type, status)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?)
+            INSERT INTO production_plan (bill_no, bom_id, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, planned_qty, source_type, status)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET bom_id = EXCLUDED.bom_id,
                 product_id = EXCLUDED.product_id,
+                product_code_snapshot = EXCLUDED.product_code_snapshot,
+                product_name_snapshot = EXCLUDED.product_name_snapshot,
+                product_spec_snapshot = EXCLUDED.product_spec_snapshot,
                 warehouse_id = EXCLUDED.warehouse_id,
                 planned_qty = EXCLUDED.planned_qty,
                 source_type = EXCLUDED.source_type,
@@ -147,6 +165,9 @@ public class ProductionTaskAppService {
                       bill_no AS "billNo",
                       bom_id::text AS "bomId",
                       product_id::text AS "productId",
+                      product_code_snapshot AS "productCode",
+                      product_name_snapshot AS "productName",
+                      COALESCE(product_spec_snapshot, '') AS spec,
                       warehouse_id::text AS "warehouseId",
                       planned_qty AS "plannedQty",
                       status
@@ -154,6 +175,9 @@ public class ProductionTaskAppService {
             planNo,
             bom.get("id"),
             bom.get("product_id"),
+            bom.get("product_code"),
+            bom.get("product_name"),
+            bom.get("spec"),
             warehouseId,
             positive(request.qty(), "计划数量"),
             validationService.optionalText(request.sourceType()) == null ? "SELF" : validationService.optionalText(request.sourceType()),
@@ -166,15 +190,19 @@ public class ProductionTaskAppService {
     private void rebuildTaskMaterialSnapshot(String taskId) {
         jdbcTemplate.update("DELETE FROM production_task_material_snapshot WHERE task_id = ?::uuid", taskId);
         jdbcTemplate.update("""
-            INSERT INTO production_task_material_snapshot (task_id, line_no, source_bom_line_id, product_id, unit_qty, required_qty)
+            INSERT INTO production_task_material_snapshot (task_id, line_no, source_bom_line_id, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, unit_qty, required_qty)
             SELECT t.id,
                    l.line_no,
                    l.id,
                    l.material_id,
+                   p.code,
+                   p.name,
+                   p.spec,
                    l.qty,
                    l.qty * t.qty
             FROM production_task t
             JOIN prod_bom_line l ON l.bom_id = t.bom_id
+            JOIN md_product p ON p.id = l.material_id
             WHERE t.id = ?::uuid
             ORDER BY l.line_no
             """, taskId);

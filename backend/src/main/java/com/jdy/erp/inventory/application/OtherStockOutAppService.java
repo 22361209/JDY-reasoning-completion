@@ -11,6 +11,7 @@ import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,7 @@ public class OtherStockOutAppService {
     private final BillLifecycleService lifecycleService;
     private final NumberingService numberingService;
     private final PostingPipeline postingPipeline;
+    private final ProductSnapshotService productSnapshotService;
 
     public OtherStockOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -36,7 +38,8 @@ public class OtherStockOutAppService {
         ValidationService validationService,
         BillLifecycleService lifecycleService,
         PostingPipeline postingPipeline,
-        NumberingService numberingService
+        NumberingService numberingService,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -44,6 +47,7 @@ public class OtherStockOutAppService {
         this.lifecycleService = lifecycleService;
         this.postingPipeline = postingPipeline;
         this.numberingService = numberingService;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -64,9 +68,10 @@ public class OtherStockOutAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
@@ -161,14 +166,14 @@ public class OtherStockOutAppService {
     private void insertLines(Object billId, List<OtherStockOutLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var qty = positive(line.qty(), "数量");
             var unitPrice = nonNegativePrice(line.unitPrice());
             jdbcTemplate.update("""
-                INSERT INTO other_stock_out_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount, line_remark)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?)
-                """, billId, lineNo, productId, warehouseId, qty, unitPrice, qty.multiply(unitPrice), validationService.optionalText(line.lineRemark()));
+                INSERT INTO other_stock_out_line (bill_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, line_remark)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?)
+                """, billId, lineNo, product.id(), product.code(), product.name(), product.spec(), warehouseId, qty, unitPrice, qty.multiply(unitPrice), validationService.optionalText(line.lineRemark()));
             lineNo += 1;
         }
     }
@@ -208,6 +213,6 @@ public class OtherStockOutAppService {
         }
     }
 
-    public record OtherStockOutLineRequest(String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
+    public record OtherStockOutLineRequest(String productId, String productCode, String warehouseCode, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, String lineRemark) {
     }
 }

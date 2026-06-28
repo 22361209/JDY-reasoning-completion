@@ -15,6 +15,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -62,6 +63,7 @@ public class SalesOutAppService {
     private final CurrentSessionService currentSessionService;
     private final TaxAmountCalculator taxAmountCalculator;
     private final InventoryPostingService inventoryPostingService;
+    private final ProductSnapshotService productSnapshotService;
 
     public SalesOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -74,7 +76,8 @@ public class SalesOutAppService {
         NumberingService numberingService,
         CurrentSessionService currentSessionService,
         TaxAmountCalculator taxAmountCalculator,
-        InventoryPostingService inventoryPostingService
+        InventoryPostingService inventoryPostingService,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -87,6 +90,7 @@ public class SalesOutAppService {
         this.currentSessionService = currentSessionService;
         this.taxAmountCalculator = taxAmountCalculator;
         this.inventoryPostingService = inventoryPostingService;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -134,9 +138,10 @@ public class SalesOutAppService {
                    COALESCE(l.source_delivery_line_no, l.source_line_no) AS "sourceLineNo",
                    l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
                    l.source_delivery_line_no AS "sourceDeliveryLineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    l.line_close_status AS "lineCloseStatus",
@@ -348,8 +353,8 @@ public class SalesOutAppService {
         for (var line : lines) {
             var qty = (BigDecimal) line.get("qty");
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, source_delivery_notice_no, source_delivery_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, source_delivery_notice_no, source_delivery_line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 redBill.get("id"),
                 line.get("lineNo"),
@@ -358,6 +363,9 @@ public class SalesOutAppService {
                 line.get("sourceDeliveryNoticeNo"),
                 line.get("sourceDeliveryLineNo"),
                 line.get("productId"),
+                line.get("productCode"),
+                line.get("productName"),
+                line.get("spec"),
                 line.get("warehouseId"),
                 qty.negate(),
                 line.get("unitPrice"),
@@ -407,7 +415,7 @@ public class SalesOutAppService {
     private void insertLines(Object billId, String defaultSourceOrderNo, List<SalesOutLineRequest> lines, boolean isTaxInclusive) {
         var lineNo = 1;
         for (var line : lines) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             var sourceDeliveryNo = validationService.optionalText(line.sourceDeliveryNoticeNo() == null || line.sourceDeliveryNoticeNo().isBlank() ? line.sourceOrderNo() : line.sourceDeliveryNoticeNo());
@@ -422,8 +430,8 @@ public class SalesOutAppService {
                 sourceLineNo = lineNo;
             }
             jdbcTemplate.update("""
-                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, source_delivery_notice_no, source_delivery_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales_out_line (bill_id, line_no, source_order_no, source_line_no, source_delivery_notice_no, source_delivery_line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
@@ -431,7 +439,10 @@ public class SalesOutAppService {
                 sourceLineNo,
                 sourceDeliveryNo,
                 sourceDeliveryLineNo,
-                productId,
+                product.id(),
+                product.code(),
+                product.name(),
+                product.spec(),
                 warehouseId,
                 line.qty(),
                 line.unitPrice(),
@@ -466,7 +477,9 @@ public class SalesOutAppService {
                    l.source_line_no AS "sourceLineNo",
                    l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
                    l.source_delivery_line_no AS "sourceDeliveryLineNo",
-                   p.code AS "productCode",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty
             FROM sales_out_line l
@@ -510,7 +523,9 @@ public class SalesOutAppService {
                    l.source_line_no AS "sourceLineNo",
                    l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
                    l.source_delivery_line_no AS "sourceDeliveryLineNo",
-                   p.code AS "productCode",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.product_id::text AS "productId",
                    l.warehouse_id::text AS "warehouseId",
@@ -642,7 +657,7 @@ public class SalesOutAppService {
         return rows.get(0);
     }
 
-    public record SalesOutLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, String sourceDeliveryNoticeNo, Integer sourceDeliveryLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String customerMaterialCode, String customerOrderNo, String lineRemark, String planDeliveryDate) {
+    public record SalesOutLineRequest(String productId, String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, String sourceDeliveryNoticeNo, Integer sourceDeliveryLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String customerMaterialCode, String customerOrderNo, String lineRemark, String planDeliveryDate) {
     }
 
     public record RedReverseRequest(String redBillNo, String billDate, String ownerName) {

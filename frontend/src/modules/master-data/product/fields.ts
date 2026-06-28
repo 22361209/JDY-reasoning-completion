@@ -1,10 +1,12 @@
 import type { MasterDataField } from "../types";
 
 export const productMasterFields: MasterDataField[] = [
+  { name: "id", label: "系统ID", placeholder: "保存后自动生成", section: "基本信息", readonly: true, defaultValue: "保存后生成", span: 2 },
   { name: "code", label: "物料编码", placeholder: "如 CP-200", section: "基本信息", required: true, readonlyWhenEditing: true },
-  { name: "name", label: "物料名称", placeholder: "输入关键字选择名称", section: "基本信息", required: true, suggestions: ["控制臂总成", "悬挂球头", "前下摆臂", "后桥支架", "衬套", "冲压件", "焊接总成"] },
+  { name: "name", label: "物料名称", placeholder: "输入关键字选择名称", section: "基本信息", required: true, suggestions: ["控制臂总成", "悬挂球头", "前下摆臂", "后桥支架", "衬套", "冲压件", "焊接总成", "候选商品"] },
   { name: "spec", label: "规格型号", placeholder: "规格/颜色/位置", section: "基本信息" },
-  { name: "category", label: "物料分类", placeholder: "输入关键字选择分类", section: "基本信息", suggestions: ["原材料", "自制半成品", "委外半成品", "产成品", "辅料", "服务"] },
+  { name: "category", label: "物料分类", placeholder: "输入关键字选择分类", section: "基本信息", required: true, suggestions: ["原材料", "自制半成品", "委外半成品", "产成品", "辅料", "服务"] },
+  { name: "productType", label: "物料属性", section: "基本信息", options: ["采购件", "自制件", "委外件", "成品", "半成品", "原材料", "辅料"] },
   { name: "unit", label: "主单位", placeholder: "输入关键字选择单位", section: "基本信息", defaultValue: "只", suggestions: ["只", "件", "套", "PCS", "kg", "米"] },
 
   { name: "isPurchase", label: "可采购", section: "业务能力", type: "checkbox", defaultValue: "false" },

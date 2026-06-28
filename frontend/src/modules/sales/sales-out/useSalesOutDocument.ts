@@ -66,6 +66,7 @@ export interface SalesOutPushDownDraft {
 type PreparedEntryLines = {
   formLines: OrderLineForm[];
   documentLines: {
+    productId?: string;
     productCode: string;
     warehouseCode: string;
     sourceOrderNo?: string;
@@ -214,6 +215,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
         productCode: String(line.productCode ?? ""),
+        productId: String(line.productId ?? ""),
         productName: String(line.productName ?? ""),
         spec: String(line.spec ?? ""),
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -278,6 +280,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     hasPersistedDraft.value = false;
     form.lines = draft.lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
+      productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -310,6 +313,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.isTaxInclusive = Boolean(order.isTaxInclusive);
     form.lines = lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
+      productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -341,6 +345,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.isTaxInclusive = Boolean(order.isTaxInclusive);
     appendFormLines(lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
+      productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -681,11 +686,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-    return { productCode: "", warehouseCode, qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
+    return { productId: "", productCode: "", warehouseCode, qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
   }
 
   function blankLine(): OrderLineForm {
-    return { productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
+    return { productId: "", productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
   }
 
   function addLine() {
@@ -865,6 +870,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     conflict.selectedCode = code;
     conflict.activeIndex = Math.max(0, conflict.candidates.findIndex((item) => item.code === code));
     line.productCode = candidate.code;
+    line.productId = candidate.id;
     line.productName = candidate.name;
     line.spec = candidate.spec ?? "";
   }
@@ -1091,6 +1097,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       return;
     }
     line.productCode = option.code;
+    line.productId = option.id;
     line.productName = option.name;
     line.spec = option.spec ?? "";
     activeSelector.value = "";
@@ -1376,6 +1383,7 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
   const remainingQty = normalizedQty(line.remainingQty ?? sourceQty - executedQty);
   return {
     productCode: String(line.productCode ?? ""),
+    productId: String(line.productId ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -1396,6 +1404,7 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
 function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLineForm {
   return {
     productCode: String(line.productCode ?? ""),
+    productId: String(line.productId ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
@@ -1430,6 +1439,7 @@ function normalizedOptionalInt(value: number | string | undefined) {
 function toDocumentLines(lines: OrderLineForm[]) {
   return lines.map((line) => ({
     productCode: line.productCode,
+    productId: line.productId,
     warehouseCode: line.warehouseCode,
     sourceOrderNo: line.sourceOrderNo,
     sourceLineNo: line.sourceLineNo,
@@ -1502,6 +1512,7 @@ function zeroEntryWarnings(lines: OrderLineForm[]): ZeroEntryWarning[] {
     return {
       lineNo: index + 1,
       productCode: entryLineProductCode(line),
+      productId: String(line.productId ?? "").trim() || undefined,
       warehouseCode: entryLineWarehouseCode(line),
       qty,
       unitPrice,
@@ -1577,6 +1588,7 @@ function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Recor
   const matchedWarehouse = matchMasterOption(warehouseToken || warehouseName, refs.warehouses);
   const line: OrderLineForm = {
     productCode: productMatch.product?.code ?? productToken,
+    productId: productMatch.product?.id ?? "",
     productName: productMatch.product?.name,
     spec: productMatch.product?.spec ?? productSpec,
     warehouseCode: matchedWarehouse?.code ?? (warehouseToken || "CK-001"),

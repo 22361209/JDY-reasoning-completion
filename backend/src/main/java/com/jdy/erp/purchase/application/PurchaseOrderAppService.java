@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -28,6 +29,7 @@ public class PurchaseOrderAppService {
     private final BillLifecycleService lifecycleService;
     private final NumberingService numberingService;
     private final TaxAmountCalculator taxAmountCalculator;
+    private final ProductSnapshotService productSnapshotService;
 
     public PurchaseOrderAppService(
         JdbcTemplate jdbcTemplate,
@@ -35,7 +37,8 @@ public class PurchaseOrderAppService {
         ValidationService validationService,
         BillLifecycleService lifecycleService,
         NumberingService numberingService,
-        TaxAmountCalculator taxAmountCalculator
+        TaxAmountCalculator taxAmountCalculator,
+        ProductSnapshotService productSnapshotService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -43,6 +46,7 @@ public class PurchaseOrderAppService {
         this.lifecycleService = lifecycleService;
         this.numberingService = numberingService;
         this.taxAmountCalculator = taxAmountCalculator;
+        this.productSnapshotService = productSnapshotService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -69,9 +73,10 @@ public class PurchaseOrderAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty,
                    l.received_qty AS "receivedQty",
@@ -143,9 +148,10 @@ public class PurchaseOrderAppService {
                    po.owner_name AS "ownerName",
                    po.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
-                   p.code AS "productCode",
-                   p.name AS "productName",
-                   COALESCE(p.spec, '') AS spec,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty AS "sourceQty",
                    GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0)) AS "receivedQty",
@@ -230,16 +236,19 @@ public class PurchaseOrderAppService {
         jdbcTemplate.update("DELETE FROM purchase_order_line WHERE order_id = ?::uuid", orderId);
         var lineNo = 1;
         for (var line : request.lines()) {
-            var productId = lookupService.lookupEnabledId("md_product", line.productCode(), "商品");
+            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, supplier_material_code, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_order_line (order_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, supplier_material_code, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
-                productId,
+                product.id(),
+                product.code(),
+                product.name(),
+                product.spec(),
                 warehouseId,
                 optionalTextOrEmpty(line.supplierMaterialCode()),
                 line.qty(),
@@ -286,6 +295,7 @@ public class PurchaseOrderAppService {
     }
 
     public record PurchaseOrderLineRequest(
+        String productId,
         String productCode,
         String warehouseCode,
         BigDecimal qty,
