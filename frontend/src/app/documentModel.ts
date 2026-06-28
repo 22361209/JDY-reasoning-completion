@@ -32,6 +32,7 @@ export interface OrderLineForm {
   sourceDeliveryNoticeNo?: string;
   sourceDeliveryLineNo?: number;
   customerMaterialCode?: string;
+  supplierMaterialCode?: string;
   customerOrderNo?: string;
   qty: number;
   executedQty?: number;

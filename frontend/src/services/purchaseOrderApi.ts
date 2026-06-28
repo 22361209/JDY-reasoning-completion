@@ -9,15 +9,17 @@ export interface SelectablePurchaseOrderLine {
   lineNo: number | string;
   productCode: string;
   productName?: string;
+  supplierMaterialCode?: string;
   spec?: string;
   warehouseCode: string;
+  planDeliveryDate?: string;
   sourceQty: number | string;
   receivedQty?: number | string;
   remainingQty: number | string;
   unitPrice: number | string;
+  priceTaxTotal?: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;
-  priceTaxTotal?: number | string;
   lineRemark?: string;
 }
 

@@ -643,7 +643,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
-      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "supplier", title: "供应商名称", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "inStatus", title: "入库状态", width: 110, visible: true },
@@ -663,7 +663,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
-      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "supplier", title: "供应商名称", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "qty", title: "退货数量", width: 110, align: "right", visible: true },
@@ -683,7 +683,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
-      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "supplier", title: "供应商名称", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "qty", title: "入库数量", width: 110, align: "right", visible: true },
@@ -700,7 +700,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
-      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "supplier", title: "供应商名称", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "qty", title: "入库数量", width: 110, align: "right", visible: true },
@@ -716,7 +716,7 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["全部"],
     columns: [
       { field: "supplierCode", title: "供应商编码", width: 130, fixed: "left", visible: true },
-      { field: "supplier", title: "供应商", width: 200, visible: true },
+      { field: "supplier", title: "供应商名称", width: 200, visible: true },
       { field: "productCode", title: "物料编码", width: 140, visible: true },
       { field: "productName", title: "物料名称", width: 200, visible: true },
       { field: "orderQty", title: "订单数量", width: 110, align: "right", visible: true },
@@ -855,7 +855,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "应付单号", width: 160, fixed: "left", visible: true },
       { field: "sourceBillNo", title: "源单号", width: 150, visible: true },
-      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "supplier", title: "供应商名称", width: 220, visible: true },
       { field: "billDate", title: "日期", width: 120, visible: true },
       { field: "amount", title: "应付金额", width: 120, align: "right", visible: true },
       { field: "paidAmount", title: "已付金额", width: 120, align: "right", visible: true },
@@ -1115,6 +1115,12 @@ function detailColumnsForList(): ListColumn[] {
         { field: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
       ]
     : [];
+  const supplierOnlyColumns: ListColumn[] = props.listKey === "purchase-order-form-list"
+    ? [
+        { field: "supplierMaterialCode", title: "供应商物料编码", width: 150, visible: true },
+        { field: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
+      ]
+    : [];
   const sourceColumns: ListColumn[] = showsSourceColumns
     ? [
         { field: "sourceBillNo", title: "源单号", width: 170, visible: true },
@@ -1124,10 +1130,11 @@ function detailColumnsForList(): ListColumn[] {
   return [
     { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
     ...partyCodeColumn,
-    { field: "partner", title: isPurchase ? "供应商" : "客户名称", width: 180, visible: true },
+    { field: "partner", title: isPurchase ? "供应商名称" : "客户名称", width: 180, visible: true },
     ...customerOnlyColumns.slice(0, 2),
     { field: "billDate", title: "单据日期", width: 120, visible: true },
     ...customerOnlyColumns.slice(2),
+    ...supplierOnlyColumns,
     { field: "status", title: "审核状态", width: 100, visible: true },
     { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
     { field: "productCode", title: "物料编码", width: 130, visible: true },
@@ -1359,7 +1366,7 @@ const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
 };
 
 watch(() => props.listKey, () => {
-  isDetailView.value = false;
+  loadDetailViewPreference();
   resetColumns();
   resetQuery(false);
   replaceColumnFilters({});
@@ -1371,6 +1378,7 @@ watch(() => props.listKey, () => {
 }, { immediate: false });
 
 onMounted(() => {
+  loadDetailViewPreference();
   resetColumns();
   resetQuery(false);
   void loadOperationLogPresets(true);
@@ -1727,11 +1735,24 @@ function resetQuery(shouldReload = true) {
 function toggleDetailView() {
   persistCurrentColumnFilters();
   isDetailView.value = !isDetailView.value;
+  saveDetailViewPreference();
   query.page = 1;
   selectedRows.value = [];
   restoreCurrentColumnFilters();
   resetColumns();
   reload();
+}
+
+function detailViewPreferenceKey() {
+  return `jdy:list-view:${props.listKey}`;
+}
+
+function loadDetailViewPreference() {
+  isDetailView.value = supportsDetailView.value && localStorage.getItem(detailViewPreferenceKey()) === "detail";
+}
+
+function saveDetailViewPreference() {
+  localStorage.setItem(detailViewPreferenceKey(), isDetailView.value ? "detail" : "header");
 }
 
 function goPage(page: number) {

@@ -4,8 +4,13 @@ const source = readFileSync("frontend/src/modules/metadata/bills/sales.ts", "utf
 const fragments = readFileSync("frontend/src/modules/metadata/fragments.ts", "utf8");
 const entryTable = readFileSync("frontend/src/components/EntryTable.vue", "utf8");
 const dataListPage = readFileSync("frontend/src/components/DataListPage.vue", "utf8");
+const documentModule = readFileSync("frontend/src/modules/documents/useDocumentModule.ts", "utf8");
+const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
+const purchaseOrderDocument = readFileSync("frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts", "utf8");
 const listStubController = readFileSync("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java", "utf8");
+const purchaseOrderAppService = readFileSync("backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java", "utf8");
 const priceTaxBackfillMigration = readFileSync("backend/src/main/resources/db/migration/V63__backfill_price_tax_totals.sql", "utf8");
+const purchaseOrderSupplierMaterialMigration = readFileSync("backend/src/main/resources/db/migration/V65__purchase_order_supplier_material_and_delivery_date.sql", "utf8");
 
 function assertContains(text, pattern, message) {
   if (!pattern.test(text)) {
@@ -71,8 +76,13 @@ assertContains(
 );
 assertContains(
   entryTable,
-  /showPartyCodeColumn[\s\S]*?showCustomerMaterialCodeColumn[\s\S]*?showCustomerOrderNoColumn[\s\S]*?title:\s*"客户物料编码"[\s\S]*?title:\s*"客户订单号"[\s\S]*?title:\s*"单价"[\s\S]*?title:\s*"含税单价"/,
-  "共享分录表必须支持隐藏客户编码并同时显示客户物料编码/客户订单号/双单价"
+  /showPartyCodeColumn[\s\S]*?showCustomerMaterialCodeColumn[\s\S]*?showSupplierMaterialCodeColumn[\s\S]*?showCustomerOrderNoColumn[\s\S]*?title:\s*"客户物料编码"[\s\S]*?title:\s*"供应商物料编码"[\s\S]*?title:\s*"客户订单号"[\s\S]*?title:\s*"单价"[\s\S]*?title:\s*"含税单价"/,
+  "共享分录表必须支持隐藏客户编码，并区分客户物料编码/供应商物料编码/客户订单号/双单价"
+);
+assertContains(
+  entryTable,
+  /:columns="configurableColumns"[\s\S]*?const configurableColumns = computed\(\(\) => columns\.value\.filter\(\(column\) => column\.configurable !== false && isColumnAvailable\(column\)\)\)/,
+  "分录列设置只能展示当前单据真实可用列，避免勾选项和实际表格不一致"
 );
 assertContains(
   entryTable,
@@ -100,9 +110,29 @@ assertContains(
   "采购订单明细视图必须显示已入库数量和未入库数量"
 );
 assertContains(
+  dataListPage,
+  /props\.listKey\s*===\s*"purchase-order-form-list"[\s\S]*?field:\s*"supplierMaterialCode",\s*title:\s*"供应商物料编码"[\s\S]*?field:\s*"planDeliveryDate",\s*title:\s*"预计交期"/,
+  "采购订单明细视图必须显示供应商物料编码和预计交期"
+);
+assertContains(
+  dataListPage,
+  /function toggleDetailView\(\)[\s\S]*?saveDetailViewPreference\(\)[\s\S]*?function detailViewPreferenceKey\(\)[\s\S]*?jdy:list-view:\$\{props\.listKey\}[\s\S]*?function loadDetailViewPreference\(\)/,
+  "整单/明细视图切换必须按列表入口记忆"
+);
+assertContains(
+  `${documentModule}\n${purchaseOrderForm}\n${purchaseOrderDocument}`,
+  /showSupplierMaterialCodeColumn[\s\S]*?showPlanDeliveryDateColumn[\s\S]*?purchaseOrder[\s\S]*?documentType:\s*"purchaseOrder"[\s\S]*?showSupplierMaterialCodeColumn:\s*true/,
+  "采购订单表单必须开启供应商物料编码列，并支持采购订单分录预计交期"
+);
+assertContains(
   listStubController,
   /documentDetailRows[\s\S]*?sales-quote-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?sales-order-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchase-order-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?sales-out-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?delivery-notice-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchase-in-list[\s\S]*?AS "priceTaxTotal"/,
   "核心单据明细列表 API 必须返回含税金额 priceTaxTotal"
+);
+assertContains(
+  listStubController,
+  /purchase-order-form-list[\s\S]*?AS "supplierMaterialCode"[\s\S]*?AS "taxInclusiveUnitPrice"[\s\S]*?AS "taxRate"[\s\S]*?AS "priceTaxTotal"/,
+  "采购订单明细列表 API 必须返回供应商物料编码、含税单价、税率和含税金额"
 );
 assertContains(
   listStubController,
@@ -138,6 +168,16 @@ assertContains(
   priceTaxBackfillMigration,
   /UPDATE sales_quote_line[\s\S]*?price_tax_total[\s\S]*?UPDATE sales_order_line[\s\S]*?price_tax_total[\s\S]*?UPDATE delivery_notice_line[\s\S]*?price_tax_total[\s\S]*?UPDATE sales_out_line[\s\S]*?price_tax_total[\s\S]*?UPDATE purchase_order_line[\s\S]*?price_tax_total[\s\S]*?UPDATE purchase_in_line[\s\S]*?price_tax_total/,
   "V63 必须回填核心单据历史分录含税金额"
+);
+assertContains(
+  purchaseOrderSupplierMaterialMigration,
+  /ALTER TABLE purchase_order_line[\s\S]*?supplier_material_code[\s\S]*?plan_delivery_date/,
+  "采购订单分录必须落库供应商物料编码和预计交期"
+);
+assertContains(
+  purchaseOrderAppService,
+  /supplier_material_code[\s\S]*?"supplierMaterialCode"[\s\S]*?plan_delivery_date[\s\S]*?"planDeliveryDate"[\s\S]*?INSERT INTO purchase_order_line[\s\S]*?supplier_material_code[\s\S]*?plan_delivery_date/,
+  "采购订单详情、选源和保存必须贯通供应商物料编码与预计交期"
 );
 assertContains(
   dataListPage,

@@ -54,6 +54,7 @@ export interface DocumentModuleOptions {
   defaultPartyCode: string;
   defaultUnitPrice: number;
   showTargetWarehouseColumn?: boolean;
+  showSupplierMaterialCodeColumn?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
   showTaxMode?: boolean;
@@ -93,6 +94,7 @@ type PreparedEntryLines = {
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number;
     customerMaterialCode?: string;
+    supplierMaterialCode?: string;
     customerOrderNo?: string;
   }[];
   removedBlankCount: number;
@@ -180,7 +182,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
   const showTaxMode = computed(() => Boolean(config.showTaxMode));
-  const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder" || config.documentType === "deliveryNotice");
+  const showSupplierMaterialCodeColumn = computed(() => Boolean(config.showSupplierMaterialCodeColumn));
+  const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder" || config.documentType === "deliveryNotice" || config.documentType === "purchaseOrder");
   const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
@@ -274,6 +277,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 	        sourceOrderNo: String(line.sourceOrderNo ?? ""),
 	        sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
 	        customerMaterialCode: String(line.customerMaterialCode ?? ""),
+	        supplierMaterialCode: String(line.supplierMaterialCode ?? ""),
 	        customerOrderNo: String(line.customerOrderNo ?? ""),
 	        qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
@@ -379,6 +383,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
 	      sourceOrderNo: draft.sourceOrderNo,
 	      sourceLineNo: line.sourceLineNo,
 	      customerMaterialCode: String(line.customerMaterialCode ?? ""),
+	      supplierMaterialCode: String(line.supplierMaterialCode ?? ""),
 	      customerOrderNo: String(line.customerOrderNo ?? ""),
 	      qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
@@ -1282,6 +1287,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showSourceLineColumn,
     showExecutionColumns,
     showTargetWarehouseColumn,
+    showSupplierMaterialCodeColumn,
     showTaxMode,
     showPlanDeliveryDateColumn,
     showStockColumns: computed(() => Boolean(config.showStockColumns)),
@@ -1373,6 +1379,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       taxRate: 13,
       lineRemark: "",
       customerMaterialCode: "",
+      supplierMaterialCode: "",
       customerOrderNo: "",
       planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
@@ -1388,6 +1395,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       taxRate: 13,
       lineRemark: "",
       customerMaterialCode: "",
+      supplierMaterialCode: "",
       customerOrderNo: "",
       planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
@@ -1448,12 +1456,13 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         sourceLineNo: line.sourceLineNo,
         sourceOrderNo: line.sourceOrderNo,
         customerMaterialCode: String(line.customerMaterialCode ?? "").trim(),
+        supplierMaterialCode: String(line.supplierMaterialCode ?? "").trim(),
         customerOrderNo: String(line.customerOrderNo ?? "").trim(),
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
         taxRate: Number(line.taxRate ?? 13),
         lineRemark: String(line.lineRemark ?? "").trim(),
-        planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
+        planDeliveryDate: supportsPlanDeliveryDate(config.documentType) ? String(line.planDeliveryDate ?? "").trim() || undefined : undefined
       })),
       removedBlankCount: lines.length - formLines.length
     };
@@ -1489,7 +1498,7 @@ function defaultSalesQuoteValidUntil() {
 }
 
 function supportsPlanDeliveryDate(documentType: string) {
-  return documentType === "salesOrder" || documentType === "deliveryNotice";
+  return documentType === "salesOrder" || documentType === "deliveryNotice" || documentType === "purchaseOrder";
 }
 
 function normalizedQty(value: number | string | undefined) {

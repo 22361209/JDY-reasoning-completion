@@ -137,6 +137,7 @@
         :party-code-label="`${partyLabel}编码`"
         :show-party-code-column="showPartyCodeColumn"
         :show-customer-material-code-column="showCustomerMaterialCodeColumn"
+        :show-supplier-material-code-column="showSupplierMaterialCodeColumn"
         :show-customer-order-no-column="showCustomerOrderNoColumn"
         :show-source-line-column="showSourceLineColumn"
         :show-execution-columns="showExecutionColumns"
@@ -266,6 +267,7 @@ withDefaults(defineProps<{
   showSourceLineColumn: boolean;
   showPartyCodeColumn?: boolean;
   showCustomerMaterialCodeColumn?: boolean;
+  showSupplierMaterialCodeColumn?: boolean;
   showCustomerOrderNoColumn?: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;

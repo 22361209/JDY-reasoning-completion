@@ -78,12 +78,14 @@ public class PurchaseOrderAppService {
                    GREATEST(0, l.qty - l.received_qty) AS "remainingQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
+                   COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    l.unit_price AS "unitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
-                   COALESCE(l.line_remark, '') AS "lineRemark"
+                   COALESCE(l.line_remark, '') AS "lineRemark",
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_order_line l
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -150,11 +152,13 @@ public class PurchaseOrderAppService {
                    GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))) AS "remainingQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
+                   COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    l.unit_price AS "unitPrice",
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
-                   COALESCE(l.line_remark, '') AS "lineRemark"
+                   COALESCE(l.line_remark, '') AS "lineRemark",
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
             JOIN purchase_order_line l ON l.order_id = po.id
@@ -230,20 +234,22 @@ public class PurchaseOrderAppService {
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_order_line (order_id, line_no, product_id, warehouse_id, supplier_material_code, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
                 productId,
                 warehouseId,
+                optionalTextOrEmpty(line.supplierMaterialCode()),
                 line.qty(),
                 line.unitPrice(),
                 amounts.amount(),
                 amounts.taxRate(),
                 amounts.taxAmount(),
                 amounts.priceTaxTotal(),
-                validationService.optionalText(line.lineRemark())
+                validationService.optionalText(line.lineRemark()),
+                parseOptionalDate(line.planDeliveryDate())
             );
             lineNo += 1;
         }
@@ -285,7 +291,19 @@ public class PurchaseOrderAppService {
         BigDecimal qty,
         BigDecimal unitPrice,
         BigDecimal taxRate,
-        String lineRemark
+        String lineRemark,
+        String supplierMaterialCode,
+        String planDeliveryDate
     ) {
+    }
+
+    private LocalDate parseOptionalDate(String value) {
+        var text = validationService.optionalText(value);
+        return text == null ? null : LocalDate.parse(text);
+    }
+
+    private String optionalTextOrEmpty(String value) {
+        var text = validationService.optionalText(value);
+        return text == null ? "" : text;
     }
 }

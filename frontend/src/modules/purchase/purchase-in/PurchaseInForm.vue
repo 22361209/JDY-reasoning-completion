@@ -141,13 +141,17 @@
                 <td v-if="isSourceColumnVisible('lineNo')">#{{ line.lineNo }}</td>
                 <td v-if="isSourceColumnVisible('supplier')">{{ line.supplierCode }} {{ line.supplier || '' }}</td>
                 <td v-if="isSourceColumnVisible('billDate')">{{ line.billDate }}</td>
+                <td v-if="isSourceColumnVisible('planDeliveryDate')">{{ line.planDeliveryDate || '-' }}</td>
                 <td v-if="isSourceColumnVisible('productCode')">{{ line.productCode }}</td>
+                <td v-if="isSourceColumnVisible('supplierMaterialCode')">{{ line.supplierMaterialCode || '-' }}</td>
                 <td v-if="isSourceColumnVisible('productName')">{{ line.productName || line.spec || '-' }}</td>
                 <td v-if="isSourceColumnVisible('warehouseCode')">{{ line.warehouseCode }}</td>
                 <td v-if="isSourceColumnVisible('sourceQty')">{{ formatQty(line.sourceQty) }}</td>
                 <td v-if="isSourceColumnVisible('receivedQty')">{{ formatQty(line.receivedQty) }}</td>
                 <td v-if="isSourceColumnVisible('remainingQty')">{{ formatQty(line.remainingQty) }}</td>
                 <td v-if="isSourceColumnVisible('unitPrice')">{{ formatAmount(line.unitPrice) }}</td>
+                <td v-if="isSourceColumnVisible('priceTaxTotal')">{{ formatAmount(line.priceTaxTotal) }}</td>
+                <td v-if="isSourceColumnVisible('lineRemark')">{{ line.lineRemark || '' }}</td>
               </tr>
             </template>
           </tbody>
@@ -222,15 +226,19 @@ const sourceSelectorColumns = ref([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "采购订单", width: 150, visible: true },
   { key: "lineNo", title: "行号", width: 70, visible: true },
-  { key: "supplier", title: "供应商", width: 190, visible: true },
-  { key: "billDate", title: "日期", width: 120, visible: true },
+  { key: "supplier", title: "供应商名称", width: 190, visible: true },
+  { key: "billDate", title: "单据日期", width: 120, visible: true },
+  { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true },
   { key: "productCode", title: "物料编码", width: 130, visible: true },
+  { key: "supplierMaterialCode", title: "供应商物料编码", width: 150, visible: true },
   { key: "productName", title: "物料名称", width: 180, visible: true },
   { key: "warehouseCode", title: "仓库", width: 110, visible: true },
   { key: "sourceQty", title: "订单数量", width: 100, visible: true },
   { key: "receivedQty", title: "已入库", width: 100, visible: true },
   { key: "remainingQty", title: "剩余可入", width: 110, visible: true },
-  { key: "unitPrice", title: "单价", width: 100, visible: true }
+  { key: "unitPrice", title: "单价", width: 100, visible: true },
+  { key: "priceTaxTotal", title: "含税金额", width: 110, visible: true },
+  { key: "lineRemark", title: "行备注", width: 160, visible: false }
 ]);
 const visibleSourceColumns = computed(() => sourceSelectorColumns.value.filter((column) => column.visible));
 const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
@@ -392,6 +400,7 @@ function sourceLineSearchText(line: SelectablePurchaseOrderLine) {
     line.supplierCode,
     line.supplier,
     line.productCode,
+    line.supplierMaterialCode,
     line.productName,
     line.spec,
     line.billNo

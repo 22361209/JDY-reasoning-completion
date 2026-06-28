@@ -371,9 +371,11 @@ public class ListStubController {
                        po.bill_no AS "billNo",
                        s.code AS "supplierCode",
                        to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        s.name AS partner,
                        CASE WHEN po.status = 'DRAFT' THEN '草稿' WHEN po.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
                        l.line_no AS "lineNo",
+                       COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                        p.code AS "productCode",
                        p.name AS "productName",
                        COALESCE(p.spec, '') AS spec,
@@ -382,6 +384,14 @@ public class ListStubController {
                        trim(to_char(GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0)), 'FM9999999990.####')) AS "receivedQty",
                        trim(to_char(GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))), 'FM9999999990.####')) AS "remainingQty",
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(
+                           CASE
+                               WHEN po.is_tax_inclusive THEN l.unit_price
+                               ELSE round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2)
+                           END,
+                           'FM9999999990.00'
+                       )) AS "taxInclusiveUnitPrice",
+                       trim(to_char(COALESCE(l.tax_rate, 13), 'FM9999999990.####')) AS "taxRate",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
                        trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
                        '' AS "sourceBillNo",

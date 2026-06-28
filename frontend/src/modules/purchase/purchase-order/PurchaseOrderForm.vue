@@ -27,6 +27,7 @@
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="document.showExecutionColumns.value"
+    :show-supplier-material-code-column="document.showSupplierMaterialCodeColumn.value"
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
     :total-amount="document.totalAmount.value"

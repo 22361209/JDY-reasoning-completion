@@ -15,6 +15,7 @@ export function usePurchaseOrderDocument(options: Parameters<typeof useDocumentM
     defaultDepartment: "采购部",
     defaultPartyCode: "",
     defaultUnitPrice: 72,
+    showSupplierMaterialCodeColumn: true,
     showTaxMode: true,
     initialForm: initialPurchaseOrderForm
   }, options);
