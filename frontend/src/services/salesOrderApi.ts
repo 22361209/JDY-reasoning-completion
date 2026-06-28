@@ -10,9 +10,10 @@ export interface SalesOrderDraftPayload {
     warehouseCode: string;
     qty: number;
     unitPrice: number;
-    taxRate?: number;
-    customerMaterialCode?: string;
-    lineRemark?: string;
+	    taxRate?: number;
+	    customerMaterialCode?: string;
+	    customerOrderNo?: string;
+	    lineRemark?: string;
     planDeliveryDate?: string;
   }>;
 }
@@ -46,9 +47,10 @@ export interface SalesOrderDetail {
     unitPrice: number | string;
     taxRate?: number | string;
     taxAmount?: number | string;
-    priceTaxTotal?: number | string;
-    customerMaterialCode?: string;
-    lineRemark?: string;
+	    priceTaxTotal?: number | string;
+	    customerMaterialCode?: string;
+	    customerOrderNo?: string;
+	    lineRemark?: string;
     planDeliveryDate?: string;
   }>;
 }
@@ -72,9 +74,10 @@ export interface SelectableSalesOrderLine {
   unitPrice: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;
-  priceTaxTotal?: number | string;
-  customerMaterialCode?: string;
-  lineRemark?: string;
+	  priceTaxTotal?: number | string;
+	  customerMaterialCode?: string;
+	  customerOrderNo?: string;
+	  lineRemark?: string;
   planDeliveryDate?: string;
 }
 

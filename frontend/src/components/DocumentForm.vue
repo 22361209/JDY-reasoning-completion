@@ -135,7 +135,9 @@
         :current-bill-no="form.billNo"
         :party-code="form.partyCode"
         :party-code-label="`${partyLabel}编码`"
+        :show-party-code-column="showPartyCodeColumn"
         :show-customer-material-code-column="showCustomerMaterialCodeColumn"
+        :show-customer-order-no-column="showCustomerOrderNoColumn"
         :show-source-line-column="showSourceLineColumn"
         :show-execution-columns="showExecutionColumns"
         :show-target-warehouse-column="showTargetWarehouseColumn"
@@ -262,7 +264,9 @@ withDefaults(defineProps<{
   extraActionTestId?: string;
   canTraceSourceOrder: boolean;
   showSourceLineColumn: boolean;
+  showPartyCodeColumn?: boolean;
   showCustomerMaterialCodeColumn?: boolean;
+  showCustomerOrderNoColumn?: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;

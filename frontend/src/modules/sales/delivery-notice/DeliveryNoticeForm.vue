@@ -36,7 +36,9 @@
     push-down-test-id="push-sales-out-from-delivery-notice"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
+    :show-party-code-column="false"
     :show-customer-material-code-column="true"
+    :show-customer-order-no-column="true"
     :show-execution-columns="document.showExecutionColumns.value"
     :show-plan-delivery-date-column="document.showPlanDeliveryDateColumn.value"
     :show-stock-columns="document.showStockColumns.value"
@@ -352,9 +354,10 @@ function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm
     unitPrice: Number(line.unitPrice ?? 0),
     taxRate: Number(line.taxRate ?? 13),
     taxAmount: line.taxAmount,
-    priceTaxTotal: line.priceTaxTotal,
-    customerMaterialCode: String(line.customerMaterialCode ?? ""),
-    lineRemark: String(line.lineRemark ?? ""),
+	    priceTaxTotal: line.priceTaxTotal,
+	    customerMaterialCode: String(line.customerMaterialCode ?? ""),
+	    customerOrderNo: String(line.customerOrderNo ?? ""),
+	    lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
 }

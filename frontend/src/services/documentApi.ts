@@ -15,9 +15,10 @@ interface DocumentDraftPayload {
     sourceOrderNo?: string;
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number;
-    sourceLineNo?: number;
-    customerMaterialCode?: string;
-    qty: number;
+	    sourceLineNo?: number;
+	    customerMaterialCode?: string;
+	    customerOrderNo?: string;
+	    qty: number;
     unitPrice: number;
     taxRate?: number;
     lineRemark?: string;
@@ -31,6 +32,7 @@ const endpointByType = {
   deliveryNotice: "/api/delivery-notices",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
+  purchaseReturn: "/api/purchase-returns",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
   productIn: "/api/production/product-ins",
@@ -48,6 +50,7 @@ const detailEndpointByType = {
   deliveryNotice: "/api/delivery-notices",
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
+  purchaseReturn: "/api/purchase-returns",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
   productIn: "/api/production/product-ins",
@@ -65,6 +68,7 @@ const outputTypeByDocumentType = {
   deliveryNotice: "delivery-notice",
   purchaseOrder: "purchase-order",
   purchaseIn: "purchase-in",
+  purchaseReturn: "purchase-return",
   salesOut: "sales-out",
   materialIssue: "material-issue",
   productIn: "product-in",
@@ -156,9 +160,10 @@ export interface DocumentDetail {
     sourceOrderNo?: string;
     sourceLineNo?: number | string;
     sourceDeliveryNoticeNo?: string;
-    sourceDeliveryLineNo?: number | string;
-    customerMaterialCode?: string;
-    productCode?: string;
+	    sourceDeliveryLineNo?: number | string;
+	    customerMaterialCode?: string;
+	    customerOrderNo?: string;
+	    productCode?: string;
     productName?: string;
     spec?: string;
     warehouseCode?: string;

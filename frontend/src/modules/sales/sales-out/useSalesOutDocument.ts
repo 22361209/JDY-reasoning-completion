@@ -350,6 +350,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
       customerMaterialCode: String(line.customerMaterialCode ?? ""),
+      customerOrderNo: String(line.customerOrderNo ?? ""),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
     })));
@@ -1332,6 +1333,7 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     salesOut: "销售出库单",
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",
+    purchaseReturn: "采购退货单",
     materialIssue: "生产领料单",
     productIn: "产品入库单",
     otherStockIn: "其他入库单",
@@ -1385,6 +1387,7 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
     unitPrice: Number(line.unitPrice ?? 0),
     taxRate: Number(line.taxRate ?? 13),
     customerMaterialCode: String(line.customerMaterialCode ?? ""),
+    customerOrderNo: String(line.customerOrderNo ?? ""),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
@@ -1404,6 +1407,7 @@ function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLine
     unitPrice: Number(line.unitPrice ?? 0),
     taxRate: Number(line.taxRate ?? 13),
     customerMaterialCode: String(line.customerMaterialCode ?? ""),
+    customerOrderNo: String(line.customerOrderNo ?? ""),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? ""),
     stockOnHand: line.stockOnHand,
@@ -1435,6 +1439,7 @@ function toDocumentLines(lines: OrderLineForm[]) {
     unitPrice: Number(line.unitPrice || 0),
     taxRate: Number(line.taxRate ?? 13),
     customerMaterialCode: String(line.customerMaterialCode ?? "").trim(),
+    customerOrderNo: String(line.customerOrderNo ?? "").trim(),
     lineRemark: String(line.lineRemark ?? "").trim(),
     planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
   }));

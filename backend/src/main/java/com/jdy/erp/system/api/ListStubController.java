@@ -281,6 +281,8 @@ public class ListStubController {
             case "purchase-order-form-list" -> purchaseOrderRows();
             case "delivery-notice-form-list" -> deliveryNoticeRows();
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
+            case "purchase-return-list", "purchase-return-form-list" -> purchaseReturnRows();
+            case "purchase-summary-report" -> purchaseSummaryRows();
             case "sales-out-list", "sales-out-form-list" -> salesOutRows();
             case "other-in-list", "other-in-form-list" -> otherStockInRows();
             case "other-out-list", "other-out-form-list" -> otherStockOutRows();
@@ -307,6 +309,7 @@ public class ListStubController {
                        sq.bill_no AS "billNo",
                        c.code AS "customerCode",
                        COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
+                       COALESCE(l.customer_order_no, '') AS "customerOrderNo",
                        to_char(sq.bill_date, 'YYYY-MM-DD') AS "billDate",
                        to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
@@ -318,7 +321,10 @@ public class ListStubController {
                        COALESCE(w.name, '') AS warehouse,
                        trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(COALESCE(l.tax_rate, 13), 'FM9999999990.####')) AS "taxRate",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
+                       COALESCE(l.line_remark, '') AS "lineRemark",
                        '' AS "sourceBillNo",
                        '' AS "sourceLineNo"
                 FROM sales_quote sq
@@ -333,6 +339,7 @@ public class ListStubController {
                        so.bill_no AS "billNo",
                        c.code AS "customerCode",
                        COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
+                       COALESCE(l.customer_order_no, '') AS "customerOrderNo",
                        to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                        to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
@@ -343,8 +350,13 @@ public class ListStubController {
                        COALESCE(p.spec, '') AS spec,
                        COALESCE(w.name, '') AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(COALESCE(l.shipped_qty, 0), 'FM9999999990.####')) AS "shippedQty",
+                       trim(to_char(GREATEST(0, l.qty - COALESCE(l.shipped_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(COALESCE(l.tax_rate, 13), 'FM9999999990.####')) AS "taxRate",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
+                       COALESCE(l.line_remark, '') AS "lineRemark",
                        '' AS "sourceBillNo",
                        '' AS "sourceLineNo"
                 FROM sales_order so
@@ -367,8 +379,11 @@ public class ListStubController {
                        COALESCE(p.spec, '') AS spec,
                        COALESCE(w.name, '') AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0)), 'FM9999999990.####')) AS "receivedQty",
+                       trim(to_char(GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))), 'FM9999999990.####')) AS "remainingQty",
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
                        '' AS "sourceBillNo",
                        '' AS "sourceLineNo"
                 FROM purchase_order po
@@ -376,6 +391,15 @@ public class ListStubController {
                 JOIN md_supplier s ON s.id = po.supplier_id
                 JOIN md_product p ON p.id = l.product_id
                 LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+                LEFT JOIN (
+                    SELECT pil.source_order_no,
+                           pil.source_line_no,
+                           SUM(pil.qty) AS received_qty
+                    FROM purchase_in_line pil
+                    JOIN purchase_in pi ON pi.id = pil.bill_id
+                    WHERE pi.status <> 'VOID'
+                    GROUP BY pil.source_order_no, pil.source_line_no
+                ) in_qty ON in_qty.source_order_no = po.bill_no AND in_qty.source_line_no = l.line_no
                 ORDER BY po.updated_at DESC, l.line_no
                 """);
             case "sales-out-list", "sales-out-form-list" -> queryDetailRows("""
@@ -383,6 +407,7 @@ public class ListStubController {
                        so.bill_no AS "billNo",
                        c.code AS "customerCode",
                        COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
+                       COALESCE(l.customer_order_no, '') AS "customerOrderNo",
                        to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                        to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
@@ -400,7 +425,10 @@ public class ListStubController {
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(COALESCE(l.tax_rate, 13), 'FM9999999990.####')) AS "taxRate",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
+                       COALESCE(l.line_remark, '') AS "lineRemark",
                        COALESCE(l.source_delivery_notice_no, l.source_order_no, '') AS "sourceBillNo",
                        COALESCE(l.source_delivery_line_no::text, l.source_line_no::text, '') AS "sourceLineNo"
                 FROM sales_out so
@@ -415,6 +443,7 @@ public class ListStubController {
                        dn.bill_no AS "billNo",
                        c.code AS "customerCode",
                        COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
+                       COALESCE(l.customer_order_no, '') AS "customerOrderNo",
                        to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
                        to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
@@ -431,7 +460,10 @@ public class ListStubController {
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(COALESCE(l.tax_rate, 13), 'FM9999999990.####')) AS "taxRate",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
+                       COALESCE(l.line_remark, '') AS "lineRemark",
                        COALESCE(l.source_order_no, '') AS "sourceBillNo",
                        COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
                 FROM delivery_notice dn
@@ -462,6 +494,7 @@ public class ListStubController {
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
                        COALESCE(l.source_order_no, '') AS "sourceBillNo",
                        COALESCE(l.source_line_no::text, '') AS "sourceLineNo"
                 FROM purchase_in pi
@@ -470,6 +503,37 @@ public class ListStubController {
                 JOIN md_product p ON p.id = l.product_id
                 JOIN md_warehouse w ON w.id = l.warehouse_id
                 ORDER BY pi.updated_at DESC, l.line_no
+                """);
+            case "purchase-return-list", "purchase-return-form-list" -> queryDetailRows("""
+                SELECT concat(pr.id::text, '-', l.line_no) AS id,
+                       pr.bill_no AS "billNo",
+                       s.code AS "supplierCode",
+                       to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       s.name AS partner,
+                       CASE
+                           WHEN pr.status = 'DRAFT' THEN '草稿'
+                           WHEN pr.status = 'REVERSED' THEN '已反审核'
+                           WHEN pr.status = 'VOID' THEN '已作废'
+                           ELSE '已审核'
+                       END AS status,
+                       l.line_no AS "lineNo",
+                       p.code AS "productCode",
+                       p.name AS "productName",
+                       COALESCE(p.spec, '') AS spec,
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
+                       COALESCE(l.source_in_no, '') AS "sourceBillNo",
+                       COALESCE(l.source_line_no::text, '') AS "sourceLineNo",
+                       COALESCE(l.line_remark, '') AS "lineRemark"
+                FROM purchase_return pr
+                JOIN purchase_return_line l ON l.bill_id = pr.id
+                JOIN md_supplier s ON s.id = pr.supplier_id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                ORDER BY pr.updated_at DESC, l.line_no
                 """);
             case "material-issue-list", "material-issue-form-list" -> queryDetailRows("""
                 SELECT concat(i.id::text, '-', l.line_no) AS id,
@@ -792,22 +856,66 @@ public class ListStubController {
                    END AS "outStatus",
                    so.close_status AS "closeStatus",
                    so.frozen_status AS "frozenStatus",
-                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(extra.shipped_qty, 0), 'FM9999999990.####')) AS "shippedQty",
+                   trim(to_char(GREATEST(0, COALESCE(extra.qty, 0) - COALESCE(extra.shipped_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
+                   COALESCE(so.remark, '') AS remark,
                    COALESCE(so.owner_name, '') AS owner
             FROM sales_order so
             JOIN md_customer c ON c.id = so.customer_id
             LEFT JOIN (
                 SELECT order_id,
-                       MIN(plan_delivery_date) AS plan_delivery_date
+                       MIN(plan_delivery_date) AS plan_delivery_date,
+                       SUM(qty) AS qty,
+                       SUM(shipped_qty) AS shipped_qty,
+                       SUM(amount) AS amount
                 FROM sales_order_line
                 GROUP BY order_id
             ) extra ON extra.order_id = so.id
             ORDER BY so.updated_at DESC
             """));
         realRows.addAll(Stream.<Map<String, ?>>of(
-            Map.of("id", "so1", "billNo", "XSDD-00001", "customer", "广州测试客户", "billDate", "2026-06-23", "status", "已审核", "amount", "1,720.00", "owner", "本地管理员"),
-            Map.of("id", "so2", "billNo", "XSDD-00002", "customer", "佛山测试客户", "billDate", "2026-06-22", "status", "草稿", "amount", "980.00", "owner", "本地管理员"),
-            Map.of("id", "so3", "billNo", "XSDD-00003", "customer", "东莞备用客户", "billDate", "2026-06-21", "status", "草稿", "amount", "2,460.00", "owner", "销售部")
+            Map.ofEntries(
+                Map.entry("id", "so1"),
+                Map.entry("billNo", "XSDD-00001"),
+                Map.entry("customer", "广州测试客户"),
+                Map.entry("billDate", "2026-06-23"),
+                Map.entry("status", "已审核"),
+                Map.entry("qty", "20"),
+                Map.entry("shippedQty", "20"),
+                Map.entry("remainingQty", "0"),
+                Map.entry("amount", "1,522.12"),
+                Map.entry("priceTaxTotal", "1,720.00"),
+                Map.entry("owner", "本地管理员")
+            ),
+            Map.ofEntries(
+                Map.entry("id", "so2"),
+                Map.entry("billNo", "XSDD-00002"),
+                Map.entry("customer", "佛山测试客户"),
+                Map.entry("billDate", "2026-06-22"),
+                Map.entry("status", "草稿"),
+                Map.entry("qty", "8"),
+                Map.entry("shippedQty", "0"),
+                Map.entry("remainingQty", "8"),
+                Map.entry("amount", "867.26"),
+                Map.entry("priceTaxTotal", "980.00"),
+                Map.entry("owner", "本地管理员")
+            ),
+            Map.ofEntries(
+                Map.entry("id", "so3"),
+                Map.entry("billNo", "XSDD-00003"),
+                Map.entry("customer", "东莞备用客户"),
+                Map.entry("billDate", "2026-06-21"),
+                Map.entry("status", "草稿"),
+                Map.entry("qty", "12"),
+                Map.entry("shippedQty", "0"),
+                Map.entry("remainingQty", "12"),
+                Map.entry("amount", "2,176.99"),
+                Map.entry("priceTaxTotal", "2,460.00"),
+                Map.entry("owner", "销售部")
+            )
         ).toList());
         return realRows;
     }
@@ -827,10 +935,32 @@ public class ListStubController {
                    END AS "inStatus",
                    po.close_status AS "closeStatus",
                    po.frozen_status AS "frozenStatus",
-                   trim(to_char(po.total_amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(extra.received_qty, 0), 'FM9999999990.####')) AS "receivedQty",
+                   trim(to_char(GREATEST(0, COALESCE(extra.qty, 0) - COALESCE(extra.received_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(po.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
                    COALESCE(po.owner_name, '') AS owner
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
+            LEFT JOIN (
+                SELECT pol.order_id,
+                       SUM(pol.qty) AS qty,
+                       SUM(GREATEST(COALESCE(pol.received_qty, 0), COALESCE(in_qty.received_qty, 0))) AS received_qty,
+                       SUM(pol.amount) AS amount
+                FROM purchase_order_line pol
+                JOIN purchase_order po2 ON po2.id = pol.order_id
+                LEFT JOIN (
+                    SELECT pil.source_order_no,
+                           pil.source_line_no,
+                           SUM(pil.qty) AS received_qty
+                    FROM purchase_in_line pil
+                    JOIN purchase_in pi ON pi.id = pil.bill_id
+                    WHERE pi.status <> 'VOID'
+                    GROUP BY pil.source_order_no, pil.source_line_no
+                ) in_qty ON in_qty.source_order_no = po2.bill_no AND in_qty.source_line_no = pol.line_no
+                GROUP BY pol.order_id
+            ) extra ON extra.order_id = po.id
             ORDER BY po.updated_at DESC
             """));
     }
@@ -856,13 +986,16 @@ public class ListStubController {
                        WHEN sq.valid_until < CURRENT_DATE THEN '已过期'
                        ELSE '有效'
                    END AS "validStatus",
-                   trim(to_char(sq.total_amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(sq.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
+                   COALESCE(sq.remark, '') AS remark,
                    COALESCE(sq.owner_name, '') AS owner
             FROM sales_quote sq
             JOIN md_customer c ON c.id = sq.customer_id
             LEFT JOIN (
                 SELECT quote_id,
-                       MIN(plan_delivery_date) AS plan_delivery_date
+                       MIN(plan_delivery_date) AS plan_delivery_date,
+                       SUM(amount) AS amount
                 FROM sales_quote_line
                 GROUP BY quote_id
             ) extra ON extra.quote_id = sq.id
@@ -884,7 +1017,9 @@ public class ListStubController {
                        WHEN pi.status = 'VOID' THEN '已作废'
                        ELSE '已审核'
                    END AS status,
-                   trim(to_char(pi.total_amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(pi.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
                    COALESCE(src.source_bill_no, '') AS "sourceBillNo",
                    COALESCE(w.name, '') AS warehouse
             FROM purchase_in pi
@@ -896,8 +1031,123 @@ public class ListStubController {
                 WHERE source_order_no IS NOT NULL AND source_order_no <> ''
                 GROUP BY bill_id
             ) src ON src.bill_id = pi.id
+            LEFT JOIN (
+                SELECT bill_id,
+                       SUM(qty) AS qty,
+                       SUM(amount) AS amount
+                FROM purchase_in_line
+                GROUP BY bill_id
+            ) extra ON extra.bill_id = pi.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY pi.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> purchaseReturnRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT pr.id::text AS id,
+                   pr.bill_no AS "billNo",
+                   s.code AS "supplierCode",
+                   s.name AS supplier,
+                   to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   CASE
+                       WHEN pr.status = 'DRAFT' THEN '草稿'
+                       WHEN pr.status = 'REVERSED' THEN '已反审核'
+                       WHEN pr.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   pr.close_status AS "closeStatus",
+                   pr.frozen_status AS "frozenStatus",
+                   trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(pr.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
+                   COALESCE(src.source_bill_no, '') AS "sourceBillNo",
+                   COALESCE(w.name, '') AS warehouse,
+                   COALESCE(pr.remark, '') AS remark,
+                   COALESCE(pr.owner_name, '') AS owner
+            FROM purchase_return pr
+            JOIN md_supplier s ON s.id = pr.supplier_id
+            LEFT JOIN purchase_return_line l ON l.bill_id = pr.id AND l.line_no = 1
+            LEFT JOIN (
+                SELECT bill_id, string_agg(DISTINCT source_in_no, '、' ORDER BY source_in_no) AS source_bill_no
+                FROM purchase_return_line
+                WHERE source_in_no IS NOT NULL AND source_in_no <> ''
+                GROUP BY bill_id
+            ) src ON src.bill_id = pr.id
+            LEFT JOIN (
+                SELECT bill_id,
+                       SUM(qty) AS qty,
+                       SUM(amount) AS amount
+                FROM purchase_return_line
+                GROUP BY bill_id
+            ) extra ON extra.bill_id = pr.id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            ORDER BY pr.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> purchaseSummaryRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            WITH order_lines AS (
+                SELECT s.code AS supplier_code,
+                       s.name AS supplier,
+                       p.code AS product_code,
+                       p.name AS product_name,
+                       SUM(l.qty) AS order_qty,
+                       SUM(l.amount) AS order_amount,
+                       SUM(l.price_tax_total) AS order_tax_amount
+                FROM purchase_order po
+                JOIN md_supplier s ON s.id = po.supplier_id
+                JOIN purchase_order_line l ON l.order_id = po.id
+                JOIN md_product p ON p.id = l.product_id
+                WHERE po.status = 'AUDITED'
+                GROUP BY s.code, s.name, p.code, p.name
+            ),
+            in_lines AS (
+                SELECT s.code AS supplier_code,
+                       p.code AS product_code,
+                       SUM(l.qty) AS in_qty,
+                       SUM(l.amount) AS in_amount,
+                       SUM(l.price_tax_total) AS in_tax_amount
+                FROM purchase_in pi
+                JOIN md_supplier s ON s.id = pi.supplier_id
+                JOIN purchase_in_line l ON l.bill_id = pi.id
+                JOIN md_product p ON p.id = l.product_id
+                WHERE pi.status = 'AUDITED'
+                GROUP BY s.code, p.code
+            ),
+            return_lines AS (
+                SELECT s.code AS supplier_code,
+                       p.code AS product_code,
+                       SUM(l.qty) AS return_qty,
+                       SUM(l.amount) AS return_amount,
+                       SUM(l.price_tax_total) AS return_tax_amount
+                FROM purchase_return pr
+                JOIN md_supplier s ON s.id = pr.supplier_id
+                JOIN purchase_return_line l ON l.bill_id = pr.id
+                JOIN md_product p ON p.id = l.product_id
+                WHERE pr.status = 'AUDITED'
+                GROUP BY s.code, p.code
+            )
+            SELECT concat(COALESCE(o.supplier_code, i.supplier_code, r.supplier_code), '-', COALESCE(o.product_code, i.product_code, r.product_code)) AS id,
+                   COALESCE(o.supplier_code, i.supplier_code, r.supplier_code) AS "supplierCode",
+                   COALESCE(o.supplier, s.name, '') AS supplier,
+                   COALESCE(o.product_code, i.product_code, r.product_code) AS "productCode",
+                   COALESCE(o.product_name, p.name, '') AS "productName",
+                   trim(to_char(COALESCE(o.order_qty, 0), 'FM9999999990.####')) AS "orderQty",
+                   trim(to_char(COALESCE(i.in_qty, 0), 'FM9999999990.####')) AS "inQty",
+                   trim(to_char(COALESCE(r.return_qty, 0), 'FM9999999990.####')) AS "returnQty",
+                   trim(to_char(GREATEST(0, COALESCE(o.order_qty, 0) - COALESCE(i.in_qty, 0) + COALESCE(r.return_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
+                   trim(to_char(COALESCE(o.order_amount, 0), 'FM9999999990.00')) AS "orderAmount",
+                   trim(to_char(COALESCE(i.in_amount, 0), 'FM9999999990.00')) AS "inAmount",
+                   trim(to_char(COALESCE(r.return_amount, 0), 'FM9999999990.00')) AS "returnAmount",
+                   trim(to_char(COALESCE(i.in_tax_amount, 0) - COALESCE(r.return_tax_amount, 0), 'FM9999999990.00')) AS "netPurchaseAmount"
+            FROM order_lines o
+            FULL JOIN in_lines i ON i.supplier_code = o.supplier_code AND i.product_code = o.product_code
+            FULL JOIN return_lines r ON r.supplier_code = COALESCE(o.supplier_code, i.supplier_code) AND r.product_code = COALESCE(o.product_code, i.product_code)
+            LEFT JOIN md_supplier s ON s.code = COALESCE(o.supplier_code, i.supplier_code, r.supplier_code)
+            LEFT JOIN md_product p ON p.code = COALESCE(o.product_code, i.product_code, r.product_code)
+            ORDER BY COALESCE(o.supplier_code, i.supplier_code, r.supplier_code), COALESCE(o.product_code, i.product_code, r.product_code)
             """));
     }
 
@@ -916,7 +1166,9 @@ public class ListStubController {
                        WHEN so.status = 'VOID' THEN '已作废'
                        ELSE '已审核'
                    END AS status,
-                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
+                   COALESCE(so.remark, '') AS remark,
                    COALESCE(src.source_bill_no, '') AS "sourceBillNo",
                    COALESCE(w.name, '') AS warehouse
             FROM sales_out so
@@ -930,7 +1182,8 @@ public class ListStubController {
             ) src ON src.bill_id = so.id
             LEFT JOIN (
                 SELECT bill_id,
-                       MIN(plan_delivery_date) AS plan_delivery_date
+                       MIN(plan_delivery_date) AS plan_delivery_date,
+                       SUM(amount) AS amount
                 FROM sales_out_line
                 GROUP BY bill_id
             ) extra ON extra.bill_id = so.id
@@ -953,7 +1206,9 @@ public class ListStubController {
                        WHEN dn.status = 'VOID' THEN '已作废'
                        ELSE '已审核'
                    END AS status,
-                   trim(to_char(dn.total_amount, 'FM9999999990.00')) AS amount,
+                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(dn.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
+                   COALESCE(dn.remark, '') AS remark,
                    COALESCE(src.source_bill_no, '') AS "sourceBillNo",
                    COALESCE(w.name, '') AS warehouse
             FROM delivery_notice dn
@@ -967,7 +1222,8 @@ public class ListStubController {
             ) src ON src.bill_id = dn.id
             LEFT JOIN (
                 SELECT bill_id,
-                       MIN(plan_delivery_date) AS plan_delivery_date
+                       MIN(plan_delivery_date) AS plan_delivery_date,
+                       SUM(amount) AS amount
                 FROM delivery_notice_line
                 GROUP BY bill_id
             ) extra ON extra.bill_id = dn.id

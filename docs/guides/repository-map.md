@@ -97,7 +97,7 @@
 ./scripts/dev-status.sh
 ./scripts/dev-down.sh
 npm --prefix frontend run build
-JAVA_HOME=/opt/homebrew/Cellar/openjdk@21/21.0.11/libexec/openjdk.jdk/Contents/Home ./backend/mvnw -f backend/pom.xml test
+./scripts/backend-test.sh
 node scripts/run-regression-tier.mjs smoke
 node scripts/run-regression-tier.mjs area:sales
 node scripts/run-regression-tier.mjs full

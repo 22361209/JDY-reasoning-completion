@@ -14,6 +14,8 @@ FRONTEND_SESSION="jdy-erp-frontend"
 FRONTEND_URL="http://127.0.0.1:5173/"
 BACKEND_HEALTH_URL="http://127.0.0.1:8080/actuator/health"
 
+source "$ROOT_DIR/scripts/java-env.sh"
+
 mkdir -p "$LOG_DIR"
 
 log() {
@@ -87,27 +89,16 @@ start_backend() {
     return
   fi
 
-  local java_home="${JAVA_HOME:-}"
-  if [[ -z "$java_home" && -d /opt/homebrew/opt/openjdk@21 ]]; then
-    java_home="/opt/homebrew/opt/openjdk@21"
-  fi
+  ensure_project_java
 
   log "starting backend; log: $BACKEND_LOG"
   if screen_available; then
-    if [[ -n "$java_home" ]]; then
-      start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec env JAVA_HOME='$java_home' ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
-    else
-      start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
-    fi
+    start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec env JAVA_HOME='$JAVA_HOME' PATH='$PATH' ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
     printf 'screen:%s\n' "$BACKEND_SESSION" > "$BACKEND_PID_FILE"
   else
     (
       cd "$BACKEND_DIR"
-      if [[ -n "$java_home" ]]; then
-        nohup env JAVA_HOME="$java_home" ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
-      else
-        nohup ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
-      fi
+      nohup env JAVA_HOME="$JAVA_HOME" PATH="$PATH" ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
       printf '%s\n' "$!" > "$BACKEND_PID_FILE"
     )
   fi

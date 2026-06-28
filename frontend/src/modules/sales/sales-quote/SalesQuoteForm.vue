@@ -11,7 +11,7 @@
     :message="document.message.value"
     :form="document.form"
     test-prefix="sales-quote"
-    party-label="客户"
+    :party-label="partyLabel"
     party-type="customer"
     :is-document-form="true"
     :is-stock-document-form="false"
@@ -29,18 +29,20 @@
     :show-unclose="false"
     :show-freeze="false"
     :show-unfreeze="false"
-    :show-source-select="false"
+    :show-source-select="showSourceSelect"
     :show-extra-action="document.form.status === 'AUDITED' && !isExpired"
     :can-extra-action="document.form.status === 'AUDITED' && !isExpired"
     :extra-action-label="document.form.enabled === false ? '设为有效' : '设为失效'"
     extra-action-test-id="sales-quote-toggle-valid"
     :show-delete="document.showDelete.value"
     :can-delete="document.canDelete.value"
-    :can-trace-source-order="false"
-    :show-source-line-column="false"
+    :can-trace-source-order="showSourceLineColumn"
+    :show-source-line-column="showSourceLineColumn"
+    :show-party-code-column="false"
     :show-customer-material-code-column="true"
+    :show-customer-order-no-column="true"
     :show-execution-columns="false"
-    :show-plan-delivery-date-column="document.showPlanDeliveryDateColumn.value"
+    :show-plan-delivery-date-column="false"
     :show-stock-columns="false"
     :enable-sales-price-bulk="false"
     :entry-table-colspan="document.entryTableColspan.value"
@@ -114,9 +116,15 @@
 import { computed } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
+import { getBillDefinition } from "../../metadata/registry";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import { setSalesQuoteValid } from "../../../services/salesQuoteApi";
 import { useSalesQuoteDocument } from "./useSalesQuoteDocument";
+
+const billDefinition = getBillDefinition("salesQuote");
+const partyLabel = billDefinition?.party?.codeLabel.replace(/编码$/, "") ?? "客户";
+const showSourceSelect = billDefinition ? billDefinition.sourcePolicy !== "none" : false;
+const showSourceLineColumn = billDefinition ? billDefinition.sourcePolicy !== "none" : false;
 
 const props = defineProps<{
   title: string;

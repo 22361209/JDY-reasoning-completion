@@ -93,6 +93,7 @@ type PreparedEntryLines = {
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number;
     customerMaterialCode?: string;
+    customerOrderNo?: string;
   }[];
   removedBlankCount: number;
 };
@@ -270,10 +271,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
         targetWarehouseCode: String(line.targetWarehouseCode ?? config.defaultTargetWarehouseCode ?? "CK-002"),
         lineNo: normalizedOptionalInt(line.lineNo),
-        sourceOrderNo: String(line.sourceOrderNo ?? ""),
-        sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
-        customerMaterialCode: String(line.customerMaterialCode ?? ""),
-        qty: Number(line.qty ?? 0),
+	        sourceOrderNo: String(line.sourceOrderNo ?? ""),
+	        sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
+	        customerMaterialCode: String(line.customerMaterialCode ?? ""),
+	        customerOrderNo: String(line.customerOrderNo ?? ""),
+	        qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
         remainingQty: documentLineRemainingQty(line),
         lineCloseStatus: line.lineCloseStatus ?? "OPEN",
@@ -374,10 +376,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
-      sourceOrderNo: draft.sourceOrderNo,
-      sourceLineNo: line.sourceLineNo,
-      customerMaterialCode: String(line.customerMaterialCode ?? ""),
-      qty: normalizedQty(line.qty),
+	      sourceOrderNo: draft.sourceOrderNo,
+	      sourceLineNo: line.sourceLineNo,
+	      customerMaterialCode: String(line.customerMaterialCode ?? ""),
+	      customerOrderNo: String(line.customerOrderNo ?? ""),
+	      qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
@@ -1370,6 +1373,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       taxRate: 13,
       lineRemark: "",
       customerMaterialCode: "",
+      customerOrderNo: "",
       planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
   }
@@ -1384,6 +1388,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       taxRate: 13,
       lineRemark: "",
       customerMaterialCode: "",
+      customerOrderNo: "",
       planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
   }
@@ -1443,6 +1448,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         sourceLineNo: line.sourceLineNo,
         sourceOrderNo: line.sourceOrderNo,
         customerMaterialCode: String(line.customerMaterialCode ?? "").trim(),
+        customerOrderNo: String(line.customerOrderNo ?? "").trim(),
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
         taxRate: Number(line.taxRate ?? 13),
@@ -1579,6 +1585,7 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     salesOut: "销售出库单",
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",
+    purchaseReturn: "采购退货单",
     materialIssue: "生产领料单",
     productIn: "产品入库单",
     otherStockIn: "其他入库单",

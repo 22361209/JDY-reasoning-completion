@@ -16,9 +16,10 @@ export interface SelectableSalesQuoteLine {
   unitPrice: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;
-  priceTaxTotal?: number | string;
-  customerMaterialCode?: string;
-  lineRemark?: string;
+	  priceTaxTotal?: number | string;
+	  customerMaterialCode?: string;
+	  customerOrderNo?: string;
+	  lineRemark?: string;
   planDeliveryDate?: string;
 }
 

@@ -120,10 +120,6 @@
       <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchUnfreeze" data-testid="batch-unfreeze" @click="confirmAction('解冻')">解冻</button>
       <button v-if="isLifecycleDocumentList" class="danger-action" type="button" :disabled="!canBatchVoid" data-testid="batch-void" @click="confirmAction('作废')">作废</button>
       <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
-      <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
-        {{ isDetailView ? "整单视图" : "明细视图" }}
-      </button>
-      <button type="button" data-testid="column-settings" @click="columnDialogOpen = true">列设置</button>
       <div class="list-more-actions">
         <button type="button" class="list-more-trigger" data-testid="list-more-actions">更多</button>
         <div class="list-more-menu">
@@ -137,6 +133,14 @@
       <span class="selected-count">已选中 {{ selectedRows.length }} 条</span>
       <span v-if="exportMessage" class="list-export-message" data-testid="list-export-message">{{ exportMessage }}</span>
       <span v-if="batchMessage" class="list-export-message" data-testid="list-batch-message">{{ batchMessage }}</span>
+    </div>
+
+    <div class="list-table-tools">
+      <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
+        {{ isDetailView ? "整单视图" : "明细视图" }}
+      </button>
+      <button type="button" data-testid="column-settings" @click="columnDialogOpen = true">列设置</button>
+      <button type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
     </div>
 
     <TableCore
@@ -224,6 +228,20 @@
         <span>{{ stateMessage }}</span>
         <button type="button" @click="reload">重试</button>
       </div>
+      </template>
+      <template v-if="hasListSummary" #footer>
+        <tr class="vxe-footer--row list-total-row" :data-testid="listSummaryRowTestId">
+          <td
+            v-for="column in listCoreColumns"
+            :key="column.key"
+            class="vxe-footer--column"
+            :class="`col--align-${column.align || 'left'}`"
+            :style="{ width: `${column.width ?? column.minWidth ?? 120}px`, minWidth: `${column.width ?? column.minWidth ?? 120}px`, maxWidth: `${column.width ?? column.minWidth ?? 120}px` }"
+            :data-testid="listSummaryCellTestId(column.key)"
+          >
+            <div class="vxe-cell">{{ listSummaryFooterValue(column.key) }}</div>
+          </td>
+        </tr>
       </template>
     </TableCore>
 
@@ -374,6 +392,7 @@ import {
   type ListFilterPreset
 } from "../services/listApi";
 import { lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
+import { getBillDefinitionByListKey } from "../modules/metadata/registry";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
 import { useSessionStore } from "../stores/session";
 
@@ -402,7 +421,7 @@ interface ColumnFilter {
   value: string;
 }
 
-type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
+type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
 const props = defineProps<{
   listKey: string;
@@ -586,10 +605,14 @@ const definitions: Record<string, ListDefinition> = {
       { field: "customerCode", title: "客户编码", width: 120, visible: true },
       { field: "customer", title: "客户名称", width: 200, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
-      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "outStatus", title: "出库状态", width: 110, visible: true },
+      { field: "qty", title: "数量", width: 110, align: "right", visible: true },
+      { field: "shippedQty", title: "已出库数量", width: 120, align: "right", visible: true },
+      { field: "remainingQty", title: "未出库数量", width: 120, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "owner", title: "经办人", width: 120, visible: true }
     ]
   },
@@ -603,11 +626,12 @@ const definitions: Record<string, ListDefinition> = {
       { field: "customerCode", title: "客户编码", width: 120, visible: true },
       { field: "customer", title: "客户名称", width: 200, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
-      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "validUntil", title: "报价有效期", width: 130, visible: true },
       { field: "validStatus", title: "有效状态", width: 110, visible: true },
       { field: "amount", title: "报价金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "owner", title: "经办人", width: 120, visible: true }
     ]
   },
@@ -623,7 +647,31 @@ const definitions: Record<string, ListDefinition> = {
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "inStatus", title: "入库状态", width: 110, visible: true },
+      { field: "qty", title: "数量", width: 110, align: "right", visible: true },
+      { field: "receivedQty", title: "已入库数量", width: 120, align: "right", visible: true },
+      { field: "remainingQty", title: "未入库数量", width: 120, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "owner", title: "经办人", width: 120, visible: true }
+    ]
+  },
+  "purchase-return-form-list": {
+    title: "采购退货单",
+    subtitle: "采购退货单从已审核采购入库单选源，审核后扣减库存。",
+    keywordPlaceholder: "单据编号、供应商、仓库",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
+      { field: "supplier", title: "供应商", width: 220, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "qty", title: "退货数量", width: 110, align: "right", visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "sourceBillNo", title: "源采购入库单", width: 170, visible: true },
+      { field: "warehouse", title: "仓库", width: 140, visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "owner", title: "经办人", width: 120, visible: true }
     ]
   },
@@ -638,7 +686,9 @@ const definitions: Record<string, ListDefinition> = {
       { field: "supplier", title: "供应商", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
+      { field: "qty", title: "入库数量", width: 110, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
@@ -653,8 +703,30 @@ const definitions: Record<string, ListDefinition> = {
       { field: "supplier", title: "供应商", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
+      { field: "qty", title: "入库数量", width: 110, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "purchase-summary-report": {
+    title: "采购汇总表",
+    subtitle: "按供应商和物料汇总采购订单、入库、退货与净采购金额。",
+    keywordPlaceholder: "供应商、物料编码、物料名称",
+    statuses: ["全部"],
+    columns: [
+      { field: "supplierCode", title: "供应商编码", width: 130, fixed: "left", visible: true },
+      { field: "supplier", title: "供应商", width: 200, visible: true },
+      { field: "productCode", title: "物料编码", width: 140, visible: true },
+      { field: "productName", title: "物料名称", width: 200, visible: true },
+      { field: "orderQty", title: "订单数量", width: 110, align: "right", visible: true },
+      { field: "inQty", title: "入库数量", width: 110, align: "right", visible: true },
+      { field: "returnQty", title: "退货数量", width: 110, align: "right", visible: true },
+      { field: "remainingQty", title: "未入库数量", width: 120, align: "right", visible: true },
+      { field: "orderAmount", title: "订单金额", width: 120, align: "right", visible: true },
+      { field: "inAmount", title: "入库金额", width: 120, align: "right", visible: true },
+      { field: "returnAmount", title: "退货金额", width: 120, align: "right", visible: true },
+      { field: "netPurchaseAmount", title: "净采购含税金额", width: 150, align: "right", visible: true }
     ]
   },
   "delivery-notice-form-list": {
@@ -667,9 +739,10 @@ const definitions: Record<string, ListDefinition> = {
       { field: "customerCode", title: "客户编码", width: 120, visible: true },
       { field: "customer", title: "客户名称", width: 200, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
-      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "sourceBillNo", title: "源销售订单", width: 160, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
@@ -684,9 +757,10 @@ const definitions: Record<string, ListDefinition> = {
       { field: "customerCode", title: "客户编码", width: 120, visible: true },
       { field: "customer", title: "客户名称", width: 200, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
-      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
@@ -700,9 +774,10 @@ const definitions: Record<string, ListDefinition> = {
       { field: "customerCode", title: "客户编码", width: 120, visible: true },
       { field: "customer", title: "客户名称", width: 200, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
-      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
@@ -997,8 +1072,28 @@ const fallbackDefinition: ListDefinition = {
   columns: definitions["sales-order-form-list"].columns
 };
 
-const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
+const billDefinition = computed(() => getBillDefinitionByListKey(props.listKey));
+const definition = computed(() => {
+  const metadataDefinition = billDefinition.value;
+  if (metadataDefinition) {
+    return {
+      title: `${metadataDefinition.title}列表`,
+      subtitle: metadataDefinition.subtitle,
+      keywordPlaceholder: metadataDefinition.keywordPlaceholder,
+      statuses: metadataDefinition.statuses,
+      columns: metadataDefinition.listViews.header
+    };
+  }
+  return definitions[props.listKey] ?? fallbackDefinition;
+});
 function detailColumnsForList(): ListColumn[] {
+  if (props.listKey === "purchase-summary-report") {
+    return definition.value.columns.map((column) => ({ ...column }));
+  }
+  const metadataDefinition = billDefinition.value;
+  if (metadataDefinition) {
+    return metadataDefinition.listViews.detail.map((column) => ({ ...column }));
+  }
   const isPurchase = props.listKey.includes("purchase");
   const isSales = ["sales-quote-form-list", "sales-order-form-list", "delivery-notice-form-list", "sales-out-list", "sales-out-form-list"].includes(props.listKey);
   const showsSourceColumns = [
@@ -1007,14 +1102,16 @@ function detailColumnsForList(): ListColumn[] {
     "sales-out-list",
     "sales-out-form-list",
     "purchase-in-list",
-    "purchase-in-form-list"
+    "purchase-in-form-list",
+    "purchase-return-form-list"
   ].includes(props.listKey);
   const partyCodeColumn: ListColumn[] = isPurchase || isSales
     ? [{ field: isPurchase ? "supplierCode" : "customerCode", title: isPurchase ? "供应商编码" : "客户编码", width: 120, visible: true }]
     : [];
   const customerOnlyColumns: ListColumn[] = isSales
     ? [
-        { field: "customerMaterialCode", title: "客户物料号", width: 150, visible: true },
+        { field: "customerMaterialCode", title: "客户物料编码", width: 150, visible: true },
+        { field: "customerOrderNo", title: "客户订单号", width: 150, visible: true },
         { field: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
       ]
     : [];
@@ -1028,9 +1125,9 @@ function detailColumnsForList(): ListColumn[] {
     { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
     ...partyCodeColumn,
     { field: "partner", title: isPurchase ? "供应商" : "客户名称", width: 180, visible: true },
-    ...customerOnlyColumns.slice(0, 1),
+    ...customerOnlyColumns.slice(0, 2),
     { field: "billDate", title: "单据日期", width: 120, visible: true },
-    ...customerOnlyColumns.slice(1),
+    ...customerOnlyColumns.slice(2),
     { field: "status", title: "审核状态", width: 100, visible: true },
     { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
     { field: "productCode", title: "物料编码", width: 130, visible: true },
@@ -1038,8 +1135,19 @@ function detailColumnsForList(): ListColumn[] {
     { field: "spec", title: "规格型号", width: 150, visible: true },
     { field: "warehouse", title: "仓库", width: 150, visible: true },
     { field: "qty", title: "数量", width: 110, align: "right", visible: true },
-    { field: "unitPrice", title: "单价", width: 110, align: "right", visible: true },
+    ...(props.listKey === "sales-order-form-list" ? [
+      { field: "shippedQty", title: "已出库数量", width: 120, align: "right", visible: true },
+      { field: "remainingQty", title: "未出库数量", width: 120, align: "right", visible: true }
+    ] satisfies ListColumn[] : []),
+    ...(props.listKey === "purchase-order-form-list" ? [
+      { field: "receivedQty", title: "已入库数量", width: 120, align: "right", visible: true },
+      { field: "remainingQty", title: "未入库数量", width: 120, align: "right", visible: true }
+    ] satisfies ListColumn[] : []),
+    { field: "unitPrice", title: "单价", width: 120, align: "right", visible: true },
+    { field: "taxInclusiveUnitPrice", title: "含税单价", width: 120, align: "right", visible: true },
     { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+    { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+    { field: "lineRemark", title: "行备注", width: 180, visible: true },
     ...sourceColumns
   ];
 }
@@ -1060,6 +1168,7 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
   "purchase-order-form-list": "purchase.order.audit",
   "purchase-in-list": "purchase.in.audit",
   "purchase-in-form-list": "purchase.in.audit",
+  "purchase-return-form-list": "purchase.return.audit",
   "material-issue-form-list": "production.document.audit",
   "product-in-form-list": "production.document.audit",
   "other-in-form-list": "inventory.other_stock_in.audit",
@@ -1082,6 +1191,7 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "purchase-order-form-list": "purchase.order.audit",
   "purchase-in-list": "purchase.in.audit",
   "purchase-in-form-list": "purchase.in.audit",
+  "purchase-return-form-list": "purchase.return.audit",
   "material-issue-form-list": "production.document.audit",
   "product-in-form-list": "production.document.audit",
   "other-in-form-list": "inventory.other_stock_in.audit",
@@ -1104,6 +1214,7 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
   "purchase-order-form-list": "purchaseOrder",
   "purchase-in-list": "purchaseIn",
   "purchase-in-form-list": "purchaseIn",
+  "purchase-return-form-list": "purchaseReturn",
   "material-issue-form-list": "materialIssue",
   "product-in-form-list": "productIn",
   "other-in-form-list": "otherStockIn",
@@ -1153,6 +1264,26 @@ const canPushDownPurchaseIn = computed(() => {
 const columns = ref<ListColumn[]>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible));
 const displayedRows = computed(() => rows.value);
+const listSummaryFields = new Map<string, number>([
+  ["qty", 4],
+  ["shippedQty", 4],
+  ["receivedQty", 4],
+  ["orderQty", 4],
+  ["inQty", 4],
+  ["returnQty", 4],
+  ["remainingQty", 4],
+  ["amount", 2],
+  ["priceTaxTotal", 2],
+  ["orderAmount", 2],
+  ["inAmount", 2],
+  ["returnAmount", 2],
+  ["netPurchaseAmount", 2]
+]);
+const hasListSummary = computed(() => visibleColumns.value.some((column) => listSummaryFields.has(column.field)));
+const listSummaryTotals = computed(() => Object.fromEntries(
+  [...listSummaryFields.entries()].map(([field, maxDecimals]) => [field, sumDisplayedRows(field, maxDecimals)])
+) as Record<string, string>);
+const listSummaryRowTestId = computed(() => isSalesOrderList.value ? "sales-order-list-summary-row" : "list-summary-row");
 const allDisplayedRowsSelected = computed(() => displayedRows.value.length > 0 && displayedRows.value.every((row) => isRowSelected(row)));
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => false);
@@ -1216,6 +1347,7 @@ const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
   "purchase-order-form-list": "purchaseOrder",
   "purchase-in-list": "purchaseIn",
   "purchase-in-form-list": "purchaseIn",
+  "purchase-return-form-list": "purchaseReturn",
   "material-issue-form-list": "materialIssue",
   "product-in-form-list": "productIn",
   "other-in-form-list": "otherStockIn",
@@ -1267,11 +1399,36 @@ function resetColumns() {
       visible: savedColumn.visible
     });
   });
+  columns.value = normalizeListColumns(mergeSavedColumnsWithDefaults(restored, defaults));
+}
+
+function mergeSavedColumnsWithDefaults(restored: ListColumn[], defaults: ListColumn[]) {
   const restoredFields = new Set(restored.map((column) => column.field));
-  columns.value = normalizeListColumns([
-    ...restored,
-    ...defaults.filter((column) => !restoredFields.has(column.field))
-  ]);
+  const defaultIndexByField = new Map(defaults.map((column, index) => [column.field, index]));
+  const merged = [...restored];
+  defaults.forEach((defaultColumn, defaultIndex) => {
+    if (restoredFields.has(defaultColumn.field)) {
+      return;
+    }
+    let insertAt = -1;
+    for (let index = merged.length - 1; index >= 0; index -= 1) {
+      const currentDefaultIndex = defaultIndexByField.get(merged[index].field);
+      if (currentDefaultIndex != null && currentDefaultIndex < defaultIndex) {
+        insertAt = index + 1;
+        break;
+      }
+    }
+    if (insertAt === -1) {
+      const nextDefaultIndex = merged.findIndex((column) => {
+        const currentDefaultIndex = defaultIndexByField.get(column.field);
+        return currentDefaultIndex != null && currentDefaultIndex > defaultIndex;
+      });
+      insertAt = nextDefaultIndex === -1 ? merged.length : nextDefaultIndex;
+    }
+    merged.splice(insertAt, 0, defaultColumn);
+    restoredFields.add(defaultColumn.field);
+  });
+  return merged;
 }
 
 async function reload() {
@@ -1914,7 +2071,65 @@ function cellValue(row: Record<string, unknown>, column: ListColumn) {
   if (column.field === "billNo" && (row.billNo == null || row.billNo === "")) {
     return row.bill_no ?? "";
   }
+  if (column.field === "taxInclusiveUnitPrice") {
+    const existing = row.taxInclusiveUnitPrice;
+    if (existing != null && existing !== "") {
+      return existing;
+    }
+    const unitPrice = Number(row.unitPrice ?? 0);
+    const taxRate = Number(row.taxRate ?? 0);
+    if (!Number.isFinite(unitPrice) || !Number.isFinite(taxRate)) {
+      return "";
+    }
+    return (unitPrice * (1 + taxRate / 100)).toFixed(2);
+  }
   return row[column.field] ?? "";
+}
+
+function listSummaryFooterValue(columnKey: string) {
+  if (columnKey === "__selection") {
+    return "";
+  }
+  if (columnKey === summaryLabelField.value) {
+    return "合计";
+  }
+  if (listSummaryFields.has(columnKey)) {
+    return listSummaryTotals.value[columnKey] ?? "";
+  }
+  return "";
+}
+
+const summaryLabelField = computed(() => visibleColumns.value.find((column) => !listSummaryFields.has(column.field))?.field ?? visibleColumns.value[0]?.field ?? "");
+
+function listSummaryCellTestId(columnKey: string) {
+  return columnKey === "__selection" ? undefined : `list-summary-${columnKey}`;
+}
+
+function sumDisplayedRows(field: string, maxDecimals: number) {
+  return formatListSummaryNumber(displayedRows.value.reduce((sum, row) => {
+    if (field === "priceTaxTotal") {
+      return sum + numericCell(cellValue(row, { field, title: "", width: 0, visible: true }));
+    }
+    return sum + numericCell(row[field]);
+  }, 0), maxDecimals);
+}
+
+function numericCell(value: unknown) {
+  if (value == null || value === "") {
+    return 0;
+  }
+  const numeric = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function formatListSummaryNumber(value: number, maxDecimals: number) {
+  if (!Number.isFinite(value)) {
+    return maxDecimals === 2 ? "0.00" : "0";
+  }
+  if (maxDecimals === 2) {
+    return value.toFixed(2);
+  }
+  return Number.isInteger(value) ? String(value) : value.toFixed(maxDecimals).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function normalizeListColumns(nextColumns: ListColumn[]) {
@@ -1933,7 +2148,7 @@ async function syncRenderedColumnWidths() {
   }
   const widths = [42, ...visibleColumns.value.map((column) => column.width ?? column.minWidth ?? 120)];
   const tableWidth = Math.max(widths.reduce((sum, width) => sum + width, 0), 960);
-  frame.querySelectorAll<HTMLElement>(".vxe-table--header-wrapper table, .vxe-table--body-wrapper table").forEach((table) => {
+  frame.querySelectorAll<HTMLElement>(".vxe-table--header-wrapper table, .vxe-table--body-wrapper table, .table-core-footer-wrapper table").forEach((table) => {
     table.style.width = `${tableWidth}px`;
     table.style.minWidth = `${tableWidth}px`;
   });

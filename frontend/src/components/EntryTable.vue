@@ -111,6 +111,14 @@
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'customerMaterialCode')"
             />
+            <input
+              v-else-if="column.key === 'customerOrderNo'"
+              v-model="line.customerOrderNo"
+              :disabled="!isDraft"
+              :data-testid="lineCustomerOrderNoTestId(lineIndex)"
+              @input="emit('markDirty')"
+              @keydown="handleLineCellKeydown($event, lineIndex, 'customerOrderNo')"
+            />
             <span v-else-if="column.key === 'productName'" class="entry-cell-value">{{ productInfo(line).name }}</span>
             <span v-else-if="column.key === 'spec'" class="entry-cell-value">{{ productInfo(line).spec }}</span>
             <template v-else-if="column.key === 'warehouse'">
@@ -248,6 +256,7 @@
               @keydown="handleLineCellKeydown($event, lineIndex, 'price')"
               @paste="emit('entryPaste', $event, lineIndex)"
             />
+            <span v-else-if="column.key === 'taxInclusiveUnitPrice'" class="entry-cell-value entry-cell-value--number" :data-testid="lineTaxInclusiveUnitPriceTestId(lineIndex)">{{ lineTaxInclusiveUnitPrice(line) }}</span>
             <input
               v-else-if="column.key === 'taxRate'"
               v-model.number="line.taxRate"
@@ -459,6 +468,7 @@ import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
 export interface EntryLine {
   lineNo?: number;
   customerMaterialCode?: string;
+  customerOrderNo?: string;
   productCode: string;
   productName?: string;
   spec?: string;
@@ -491,7 +501,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "rowNo" | "partyCode" | "customerMaterialCode" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
+type EntryColumnKey = "rowNo" | "partyCode" | "customerMaterialCode" | "customerOrderNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxInclusiveUnitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -526,7 +536,9 @@ const props = defineProps<{
   currentBillNo: string;
   partyCode?: string;
   partyCodeLabel?: string;
+  showPartyCodeColumn?: boolean;
   showCustomerMaterialCodeColumn?: boolean;
+  showCustomerOrderNoColumn?: boolean;
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
@@ -598,7 +610,7 @@ const datePickerYear = ref(new Date().getFullYear());
 const datePickerMonth = ref(new Date().getMonth());
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
-const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
+const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 const bulkPriceSourceOptions = [
   { key: "defaultPrice", label: "默认价格" },
   { key: "quotePrice", label: "最新有效报价" },
@@ -621,8 +633,9 @@ const columnReorder = useColumnReorder<EntryColumn>({
 
 const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", locked: true, configurable: false, numeric: true },
-  { key: "partyCode", title: props.partyCodeLabel || "客户编码", width: 118, visible: true },
-  { key: "customerMaterialCode", title: "客户物料号", width: 150, visible: Boolean(props.showCustomerMaterialCodeColumn) },
+  { key: "partyCode", title: props.partyCodeLabel || "客户编码", width: 118, visible: props.showPartyCodeColumn !== false },
+  { key: "customerMaterialCode", title: "客户物料编码", width: 150, visible: Boolean(props.showCustomerMaterialCodeColumn) },
+  { key: "customerOrderNo", title: "客户订单号", width: 150, visible: Boolean(props.showCustomerOrderNoColumn) },
   { key: "productCode", title: "物料编码", width: 140, visible: true },
   { key: "productName", title: "物料名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
@@ -637,13 +650,14 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "stockReserved", title: "锁定库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
   { key: "stockAvailable", title: "可用库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
   { key: "stockInTransit", title: "在途库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
-  { key: "unitPrice", title: "单价", width: 104, visible: true, numeric: true, bulkFillable: Boolean(props.enableSalesPriceBulk) },
+  { key: "unitPrice", title: "单价", width: 112, visible: true, numeric: true, bulkFillable: Boolean(props.enableSalesPriceBulk) },
+  { key: "taxInclusiveUnitPrice", title: "含税单价", width: 112, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "taxRate", title: "税率%", width: 88, visible: Boolean(props.showTaxColumns), numeric: true },
   { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
   { key: "taxAmount", title: "税额", width: 104, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "priceTaxTotal", title: "价税合计", width: 124, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "planDeliveryDate", title: "交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn), bulkFillable: true },
-  { key: "remark", title: "备注", width: 210, visible: true }
+  { key: "priceTaxTotal", title: "含税金额", width: 124, visible: Boolean(props.showTaxColumns), numeric: true },
+  { key: "planDeliveryDate", title: "预计交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn), bulkFillable: true },
+  { key: "remark", title: "行备注", width: 210, visible: true }
 ]);
 
 const visibleColumns = computed(() => columns.value.filter((column) => isColumnAvailable(column) && column.visible));
@@ -704,7 +718,9 @@ watch(() => [
   props.showExecutionColumns,
   props.showTargetWarehouseColumn,
   props.partyCodeLabel,
+  props.showPartyCodeColumn,
   props.showCustomerMaterialCodeColumn,
+  props.showCustomerOrderNoColumn,
   props.showPlanDeliveryDateColumn,
   props.showTaxColumns,
   props.showStockColumns,
@@ -746,7 +762,7 @@ function resetColumns() {
 
 function isColumnAvailable(column: EntryColumn) {
   if (column.key === "partyCode") {
-    return Boolean(props.partyCodeLabel);
+    return Boolean(props.showPartyCodeColumn !== false && props.partyCodeLabel);
   }
   if (column.key === "targetWarehouse") {
     return Boolean(props.showTargetWarehouseColumn);
@@ -757,10 +773,13 @@ function isColumnAvailable(column: EntryColumn) {
   if (column.key === "customerMaterialCode") {
     return Boolean(props.showCustomerMaterialCodeColumn);
   }
+  if (column.key === "customerOrderNo") {
+    return Boolean(props.showCustomerOrderNoColumn);
+  }
   if (column.key === "planDeliveryDate") {
     return Boolean(props.showPlanDeliveryDateColumn);
   }
-  if (column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal") {
+  if (column.key === "taxInclusiveUnitPrice" || column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal") {
     return Boolean(props.showTaxColumns);
   }
   if (column.key === "sourceLineNo") {
@@ -915,6 +934,10 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
       return line.sourceOrderNo ?? "";
     case "sourceLineNo":
       return lineSourceLineNo(line);
+    case "customerMaterialCode":
+      return line.customerMaterialCode ?? "";
+    case "customerOrderNo":
+      return line.customerOrderNo ?? "";
     case "qty":
       return formatQty(line.qty);
     case "executedQty":
@@ -931,6 +954,8 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
       return formatQty(line.stockInTransit);
     case "unitPrice":
       return formatQty(line.unitPrice);
+    case "taxInclusiveUnitPrice":
+      return lineTaxInclusiveUnitPrice(line);
     case "taxRate":
       return formatQty(line.taxRate ?? 0);
     case "amount":
@@ -1293,6 +1318,18 @@ function linePriceTaxTotal(line: EntryLine) {
   return taxForLine(line).priceTaxTotal.toFixed(2);
 }
 
+function lineTaxInclusiveUnitPrice(line: EntryLine) {
+  const qty = Number(line.qty || 0);
+  const priceTaxTotal = taxForLine(line).priceTaxTotal;
+  if (!qty || !Number.isFinite(qty)) {
+    const unitPrice = Number(line.unitPrice || 0);
+    const taxRate = Number(line.taxRate ?? 0);
+    const grossUnitPrice = props.isTaxInclusive ? unitPrice : unitPrice * (1 + taxRate / 100);
+    return formatPrice(grossUnitPrice);
+  }
+  return formatPrice(priceTaxTotal / qty);
+}
+
 function taxForLine(line: EntryLine) {
   return taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(props.isTaxInclusive));
 }
@@ -1327,6 +1364,14 @@ function formatQty(value: number | string | undefined) {
     return "0";
   }
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2);
+}
+
+function formatPrice(value: number | string | undefined) {
+  const price = Number(value ?? 0);
+  if (!Number.isFinite(price)) {
+    return "0.00";
+  }
+  return price.toFixed(2);
 }
 
 function productInfo(line: EntryLine) {
@@ -1382,6 +1427,10 @@ function linePriceTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-price` : `${props.testPrefix}-line-price-${index + 1}`;
 }
 
+function lineTaxInclusiveUnitPriceTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-tax-inclusive-price` : `${props.testPrefix}-line-tax-inclusive-price-${index + 1}`;
+}
+
 function lineTaxRateTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-tax-rate` : `${props.testPrefix}-line-tax-rate-${index + 1}`;
 }
@@ -1403,6 +1452,10 @@ function lineRemarkTestId(index: number) {
 }
 
 function lineCustomerMaterialCodeTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-customer-material-code` : `${props.testPrefix}-line-customer-material-code-${index + 1}`;
+}
+
+function lineCustomerOrderNoTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-customer-order-no` : `${props.testPrefix}-line-customer-order-no-${index + 1}`;
 }
 
@@ -1426,6 +1479,12 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
   if (key === "partyCode") {
     return `${props.testPrefix}-line-party-code${suffix}`;
   }
+  if (key === "customerMaterialCode") {
+    return lineCustomerMaterialCodeTestId(index);
+  }
+  if (key === "customerOrderNo") {
+    return lineCustomerOrderNoTestId(index);
+  }
   if (key === "productName") {
     return `${props.testPrefix}-line-product-name${suffix}`;
   }
@@ -1447,6 +1506,9 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
   if (key === "stockOnHand" || key === "stockReserved" || key === "stockAvailable" || key === "stockInTransit") {
     return `${props.testPrefix}-line-${key}${suffix}`;
   }
+  if (key === "taxInclusiveUnitPrice") {
+    return lineTaxInclusiveUnitPriceTestId(index);
+  }
   return undefined;
 }
 
@@ -1464,7 +1526,7 @@ function normalizeEntryColumns(nextColumns: EntryColumn[]) {
   return [...frozen, ...regular];
 }
 
-type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate" | "planDeliveryDate" | "customerMaterialCode" | "remark";
+type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate" | "planDeliveryDate" | "customerMaterialCode" | "customerOrderNo" | "remark";
 
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: EditableLineCell, selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && props.activeSelector === selectorId && props.selectorOptions.length > 0);
@@ -1496,19 +1558,30 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: Ed
 }
 
 function advanceLineCellOnEnter(lineIndex: number, cell: EditableLineCell) {
-  if (cell === "qty") {
-    void focusLineCell(lineIndex, "price");
+  const order = editableCellOrder();
+  const currentIndex = order.indexOf(cell);
+  const nextCell = currentIndex >= 0 ? order[currentIndex + 1] : undefined;
+  if (nextCell) {
+    void focusLineCell(lineIndex, nextCell);
     return;
   }
-  if (cell === "price" && props.showTaxColumns) {
-    void focusLineCell(lineIndex, "taxRate");
-    return;
-  }
-  if (cell === "price" || cell === "taxRate") {
-    emit("insertLineAfter", lineIndex);
-    return;
-  }
-  void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), cell);
+  emit("insertLineAfter", lineIndex);
+  void focusLineCell(Math.min(lineIndex + 1, props.lines.length), order[0] ?? "product");
+}
+
+function editableCellOrder(): EditableLineCell[] {
+  return [
+    "product",
+    props.showCustomerMaterialCodeColumn ? "customerMaterialCode" : "",
+    props.showCustomerOrderNoColumn ? "customerOrderNo" : "",
+    "warehouse",
+    props.showTargetWarehouseColumn ? "target-warehouse" : "",
+    "qty",
+    "price",
+    props.showTaxColumns ? "taxRate" : "",
+    props.showPlanDeliveryDateColumn ? "planDeliveryDate" : "",
+    "remark"
+  ].filter(Boolean) as EditableLineCell[];
 }
 
 function handleLineDateKeydown(event: KeyboardEvent, lineIndex: number) {
@@ -1541,6 +1614,8 @@ function lineCellTestId(lineIndex: number, cell: EditableLineCell) {
       return linePlanDeliveryDateTestId(lineIndex);
     case "customerMaterialCode":
       return lineCustomerMaterialCodeTestId(lineIndex);
+    case "customerOrderNo":
+      return lineCustomerOrderNoTestId(lineIndex);
     case "remark":
       return lineRemarkTestId(lineIndex);
     case "product":

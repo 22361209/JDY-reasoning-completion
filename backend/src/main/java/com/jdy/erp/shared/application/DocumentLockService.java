@@ -24,6 +24,7 @@ public class DocumentLockService {
         "salesOut",
         "purchaseOrder",
         "purchaseIn",
+        "purchaseReturn",
         "materialIssue",
         "productIn",
         "otherStockIn",

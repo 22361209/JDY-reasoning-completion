@@ -434,6 +434,24 @@
           @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
+        <PurchaseReturnForm
+          v-else-if="tabs.activeTab.value.id === purchaseReturnTabId"
+          ref="purchaseReturnFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = purchaseReturnTabId"
+          @override-lock="overrideActiveDocumentLock"
+          @request-open-document="openDocumentFromModule"
+        />
         <MaterialIssueForm
           v-else-if="tabs.activeTab.value.id === materialIssueTabId"
           ref="materialIssueFormRef"
@@ -628,6 +646,7 @@ import MaterialIssueForm from "../modules/production/material-issue/MaterialIssu
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
+import PurchaseReturnForm from "../modules/purchase/purchase-return/PurchaseReturnForm.vue";
 import SalesQuoteForm from "../modules/sales/sales-quote/SalesQuoteForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeForm.vue";
@@ -688,6 +707,7 @@ const salesQuoteTabId = "sales-quote-form";
 const deliveryNoticeTabId = "delivery-notice-form";
 const purchaseOrderTabId = "purchase-order-form";
 const purchaseInTabId = "purchase-in-form";
+const purchaseReturnTabId = "purchase-return-form";
 const materialIssueTabId = "material-issue-form";
 const productInTabId = "product-in-form";
 const otherStockInTabId = "other-in-form";
@@ -713,6 +733,7 @@ const deliveryNoticeFormRef = ref<InstanceType<typeof DeliveryNoticeForm> | null
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
+const purchaseReturnFormRef = ref<InstanceType<typeof PurchaseReturnForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
 const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
 const otherStockInFormRef = ref<InstanceType<typeof OtherStockInForm> | null>(null);
@@ -870,6 +891,8 @@ function startNewModuleDocument(entryId: string) {
     purchaseOrderFormRef.value?.startNew();
   } else if (entryId === purchaseInTabId) {
     purchaseInFormRef.value?.startNew();
+  } else if (entryId === purchaseReturnTabId) {
+    purchaseReturnFormRef.value?.startNew();
   } else if (entryId === materialIssueTabId) {
     materialIssueFormRef.value?.startNew();
   } else if (entryId === productInTabId) {
@@ -924,6 +947,8 @@ function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
     "purchase-order-form-list": "purchaseOrder",
     "purchase-in-list": "purchaseIn",
     "purchase-in-form-list": "purchaseIn",
+    "purchase-return-list": "purchaseReturn",
+    "purchase-return-form-list": "purchaseReturn",
     "material-issue-form-list": "materialIssue",
     "product-in-form-list": "productIn",
     "other-in-form-list": "otherStockIn",
@@ -944,6 +969,7 @@ function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
     [outboundTabId]: "salesOut",
     [purchaseOrderTabId]: "purchaseOrder",
     [purchaseInTabId]: "purchaseIn",
+    [purchaseReturnTabId]: "purchaseReturn",
     [materialIssueTabId]: "materialIssue",
     [productInTabId]: "productIn",
     [otherStockInTabId]: "otherStockIn",
@@ -1142,6 +1168,7 @@ async function openDocumentFromModule(payload: { type: OpenableDocumentType; bil
   if (
     ((tabs.activeTab.value.id === outboundTabId || tabs.activeTab.value.id === deliveryNoticeTabId) && (payload.type === "salesOrder" || payload.type === "deliveryNotice"))
     || (tabs.activeTab.value.id === purchaseInTabId && payload.type === "purchaseOrder")
+    || (tabs.activeTab.value.id === purchaseReturnTabId && payload.type === "purchaseIn")
   ) {
     const result = await fetchDocumentDetail(payload.type, payload.billNo);
     if (!result.ok || !result.data) {
@@ -1246,6 +1273,8 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: purchaseOrderTabId, title: "采购订单", module: "采购管理", ref: purchaseOrderFormRef };
     case "purchaseIn":
       return { tabId: purchaseInTabId, title: "采购入库单", module: "采购管理", ref: purchaseInFormRef };
+    case "purchaseReturn":
+      return { tabId: purchaseReturnTabId, title: "采购退货单", module: "采购管理", ref: purchaseReturnFormRef };
     case "materialIssue":
       return { tabId: materialIssueTabId, title: "生产领料单", module: "生产管理", ref: materialIssueFormRef };
     case "productIn":
@@ -1498,7 +1527,7 @@ function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
-function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; customerMaterialCode?: string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
+function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; customerMaterialCode?: string; customerOrderNo?: string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
   const executedQty = normalizedQty(line[executedField]);
   const remainingQty = remainingLineQty(line);
@@ -1513,9 +1542,10 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
     remainingQty,
     selected: false,
     qty: remainingQty,
-    unitPrice: Number(line.unitPrice ?? 0),
-    customerMaterialCode: String(line.customerMaterialCode ?? ""),
-    lineRemark: String(line.lineRemark ?? ""),
+	    unitPrice: Number(line.unitPrice ?? 0),
+	    customerMaterialCode: String(line.customerMaterialCode ?? ""),
+	    customerOrderNo: String(line.customerOrderNo ?? ""),
+	    lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
 }

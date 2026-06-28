@@ -32,6 +32,7 @@ export interface OrderLineForm {
   sourceDeliveryNoticeNo?: string;
   sourceDeliveryLineNo?: number;
   customerMaterialCode?: string;
+  customerOrderNo?: string;
   qty: number;
   executedQty?: number;
   remainingQty?: number;
@@ -117,6 +118,7 @@ export const printTemplateDocumentTypes = [
   { documentType: "purchase-order", documentTitle: "采购订单" },
   { documentType: "sales-out", documentTitle: "销售出库单" },
   { documentType: "purchase-in", documentTitle: "采购入库单" },
+  { documentType: "purchase-return", documentTitle: "采购退货单" },
   { documentType: "material-issue", documentTitle: "生产领料单" },
   { documentType: "product-in", documentTitle: "产品入库单" },
   { documentType: "other-stock-in", documentTitle: "其他入库单" },
@@ -193,6 +195,18 @@ export const initialPurchaseInForm: OrderForm = {
   isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72, taxRate: 13 }]
+};
+
+export const initialPurchaseReturnForm: OrderForm = {
+  billNo: "",
+  sourceOrderNo: "",
+  partyCode: "",
+  billDate: "2026-06-23",
+  department: "采购部",
+  ownerName: "本地管理员",
+  isTaxInclusive: false,
+  status: "DRAFT",
+  lines: [{ productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13 }]
 };
 
 export const initialSalesOutForm: OrderForm = {

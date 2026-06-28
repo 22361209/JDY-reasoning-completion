@@ -25,7 +25,7 @@ export const moduleCatalog = [
       { title: "采购业务", entries: [
         { id: "purchase-order-form", label: "采购订单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.order.audit" },
         { id: "purchase-in-form", label: "采购入库单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.in.audit" },
-        { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form" }
+        { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.return.audit" }
       ] },
       { title: "报表查询", entries: [
         { id: "purchase-summary-report", label: "采购汇总表", module: "采购管理", mode: "report", queryable: true }

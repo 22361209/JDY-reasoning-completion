@@ -22,6 +22,7 @@ public class BillLifecycleService {
         "sales_out",
         "purchase_order",
         "purchase_in",
+        "purchase_return",
         "production_material_issue",
         "production_completion",
         "other_stock_in",

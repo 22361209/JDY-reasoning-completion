@@ -32,7 +32,9 @@
     source-select-test-id="sales-out-open-source-selector"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
+    :show-party-code-column="false"
     :show-customer-material-code-column="true"
+    :show-customer-order-no-column="true"
     :show-execution-columns="false"
     :show-plan-delivery-date-column="true"
     :enable-sales-price-bulk="true"
@@ -285,8 +287,8 @@ const sourceSelectorColumns = ref([
   { key: "sourceQty", title: "通知数量", width: 100, visible: true },
   { key: "shippedQty", title: "已出库", width: 100, visible: true },
   { key: "remainingQty", title: "剩余可出", width: 110, visible: true },
-  { key: "unitPrice", title: "单价", width: 100, visible: true },
-  { key: "planDeliveryDate", title: "交期", width: 120, visible: true }
+  { key: "unitPrice", title: "单价", width: 112, visible: true },
+  { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
 ]);
 const visibleSourceColumns = computed(() => sourceSelectorColumns.value.filter((column) => column.visible));
 const filteredSourceSelectorLines = computed(() => {

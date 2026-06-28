@@ -277,6 +277,7 @@ public class DocumentOutputController {
             case "sales-order" -> salesOrderPayload(billNo);
             case "purchase-order" -> purchaseOrderPayload(billNo);
             case "purchase-in" -> stockBillPayload("purchase_in", "purchase_in_line", "md_supplier", "供应商", billNo);
+            case "purchase-return" -> stockBillPayload("purchase_return", "purchase_return_line", "md_supplier", "供应商", billNo, "source_in_no");
             case "sales-out" -> stockBillPayload("sales_out", "sales_out_line", "md_customer", "客户", billNo);
             case "material-issue" -> productionBillPayload("production_material_issue", "production_material_issue_line", "issue_id", "生产领料单", billNo);
             case "product-in" -> productionBillPayload("production_completion", "production_completion_line", "completion_id", "产品入库单", billNo);
@@ -366,6 +367,10 @@ public class DocumentOutputController {
     }
 
     private DocumentPayload stockBillPayload(String table, String lineTable, String counterpartyTable, String counterpartyAlias, String billNo) {
+        return stockBillPayload(table, lineTable, counterpartyTable, counterpartyAlias, billNo, "source_order_no");
+    }
+
+    private DocumentPayload stockBillPayload(String table, String lineTable, String counterpartyTable, String counterpartyAlias, String billNo, String sourceColumn) {
         var counterpartyColumn = "sales_out".equals(table) ? "customer_id" : "supplier_id";
         var header = jdbcTemplate.queryForList("""
             SELECT b.bill_no AS "billNo",
@@ -382,7 +387,7 @@ public class DocumentOutputController {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   COALESCE(l.source_order_no, '') AS "sourceOrderNo",
+                   COALESCE(l.%s, '') AS "sourceOrderNo",
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
@@ -397,7 +402,7 @@ public class DocumentOutputController {
             JOIN md_warehouse w ON w.id = l.warehouse_id
             WHERE b.bill_no = ?
             ORDER BY l.line_no
-            """.formatted(lineTable, table), billNo);
+            """.formatted(sourceColumn, lineTable, table), billNo);
         return new DocumentPayload(header.get(0), lines);
     }
 
@@ -515,6 +520,7 @@ public class DocumentOutputController {
             case "sales-order" -> "销售订单";
             case "purchase-order" -> "采购订单";
             case "purchase-in" -> "采购入库单";
+            case "purchase-return" -> "采购退货单";
             case "sales-out" -> "销售出库单";
             case "material-issue" -> "生产领料单";
             case "product-in" -> "产品入库单";
@@ -526,7 +532,7 @@ public class DocumentOutputController {
     }
 
     private List<String> supportedDocumentTypes() {
-        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
+        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "purchase-in", "purchase-return", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
     }
 
     private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {
