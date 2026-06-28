@@ -6,6 +6,8 @@ export interface MasterOption {
   name: string;
   spec?: string;
   unit?: string;
+  netWeight?: string;
+  grossWeight?: string;
 }
 
 export interface EntryPasteRefs {
@@ -27,6 +29,9 @@ export interface OrderLineForm {
   productCode: string;
   productName?: string;
   spec?: string;
+  unit?: string;
+  netWeight?: string | number;
+  grossWeight?: string | number;
   warehouseCode: string;
   targetWarehouseCode?: string;
   sourceOrderNo?: string;
@@ -321,9 +326,9 @@ export const initialStockCountLossForm: OrderForm = {
 };
 
 export const knownProductOptions: MasterOption[] = [
-  { code: "CP-001", name: "控制臂总成", spec: "左前 / 黑色", unit: "只" },
-  { code: "CP-T413874", name: "验收商品总成", spec: "左前 / 蓝色", unit: "只" },
-  { code: "PJ-014", name: "衬套", spec: "65mm / 加强", unit: "件" }
+  { code: "CP-001", name: "控制臂总成", spec: "左前 / 黑色", unit: "只", netWeight: "1.20", grossWeight: "1.35" },
+  { code: "CP-T413874", name: "验收商品总成", spec: "左前 / 蓝色", unit: "只", netWeight: "1.10", grossWeight: "1.25" },
+  { code: "PJ-014", name: "衬套", spec: "65mm / 加强", unit: "件", netWeight: "0.08", grossWeight: "0.10" }
 ];
 
 export const knownWarehouseOptions: MasterOption[] = [

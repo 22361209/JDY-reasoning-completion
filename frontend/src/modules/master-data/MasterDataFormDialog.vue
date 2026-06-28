@@ -8,13 +8,18 @@
         <span class="master-dialog-status">{{ form.status || "启用" }}</span>
       </header>
       <div class="master-create-sections">
-        <section v-for="section in fieldSections" :key="section.title" class="master-create-section">
+        <section
+          v-for="section in fieldSections"
+          :key="section.title"
+          class="master-create-section"
+          :class="sectionClasses(section)"
+        >
           <h4>{{ section.title }}</h4>
           <div class="master-create-fields">
             <label
               v-for="field in section.fields"
               :key="field.name"
-              :class="{ 'field-wide': field.span === 2, required: field.required }"
+              :class="{ 'field-wide': field.span === 2, required: field.required, 'checkbox-field': field.type === 'checkbox' }"
             >
               <span>{{ field.label }}</span>
               <select
@@ -25,6 +30,18 @@
               >
                 <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
               </select>
+              <template v-else-if="field.suggestions">
+                <input
+                  :value="form[field.name]"
+                  :list="`master-dialog-${field.name}-options`"
+                  :placeholder="field.placeholder"
+                  :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
+                  @input="emit('updateField', field.name, ($event.target as HTMLInputElement).value)"
+                />
+                <datalist :id="`master-dialog-${field.name}-options`">
+                  <option v-for="suggestion in field.suggestions" :key="suggestion" :value="suggestion" />
+                </datalist>
+              </template>
               <textarea
                 v-else-if="field.type === 'textarea'"
                 :value="form[field.name]"
@@ -40,7 +57,6 @@
                   :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
                   @change="emit('updateField', field.name, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
                 />
-                <em>{{ form[field.name] === "true" ? "是" : "否" }}</em>
               </span>
               <input
                 v-else
@@ -96,4 +112,10 @@ const fieldSections = computed(() => {
   });
   return groups;
 });
+
+function sectionClasses(section: { title: string; fields: MasterDataField[] }) {
+  return {
+    "section-checkboxes": section.fields.length > 0 && section.fields.every((field) => field.type === "checkbox")
+  };
+}
 </script>

@@ -83,6 +83,9 @@ type PreparedEntryLines = {
   documentLines: {
     productId?: string;
     productCode: string;
+    unit?: string;
+    netWeight?: string | number;
+    grossWeight?: string | number;
     warehouseCode: string;
     targetWarehouseCode?: string;
     sourceLineNo?: number;
@@ -273,6 +276,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         productId: String(line.productId ?? ""),
         productName: String(line.productName ?? ""),
         spec: String(line.spec ?? ""),
+        unit: String(line.unit ?? ""),
+        netWeight: String(line.netWeight ?? ""),
+        grossWeight: String(line.grossWeight ?? ""),
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
         targetWarehouseCode: String(line.targetWarehouseCode ?? config.defaultTargetWarehouseCode ?? "CK-002"),
         lineNo: normalizedOptionalInt(line.lineNo),
@@ -382,6 +388,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
+      unit: String(line.unit ?? ""),
+      netWeight: String(line.netWeight ?? ""),
+      grossWeight: String(line.grossWeight ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
 	      sourceOrderNo: draft.sourceOrderNo,
 	      sourceLineNo: line.sourceLineNo,
@@ -832,12 +841,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       return;
     }
     selectorOptions.value = result.ok && result.data
-      ? result.data.rows.map((row) => ({
-        code: String(row.code ?? ""),
-        name: String(row.name ?? ""),
-        spec: row.spec ? String(row.spec) : "",
-        unit: row.unit ? String(row.unit) : ""
-      }))
+      ? result.data.rows.map(masterRowToOption)
       : [];
     selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
   }
@@ -981,6 +985,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     line.productId = option.id;
     line.productName = option.name;
     line.spec = option.spec ?? "";
+    line.unit = option.unit ?? "";
+    line.netWeight = option.netWeight ?? "";
+    line.grossWeight = option.grossWeight ?? "";
     activeSelector.value = "";
     runtime.markDirty();
     void refreshSalesLinePrice(lineIndex);
@@ -1378,6 +1385,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       return {
         productCode: "",
         productId: "",
+        unit: "",
+        netWeight: "",
+        grossWeight: "",
         warehouseCode,
       targetWarehouseCode: config.showTargetWarehouseColumn ? config.defaultTargetWarehouseCode ?? "CK-002" : undefined,
       qty: 0,
@@ -1395,6 +1405,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     return {
       productCode: "",
       productId: "",
+      unit: "",
+      netWeight: "",
+      grossWeight: "",
       warehouseCode: "",
       targetWarehouseCode: config.showTargetWarehouseColumn ? "" : undefined,
       qty: 0,
@@ -1459,6 +1472,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       documentLines: formLines.map((line) => ({
         productCode: line.productCode,
         productId: line.productId,
+        unit: line.unit,
+        netWeight: line.netWeight,
+        grossWeight: line.grossWeight,
         warehouseCode: line.warehouseCode,
         targetWarehouseCode: config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : undefined,
         sourceLineNo: line.sourceLineNo,

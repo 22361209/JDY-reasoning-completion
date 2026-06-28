@@ -11,6 +11,9 @@ interface DocumentDraftPayload {
   lines: Array<{
     productId?: string;
     productCode: string;
+    unit?: string;
+    netWeight?: number | string;
+    grossWeight?: number | string;
     warehouseCode: string;
     targetWarehouseCode?: string;
     sourceOrderNo?: string;
@@ -167,9 +170,12 @@ export interface DocumentDetail {
 	    supplierMaterialCode?: string;
 	    customerOrderNo?: string;
 	    productId?: string;
-	    productCode?: string;
+    productCode?: string;
     productName?: string;
     spec?: string;
+    unit?: string;
+    netWeight?: number | string;
+    grossWeight?: number | string;
     warehouseCode?: string;
     targetWarehouseCode?: string;
     qty?: number | string;

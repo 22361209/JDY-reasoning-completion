@@ -129,6 +129,9 @@
             />
             <span v-else-if="column.key === 'productName'" class="entry-cell-value">{{ productInfo(line).name }}</span>
             <span v-else-if="column.key === 'spec'" class="entry-cell-value">{{ productInfo(line).spec }}</span>
+            <span v-else-if="column.key === 'unit'" class="entry-cell-value">{{ productInfo(line).unit }}</span>
+            <span v-else-if="column.key === 'netWeight'" class="entry-cell-value entry-cell-value--number">{{ formatOptionalWeight(productInfo(line).netWeight) }}</span>
+            <span v-else-if="column.key === 'grossWeight'" class="entry-cell-value entry-cell-value--number">{{ formatOptionalWeight(productInfo(line).grossWeight) }}</span>
             <template v-else-if="column.key === 'warehouse'">
               <span class="master-selector in-cell">
                 <input
@@ -482,6 +485,9 @@ export interface EntryLine {
   productCode: string;
   productName?: string;
   spec?: string;
+  unit?: string;
+  netWeight?: number | string;
+  grossWeight?: number | string;
   warehouseCode: string;
   targetWarehouseCode?: string;
   sourceOrderNo?: string;
@@ -509,9 +515,11 @@ export interface MasterOption {
   name: string;
   spec?: string;
   unit?: string;
+  netWeight?: string;
+  grossWeight?: string;
 }
 
-type EntryColumnKey = "rowNo" | "partyCode" | "customerMaterialCode" | "supplierMaterialCode" | "customerOrderNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxInclusiveUnitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
+type EntryColumnKey = "rowNo" | "partyCode" | "customerMaterialCode" | "supplierMaterialCode" | "customerOrderNo" | "productCode" | "productName" | "spec" | "unit" | "netWeight" | "grossWeight" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxInclusiveUnitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -621,7 +629,7 @@ const datePickerYear = ref(new Date().getFullYear());
 const datePickerMonth = ref(new Date().getMonth());
 const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
-const numericColumns = new Set<EntryColumnKey>(["rowNo", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
+const numericColumns = new Set<EntryColumnKey>(["rowNo", "netWeight", "grossWeight", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 const bulkPriceSourceOptions = [
   { key: "defaultPrice", label: "默认价格" },
   { key: "quotePrice", label: "最新有效报价" },
@@ -651,6 +659,9 @@ const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "productCode", title: "物料编码", width: 140, visible: true },
   { key: "productName", title: "物料名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
+  { key: "unit", title: "单位", width: 76, visible: true },
+  { key: "netWeight", title: "净重", width: 88, visible: true, numeric: true },
+  { key: "grossWeight", title: "毛重", width: 88, visible: true, numeric: true },
   { key: "warehouse", title: "仓库", width: 130, visible: true, bulkFillable: true },
   { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
   { key: "sourceOrderNo", title: "源单号", width: 142, visible: props.showSourceLineColumn },
@@ -942,6 +953,12 @@ function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
       return productInfo(line).name;
     case "spec":
       return productInfo(line).spec;
+    case "unit":
+      return productInfo(line).unit;
+    case "netWeight":
+      return formatOptionalWeight(productInfo(line).netWeight);
+    case "grossWeight":
+      return formatOptionalWeight(productInfo(line).grossWeight);
     case "warehouse":
       return line.warehouseCode;
     case "targetWarehouse":
@@ -1392,13 +1409,32 @@ function formatPrice(value: number | string | undefined) {
   return price.toFixed(2);
 }
 
+function formatOptionalWeight(value: number | string | undefined) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return "";
+  }
+  const weight = Number(value);
+  if (!Number.isFinite(weight)) {
+    return "";
+  }
+  return weight.toFixed(2);
+}
+
 function productInfo(line: EntryLine) {
-  if (line.productName || line.spec) {
-    return { name: line.productName ?? "", spec: line.spec ?? "", unit: "" };
+  if (line.productName || line.spec || line.unit || line.netWeight || line.grossWeight) {
+    return {
+      name: line.productName ?? "",
+      spec: line.spec ?? "",
+      unit: line.unit ?? "",
+      netWeight: line.netWeight,
+      grossWeight: line.grossWeight
+    };
   }
   const product = props.selectorOptions.find((option) => option.code === line.productCode)
     ?? props.knownProductOptions.find((option) => option.code === line.productCode);
-  return product ? { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "" } : { name: "", spec: "", unit: "" };
+  return product
+    ? { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "", netWeight: product.netWeight ?? "", grossWeight: product.grossWeight ?? "" }
+    : { name: "", spec: "", unit: "", netWeight: "", grossWeight: "" };
 }
 
 function lineProductTestId(index: number) {
@@ -1515,6 +1551,9 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
   }
   if (key === "spec") {
     return `${props.testPrefix}-line-spec${suffix}`;
+  }
+  if (key === "unit" || key === "netWeight" || key === "grossWeight") {
+    return `${props.testPrefix}-line-${key}${suffix}`;
   }
   if (key === "sourceLineNo") {
     return lineSourceLineNoTestId(index);

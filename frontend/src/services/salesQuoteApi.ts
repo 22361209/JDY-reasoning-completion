@@ -12,6 +12,9 @@ export interface SelectableSalesQuoteLine {
   productCode: string;
   productName?: string;
   spec?: string;
+  unit?: string;
+  netWeight?: number | string;
+  grossWeight?: number | string;
   warehouseCode: string;
   sourceQty?: number | string;
   unitPrice: number | string;

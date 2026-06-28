@@ -33,13 +33,19 @@ public class MasterDataController {
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> create(@PathVariable String type, @RequestBody Map<String, String> payload) {
         var code = required(payload, "code");
-        var name = required(payload, "name");
+        var name = "unit".equals(type) ? payload.getOrDefault("name", code).trim() : required(payload, "name");
+        if (name.isBlank()) {
+            name = code;
+        }
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
         return switch (type) {
             case "product" -> createProduct(code, name, payload, enabled);
             case "customer" -> createCustomer(code, name, payload, enabled);
             case "supplier" -> createSupplier(code, name, payload, enabled);
             case "warehouse" -> createWarehouse(code, name, payload, enabled);
+            case "productCategory" -> createProductCategory(code, name, payload, enabled);
+            case "unit" -> createUnit(code, name, payload, enabled);
+            case "productionDepartment" -> createProductionDepartment(code, name, payload, enabled);
             default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
         };
     }
@@ -47,13 +53,19 @@ public class MasterDataController {
     @PutMapping("/{type}/{code}")
     @RequirePermission("master.data.manage")
     public Map<String, Object> update(@PathVariable String type, @PathVariable String code, @RequestBody Map<String, String> payload) {
-        var name = required(payload, "name");
+        var name = "unit".equals(type) ? payload.getOrDefault("name", code).trim() : required(payload, "name");
+        if (name.isBlank()) {
+            name = code;
+        }
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
         return switch (type) {
             case "product" -> updateProduct(code, name, payload, enabled);
             case "customer" -> updateCustomer(code, name, payload, enabled);
             case "supplier" -> updateSupplier(code, name, payload, enabled);
             case "warehouse" -> updateWarehouse(code, name, payload, enabled);
+            case "productCategory" -> updateProductCategory(code, name, payload, enabled);
+            case "unit" -> updateUnit(code, name, payload, enabled);
+            case "productionDepartment" -> updateProductionDepartment(code, name, payload, enabled);
             default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
         };
     }
@@ -62,25 +74,40 @@ public class MasterDataController {
     @RequirePermission("master.data.manage")
     public Map<String, Object> updateStatus(@PathVariable String type, @PathVariable String code, @RequestBody Map<String, String> payload) {
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
-        return setEnabled(tableName(type), code, enabled);
+        return setEnabled(type, code, enabled);
+    }
+
+    @PostMapping("/{type}/{code}/audit")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> audit(@PathVariable String type, @PathVariable String code) {
+        return setAuditStatus(type, code, "AUDITED");
+    }
+
+    @PostMapping("/{type}/{code}/reverse")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> reverseAudit(@PathVariable String type, @PathVariable String code) {
+        return setAuditStatus(type, code, "DRAFT");
     }
 
     @DeleteMapping("/{type}/{code}")
     @RequirePermission("master.data.manage")
     public Map<String, Object> delete(@PathVariable String type, @PathVariable String code) {
-        return setEnabled(tableName(type), code, false);
+        return setEnabled(type, code, false);
     }
 
     private Map<String, Object> createProduct(String code, String name, Map<String, String> payload, boolean enabled) {
+        var unit = required(payload, "unit");
         return jdbcTemplate.queryForMap("""
             INSERT INTO md_product (
-                code, name, short_name, barcode, brand, spec, category, product_type, unit,
+                code, name, short_name, barcode, brand, spec, category, product_type, unit, net_weight, gross_weight,
+                oe_no, position_name, surface_treatment,
                 is_purchase, is_sale, is_inventory, is_produce, is_subcontract,
                 default_warehouse_code, default_workshop, sale_unit, purchase_unit, bom_unit, default_supplier_code, issue_warehouse_code, issue_method,
-                tax_rate, default_sale_price, cost_price, min_sale_price, remark, enabled
+                tax_rate, default_sale_price, cost_price, min_sale_price, purchase_price, max_purchase_price, subcontract_price, wholesale_price, retail_price,
+                min_stock_qty, safety_stock_qty, max_stock_qty, remark, enabled
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             code,
             name,
@@ -89,8 +116,13 @@ public class MasterDataController {
             optional(payload, "brand"),
             payload.getOrDefault("spec", ""),
             payload.getOrDefault("category", "成品总成"),
-            payload.getOrDefault("productType", "成品"),
-            payload.getOrDefault("unit", "只"),
+            payload.getOrDefault("productType", "普通"),
+            unit,
+            optionalDecimal(payload, "netWeight", "净重"),
+            optionalDecimal(payload, "grossWeight", "毛重"),
+            optional(payload, "oeNo"),
+            optional(payload, "positionName"),
+            optional(payload, "surfaceTreatment"),
             checked(payload, "isPurchase"),
             checked(payload, "isSale"),
             checked(payload, "isInventory", true),
@@ -98,9 +130,9 @@ public class MasterDataController {
             checked(payload, "isSubcontract"),
             optional(payload, "defaultWarehouseCode"),
             optional(payload, "defaultWorkshop"),
-            payload.getOrDefault("saleUnit", payload.getOrDefault("unit", "只")),
-            payload.getOrDefault("purchaseUnit", payload.getOrDefault("unit", "只")),
-            payload.getOrDefault("bomUnit", payload.getOrDefault("unit", "只")),
+            payload.getOrDefault("saleUnit", unit),
+            payload.getOrDefault("purchaseUnit", unit),
+            payload.getOrDefault("bomUnit", unit),
             optional(payload, "defaultSupplierCode"),
             optional(payload, "issueWarehouseCode"),
             payload.getOrDefault("issueMethod", "按单领料"),
@@ -108,6 +140,14 @@ public class MasterDataController {
             defaultSalePrice(payload),
             optionalDecimal(payload, "costPrice", "成本价"),
             optionalDecimal(payload, "minSalePrice", "最低销售价"),
+            optionalDecimal(payload, "purchasePrice", "采购价"),
+            optionalDecimal(payload, "maxPurchasePrice", "最高采购价"),
+            optionalDecimal(payload, "subcontractPrice", "委外价"),
+            optionalDecimal(payload, "wholesalePrice", "批发价"),
+            optionalDecimal(payload, "retailPrice", "零售价"),
+            optionalDecimal(payload, "minStockQty", "最低库存数量"),
+            optionalDecimal(payload, "safetyStockQty", "安全库存数量"),
+            optionalDecimal(payload, "maxStockQty", "最高库存数量"),
             optional(payload, "remark"),
             enabled
         );
@@ -120,7 +160,7 @@ public class MasterDataController {
                 address, credit_limit, settlement_method, owner_name, remark, enabled
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             code,
             name,
@@ -146,7 +186,7 @@ public class MasterDataController {
                 address, bank_account, settlement_method, owner_name, remark, enabled
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             code,
             name,
@@ -169,7 +209,7 @@ public class MasterDataController {
         return jdbcTemplate.queryForMap("""
             INSERT INTO md_warehouse (code, name, warehouse_type, manager, phone, address, allow_negative_stock, remark, enabled)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             code,
             name,
@@ -184,15 +224,18 @@ public class MasterDataController {
     }
 
     private Map<String, Object> updateProduct(String code, String name, Map<String, String> payload, boolean enabled) {
+        var unit = required(payload, "unit");
         return updateAndReturn("""
             UPDATE md_product
-            SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_type = ?, unit = ?,
+            SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_type = ?, unit = ?, net_weight = ?, gross_weight = ?,
+                oe_no = ?, position_name = ?, surface_treatment = ?,
                 is_purchase = ?, is_sale = ?, is_inventory = ?, is_produce = ?, is_subcontract = ?,
                 default_warehouse_code = ?, default_workshop = ?, sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, issue_warehouse_code = ?, issue_method = ?,
-                tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, remark = ?,
-                enabled = ?, updated_at = now(), version = version + 1
+                tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, purchase_price = ?, max_purchase_price = ?, subcontract_price = ?,
+                wholesale_price = ?, retail_price = ?, min_stock_qty = ?, safety_stock_qty = ?, max_stock_qty = ?, remark = ?,
+                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
             WHERE code = ?
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             name,
             optional(payload, "shortName"),
@@ -200,8 +243,13 @@ public class MasterDataController {
             optional(payload, "brand"),
             payload.getOrDefault("spec", ""),
             payload.getOrDefault("category", "成品总成"),
-            payload.getOrDefault("productType", "成品"),
-            payload.getOrDefault("unit", "只"),
+            payload.getOrDefault("productType", "普通"),
+            unit,
+            optionalDecimal(payload, "netWeight", "净重"),
+            optionalDecimal(payload, "grossWeight", "毛重"),
+            optional(payload, "oeNo"),
+            optional(payload, "positionName"),
+            optional(payload, "surfaceTreatment"),
             checked(payload, "isPurchase"),
             checked(payload, "isSale"),
             checked(payload, "isInventory", true),
@@ -209,9 +257,9 @@ public class MasterDataController {
             checked(payload, "isSubcontract"),
             optional(payload, "defaultWarehouseCode"),
             optional(payload, "defaultWorkshop"),
-            payload.getOrDefault("saleUnit", payload.getOrDefault("unit", "只")),
-            payload.getOrDefault("purchaseUnit", payload.getOrDefault("unit", "只")),
-            payload.getOrDefault("bomUnit", payload.getOrDefault("unit", "只")),
+            payload.getOrDefault("saleUnit", unit),
+            payload.getOrDefault("purchaseUnit", unit),
+            payload.getOrDefault("bomUnit", unit),
             optional(payload, "defaultSupplierCode"),
             optional(payload, "issueWarehouseCode"),
             payload.getOrDefault("issueMethod", "按单领料"),
@@ -219,6 +267,90 @@ public class MasterDataController {
             defaultSalePrice(payload),
             optionalDecimal(payload, "costPrice", "成本价"),
             optionalDecimal(payload, "minSalePrice", "最低销售价"),
+            optionalDecimal(payload, "purchasePrice", "采购价"),
+            optionalDecimal(payload, "maxPurchasePrice", "最高采购价"),
+            optionalDecimal(payload, "subcontractPrice", "委外价"),
+            optionalDecimal(payload, "wholesalePrice", "批发价"),
+            optionalDecimal(payload, "retailPrice", "零售价"),
+            optionalDecimal(payload, "minStockQty", "最低库存数量"),
+            optionalDecimal(payload, "safetyStockQty", "安全库存数量"),
+            optionalDecimal(payload, "maxStockQty", "最高库存数量"),
+            optional(payload, "remark"),
+            enabled,
+            code
+        );
+    }
+
+    private Map<String, Object> createProductCategory(String code, String name, Map<String, String> payload, boolean enabled) {
+        return jdbcTemplate.queryForMap("""
+            INSERT INTO md_product_category (code, name, parent_code, sort_no, remark, enabled)
+            VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING id::text AS id, code, name
+            """,
+            code,
+            name,
+            optional(payload, "parentCode"),
+            integerOrDefault(payload, "sortNo", 0, "排序"),
+            optional(payload, "remark"),
+            enabled
+        );
+    }
+
+    private Map<String, Object> createUnit(String code, String name, Map<String, String> payload, boolean enabled) {
+        return jdbcTemplate.queryForMap("""
+            INSERT INTO md_unit (code, name, decimal_places, sort_no, remark, enabled)
+            VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING id::text AS id, code, name
+            """,
+            code,
+            name,
+            integerOrDefault(payload, "decimalPlaces", 0, "数量小数位"),
+            integerOrDefault(payload, "sortNo", 0, "排序"),
+            optional(payload, "remark"),
+            enabled
+        );
+    }
+
+    private Map<String, Object> createProductionDepartment(String code, String name, Map<String, String> payload, boolean enabled) {
+        return jdbcTemplate.queryForMap("""
+            INSERT INTO md_production_department (code, name, manager, remark, enabled, audit_status)
+            VALUES (?, ?, ?, ?, ?, 'DRAFT')
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name, CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
+            """,
+            code,
+            name,
+            optional(payload, "manager"),
+            optional(payload, "remark"),
+            enabled
+        );
+    }
+
+    private Map<String, Object> updateProductCategory(String code, String name, Map<String, String> payload, boolean enabled) {
+        return updateAndReturn("""
+            UPDATE md_product_category
+            SET name = ?, parent_code = ?, sort_no = ?, remark = ?, enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
+            WHERE code = ?
+            RETURNING id::text AS id, code, name
+            """,
+            name,
+            optional(payload, "parentCode"),
+            integerOrDefault(payload, "sortNo", 0, "排序"),
+            optional(payload, "remark"),
+            enabled,
+            code
+        );
+    }
+
+    private Map<String, Object> updateUnit(String code, String name, Map<String, String> payload, boolean enabled) {
+        return updateAndReturn("""
+            UPDATE md_unit
+            SET name = ?, decimal_places = ?, sort_no = ?, remark = ?, enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
+            WHERE code = ?
+            RETURNING id::text AS id, code, name
+            """,
+            name,
+            integerOrDefault(payload, "decimalPlaces", 0, "数量小数位"),
+            integerOrDefault(payload, "sortNo", 0, "排序"),
             optional(payload, "remark"),
             enabled,
             code
@@ -246,9 +378,9 @@ public class MasterDataController {
             UPDATE md_customer
             SET name = ?, short_name = ?, customer_level = ?, contact = ?, phone = ?, region = ?, tax_no = ?,
                 address = ?, credit_limit = ?, settlement_method = ?, owner_name = ?, remark = ?,
-                enabled = ?, updated_at = now(), version = version + 1
+                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
             WHERE code = ?
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             name,
             optional(payload, "shortName"),
@@ -272,9 +404,9 @@ public class MasterDataController {
             UPDATE md_supplier
             SET name = ?, short_name = ?, supplier_level = ?, contact = ?, phone = ?, tax_no = ?,
                 address = ?, bank_account = ?, settlement_method = ?, owner_name = ?, remark = ?,
-                enabled = ?, updated_at = now(), version = version + 1
+                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
             WHERE code = ?
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             name,
             optional(payload, "shortName"),
@@ -297,9 +429,9 @@ public class MasterDataController {
         return updateAndReturn("""
             UPDATE md_warehouse
             SET name = ?, warehouse_type = ?, manager = ?, phone = ?, address = ?, allow_negative_stock = ?, remark = ?,
-                enabled = ?, updated_at = now(), version = version + 1
+                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
             WHERE code = ?
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             name,
             payload.getOrDefault("warehouseType", "普通仓"),
@@ -313,11 +445,42 @@ public class MasterDataController {
         );
     }
 
-    private Map<String, Object> setEnabled(String table, String code, boolean enabled) {
-        return updateAndReturn("UPDATE " + table + " SET enabled = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING id::text AS id, code, name",
+    private Map<String, Object> updateProductionDepartment(String code, String name, Map<String, String> payload, boolean enabled) {
+        return updateAndReturn("""
+            UPDATE md_production_department
+            SET name = ?, manager = ?, remark = ?, enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
+            WHERE code = ?
+            RETURNING id::text AS id, system_no::text AS "systemNo", code, name, CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
+            """,
+            name,
+            optional(payload, "manager"),
+            optional(payload, "remark"),
             enabled,
             code
         );
+    }
+
+    private Map<String, Object> setEnabled(String type, String code, boolean enabled) {
+        var table = tableName(type);
+        return updateAndReturn("UPDATE " + table + " SET enabled = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING " + returningFor(type),
+            enabled,
+            code
+        );
+    }
+
+    private Map<String, Object> setAuditStatus(String type, String code, String auditStatus) {
+        var table = tableName(type);
+        return updateAndReturn("UPDATE " + table + " SET audit_status = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING " + returningFor(type),
+            auditStatus,
+            code
+        );
+    }
+
+    private String returningFor(String type) {
+        var auditStatus = "CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS \"auditStatus\"";
+        return hasSystemNo(type)
+            ? "id::text AS id, system_no::text AS \"systemNo\", code, name, " + auditStatus
+            : "id::text AS id, code, name, " + auditStatus;
     }
 
     private Map<String, Object> updateAndReturn(String sql, Object... args) {
@@ -334,7 +497,17 @@ public class MasterDataController {
             case "customer" -> "md_customer";
             case "supplier" -> "md_supplier";
             case "warehouse" -> "md_warehouse";
+            case "productCategory" -> "md_product_category";
+            case "unit" -> "md_unit";
+            case "productionDepartment" -> "md_production_department";
             default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
+        };
+    }
+
+    private boolean hasSystemNo(String type) {
+        return switch (type) {
+            case "product", "customer", "supplier", "warehouse", "productionDepartment" -> true;
+            default -> false;
         };
     }
 
@@ -349,6 +522,22 @@ public class MasterDataController {
     private String optional(Map<String, String> payload, String field) {
         var value = payload.getOrDefault(field, "").trim();
         return value.isBlank() ? null : value;
+    }
+
+    private int integerOrDefault(Map<String, String> payload, String field, int defaultValue, String label) {
+        var value = payload.getOrDefault(field, "").trim();
+        if (value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            var number = Integer.parseInt(value);
+            if (number < 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能小于 0");
+            }
+            return number;
+        } catch (NumberFormatException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "格式不正确");
+        }
     }
 
     private boolean checked(Map<String, String> payload, String field) {

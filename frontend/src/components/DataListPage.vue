@@ -657,6 +657,9 @@ const definitions: Record<string, ListDefinition> = {
       { field: "supplier", title: "供应商名称", width: 200, visible: true },
       { field: "productCode", title: "物料编码", width: 140, visible: true },
       { field: "productName", title: "物料名称", width: 200, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "orderQty", title: "订单数量", width: 110, align: "right", visible: true },
       { field: "inQty", title: "入库数量", width: 110, align: "right", visible: true },
       { field: "returnQty", title: "退货数量", width: 110, align: "right", visible: true },
@@ -728,6 +731,9 @@ const definitions: Record<string, ListDefinition> = {
       { field: "code", title: "物料编码", width: 140, fixed: "left", visible: true },
       { field: "name", title: "物料名称", width: 180, visible: true },
       { field: "spec", title: "规格型号", width: 170, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "onHand", title: "现存量", width: 110, align: "right", visible: true },
       { field: "available", title: "可用量", width: 110, align: "right", visible: true },
@@ -746,6 +752,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "warehouseName", title: "仓库名称", width: 140, visible: true },
       { field: "spec", title: "规格型号", width: 160, visible: true },
       { field: "unit", title: "基本单位", width: 90, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "available", title: "可用量", width: 100, align: "right", visible: true },
       { field: "safetyQty", title: "最低安全量", width: 120, align: "right", visible: true },
       { field: "maxQty", title: "库存上限", width: 110, align: "right", visible: true },
@@ -783,16 +791,61 @@ const definitions: Record<string, ListDefinition> = {
       { field: "status", title: "状态", width: 110, visible: true }
     ]
   },
+  "production-plan-list": {
+    title: "生产计划",
+    subtitle: "生产计划只负责形成自发计划和分解生产任务，不直接领料或入库。",
+    keywordPlaceholder: "计划单号、BOM、物料、生产部门",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "计划单号", width: 160, fixed: "left", visible: true },
+      { field: "bomCode", title: "BOM", width: 120, visible: true },
+      { field: "productCode", title: "物料编码", width: 140, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
+      { field: "warehouse", title: "完工仓库", width: 130, visible: true },
+      { field: "departmentCode", title: "生产部门", width: 120, visible: true },
+      { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
+      { field: "assignedQty", title: "已分解数", width: 110, align: "right", visible: true },
+      { field: "remainingQty", title: "未分解数", width: 110, align: "right", visible: true },
+      { field: "sourceType", title: "计划来源", width: 110, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "kit-analysis-list": {
+    title: "齐套分析",
+    subtitle: "齐套分析按已审核生产计划和 BOM 快照查看材料需用、可用与缺料。",
+    keywordPlaceholder: "计划单号、BOM、成品、子件",
+    statuses: ["齐套", "缺料"],
+    columns: [
+      { field: "planNo", title: "计划单号", width: 160, fixed: "left", visible: true },
+      { field: "bomCode", title: "BOM", width: 120, visible: true },
+      { field: "productCode", title: "成品编码", width: 140, visible: true },
+      { field: "productName", title: "成品名称", width: 180, visible: true },
+      { field: "materialCode", title: "子件编码", width: 140, visible: true },
+      { field: "materialName", title: "子件名称", width: 180, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "requiredQty", title: "需求数量", width: 110, align: "right", visible: true },
+      { field: "availableQty", title: "可用库存", width: 110, align: "right", visible: true },
+      { field: "shortageQty", title: "缺料数量", width: 110, align: "right", visible: true },
+      { field: "status", title: "齐套状态", width: 100, visible: true }
+    ]
+  },
   "production-task-form-list": {
     title: "生产任务单",
     subtitle: "生产任务展示 BOM、计划数、已领料数、完工数和执行状态。",
-    keywordPlaceholder: "任务单号、BOM、商品",
+    keywordPlaceholder: "任务单号、生产计划、BOM、物料",
     statuses: ["已审核", "已领料", "已完工"],
     columns: [
       { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
+      { field: "planNo", title: "来源计划", width: 160, visible: true },
       { field: "bomCode", title: "BOM", width: 120, visible: true },
       { field: "productCode", title: "物料编码", width: 130, visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "warehouse", title: "完工仓库", width: 130, visible: true },
       { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
       { field: "issuedQty", title: "已领料数", width: 110, align: "right", visible: true },
@@ -804,7 +857,7 @@ const definitions: Record<string, ListDefinition> = {
     title: "生产领料单",
     subtitle: "生产领料单展示来源任务、领料仓库、金额和审核/冲销状态。",
     keywordPlaceholder: "领料单号、生产任务单、仓库",
-    statuses: ["已审核", "已反审核", "已红冲"],
+    statuses: ["草稿", "已审核", "已反审核", "已红冲"],
     columns: [
       { field: "billNo", title: "单据编号", width: 160, fixed: "left", visible: true },
       { field: "sourceOrderNo", title: "生产任务单", width: 170, visible: true },
@@ -828,6 +881,24 @@ const definitions: Record<string, ListDefinition> = {
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
+  "outsourcing-surface-list": {
+    title: "委外表面处理",
+    subtitle: "委外表面处理只承接生产完工后的表面处理跟踪，第一版不进入请款、应付和成本核算。",
+    keywordPlaceholder: "委外单号、来源完工单、物料、供应商",
+    statuses: ["草稿", "已发出", "已完成"],
+    columns: [
+      { field: "billNo", title: "委外单号", width: 160, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "来源完工单", width: 170, visible: true },
+      { field: "billDate", title: "单据日期", width: 120, visible: true },
+      { field: "productCode", title: "物料编码", width: 140, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "委外数量", width: 110, align: "right", visible: true },
+      { field: "surfaceTreatment", title: "表面处理", width: 130, visible: true },
+      { field: "supplier", title: "处理供应商", width: 180, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
   "other-in-form-list": {
     title: "其他入库单列表",
     subtitle: "其他入库单按库存业务列表范式展示，审核后只增加库存数量。",
@@ -843,6 +914,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "qty", title: "数量", width: 100, align: "right", visible: true },
       { field: "unitCost", title: "单位成本", width: 110, align: "right", visible: true },
       { field: "inCost", title: "入库成本", width: 120, align: "right", visible: true }
@@ -863,6 +936,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "qty", title: "数量", width: 100, align: "right", visible: true },
       { field: "unitCost", title: "单位成本", width: 110, align: "right", visible: true },
       { field: "outCost", title: "出库成本", width: 120, align: "right", visible: true }
@@ -884,6 +959,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "sourceWarehouse", title: "源仓库", width: 140, visible: true },
       { field: "targetWarehouse", title: "目标仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "qty", title: "数量", width: 100, align: "right", visible: true }
     ]
   },
@@ -902,6 +979,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "systemQty", title: "系统库存", width: 110, align: "right", visible: true },
       { field: "countedQty", title: "实盘数量", width: 110, align: "right", visible: true },
       { field: "diffQty", title: "差异", width: 100, align: "right", visible: true }
@@ -920,6 +999,9 @@ const definitions: Record<string, ListDefinition> = {
       { field: "productCode", title: "物料编码", width: 130, visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "qty", title: "盘盈数量", width: 110, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true }
     ]
@@ -937,6 +1019,9 @@ const definitions: Record<string, ListDefinition> = {
       { field: "productCode", title: "物料编码", width: 130, visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "qty", title: "盘亏数量", width: 110, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true }
     ]
@@ -950,6 +1035,9 @@ const definitions: Record<string, ListDefinition> = {
       { field: "code", title: "BOM编码", width: 150, fixed: "left", visible: true },
       { field: "productCode", title: "成品编码", width: 140, visible: true },
       { field: "productName", title: "成品名称", width: 200, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
+      { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "qty", title: "基准数量", width: 100, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
@@ -1061,6 +1149,9 @@ function detailColumnsForList(): ListColumn[] {
     { field: "productCode", title: "物料编码", width: 130, visible: true },
     { field: "productName", title: "物料名称", width: 180, visible: true },
     { field: "spec", title: "规格型号", width: 150, visible: true },
+    { field: "unit", title: "单位", width: 80, visible: true },
+    { field: "netWeight", title: "净重", width: 90, align: "right", visible: true },
+    { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: true },
     { field: "warehouse", title: "仓库", width: 150, visible: true },
     { field: "qty", title: "数量", width: 110, align: "right", visible: true },
     ...(props.listKey === "sales-order-form-list" ? [
@@ -1108,9 +1199,16 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
 };
 const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "product-master-list": "master.data.manage",
+  "product-category-list": "master.data.manage",
+  "unit-master-list": "master.data.manage",
   "customer-master-list": "master.data.manage",
   "supplier-master-list": "master.data.manage",
   "warehouse-master-list": "master.data.manage",
+  "production-department-list": "master.data.manage",
+  "production-plan-list": "production.task.audit",
+  "kit-analysis-list": "production.task.audit",
+  "production-task-form-list": "production.task.audit",
+  "outsourcing-surface-list": "production.document.audit",
   "sales-quote-form-list": "sales.order.audit",
   "sales-order-form-list": "sales.order.audit",
   "delivery-notice-form-list": "sales.out.audit",

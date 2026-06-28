@@ -8,6 +8,9 @@ export interface SalesOrderDraftPayload {
     lineNo?: number | string;
     productId?: string;
     productCode: string;
+    unit?: string;
+    netWeight?: number | string;
+    grossWeight?: number | string;
     warehouseCode: string;
     qty: number;
     unitPrice: number;
@@ -40,6 +43,9 @@ export interface SalesOrderDetail {
     productCode: string;
     productName?: string;
     spec?: string;
+    unit?: string;
+    netWeight?: number | string;
+    grossWeight?: number | string;
     warehouseCode: string;
     qty: number | string;
     shippedQty?: number | string;
@@ -70,6 +76,9 @@ export interface SelectableSalesOrderLine {
   productCode: string;
   productName?: string;
   spec?: string;
+  unit?: string;
+  netWeight?: number | string;
+  grossWeight?: number | string;
   warehouseCode: string;
   sourceQty: number | string;
   shippedQty?: number | string;

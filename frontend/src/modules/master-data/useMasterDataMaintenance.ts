@@ -139,8 +139,9 @@ export function useMasterDataMaintenance(
   }
 
   function validateRequired() {
-    if (!form.code?.trim() || !form.name?.trim()) {
-      createError.value = "编码和名称不能为空。";
+    const missingField = definition.value?.fields.find((field) => field.required && !form[field.name]?.trim());
+    if (missingField) {
+      createError.value = `${missingField.label}不能为空。`;
       return false;
     }
     return true;

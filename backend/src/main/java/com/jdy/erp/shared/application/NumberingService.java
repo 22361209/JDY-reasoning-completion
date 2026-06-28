@@ -26,7 +26,8 @@ public class NumberingService {
         Map.entry("stockCountGain", new NumberingRule("PY", "stock_count_gain")),
         Map.entry("stockCountLoss", new NumberingRule("PK", "stock_count_loss")),
         Map.entry("productionPlan", new NumberingRule("SCJH", "production_plan")),
-        Map.entry("productionTask", new NumberingRule("SCRW", "production_task"))
+        Map.entry("productionTask", new NumberingRule("SCRW", "production_task")),
+        Map.entry("outsourcingSurface", new NumberingRule("WWBM", "outsourcing_surface_process"))
     );
 
     private final JdbcTemplate jdbcTemplate;

@@ -77,6 +77,7 @@ export const moduleCatalog = [
       ] },
       { title: "BOM 与报表", entries: [
         { id: "bom-list", label: "BOM维护", module: "生产管理", mode: "list", queryable: true },
+        { id: "kit-analysis-list", label: "齐套分析", module: "生产管理", mode: "list", queryable: true, permission: "production.task.audit" },
         { id: "task-track-report", label: "生产任务跟踪表", module: "生产管理", mode: "report", queryable: true }
       ] }
     ]
@@ -86,8 +87,7 @@ export const moduleCatalog = [
     short: "委",
     groups: [
       { title: "委外业务", entries: [
-        { id: "outsourcing-order-form", label: "委外订单", module: "委外管理", mode: "form", queryable: true },
-        { id: "outsourcing-in-list", label: "委外入库单", module: "委外管理", mode: "list", queryable: true }
+        { id: "outsourcing-surface-list", label: "委外表面处理", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" }
       ] }
     ]
   },
@@ -97,9 +97,12 @@ export const moduleCatalog = [
     groups: [
       { title: "资料维护", entries: [
         { id: "product-master-list", label: "物料资料", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "product-category-list", label: "物料类别", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "unit-master-list", label: "计量单位", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "supplier-master-list", label: "供应商", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
-        { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" }
+        { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "production-department-list", label: "生产部门", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" }
       ] }
     ]
   },

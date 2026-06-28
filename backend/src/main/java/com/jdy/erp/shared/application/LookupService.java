@@ -9,7 +9,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class LookupService {
-    private static final Set<String> ENABLED_LOOKUP_TABLES = Set.of("md_customer", "md_supplier", "md_product", "md_warehouse");
+    private static final Set<String> ENABLED_LOOKUP_TABLES = Set.of(
+        "md_customer",
+        "md_supplier",
+        "md_product",
+        "md_warehouse",
+        "md_product_category",
+        "md_unit",
+        "md_production_department"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final ValidationService validationService;
@@ -24,9 +32,9 @@ public class LookupService {
             throw new IllegalArgumentException("Unsupported lookup table: " + table);
         }
         var normalizedCode = validationService.required(code, label + "编码");
-        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ? AND enabled = TRUE", normalizedCode);
+        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ? AND enabled = TRUE AND audit_status = 'AUDITED'", normalizedCode);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在或已禁用");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未审核或已禁用");
         }
         return String.valueOf(rows.get(0).get("id"));
     }

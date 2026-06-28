@@ -154,6 +154,9 @@
                 <td v-if="isSourceColumnVisible('billDate')">{{ line.billDate }}</td>
                 <td v-if="isSourceColumnVisible('productCode')">{{ line.productCode }}</td>
                 <td v-if="isSourceColumnVisible('productName')">{{ line.productName || line.spec || '-' }}</td>
+                <td v-if="isSourceColumnVisible('unit')">{{ line.unit || '-' }}</td>
+                <td v-if="isSourceColumnVisible('netWeight')">{{ formatOptionalAmount(line.netWeight) }}</td>
+                <td v-if="isSourceColumnVisible('grossWeight')">{{ formatOptionalAmount(line.grossWeight) }}</td>
                 <td v-if="isSourceColumnVisible('warehouseCode')">{{ line.warehouseCode }}</td>
                 <td v-if="isSourceColumnVisible('sourceQty')">{{ document.formatQty(line.sourceQty) }}</td>
                 <td v-if="isSourceColumnVisible('shippedQty')">{{ document.formatQty(line.shippedQty) }}</td>
@@ -283,6 +286,9 @@ const sourceSelectorColumns = ref([
   { key: "billDate", title: "日期", width: 120, visible: true },
   { key: "productCode", title: "物料编码", width: 130, visible: true },
   { key: "productName", title: "物料名称", width: 180, visible: true },
+  { key: "unit", title: "单位", width: 80, visible: true },
+  { key: "netWeight", title: "净重", width: 90, visible: true },
+  { key: "grossWeight", title: "毛重", width: 90, visible: true },
   { key: "warehouseCode", title: "仓库", width: 110, visible: true },
   { key: "sourceQty", title: "通知数量", width: 100, visible: true },
   { key: "shippedQty", title: "已出库", width: 100, visible: true },
@@ -306,8 +312,13 @@ function sourceLineSearchText(line: SelectableDeliveryNoticeLine) {
     line.productCode,
     line.productName,
     line.spec,
+    line.unit,
     line.billNo
   ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function formatOptionalAmount(value: unknown) {
+  return value === null || value === undefined || value === "" ? "-" : document.formatAmount(value as number | string | undefined);
 }
 
 function isSourceColumnVisible(key: string) {

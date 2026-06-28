@@ -11,6 +11,9 @@ export interface SelectablePurchaseInLine {
   productCode: string;
   productName?: string;
   spec?: string;
+  unit?: string;
+  netWeight?: number | string;
+  grossWeight?: number | string;
   warehouseCode: string;
   sourceQty: number | string;
   returnedQty?: number | string;

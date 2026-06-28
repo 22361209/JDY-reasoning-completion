@@ -68,6 +68,9 @@ type PreparedEntryLines = {
   documentLines: {
     productId?: string;
     productCode: string;
+    unit?: string;
+    netWeight?: string | number;
+    grossWeight?: string | number;
     warehouseCode: string;
     sourceOrderNo?: string;
     sourceLineNo?: number;
@@ -218,6 +221,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         productId: String(line.productId ?? ""),
         productName: String(line.productName ?? ""),
         spec: String(line.spec ?? ""),
+        unit: String(line.unit ?? ""),
+        netWeight: String(line.netWeight ?? ""),
+        grossWeight: String(line.grossWeight ?? ""),
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
         lineNo: normalizedOptionalInt(line.lineNo),
         sourceOrderNo: String(line.sourceOrderNo ?? ""),
@@ -283,6 +289,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
+      unit: String(line.unit ?? ""),
+      netWeight: String(line.netWeight ?? ""),
+      grossWeight: String(line.grossWeight ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       sourceOrderNo: draft.sourceOrderNo,
       sourceLineNo: line.sourceLineNo,
@@ -316,6 +325,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
+      unit: String(line.unit ?? ""),
+      netWeight: String(line.netWeight ?? ""),
+      grossWeight: String(line.grossWeight ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       sourceOrderNo: order.billNo,
       sourceLineNo: line.sourceLineNo,
@@ -348,6 +360,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       productId: String(line.productId ?? ""),
       productName: String(line.productName ?? ""),
       spec: String(line.spec ?? ""),
+      unit: String(line.unit ?? ""),
+      netWeight: String(line.netWeight ?? ""),
+      grossWeight: String(line.grossWeight ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       sourceOrderNo: order.billNo,
       sourceLineNo: line.sourceLineNo,
@@ -686,11 +701,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function defaultLine(warehouseCode = "CK-001"): OrderLineForm {
-    return { productId: "", productCode: "", warehouseCode, qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
+    return { productId: "", productCode: "", unit: "", netWeight: "", grossWeight: "", warehouseCode, qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
   }
 
   function blankLine(): OrderLineForm {
-    return { productId: "", productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
+    return { productId: "", productCode: "", unit: "", netWeight: "", grossWeight: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13, lineRemark: "", planDeliveryDate: todayText() };
   }
 
   function addLine() {
@@ -873,6 +888,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     line.productId = candidate.id;
     line.productName = candidate.name;
     line.spec = candidate.spec ?? "";
+    line.unit = candidate.unit ?? "";
+    line.netWeight = candidate.netWeight ?? "";
+    line.grossWeight = candidate.grossWeight ?? "";
   }
 
   function isEntryPasteCandidateActive(conflict: EntryPasteConflict, candidateIndex: number) {
@@ -1100,6 +1118,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     line.productId = option.id;
     line.productName = option.name;
     line.spec = option.spec ?? "";
+    line.unit = option.unit ?? "";
+    line.netWeight = option.netWeight ?? "";
+    line.grossWeight = option.grossWeight ?? "";
     activeSelector.value = "";
     options.markDirty();
     void refreshSalesLinePrice(lineIndex);
@@ -1386,6 +1407,9 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
     productId: String(line.productId ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
+    unit: String(line.unit ?? ""),
+    netWeight: String(line.netWeight ?? ""),
+    grossWeight: String(line.grossWeight ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     sourceLineNo: normalizedOptionalInt(line.lineNo),
     sourceQty,
@@ -1407,6 +1431,9 @@ function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLine
     productId: String(line.productId ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
+    unit: String(line.unit ?? ""),
+    netWeight: String(line.netWeight ?? ""),
+    grossWeight: String(line.grossWeight ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     sourceOrderNo: String(line.billNo ?? ""),
     sourceLineNo: normalizedOptionalInt(line.lineNo),
@@ -1440,6 +1467,9 @@ function toDocumentLines(lines: OrderLineForm[]) {
   return lines.map((line) => ({
     productCode: line.productCode,
     productId: line.productId,
+    unit: line.unit,
+    netWeight: line.netWeight,
+    grossWeight: line.grossWeight,
     warehouseCode: line.warehouseCode,
     sourceOrderNo: line.sourceOrderNo,
     sourceLineNo: line.sourceLineNo,
@@ -1535,10 +1565,13 @@ function saveSuccessMessage(removedBlankCount: number, confirmedZeroCount = 0) {
 
 function masterRowToOption(row: Record<string, unknown>): MasterOption {
   return {
+    id: row.id ? String(row.id) : undefined,
     code: String(row.code ?? ""),
     name: String(row.name ?? ""),
     spec: row.spec ? String(row.spec) : "",
-    unit: row.unit ? String(row.unit) : ""
+    unit: row.unit ? String(row.unit) : "",
+    netWeight: row.netWeight ? String(row.netWeight) : "",
+    grossWeight: row.grossWeight ? String(row.grossWeight) : ""
   };
 }
 
@@ -1591,6 +1624,9 @@ function parseEntryPasteRow(cells: string[], refs: EntryPasteRefs, header: Recor
     productId: productMatch.product?.id ?? "",
     productName: productMatch.product?.name,
     spec: productMatch.product?.spec ?? productSpec,
+    unit: productMatch.product?.unit ?? "",
+    netWeight: productMatch.product?.netWeight ?? "",
+    grossWeight: productMatch.product?.grossWeight ?? "",
     warehouseCode: matchedWarehouse?.code ?? (warehouseToken || "CK-001"),
     qty: normalizedPositiveNumber(qtyText, 1),
     unitPrice: normalizedPositiveNumber(priceText, 86),

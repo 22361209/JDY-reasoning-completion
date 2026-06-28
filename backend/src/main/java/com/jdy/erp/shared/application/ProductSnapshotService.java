@@ -1,5 +1,6 @@
 package com.jdy.erp.shared.application;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -29,25 +30,31 @@ public class ProductSnapshotService {
         try {
             UUID.fromString(productId);
         } catch (IllegalArgumentException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "系统ID格式不正确");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "UUID格式不正确");
         }
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    code,
                    name,
-                   COALESCE(spec, '') AS spec
+                   COALESCE(spec, '') AS spec,
+                   COALESCE(unit, '') AS unit,
+                   net_weight AS "netWeight",
+                   gross_weight AS "grossWeight"
             FROM md_product
-            WHERE id = ?::uuid
+            WHERE id = ?::uuid AND enabled = TRUE AND audit_status = 'AUDITED'
             """, productId);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未审核或已禁用");
         }
         var row = rows.get(0);
         return new ProductSnapshot(
             String.valueOf(row.get("id")),
             String.valueOf(row.get("code")),
             String.valueOf(row.get("name")),
-            String.valueOf(row.get("spec"))
+            String.valueOf(row.get("spec")),
+            String.valueOf(row.get("unit")),
+            decimal(row.get("netWeight")),
+            decimal(row.get("grossWeight"))
         );
     }
 
@@ -56,22 +63,32 @@ public class ProductSnapshotService {
             SELECT id::text AS id,
                    code,
                    name,
-                   COALESCE(spec, '') AS spec
+                   COALESCE(spec, '') AS spec,
+                   COALESCE(unit, '') AS unit,
+                   net_weight AS "netWeight",
+                   gross_weight AS "grossWeight"
             FROM md_product
-            WHERE code = ? AND enabled = TRUE
+            WHERE code = ? AND enabled = TRUE AND audit_status = 'AUDITED'
             """, productCode);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在或已禁用");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未审核或已禁用");
         }
         var row = rows.get(0);
         return new ProductSnapshot(
             String.valueOf(row.get("id")),
             String.valueOf(row.get("code")),
             String.valueOf(row.get("name")),
-            String.valueOf(row.get("spec"))
+            String.valueOf(row.get("spec")),
+            String.valueOf(row.get("unit")),
+            decimal(row.get("netWeight")),
+            decimal(row.get("grossWeight"))
         );
     }
 
-    public record ProductSnapshot(String id, String code, String name, String spec) {
+    private BigDecimal decimal(Object value) {
+        return value instanceof BigDecimal decimal ? decimal : null;
+    }
+
+    public record ProductSnapshot(String id, String code, String name, String spec, String unit, BigDecimal netWeight, BigDecimal grossWeight) {
     }
 }

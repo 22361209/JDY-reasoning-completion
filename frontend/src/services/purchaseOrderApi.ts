@@ -12,6 +12,9 @@ export interface SelectablePurchaseOrderLine {
   productName?: string;
   supplierMaterialCode?: string;
   spec?: string;
+  unit?: string;
+  netWeight?: number | string;
+  grossWeight?: number | string;
   warehouseCode: string;
   planDeliveryDate?: string;
   sourceQty: number | string;

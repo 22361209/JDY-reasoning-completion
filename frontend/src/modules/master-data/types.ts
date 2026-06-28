@@ -25,5 +25,5 @@ export interface MasterDataDefinition {
   listColumns: ListColumnDefinition[];
   selectorColumns: ListColumnDefinition[];
   fields: MasterDataField[];
-  formComponent: Component;
+  formComponent?: Component;
 }

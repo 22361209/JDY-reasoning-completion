@@ -72,6 +72,9 @@ export const salesDetailBaseColumns: ListColumnDefinition[] = [
   { field: "productCode", title: "物料编码", width: 130, visible: true },
   { field: "productName", title: "物料名称", width: 180, visible: true },
   { field: "spec", title: "规格型号", width: 150, visible: true },
+  { field: "unit", title: "单位", width: 80, visible: true },
+  { field: "netWeight", title: "净重", width: 90, align: "right", visible: true },
+  { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: true },
   { field: "warehouse", title: "仓库", width: 150, visible: true },
   { field: "qty", title: "数量", width: 110, align: "right", visible: true },
   { field: "unitPrice", title: "单价", width: 120, align: "right", visible: true },
@@ -82,10 +85,10 @@ export const salesDetailBaseColumns: ListColumnDefinition[] = [
 ];
 
 export const salesOrderDetailColumns: ListColumnDefinition[] = [
-  ...salesDetailBaseColumns.slice(0, 14),
+  ...salesDetailBaseColumns.slice(0, 17),
   { field: "shippedQty", title: "已出库数量", width: 120, align: "right", visible: true },
   { field: "remainingQty", title: "未出库数量", width: 120, align: "right", visible: true },
-  ...salesDetailBaseColumns.slice(14)
+  ...salesDetailBaseColumns.slice(17)
 ];
 
 export const salesQuoteDetailColumns: ListColumnDefinition[] = [
@@ -102,6 +105,9 @@ export const salesEntryColumns: EntryColumnDefinition[] = [
   { field: "productCode", title: "物料编码", width: 132, visible: true, editable: true, renderer: "master" },
   { field: "productName", title: "物料名称", width: 156, visible: true, editable: true, renderer: "master" },
   { field: "spec", title: "规格型号", width: 132, visible: true, editable: false },
+  { field: "unit", title: "单位", width: 76, visible: true, editable: false },
+  { field: "netWeight", title: "净重", width: 88, align: "right", visible: true, editable: false, renderer: "amount" },
+  { field: "grossWeight", title: "毛重", width: 88, align: "right", visible: true, editable: false, renderer: "amount" },
   { field: "warehouse", title: "仓库", width: 96, visible: true, editable: true, renderer: "master", bulkFill: true },
   { field: "customerMaterialCode", title: "客户物料编码", width: 136, visible: true, editable: true, renderer: "text" },
   { field: "customerOrderNo", title: "客户订单号", width: 136, visible: true, editable: true, renderer: "text" },

@@ -2,10 +2,13 @@ import type { EntryPasteConflict, EntryPasteRefs, MasterOption, OrderLineForm } 
 
 export function masterRowToOption(row: Record<string, unknown>): MasterOption {
   return {
+    id: row.id ? String(row.id) : undefined,
     code: String(row.code ?? ""),
     name: String(row.name ?? ""),
     spec: row.spec ? String(row.spec) : "",
-    unit: row.unit ? String(row.unit) : ""
+    unit: row.unit ? String(row.unit) : "",
+    netWeight: row.netWeight ? String(row.netWeight) : "",
+    grossWeight: row.grossWeight ? String(row.grossWeight) : ""
   };
 }
 
@@ -73,6 +76,9 @@ function parseEntryPasteRow(
     productCode: productMatch.product?.code ?? productToken,
     productName: productMatch.product?.name,
     spec: productMatch.product?.spec ?? productSpec,
+    unit: productMatch.product?.unit ?? "",
+    netWeight: productMatch.product?.netWeight ?? "",
+    grossWeight: productMatch.product?.grossWeight ?? "",
     warehouseCode: matchedWarehouse?.code ?? (warehouseToken || options.fallbackWarehouseCode),
     qty: normalizedPositiveNumber(qtyText, 1),
     unitPrice: normalizedPositiveNumber(priceText, options.defaultUnitPrice),

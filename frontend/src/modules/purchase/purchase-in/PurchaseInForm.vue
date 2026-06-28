@@ -145,6 +145,9 @@
                 <td v-if="isSourceColumnVisible('productCode')">{{ line.productCode }}</td>
                 <td v-if="isSourceColumnVisible('supplierMaterialCode')">{{ line.supplierMaterialCode || '-' }}</td>
                 <td v-if="isSourceColumnVisible('productName')">{{ line.productName || line.spec || '-' }}</td>
+                <td v-if="isSourceColumnVisible('unit')">{{ line.unit || '-' }}</td>
+                <td v-if="isSourceColumnVisible('netWeight')">{{ formatOptionalAmount(line.netWeight) }}</td>
+                <td v-if="isSourceColumnVisible('grossWeight')">{{ formatOptionalAmount(line.grossWeight) }}</td>
                 <td v-if="isSourceColumnVisible('warehouseCode')">{{ line.warehouseCode }}</td>
                 <td v-if="isSourceColumnVisible('sourceQty')">{{ formatQty(line.sourceQty) }}</td>
                 <td v-if="isSourceColumnVisible('receivedQty')">{{ formatQty(line.receivedQty) }}</td>
@@ -232,6 +235,9 @@ const sourceSelectorColumns = ref([
   { key: "productCode", title: "物料编码", width: 130, visible: true },
   { key: "supplierMaterialCode", title: "供应商物料编码", width: 150, visible: true },
   { key: "productName", title: "物料名称", width: 180, visible: true },
+  { key: "unit", title: "单位", width: 80, visible: true },
+  { key: "netWeight", title: "净重", width: 90, visible: true },
+  { key: "grossWeight", title: "毛重", width: 90, visible: true },
   { key: "warehouseCode", title: "仓库", width: 110, visible: true },
   { key: "sourceQty", title: "订单数量", width: 100, visible: true },
   { key: "receivedQty", title: "已入库", width: 100, visible: true },
@@ -380,6 +386,9 @@ function selectableLineToFormLine(line: SelectablePurchaseOrderLine): OrderLineF
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
+    unit: String(line.unit ?? ""),
+    netWeight: line.netWeight ?? "",
+    grossWeight: line.grossWeight ?? "",
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     sourceOrderNo: String(line.billNo ?? ""),
     sourceLineNo: normalizedOptionalInt(line.lineNo),
@@ -404,8 +413,13 @@ function sourceLineSearchText(line: SelectablePurchaseOrderLine) {
     line.supplierMaterialCode,
     line.productName,
     line.spec,
+    line.unit,
     line.billNo
   ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function formatOptionalAmount(value: unknown) {
+  return value === null || value === undefined || value === "" ? "-" : formatAmount(value as number | string | undefined);
 }
 
 function isSourceColumnVisible(key: string) {

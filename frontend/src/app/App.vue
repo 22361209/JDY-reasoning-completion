@@ -321,7 +321,12 @@
           :form="activeMasterRecord.form"
           :error="activeMasterRecord.error"
           @cancel="cancelActiveMasterRecord"
+          @new-record="openNewActiveMasterRecord"
           @save="saveActiveMasterRecord"
+          @audit="auditActiveMasterRecord"
+          @reverse-audit="reverseAuditActiveMasterRecord"
+          @toggle-status="toggleActiveMasterStatus"
+          @delete-record="deleteActiveMasterRecord"
           @update-field="updateActiveMasterField"
         />
         <SalesOrderForm
@@ -663,7 +668,7 @@ import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixP
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { acquireDocumentLock, fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
-import { createMasterData, updateMasterData } from "../services/listApi";
+import { auditMasterData, createMasterData, deleteMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -1572,6 +1577,7 @@ function newMasterForm(listKey: string, row: Record<string, unknown> | null) {
     form[field.name] = field.defaultValue ?? field.options?.[0] ?? "";
   });
   form.status = String(row?.status ?? form.status ?? "启用");
+  form.auditStatus = String(row?.auditStatus ?? form.auditStatus ?? "草稿");
   return form;
 }
 function openCreateMasterData(payload: { listKey: string }) {
@@ -1625,6 +1631,16 @@ function updateActiveMasterField(name: string, value: string) {
   activeMasterRecord.value.form[name] = value;
   markActiveDirty();
 }
+function openNewActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record) {
+    return;
+  }
+  if (tabs.activeTab.value?.dirty && !window.confirm("当前资料有未保存改动，确认新建空白资料？")) {
+    return;
+  }
+  openCreateMasterData({ listKey: record.listKey });
+}
 function cancelActiveMasterRecord() {
   const record = activeMasterRecord.value;
   if (!record) {
@@ -1640,8 +1656,9 @@ async function saveActiveMasterRecord() {
   if (!record) {
     return;
   }
-  if (!record.form.code?.trim() || !record.form.name?.trim()) {
-    record.error = "编码和名称不能为空。";
+  const missingField = record.fields.find((field) => field.required && !record.form[field.name]?.trim());
+  if (missingField) {
+    record.error = `${missingField.label}不能为空。`;
     return;
   }
   const result = record.editing
@@ -1656,6 +1673,66 @@ async function saveActiveMasterRecord() {
   const listKey = record.listKey;
   tabs.closeNow(record.id);
   tabs.activeTabId.value = listKey;
+}
+async function auditActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record?.editing || !record.originalCode) {
+    return;
+  }
+  const result = await auditMasterData(record.type, record.originalCode);
+  if (!result.ok) {
+    record.error = result.message || "审核失败。";
+    return;
+  }
+  record.form.auditStatus = "已审核";
+  record.error = "";
+  clearActiveDirty();
+}
+async function reverseAuditActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record?.editing || !record.originalCode) {
+    return;
+  }
+  const result = await reverseAuditMasterData(record.type, record.originalCode);
+  if (!result.ok) {
+    record.error = result.message || "反审核失败。";
+    return;
+  }
+  record.form.auditStatus = "草稿";
+  record.error = "";
+  clearActiveDirty();
+}
+async function toggleActiveMasterStatus() {
+  const record = activeMasterRecord.value;
+  if (!record?.editing || !record.originalCode) {
+    return;
+  }
+  const nextEnabled = (record.form.status || "启用") === "禁用";
+  const result = await setMasterDataStatus(record.type, record.originalCode, nextEnabled);
+  if (!result.ok) {
+    record.error = result.message || "状态更新失败。";
+    return;
+  }
+  record.form.status = nextEnabled ? "启用" : "禁用";
+  record.error = "";
+}
+async function deleteActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record?.editing || !record.originalCode) {
+    return;
+  }
+  if (!window.confirm(`确定删除当前${record.title}吗？`)) {
+    return;
+  }
+  const result = await deleteMasterData(record.type, record.originalCode);
+  if (!result.ok) {
+    record.error = result.message || "删除资料失败。";
+    return;
+  }
+  clearActiveDirty();
+  delete masterRecords[record.id];
+  tabs.closeNow(record.id);
+  tabs.activeTabId.value = record.listKey;
 }
 function markActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);

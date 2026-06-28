@@ -279,15 +279,15 @@ class CoreBusinessFastIntegrationTest {
 
     private void insertProduct(String code) {
         jdbcTemplate.update("""
-            INSERT INTO md_product (code, name, spec, category, unit, enabled)
-            VALUES (?, ?, 'A109', '成品总成', '只', TRUE)
+            INSERT INTO md_product (code, name, spec, category, unit, enabled, audit_status)
+            VALUES (?, ?, 'A109', '成品总成', '只', TRUE, 'AUDITED')
             """, code, code);
     }
 
     private void insertWarehouse(String code) {
         jdbcTemplate.update("""
-            INSERT INTO md_warehouse (code, name, allow_negative_stock, enabled)
-            VALUES (?, ?, FALSE, TRUE)
+            INSERT INTO md_warehouse (code, name, allow_negative_stock, enabled, audit_status)
+            VALUES (?, ?, FALSE, TRUE, 'AUDITED')
             """, code, code);
     }
 

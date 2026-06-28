@@ -1,6 +1,7 @@
 package com.jdy.erp.production.application;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -76,6 +77,9 @@ public class ProductInAppService {
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                    COALESCE(l.product_name_snapshot, p.name) AS "productName",
                    COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
@@ -152,7 +156,7 @@ public class ProductInAppService {
                 lineNo += 1;
             }
         }
-        var rows = jdbcTemplate.queryForList("""
+        var taskRowsAfterComplete = jdbcTemplate.queryForList("""
             UPDATE production_task
             SET completed_qty = completed_qty + ?,
                 status = CASE WHEN completed_qty + ? >= qty THEN 'COMPLETED' ELSE 'ISSUED' END,
@@ -161,11 +165,15 @@ public class ProductInAppService {
               AND completed_qty + ? <= qty
             RETURNING id::text AS id, bill_no AS "billNo", qty, issued_qty AS "issuedQty", completed_qty AS "completedQty", status
             """, qty, qty, task.get("id"), qty);
-        if (rows.isEmpty()) {
+        if (taskRowsAfterComplete.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "完工数量不能超过任务数量");
         }
         operationLogService.log("PRODUCTION", "COMPLETE", "production_completion", String.valueOf(completionRows.get(0).get("id")), true, null);
-        return rows.get(0);
+        var completion = new LinkedHashMap<String, Object>(completionRows.get(0));
+        completion.put("sourceOrderNo", billNo);
+        completion.put("taskStatus", taskRowsAfterComplete.get(0).get("status"));
+        completion.put("taskCompletedQty", taskRowsAfterComplete.get(0).get("completedQty"));
+        return completion;
     }
 
     @Transactional

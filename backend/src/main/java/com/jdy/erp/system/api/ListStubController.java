@@ -274,9 +274,12 @@ public class ListStubController {
         }
         return switch (listKey) {
             case "product-master-list" -> realProductRows();
+            case "product-category-list" -> realProductCategoryRows();
+            case "unit-master-list" -> realUnitRows();
             case "customer-master-list" -> realCustomerRows();
             case "supplier-master-list" -> realSupplierRows();
             case "warehouse-master-list" -> realWarehouseRows();
+            case "production-department-list" -> realProductionDepartmentRows();
             case "sales-quote-form-list" -> salesQuoteRows();
             case "purchase-order-form-list" -> purchaseOrderRows();
             case "delivery-notice-form-list" -> deliveryNoticeRows();
@@ -293,9 +296,11 @@ public class ListStubController {
             case "payable-list", "ap-payable-list" -> payableRows();
             case "bom-list" -> bomRows();
             case "production-plan-list" -> productionPlanRows();
+            case "kit-analysis-list" -> kitAnalysisRows();
             case "production-task-list", "production-task-form-list" -> productionTaskRows();
             case "material-issue-list", "material-issue-form-list" -> materialIssueRows();
             case "product-in-list", "product-in-form-list" -> productInRows();
+            case "outsourcing-surface-list" -> outsourcingSurfaceRows();
             case "role-list", "user-role-list" -> roleRows();
             case "operation-log-list" -> operationLogRows();
             default -> salesRows();
@@ -318,6 +323,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        COALESCE(w.name, '') AS warehouse,
                        trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -348,6 +356,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        COALESCE(w.name, '') AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(COALESCE(l.shipped_qty, 0), 'FM9999999990.####')) AS "shippedQty",
@@ -379,6 +390,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        COALESCE(w.name, '') AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0)), 'FM9999999990.####')) AS "receivedQty",
@@ -432,6 +446,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -467,6 +484,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -500,6 +520,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -530,6 +553,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -555,6 +581,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -578,6 +607,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -603,6 +635,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        concat(sw.name, ' → ', tw.name) AS warehouse,
                        trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -626,6 +661,9 @@ public class ListStubController {
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                        w.name AS warehouse,
                        trim(to_char(l.counted_qty, 'FM9999999990.####')) AS qty,
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -655,6 +693,9 @@ public class ListStubController {
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    w.name AS warehouse,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                    trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -680,6 +721,9 @@ public class ListStubController {
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
                        COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    w.name AS warehouse,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
                    trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
@@ -702,6 +746,7 @@ public class ListStubController {
     private List<Map<String, ?>> realProductRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
+                   system_no::text AS "systemNo",
                    code,
                    name,
                    COALESCE(short_name, '') AS "shortName",
@@ -711,6 +756,11 @@ public class ListStubController {
                    category,
                    product_type AS "productType",
                    unit,
+                   trim(to_char(net_weight, 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(gross_weight, 'FM9999999990.00')) AS "grossWeight",
+                   COALESCE(oe_no, '') AS "oeNo",
+                   COALESCE(position_name, '') AS "positionName",
+                   COALESCE(surface_treatment, '') AS "surfaceTreatment",
                    CASE WHEN is_purchase THEN '是' ELSE '否' END AS "isPurchase",
                    CASE WHEN is_sale THEN '是' ELSE '否' END AS "isSale",
                    CASE WHEN is_inventory THEN '是' ELSE '否' END AS "isInventory",
@@ -728,17 +778,59 @@ public class ListStubController {
                    trim(to_char(default_sale_price, 'FM9999999990.00')) AS "defaultSalePrice",
                    trim(to_char(cost_price, 'FM9999999990.00')) AS "costPrice",
                    trim(to_char(min_sale_price, 'FM9999999990.00')) AS "minSalePrice",
+                   trim(to_char(purchase_price, 'FM9999999990.00')) AS "purchasePrice",
+                   trim(to_char(max_purchase_price, 'FM9999999990.00')) AS "maxPurchasePrice",
+                   trim(to_char(subcontract_price, 'FM9999999990.00')) AS "subcontractPrice",
+                   trim(to_char(wholesale_price, 'FM9999999990.00')) AS "wholesalePrice",
+                   trim(to_char(retail_price, 'FM9999999990.00')) AS "retailPrice",
+                   trim(to_char(min_stock_qty, 'FM9999999990.####')) AS "minStockQty",
+                   trim(to_char(safety_stock_qty, 'FM9999999990.####')) AS "safetyStockQty",
+                   trim(to_char(max_stock_qty, 'FM9999999990.####')) AS "maxStockQty",
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_product
             ORDER BY code
             """));
     }
 
+    private List<Map<String, ?>> realProductCategoryRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   COALESCE(parent_code, '') AS "parentCode",
+                   sort_no AS "sortNo",
+                   COALESCE(remark, '') AS remark,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_product_category
+            ORDER BY sort_no, code
+            """));
+    }
+
+    private List<Map<String, ?>> realUnitRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   decimal_places AS "decimalPlaces",
+                   sort_no AS "sortNo",
+                   COALESCE(remark, '') AS remark,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_unit
+            ORDER BY sort_no, code
+            """));
+    }
+
     private List<Map<String, ?>> realCustomerRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
+                   system_no::text AS "systemNo",
                    code,
                    name,
                    COALESCE(short_name, '') AS "shortName",
@@ -752,7 +844,8 @@ public class ListStubController {
                    settlement_method AS "settlementMethod",
                    COALESCE(owner_name, '') AS "ownerName",
                    COALESCE(remark, '') AS remark,
-                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
             FROM md_customer
             ORDER BY code
             """));
@@ -761,6 +854,7 @@ public class ListStubController {
     private List<Map<String, ?>> realSupplierRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
+                   system_no::text AS "systemNo",
                    code,
                    name,
                    COALESCE(short_name, '') AS "shortName",
@@ -773,7 +867,8 @@ public class ListStubController {
                    settlement_method AS "settlementMethod",
                    COALESCE(owner_name, '') AS "ownerName",
                    COALESCE(remark, '') AS remark,
-                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
             FROM md_supplier
             ORDER BY code
             """));
@@ -782,6 +877,7 @@ public class ListStubController {
     private List<Map<String, ?>> realWarehouseRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
+                   system_no::text AS "systemNo",
                    code,
                    name,
                    warehouse_type AS "warehouseType",
@@ -790,8 +886,25 @@ public class ListStubController {
                    COALESCE(address, '') AS address,
                    CASE WHEN allow_negative_stock THEN '允许负库存' ELSE '不允许负库存' END AS stockPolicy,
                    COALESCE(remark, '') AS remark,
-                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
             FROM md_warehouse
+            ORDER BY code
+            """));
+    }
+
+    private List<Map<String, ?>> realProductionDepartmentRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   system_no::text AS "systemNo",
+                   code,
+                   name,
+                   COALESCE(manager, '') AS manager,
+                   COALESCE(remark, '') AS remark,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_production_department
             ORDER BY code
             """));
     }
@@ -802,6 +915,9 @@ public class ListStubController {
                    p.code,
                    p.name,
                    COALESCE(p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   trim(to_char(p.net_weight, 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(p.gross_weight, 'FM9999999990.00')) AS "grossWeight",
                    w.name AS warehouse,
                    trim(to_char(b.qty_on_hand, 'FM9999999990.####')) AS "onHand",
                    trim(to_char(b.qty_available, 'FM9999999990.####')) AS available,
@@ -821,6 +937,8 @@ public class ListStubController {
                    COALESCE(p.category, '') AS "productCategory",
                    COALESCE(p.spec, '') AS spec,
                    p.unit,
+                   trim(to_char(p.net_weight, 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(p.gross_weight, 'FM9999999990.00')) AS "grossWeight",
                    w.code AS "warehouseCode",
                    w.name AS "warehouseName",
                    trim(to_char(b.qty_on_hand, 'FM9999999990.####')) AS "onHand",
@@ -1144,6 +1262,9 @@ public class ListStubController {
                    COALESCE(o.supplier, s.name, '') AS supplier,
                    COALESCE(o.product_code, i.product_code, r.product_code) AS "productCode",
                    COALESCE(o.product_name, p.name, '') AS "productName",
+                   COALESCE(p.unit, '') AS unit,
+                   trim(to_char(p.net_weight, 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(p.gross_weight, 'FM9999999990.00')) AS "grossWeight",
                    trim(to_char(COALESCE(o.order_qty, 0), 'FM9999999990.####')) AS "orderQty",
                    trim(to_char(COALESCE(i.in_qty, 0), 'FM9999999990.####')) AS "inQty",
                    trim(to_char(COALESCE(r.return_qty, 0), 'FM9999999990.####')) AS "returnQty",
@@ -1258,7 +1379,9 @@ public class ListStubController {
                    COALESCE(l.product_code_snapshot, p.code, '') AS "productCode",
                    COALESCE(l.product_name_snapshot, p.name, '') AS "productName",
                    COALESCE(w.name, '') AS warehouse,
-                   COALESCE(p.unit, '') AS unit,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
                    trim(to_char(COALESCE(l.unit_price, 0), 'FM9999999990.00')) AS "unitCost",
                    trim(to_char(COALESCE(l.amount, 0), 'FM9999999990.00')) AS "inCost"
@@ -1286,7 +1409,9 @@ public class ListStubController {
                    COALESCE(l.product_code_snapshot, p.code, '') AS "productCode",
                    COALESCE(l.product_name_snapshot, p.name, '') AS "productName",
                    COALESCE(w.name, '') AS warehouse,
-                   COALESCE(p.unit, '') AS unit,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty,
                    trim(to_char(COALESCE(l.unit_price, 0), 'FM9999999990.00')) AS "unitCost",
                    trim(to_char(COALESCE(l.amount, 0), 'FM9999999990.00')) AS "outCost"
@@ -1315,7 +1440,9 @@ public class ListStubController {
                    COALESCE(l.product_name_snapshot, p.name, '') AS "productName",
                    COALESCE(sw.name, '') AS "sourceWarehouse",
                    COALESCE(tw.name, '') AS "targetWarehouse",
-                   COALESCE(p.unit, '') AS unit,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    trim(to_char(COALESCE(l.qty, 0), 'FM9999999990.####')) AS qty
             FROM stock_transfer b
             LEFT JOIN stock_transfer_line l ON l.bill_id = b.id AND l.line_no = 1
@@ -1374,6 +1501,9 @@ public class ListStubController {
                    b.code AS "bomCode",
                    COALESCE(t.product_code_snapshot, p.code) AS "productCode",
                    COALESCE(t.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(t.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(t.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(t.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    w.name AS warehouse,
                    trim(to_char(t.qty, 'FM9999999990.####')) AS qty,
                    trim(to_char(t.issued_qty, 'FM9999999990.####')) AS "issuedQty",
@@ -1400,8 +1530,14 @@ public class ListStubController {
                    b.code AS "bomCode",
                    COALESCE(pl.product_code_snapshot, p.code) AS "productCode",
                    COALESCE(pl.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(pl.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(pl.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(pl.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                   COALESCE(pl.department_code, '') AS "departmentCode",
                    w.name AS warehouse,
                    trim(to_char(pl.planned_qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(task_qty.assigned_qty, 0), 'FM9999999990.####')) AS "assignedQty",
+                   trim(to_char(GREATEST(pl.planned_qty - COALESCE(task_qty.assigned_qty, 0), 0), 'FM9999999990.####')) AS "remainingQty",
                    CASE
                        WHEN pl.source_type = 'SELF' THEN '自发计划'
                        ELSE pl.source_type
@@ -1414,7 +1550,42 @@ public class ListStubController {
             JOIN prod_bom b ON b.id = pl.bom_id
             JOIN md_product p ON p.id = pl.product_id
             JOIN md_warehouse w ON w.id = pl.warehouse_id
+            LEFT JOIN (
+                SELECT plan_id, SUM(qty) AS assigned_qty
+                FROM production_task
+                WHERE plan_id IS NOT NULL
+                GROUP BY plan_id
+            ) task_qty ON task_qty.plan_id = pl.id
             ORDER BY pl.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> kitAnalysisRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT (pl.id::text || '-' || s.line_no::text) AS id,
+                   pl.bill_no AS "planNo",
+                   b.code AS "bomCode",
+                   COALESCE(pl.product_code_snapshot, finished.code) AS "productCode",
+                   COALESCE(pl.product_name_snapshot, finished.name) AS "productName",
+                   material.code AS "materialCode",
+                   material.name AS "materialName",
+                   COALESCE(material.unit, '') AS unit,
+                   trim(to_char(s.qty * pl.planned_qty, 'FM9999999990.####')) AS "requiredQty",
+                   trim(to_char(COALESCE(stock.qty_available, 0), 'FM9999999990.####')) AS "availableQty",
+                   trim(to_char(GREATEST(s.qty * pl.planned_qty - COALESCE(stock.qty_available, 0), 0), 'FM9999999990.####')) AS "shortageQty",
+                   CASE WHEN COALESCE(stock.qty_available, 0) >= s.qty * pl.planned_qty THEN '齐套' ELSE '缺料' END AS status
+            FROM production_plan pl
+            JOIN prod_bom b ON b.id = pl.bom_id
+            JOIN md_product finished ON finished.id = pl.product_id
+            JOIN prod_bom_line s ON s.bom_id = b.id
+            JOIN md_product material ON material.id = s.material_id
+            LEFT JOIN (
+                SELECT product_id, SUM(qty_available) AS qty_available
+                FROM inv_stock_balance
+                GROUP BY product_id
+            ) stock ON stock.product_id = s.material_id
+            WHERE pl.status = 'AUDITED'
+            ORDER BY pl.updated_at DESC, s.line_no
             """));
     }
 
@@ -1425,6 +1596,7 @@ public class ListStubController {
                    t.bill_no AS "sourceOrderNo",
                    to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
                    CASE
+                       WHEN i.status = 'DRAFT' THEN '草稿'
                        WHEN i.status = 'REVERSED' THEN '已反审核'
                        WHEN i.status = 'RED_REVERSED' THEN '已红冲'
                        ELSE '已审核'
@@ -1478,12 +1650,39 @@ public class ListStubController {
             """));
     }
 
+    private List<Map<String, ?>> outsourcingSurfaceRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT o.id::text AS id,
+                   o.bill_no AS "billNo",
+                   COALESCE(o.source_bill_no, '') AS "sourceOrderNo",
+                   COALESCE(o.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(o.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(o.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(o.qty, 'FM9999999990.####')) AS qty,
+                   COALESCE(o.surface_treatment, '') AS "surfaceTreatment",
+                   COALESCE(o.processor_supplier_name_snapshot, s.name, '') AS "supplier",
+                   CASE
+                       WHEN o.status = 'COMPLETED' THEN '已完成'
+                       WHEN o.status = 'AUDITED' THEN '已发出'
+                       ELSE '草稿'
+                   END AS status,
+                   to_char(o.created_at, 'YYYY-MM-DD') AS "billDate"
+            FROM outsourcing_surface_process o
+            JOIN md_product p ON p.id = o.product_id
+            LEFT JOIN md_supplier s ON s.id = o.processor_supplier_id
+            ORDER BY o.updated_at DESC
+            """));
+    }
+
     private List<Map<String, ?>> bomRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT b.id::text AS id,
                    b.code,
                    p.code AS "productCode",
                    p.name AS "productName",
+                   COALESCE(p.unit, '') AS unit,
+                   trim(to_char(p.net_weight, 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(p.gross_weight, 'FM9999999990.00')) AS "grossWeight",
                    trim(to_char(b.qty, 'FM9999999990.####')) AS qty,
                    CASE WHEN b.enabled THEN '启用' ELSE '禁用' END AS status
             FROM prod_bom b

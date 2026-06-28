@@ -324,6 +324,14 @@ export async function setMasterDataStatus(type: string, code: string, enabled: b
   });
 }
 
+export async function auditMasterData(type: string, code: string): Promise<ListFetchResult> {
+  return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}/audit`, "POST", {});
+}
+
+export async function reverseAuditMasterData(type: string, code: string): Promise<ListFetchResult> {
+  return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}/reverse`, "POST", {});
+}
+
 export async function deleteMasterData(type: string, code: string): Promise<ListFetchResult> {
   return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}`, "DELETE", {});
 }

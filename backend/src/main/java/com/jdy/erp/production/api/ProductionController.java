@@ -3,6 +3,7 @@ package com.jdy.erp.production.api;
 import java.util.Map;
 
 import com.jdy.erp.production.application.MaterialIssueAppService;
+import com.jdy.erp.production.application.MaterialIssueAppService.IssueDraftRequest;
 import com.jdy.erp.production.application.MaterialIssueAppService.IssueRequest;
 import com.jdy.erp.production.application.MaterialIssueAppService.RedReverseRequest;
 import com.jdy.erp.production.application.ProductInAppService;
@@ -69,11 +70,37 @@ public class ProductionController {
         return taskAppService.createPlan(request);
     }
 
+    @PostMapping("/plans/{billNo}/tasks")
+    @RequirePermission("production.task.audit")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> createTaskFromPlan(@PathVariable String billNo, @RequestBody TaskRequest request) {
+        return taskAppService.createTaskFromPlan(billNo, request);
+    }
+
+    @GetMapping("/plans/{billNo}/kit-analysis")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> kitAnalysis(@PathVariable String billNo) {
+        return Map.of("planNo", billNo, "rows", taskAppService.kitAnalysis(billNo));
+    }
+
     @PostMapping("/tasks/{billNo}/issue")
     @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> issue(@PathVariable String billNo, @RequestBody IssueRequest request) {
         return materialIssueAppService.issue(billNo, request);
+    }
+
+    @PostMapping("/material-issues/draft")
+    @RequirePermission("production.document.audit")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> saveIssueDraft(@RequestBody IssueDraftRequest request) {
+        return materialIssueAppService.saveDraft(request);
+    }
+
+    @PostMapping("/material-issues/{billNo}/audit")
+    @RequirePermission("production.document.audit")
+    public Map<String, Object> auditIssue(@PathVariable String billNo) {
+        return materialIssueAppService.audit(billNo);
     }
 
     @PostMapping("/material-issues/{billNo}/reverse")

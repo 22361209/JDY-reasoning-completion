@@ -8,10 +8,17 @@ const documentModule = readFileSync("frontend/src/modules/documents/useDocumentM
 const masterDataRegistry = readFileSync("frontend/src/modules/master-data/registry.ts", "utf8");
 const masterDataTypes = readFileSync("frontend/src/modules/master-data/types.ts", "utf8");
 const masterDataRecordPage = readFileSync("frontend/src/modules/master-data/MasterDataRecordPage.vue", "utf8");
+const masterDataFormDialog = readFileSync("frontend/src/modules/master-data/MasterDataFormDialog.vue", "utf8");
 const productMasterFields = readFileSync("frontend/src/modules/master-data/product/fields.ts", "utf8");
+const productCategoryFields = readFileSync("frontend/src/modules/master-data/product-category/fields.ts", "utf8");
+const unitMasterFields = readFileSync("frontend/src/modules/master-data/unit/fields.ts", "utf8");
 const customerMasterFields = readFileSync("frontend/src/modules/master-data/customer/fields.ts", "utf8");
 const supplierMasterFields = readFileSync("frontend/src/modules/master-data/supplier/fields.ts", "utf8");
 const warehouseMasterFields = readFileSync("frontend/src/modules/master-data/warehouse/fields.ts", "utf8");
+const masterDataController = readFileSync("backend/src/main/java/com/jdy/erp/masterdata/api/MasterDataController.java", "utf8");
+const masterDataSystemNoMigration = readFileSync("backend/src/main/resources/db/migration/V67__master_data_visible_system_no.sql", "utf8");
+const materialCategoryUnitMigration = readFileSync("backend/src/main/resources/db/migration/V68__material_category_unit_master_data.sql", "utf8");
+const productUnitWeightSnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V69__product_unit_weight_snapshots.sql", "utf8");
 const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
 const purchaseOrderDocument = readFileSync("frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts", "utf8");
 const listStubController = readFileSync("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java", "utf8");
@@ -100,6 +107,16 @@ assertContains(
 );
 assertContains(
   fragments,
+  /salesDetailBaseColumns[\s\S]*?field:\s*"unit",\s*title:\s*"单位"[\s\S]*?field:\s*"netWeight",\s*title:\s*"净重"[\s\S]*?field:\s*"grossWeight",\s*title:\s*"毛重"[\s\S]*?field:\s*"warehouse"/,
+  "销售/采购明细视图基础列必须在物料信息后显示单位、净重和毛重"
+);
+assertContains(
+  fragments,
+  /salesEntryColumns[\s\S]*?field:\s*"spec",\s*title:\s*"规格型号"[\s\S]*?field:\s*"unit",\s*title:\s*"单位"[\s\S]*?field:\s*"netWeight",\s*title:\s*"净重"[\s\S]*?field:\s*"grossWeight",\s*title:\s*"毛重"[\s\S]*?field:\s*"warehouse"/,
+  "单据分录列必须在规格型号后统一显示单位、净重和毛重"
+);
+assertContains(
+  fragments,
   /salesQuoteEntryColumns[\s\S]*?filter\(\(column\)\s*=>\s*column\.field\s*!==\s*"planDeliveryDate"\)/,
   "销售报价单分录不能显示预计交期"
 );
@@ -107,6 +124,11 @@ assertContains(
   entryTable,
   /showPartyCodeColumn[\s\S]*?showCustomerMaterialCodeColumn[\s\S]*?showSupplierMaterialCodeColumn[\s\S]*?showCustomerOrderNoColumn[\s\S]*?title:\s*"客户物料编码"[\s\S]*?title:\s*"供应商物料编码"[\s\S]*?title:\s*"客户订单号"[\s\S]*?title:\s*"单价"[\s\S]*?title:\s*"含税单价"/,
   "共享分录表必须支持隐藏客户编码，并区分客户物料编码/供应商物料编码/客户订单号/双单价"
+);
+assertContains(
+  entryTable,
+  /EntryColumnKey[\s\S]*?"unit"[\s\S]*?"netWeight"[\s\S]*?"grossWeight"[\s\S]*?title:\s*"单位"[\s\S]*?title:\s*"净重"[\s\S]*?title:\s*"毛重"[\s\S]*?formatOptionalWeight[\s\S]*?productInfo/,
+  "共享分录表必须统一承载单位、净重、毛重，并把重量格式化到小数点后两位"
 );
 assertContains(
   entryTable,
@@ -127,6 +149,11 @@ assertContains(
   dataListPage,
   /listSummaryFooterValue\(column\.key\)[\s\S]*?function listSummaryFooterValue[\s\S]*?listSummaryTotals/,
   "列表汇总行必须调用通用 footer 取值函数"
+);
+assertContains(
+  dataListPage,
+  /detailColumnsForList[\s\S]*?field:\s*"unit",\s*title:\s*"单位"[\s\S]*?field:\s*"netWeight",\s*title:\s*"净重"[\s\S]*?field:\s*"grossWeight",\s*title:\s*"毛重"[\s\S]*?field:\s*"warehouse"/,
+  "列表明细视图通用列必须带出物料单位、净重和毛重"
 );
 assertContains(
   dataListPage,
@@ -225,13 +252,68 @@ assertContains(
 );
 assertContains(
   masterDataRegistry,
-  /"product-master-list"[\s\S]*?title:\s*"物料资料"[\s\S]*?field:\s*"code",\s*title:\s*"物料编码"[\s\S]*?field:\s*"id",\s*title:\s*"系统ID"[\s\S]*?field:\s*"productType",\s*title:\s*"物料属性"[\s\S]*?field:\s*"isPurchase",\s*title:\s*"可采购"[\s\S]*?field:\s*"isProduce",\s*title:\s*"可自制"[\s\S]*?field:\s*"defaultWorkshop",\s*title:\s*"默认生产车间"[\s\S]*?field:\s*"defaultSupplierCode",\s*title:\s*"默认供应商"/,
-  "物料资料必须是本批核心主数据，包含系统ID、物料属性、业务能力和默认业务属性"
+  /"product-master-list"[\s\S]*?title:\s*"物料资料"[\s\S]*?field:\s*"systemNo",\s*title:\s*"系统编号"[\s\S]*?field:\s*"code",\s*title:\s*"物料编码"[\s\S]*?field:\s*"category",\s*title:\s*"物料类别"[\s\S]*?field:\s*"defaultSupplierCode",\s*title:\s*"默认供应商"[\s\S]*?field:\s*"oeNo",\s*title:\s*"OE NO."[\s\S]*?field:\s*"minStockQty",\s*title:\s*"最低库存数量"[\s\S]*?field:\s*"isProduce",\s*title:\s*"可自制"[\s\S]*?field:\s*"surfaceTreatment",\s*title:\s*"表面处理"[\s\S]*?field:\s*"purchasePrice",\s*title:\s*"采购价"[\s\S]*?field:\s*"defaultSalePrice",\s*title:\s*"批发价"/,
+  "物料资料必须按云星辰物料列表骨架包含系统编号、物料类别、默认供应商、OE/位置/表面处理、库存预警、商品特性和价格列"
+);
+assertContains(
+  masterDataRegistry,
+  /"product-master-list"[\s\S]*?field:\s*"unit",\s*title:\s*"库存单位"[\s\S]*?field:\s*"netWeight",\s*title:\s*"净重"[\s\S]*?field:\s*"grossWeight",\s*title:\s*"毛重"[\s\S]*?selectorColumns:[\s\S]*?field:\s*"unit",\s*title:\s*"单位"/,
+  "物料资料列表和选择器必须暴露计量单位，并在列表中显示净重/毛重"
 );
 assertContains(
   productMasterFields,
-  /label:\s*"系统ID"[\s\S]*?readonly:\s*true[\s\S]*?label:\s*"物料编码"[\s\S]*?label:\s*"物料属性"[\s\S]*?label:\s*"可采购"[\s\S]*?label:\s*"可销售"[\s\S]*?label:\s*"可库存"[\s\S]*?label:\s*"可自制"[\s\S]*?label:\s*"可委外"[\s\S]*?label:\s*"默认生产车间"[\s\S]*?label:\s*"成本价"/,
-  "物料建档页必须包含只读系统ID和一物料多业务面的核心字段"
+  /name:\s*"systemNo"[\s\S]*?label:\s*"系统编号"[\s\S]*?readonly:\s*true[\s\S]*?label:\s*"物料编码"[\s\S]*?label:\s*"物料类别"[\s\S]*?label:\s*"商品类型"[\s\S]*?label:\s*"计量单位"[\s\S]*?label:\s*"OE NO."[\s\S]*?label:\s*"表面处理"/,
+  "物料建档页基本信息必须包含只读系统编号、物料编码、物料类别、商品类型、计量单位、OE 和表面处理"
+);
+assertContains(
+  productMasterFields,
+  /label:\s*"计量单位"[\s\S]*?required:\s*true[\s\S]*?label:\s*"净重"[\s\S]*?type:\s*"number"[\s\S]*?label:\s*"毛重"[\s\S]*?type:\s*"number"/,
+  "物料建档页必须把计量单位作为必录属性，并维护可空净重/毛重"
+);
+assertContains(
+  masterDataController,
+  /createProduct[\s\S]*?var unit = required\(payload,\s*"unit"\)[\s\S]*?updateProduct[\s\S]*?var unit = required\(payload,\s*"unit"\)/,
+  "后端物料新增和编辑也必须强制校验计量单位"
+);
+assertNotContains(
+  masterDataController,
+  /getOrDefault\("unit",\s*"只"\)/,
+  "后端不得把缺失计量单位静默默认成“只”"
+);
+assertContains(
+  productMasterFields,
+  /section:\s*"商品特性"[\s\S]*?section:\s*"价格设置"[\s\S]*?section:\s*"库存预警"[\s\S]*?section:\s*"生产信息"/,
+  "物料建档页必须按商品特性、价格设置、库存预警、生产信息分区"
+);
+assertContains(
+  productMasterFields,
+  /label:\s*"可销售"[\s\S]*?label:\s*"可采购"[\s\S]*?label:\s*"采购价"[\s\S]*?label:\s*"参考成本"[\s\S]*?label:\s*"最低库存数量"[\s\S]*?label:\s*"默认生产车间"/,
+  "物料建档页必须保留商品特性、价格、库存预警和生产关键字段"
+);
+assertNotContains(
+  productMasterFields,
+  /label:\s*"销售单位"|label:\s*"采购单位"|label:\s*"生产\/BOM单位"|label:\s*"物料属性"/,
+  "物料建档页不得保留当前阶段造成重复理解的销售/采购/BOM单位和物料属性字段"
+);
+assertContains(
+  masterDataRegistry,
+  /"product-category-list"[\s\S]*?type:\s*"productCategory"[\s\S]*?title:\s*"物料类别"[\s\S]*?field:\s*"parentCode"[\s\S]*?"unit-master-list"[\s\S]*?type:\s*"unit"[\s\S]*?title:\s*"计量单位"[\s\S]*?field:\s*"decimalPlaces"/,
+  "基础资料必须补齐物料类别和计量单位两个轻主数据列表"
+);
+assertContains(
+  productCategoryFields + unitMasterFields,
+  /name:\s*"parentCode"[\s\S]*?label:\s*"上级类别编码"[\s\S]*?name:\s*"decimalPlaces"[\s\S]*?label:\s*"数量小数位"/,
+  "物料类别建档必须维护上级类别，计量单位建档必须维护数量小数位"
+);
+assertContains(
+  materialCategoryUnitMigration + masterDataController + listStubController,
+  /CREATE TABLE IF NOT EXISTS md_product_category[\s\S]*?CREATE TABLE IF NOT EXISTS md_unit[\s\S]*?ALTER TABLE md_product[\s\S]*?ADD COLUMN IF NOT EXISTS oe_no[\s\S]*?case "productCategory"[\s\S]*?case "unit"[\s\S]*?case "product-category-list"[\s\S]*?case "unit-master-list"/,
+  "后端必须落库物料类别、计量单位和云星辰物料页关键字段，并接入统一主数据接口"
+);
+assertContains(
+  customerMasterFields + supplierMasterFields + warehouseMasterFields,
+  /name:\s*"systemNo",\s*label:\s*"系统编号"[\s\S]*?name:\s*"systemNo",\s*label:\s*"系统编号"[\s\S]*?name:\s*"systemNo",\s*label:\s*"系统编号"/,
+  "客户、供应商、仓库建档页也必须统一显示只读系统编号"
 );
 assertContains(
   masterDataRecordPage,
@@ -239,14 +321,49 @@ assertContains(
   "主数据建档页必须让 readonly 字段全程不可编辑"
 );
 assertContains(
+  masterDataRecordPage,
+  /class="master-record-toolbar"[\s\S]*?emit\('newRecord'\)[\s\S]*?data-testid="master-record-save"[\s\S]*?emit\('audit'\)[\s\S]*?emit\('reverseAudit'\)[\s\S]*?emit\('toggleStatus'\)[\s\S]*?emit\('deleteRecord'\)/,
+  "主数据建档页必须保留新增/保存/审核/反审核/启禁用/删除动作条"
+);
+assertContains(
+  masterDataRecordPage + masterDataFormDialog,
+  /<template v-else-if="field\.suggestions">[\s\S]*?<datalist[\s\S]*?sectionClasses\(section\)[\s\S]*?checkbox-field/,
+  "主数据建档页必须把 suggestions 包在同一分支内，并支持 checkbox 横向布局"
+);
+assertNotContains(
+  masterDataRecordPage + masterDataFormDialog,
+  /<em>\{\{ form\[field\.name\] === "true" \? "是" : "否" \}\}<\/em>/,
+  "checkbox 字段不得再额外显示“是/否”文案"
+);
+assertContains(
   masterDataRegistry,
-  /selectorColumns:\s*\[\s*\{ field:\s*"code",\s*title:\s*"物料编码"/,
-  "物料选择器必须以物料编码开头，系统ID不得成为用户选择物料的主要字段"
+  /selectorColumns:\s*\[\s*\{ field:\s*"systemNo",\s*title:\s*"系统编号"[\s\S]*?visible:\s*false\s*\},\s*\{ field:\s*"code",\s*title:\s*"物料编码"/,
+  "物料选择器必须隐藏系统编号，搜索显示仍以物料编码开头"
 );
 assertNotContains(
   masterDataRegistry,
   /selectorColumns:\s*\[[\s\S]*?\{ field:\s*"id",\s*title:\s*"系统ID"/,
-  "物料选择器不得暴露系统ID，搜索显示仍以物料编码/物料名称为主"
+  "物料选择器不得暴露 UUID 主键，搜索显示仍以物料编码/物料名称为主"
+);
+assertNotContains(
+  masterDataRegistry + productMasterFields + customerMasterFields + supplierMasterFields + warehouseMasterFields,
+  /title:\s*"系统ID"|label:\s*"系统ID"|field:\s*"id",\s*title:\s*"系统ID"/,
+  "主数据页面不得把 UUID 主键作为用户可见字段"
+);
+assertContains(
+  masterDataSystemNoMigration,
+  /md_product_system_no_seq[\s\S]*?md_customer_system_no_seq[\s\S]*?md_supplier_system_no_seq[\s\S]*?md_warehouse_system_no_seq[\s\S]*?ALTER TABLE md_product ADD COLUMN IF NOT EXISTS system_no BIGINT[\s\S]*?CREATE UNIQUE INDEX IF NOT EXISTS uq_md_warehouse_system_no/,
+  "物料、客户、供应商、仓库必须拥有只读可见系统编号 system_no，且 UUID 主键保持隐藏"
+);
+assertContains(
+  masterDataController + listStubController,
+  /system_no::text AS "systemNo"/,
+  "主数据新增、启停和列表接口必须返回 systemNo 给前端显示"
+);
+assertContains(
+  productUnitWeightSnapshotMigration,
+  /ALTER TABLE md_product[\s\S]*?net_weight NUMERIC\(18,2\)[\s\S]*?gross_weight NUMERIC\(18,2\)[\s\S]*?ADD COLUMN IF NOT EXISTS product_unit_snapshot[\s\S]*?ADD COLUMN IF NOT EXISTS net_weight_snapshot[\s\S]*?ADD COLUMN IF NOT EXISTS gross_weight_snapshot[\s\S]*?CREATE TRIGGER trg_fill_product_material_snapshot_attrs/,
+  "V69 必须给物料主档和所有物料相关业务行补单位/净重/毛重快照字段与触发器"
 );
 for (const tableName of [
   "sales_quote_line",
@@ -273,11 +390,21 @@ for (const tableName of [
     new RegExp(`ALTER TABLE ${tableName}[\\s\\S]*?product_code_snapshot[\\s\\S]*?product_name_snapshot[\\s\\S]*?product_spec_snapshot[\\s\\S]*?UPDATE ${tableName}`),
     `${tableName} 必须落库并回填物料编码/名称/规格显示快照`
   );
+  assertContains(
+    productUnitWeightSnapshotMigration,
+    new RegExp(`'${tableName}'`),
+    `${tableName} 必须纳入单位/净重/毛重快照迁移`
+  );
 }
 assertContains(
   productSnapshotService,
   /resolve\(String productId,\s*String productCode[\s\S]*?return byId\(productId\.trim\(\), label\)[\s\S]*?return byCode\(productCode\.trim\(\), label\)[\s\S]*?WHERE id = \?::uuid/,
-  "ProductSnapshotService 必须优先用系统ID解析物料快照，并兼容旧编码录入"
+  "ProductSnapshotService 必须优先用 UUID 解析物料快照，并兼容旧编码录入"
+);
+assertContains(
+  productSnapshotService,
+  /COALESCE\(unit,\s*''\) AS unit[\s\S]*?net_weight AS "netWeight"[\s\S]*?gross_weight AS "grossWeight"[\s\S]*?record ProductSnapshot\(String id,\s*String code,\s*String name,\s*String spec,\s*String unit,\s*BigDecimal netWeight,\s*BigDecimal grossWeight\)/,
+  "ProductSnapshotService 必须解析物料单位、净重和毛重"
 );
 assertContains(
   documentModule,
@@ -285,9 +412,24 @@ assertContains(
   "共享单据模块保存分录必须携带 productId，不能只传 productCode"
 );
 assertContains(
+  documentModule,
+  /line\.unit = option\.unit \?\? ""[\s\S]*?line\.netWeight = option\.netWeight \?\? ""[\s\S]*?line\.grossWeight = option\.grossWeight \?\? ""/,
+  "共享单据模块选择物料后必须带出单位、净重和毛重"
+);
+assertContains(
+  documentModule,
+  /documentLines:[\s\S]*?unit:\s*line\.unit[\s\S]*?netWeight:\s*line\.netWeight[\s\S]*?grossWeight:\s*line\.grossWeight/,
+  "共享单据模块保存分录必须提交单位、净重和毛重快照"
+);
+assertContains(
   `${listStubController}\n${documentOutputController}`,
   /COALESCE\(l\.product_code_snapshot,\s*p\.code\) AS "productCode"[\s\S]*?COALESCE\(l\.product_name_snapshot,\s*p\.name\) AS "productName"[\s\S]*?COALESCE\(l\.product_spec_snapshot,\s*p\.spec,\s*''\) AS spec/,
   "列表、详情和打印必须优先显示单据行保存时的物料快照"
+);
+assertContains(
+  `${listStubController}\n${documentOutputController}`,
+  /COALESCE\(l\.product_unit_snapshot,\s*p\.unit,\s*''\) AS unit[\s\S]*?COALESCE\(l\.net_weight_snapshot,\s*p\.net_weight\)[\s\S]*?AS "netWeight"[\s\S]*?COALESCE\(l\.gross_weight_snapshot,\s*p\.gross_weight\)[\s\S]*?AS "grossWeight"/,
+  "列表、详情和打印必须优先显示单据行保存时的单位/净重/毛重快照"
 );
 assertContains(
   productSnapshotWriteServices,

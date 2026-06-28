@@ -122,6 +122,9 @@
               <th>日期</th>
               <th>物料编码</th>
               <th>物料名称</th>
+              <th>单位</th>
+              <th>净重</th>
+              <th>毛重</th>
               <th>仓库</th>
               <th>入库数量</th>
               <th>已退货</th>
@@ -131,10 +134,10 @@
           </thead>
           <tbody>
             <tr v-if="sourceSelectorLoading">
-              <td colspan="12">加载中...</td>
+              <td colspan="15">加载中...</td>
             </tr>
             <tr v-else-if="filteredSourceSelectorLines.length === 0">
-              <td colspan="12">暂无可选明细</td>
+              <td colspan="15">暂无可选明细</td>
             </tr>
             <template v-else>
               <tr v-for="line in filteredSourceSelectorLines" :key="sourceSelectorLineKey(line)">
@@ -152,6 +155,9 @@
                 <td>{{ line.billDate }}</td>
                 <td>{{ line.productCode }}</td>
                 <td>{{ line.productName || line.spec || '-' }}</td>
+                <td>{{ line.unit || '-' }}</td>
+                <td>{{ formatOptionalAmount(line.netWeight) }}</td>
+                <td>{{ formatOptionalAmount(line.grossWeight) }}</td>
                 <td>{{ line.warehouseCode }}</td>
                 <td>{{ formatQty(line.sourceQty) }}</td>
                 <td>{{ formatQty(line.returnedQty) }}</td>
@@ -355,6 +361,9 @@ function selectableLineToFormLine(line: SelectablePurchaseInLine): OrderLineForm
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName ?? ""),
     spec: String(line.spec ?? ""),
+    unit: String(line.unit ?? ""),
+    netWeight: line.netWeight ?? "",
+    grossWeight: line.grossWeight ?? "",
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
     sourceOrderNo: String(line.billNo ?? ""),
     sourceLineNo: normalizedOptionalInt(line.lineNo),
@@ -378,8 +387,13 @@ function sourceLineSearchText(line: SelectablePurchaseInLine) {
     line.productCode,
     line.productName,
     line.spec,
+    line.unit,
     line.billNo
   ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function formatOptionalAmount(value: unknown) {
+  return value === null || value === undefined || value === "" ? "-" : formatAmount(value as number | string | undefined);
 }
 
 function resetSourceSelection() {
