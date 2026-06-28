@@ -17,6 +17,7 @@
 
 - 规则口径：`docs/guides/business-rules.md`、`docs/guides/action-button-rules.md`
 - 单据/主数据字段与动作元数据路线：`docs/guides/bill-metadata-roadmap.md`
+- 新项目孵化/迁移决策：`docs/guides/new-project-migration-blueprint.md`
 - 回归动作：`scripts/helpers/`
 - 前端产品范式：`frontend/src/components/`、对应 `frontend/src/modules/**/use*.ts`
 - 后端业务规则：对应模块的 `application/`、`domain/`
@@ -87,6 +88,7 @@
 | 业务规则 | `docs/guides/business-rules.md` |
 | 动作按钮规则 | `docs/guides/action-button-rules.md` |
 | 单据/主数据元数据路线 | `docs/guides/bill-metadata-roadmap.md` |
+| 新项目迁移蓝图 | `docs/guides/new-project-migration-blueprint.md` |
 
 ## 常用命令
 
