@@ -249,19 +249,6 @@
       @confirm="closeColumnSettings"
     />
 
-    <component
-      :is="masterFormComponent"
-      v-if="masterFormComponent"
-      :open="masterDialogOpen"
-      :editing="masterEditing"
-      :title="definition.title"
-      :form="masterForm"
-      :error="masterCreateError"
-      @close="masterMaintenance.closeDialog"
-      @save="masterMaintenance.submitForm"
-      @update-field="masterMaintenance.updateField"
-    />
-
     <ColumnFilterPopover
       :open="filterDialogOpen && Boolean(activeFilterColumn)"
       :operators="filterOperators"
@@ -290,7 +277,7 @@
         <h3>安全库存设置</h3>
         <form class="stock-alert-settings-form" @submit.prevent="submitStockAlertSetting">
           <label>
-            商品编码
+            物料编码
             <input v-model="stockAlertSettingForm.productCode" data-testid="stock-alert-product-code" placeholder="如 CP-118" />
           </label>
           <label>
@@ -315,8 +302,8 @@
           <table>
             <thead>
               <tr>
-                <th>商品编码</th>
-                <th>商品名称</th>
+                <th>物料编码</th>
+                <th>物料名称</th>
                 <th>仓库</th>
                 <th>最低安全量</th>
                 <th>库存上限</th>
@@ -427,12 +414,15 @@ const emit = defineEmits<{
   pushDownPurchaseIn: [row: Record<string, unknown>];
   openDocument: [payload: { type: OpenableDocumentType; row: Record<string, unknown> }];
   createDocument: [payload: { type: OpenableDocumentType }];
+  createMasterData: [payload: { listKey: string }];
+  editMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
 }>();
 
 const tableVersion = ref(0);
 const loading = ref(false);
 const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
 const stateMessage = ref("");
+let reloadSerial = 0;
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
 const filterDialogOpen = ref(false);
@@ -463,8 +453,10 @@ const activeFilterColumn = ref<ListColumn | null>(null);
 const activeFilterOperator = ref("包含");
 const activeFilterValue = ref("");
 const columnFilters = reactive<Record<string, ColumnFilter>>({});
+const columnFilterSnapshots = reactive<Record<string, Record<string, ColumnFilter>>>({});
 const filterPopoverLeft = ref(0);
 const filterPopoverTop = ref(0);
+const columnPreferenceVersion = "v3";
 const query = reactive({
   keyword: "",
   status: "",
@@ -516,24 +508,22 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "code", title: "物料编码", width: 140, fixed: "left", visible: true },
       { field: "name", title: "物料名称", width: 180, visible: true },
-      { field: "shortName", title: "简称", width: 120, visible: true },
       { field: "spec", title: "规格型号", width: 170, visible: true },
       { field: "category", title: "物料分类", width: 130, visible: true },
-      { field: "productType", title: "物料形态", width: 120, visible: true },
       { field: "unit", title: "主单位", width: 80, visible: true },
       { field: "isPurchase", title: "可采购", width: 86, visible: true },
       { field: "isSale", title: "可销售", width: 86, visible: true },
       { field: "isInventory", title: "可库存", width: 86, visible: true },
-      { field: "isProduce", title: "可生产", width: 86, visible: true },
+      { field: "isProduce", title: "可自制", width: 86, visible: true },
       { field: "isSubcontract", title: "可委外", width: 86, visible: true },
       { field: "defaultWarehouseCode", title: "默认仓库", width: 120, visible: true },
+      { field: "defaultWorkshop", title: "默认生产车间", width: 140, visible: true },
       { field: "saleUnit", title: "销售单位", width: 90, visible: false },
       { field: "purchaseUnit", title: "采购单位", width: 90, visible: false },
       { field: "bomUnit", title: "生产/BOM单位", width: 120, visible: false },
       { field: "defaultSupplierCode", title: "默认供应商", width: 130, visible: false },
       { field: "issueWarehouseCode", title: "默认领料仓", width: 130, visible: false },
       { field: "issueMethod", title: "发料方式", width: 110, visible: false },
-      { field: "barcode", title: "条码", width: 130, visible: false },
       { field: "taxRate", title: "税率(%)", width: 90, align: "right", visible: true },
       { field: "defaultSalePrice", title: "默认销售价", width: 120, align: "right", visible: true },
       { field: "minSalePrice", title: "最低销售价", width: 120, align: "right", visible: false },
@@ -593,8 +583,10 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
-      { field: "customer", title: "客户/对象", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "customerCode", title: "客户编码", width: 120, visible: true },
+      { field: "customer", title: "客户名称", width: 200, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "outStatus", title: "出库状态", width: 110, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
@@ -608,8 +600,10 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
-      { field: "customer", title: "客户/对象", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "customerCode", title: "客户编码", width: 120, visible: true },
+      { field: "customer", title: "客户名称", width: 200, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "validUntil", title: "报价有效期", width: 130, visible: true },
       { field: "validStatus", title: "有效状态", width: 110, visible: true },
@@ -624,8 +618,9 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "inStatus", title: "入库状态", width: 110, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
@@ -639,8 +634,9 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
@@ -653,8 +649,9 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
       { field: "supplier", title: "供应商", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
@@ -667,8 +664,10 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
-      { field: "customer", title: "客户", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "customerCode", title: "客户编码", width: 120, visible: true },
+      { field: "customer", title: "客户名称", width: 200, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "sourceBillNo", title: "源销售订单", width: 160, visible: true },
@@ -682,8 +681,10 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已红冲"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
-      { field: "customer", title: "客户", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "customerCode", title: "客户编码", width: 120, visible: true },
+      { field: "customer", title: "客户名称", width: 200, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
@@ -696,8 +697,10 @@ const definitions: Record<string, ListDefinition> = {
     statuses: ["草稿", "已审核", "已反审核", "已红冲"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
-      { field: "customer", title: "客户", width: 220, visible: true },
-      { field: "billDate", title: "日期", width: 130, visible: true },
+      { field: "customerCode", title: "客户编码", width: 120, visible: true },
+      { field: "customer", title: "客户名称", width: 200, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "planDeliveryDate", title: "预计交期", width: 130, visible: true },
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
@@ -706,11 +709,11 @@ const definitions: Record<string, ListDefinition> = {
   "inventory-query-list": {
     title: "库存查询",
     subtitle: "库存查询只展示数据库余额口径的现存量和可用量，不做业务结果缓存。",
-    keywordPlaceholder: "商品编码、商品名称、仓库",
+    keywordPlaceholder: "物料编码、物料名称、仓库",
     statuses: ["正常", "低库存"],
     columns: [
-      { field: "code", title: "商品编码", width: 140, fixed: "left", visible: true },
-      { field: "name", title: "商品名称", width: 180, visible: true },
+      { field: "code", title: "物料编码", width: 140, fixed: "left", visible: true },
+      { field: "name", title: "物料名称", width: 180, visible: true },
       { field: "spec", title: "规格型号", width: 170, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "onHand", title: "现存量", width: 110, align: "right", visible: true },
@@ -721,11 +724,11 @@ const definitions: Record<string, ListDefinition> = {
   "stock-alert-list": {
     title: "库存预警查询表",
     subtitle: "按商品与仓库的安全库存阈值直查当前库存余额，低于安全库存或高于上限时进入预警列表。",
-    keywordPlaceholder: "商品编码、商品名称、仓库",
+    keywordPlaceholder: "物料编码、物料名称、仓库",
     statuses: ["低于安全库存", "高于库存上限"],
     columns: [
-      { field: "productCode", title: "商品编码", width: 140, fixed: "left", visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 140, fixed: "left", visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "productCategory", title: "商品类别", width: 130, visible: true },
       { field: "warehouseName", title: "仓库名称", width: 140, visible: true },
       { field: "spec", title: "规格型号", width: 160, visible: true },
@@ -762,7 +765,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "应收单号", width: 160, fixed: "left", visible: true },
       { field: "sourceBillNo", title: "源单号", width: 150, visible: true },
-      { field: "customer", title: "客户", width: 220, visible: true },
+      { field: "customer", title: "客户名称", width: 220, visible: true },
       { field: "billDate", title: "日期", width: 120, visible: true },
       { field: "amount", title: "应收金额", width: 120, align: "right", visible: true },
       { field: "receivedAmount", title: "已收金额", width: 120, align: "right", visible: true },
@@ -792,8 +795,8 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
       { field: "bomCode", title: "BOM", width: 120, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "完工仓库", width: 130, visible: true },
       { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
       { field: "issuedQty", title: "已领料数", width: 110, align: "right", visible: true },
@@ -832,7 +835,7 @@ const definitions: Record<string, ListDefinition> = {
   "other-in-form-list": {
     title: "其他入库单列表",
     subtitle: "其他入库单按库存业务列表范式展示，审核后只增加库存数量。",
-    keywordPlaceholder: "单据编号、商品编码、商品名称、仓库",
+    keywordPlaceholder: "单据编号、物料编码、物料名称、仓库",
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billDate", title: "单据日期", width: 120, visible: true },
@@ -840,8 +843,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "businessType", title: "业务类型", width: 120, visible: true },
       { field: "status", title: "审核状态", width: 100, visible: true },
       { field: "department", title: "部门", width: 120, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
       { field: "qty", title: "数量", width: 100, align: "right", visible: true },
@@ -852,7 +855,7 @@ const definitions: Record<string, ListDefinition> = {
   "other-out-form-list": {
     title: "其他出库单列表",
     subtitle: "其他出库单按库存业务列表范式展示，审核后只减少库存数量。",
-    keywordPlaceholder: "单据编号、商品编码、商品名称、仓库",
+    keywordPlaceholder: "单据编号、物料编码、物料名称、仓库",
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billDate", title: "单据日期", width: 120, visible: true },
@@ -860,8 +863,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "businessType", title: "业务类型", width: 120, visible: true },
       { field: "status", title: "审核状态", width: 100, visible: true },
       { field: "department", title: "部门", width: 120, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
       { field: "qty", title: "数量", width: 100, align: "right", visible: true },
@@ -872,7 +875,7 @@ const definitions: Record<string, ListDefinition> = {
   "stock-transfer-form-list": {
     title: "调拨单列表",
     subtitle: "调拨单按库存业务列表范式展示，审核后源仓减少、目标仓增加。",
-    keywordPlaceholder: "单据编号、商品编码、商品名称、源仓、目标仓",
+    keywordPlaceholder: "单据编号、物料编码、物料名称、源仓、目标仓",
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billDate", title: "单据日期", width: 120, visible: true },
@@ -880,8 +883,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "businessType", title: "业务类型", width: 120, visible: true },
       { field: "status", title: "审核状态", width: 100, visible: true },
       { field: "department", title: "部门", width: 120, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "sourceWarehouse", title: "源仓库", width: 140, visible: true },
       { field: "targetWarehouse", title: "目标仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
@@ -891,7 +894,7 @@ const definitions: Record<string, ListDefinition> = {
   "stock-count-form-list": {
     title: "盘点单列表",
     subtitle: "盘点单展示系统库存、实盘数量和差异，审核后生成盘盈/盘亏草稿。",
-    keywordPlaceholder: "单据编号、商品编码、商品名称、仓库",
+    keywordPlaceholder: "单据编号、物料编码、物料名称、仓库",
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billDate", title: "单据日期", width: 120, visible: true },
@@ -899,8 +902,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "businessType", title: "业务类型", width: 120, visible: true },
       { field: "status", title: "审核状态", width: 100, visible: true },
       { field: "department", title: "部门", width: 120, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
       { field: "systemQty", title: "系统库存", width: 110, align: "right", visible: true },
@@ -911,15 +914,15 @@ const definitions: Record<string, ListDefinition> = {
   "stock-count-gain-form-list": {
     title: "盘盈单列表",
     subtitle: "盘盈单按库存业务列表范式展示，审核后增加库存数量。",
-    keywordPlaceholder: "单据编号、源盘点单、商品编码、仓库",
+    keywordPlaceholder: "单据编号、源盘点单、物料编码、仓库",
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billDate", title: "单据日期", width: 120, visible: true },
       { field: "billNo", title: "单据编号", width: 220, visible: true },
       { field: "sourceBillNo", title: "源盘点单", width: 180, visible: true },
       { field: "status", title: "审核状态", width: 100, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "qty", title: "盘盈数量", width: 110, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true }
@@ -928,15 +931,15 @@ const definitions: Record<string, ListDefinition> = {
   "stock-count-loss-form-list": {
     title: "盘亏单列表",
     subtitle: "盘亏单按库存业务列表范式展示，审核后减少库存数量。",
-    keywordPlaceholder: "单据编号、源盘点单、商品编码、仓库",
+    keywordPlaceholder: "单据编号、源盘点单、物料编码、仓库",
     statuses: ["草稿", "已审核", "已反审核", "已作废"],
     columns: [
       { field: "billDate", title: "单据日期", width: 120, visible: true },
       { field: "billNo", title: "单据编号", width: 220, visible: true },
       { field: "sourceBillNo", title: "源盘点单", width: 180, visible: true },
       { field: "status", title: "审核状态", width: 100, visible: true },
-      { field: "productCode", title: "商品编码", width: 130, visible: true },
-      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true },
       { field: "qty", title: "盘亏数量", width: 110, align: "right", visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true }
@@ -945,7 +948,7 @@ const definitions: Record<string, ListDefinition> = {
   "bom-list": {
     title: "BOM维护",
     subtitle: "BOM 维护展示成品、基准数量和启用状态，明细由后端 BOM 接口维护。",
-    keywordPlaceholder: "BOM编码、商品编码、商品名称",
+    keywordPlaceholder: "BOM编码、物料编码、物料名称",
     statuses: ["启用", "禁用"],
     columns: [
       { field: "code", title: "BOM编码", width: 150, fixed: "left", visible: true },
@@ -995,30 +998,54 @@ const fallbackDefinition: ListDefinition = {
 };
 
 const definition = computed(() => definitions[props.listKey] ?? fallbackDefinition);
-const detailColumns: ListColumn[] = [
-  { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
-  { field: "billDate", title: "单据日期", width: 120, visible: true },
-  { field: "partner", title: "客户/供应商", width: 200, visible: true },
-  { field: "status", title: "审核状态", width: 100, visible: true },
-  { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
-  { field: "productCode", title: "商品编码", width: 130, visible: true },
-  { field: "productName", title: "商品名称", width: 180, visible: true },
-  { field: "spec", title: "规格型号", width: 150, visible: true },
-  { field: "warehouse", title: "仓库", width: 150, visible: true },
-  { field: "qty", title: "数量", width: 110, align: "right", visible: true },
-  { field: "unitPrice", title: "单价", width: 110, align: "right", visible: true },
-  { field: "amount", title: "金额", width: 120, align: "right", visible: true },
-  { field: "sourceBillNo", title: "源单号", width: 170, visible: true },
-  { field: "sourceLineNo", title: "源行号", width: 90, align: "right", visible: true }
-];
+function detailColumnsForList(): ListColumn[] {
+  const isPurchase = props.listKey.includes("purchase");
+  const isSales = ["sales-quote-form-list", "sales-order-form-list", "delivery-notice-form-list", "sales-out-list", "sales-out-form-list"].includes(props.listKey);
+  const showsSourceColumns = [
+    "sales-order-form-list",
+    "delivery-notice-form-list",
+    "sales-out-list",
+    "sales-out-form-list",
+    "purchase-in-list",
+    "purchase-in-form-list"
+  ].includes(props.listKey);
+  const partyCodeColumn: ListColumn[] = isPurchase || isSales
+    ? [{ field: isPurchase ? "supplierCode" : "customerCode", title: isPurchase ? "供应商编码" : "客户编码", width: 120, visible: true }]
+    : [];
+  const customerOnlyColumns: ListColumn[] = isSales
+    ? [
+        { field: "customerMaterialCode", title: "客户物料号", width: 150, visible: true },
+        { field: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
+      ]
+    : [];
+  const sourceColumns: ListColumn[] = showsSourceColumns
+    ? [
+        { field: "sourceBillNo", title: "源单号", width: 170, visible: true },
+        { field: "sourceLineNo", title: "源行号", width: 90, align: "right", visible: true }
+      ]
+    : [];
+  return [
+    { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+    ...partyCodeColumn,
+    { field: "partner", title: isPurchase ? "供应商" : "客户名称", width: 180, visible: true },
+    ...customerOnlyColumns.slice(0, 1),
+    { field: "billDate", title: "单据日期", width: 120, visible: true },
+    ...customerOnlyColumns.slice(1),
+    { field: "status", title: "审核状态", width: 100, visible: true },
+    { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
+    { field: "productCode", title: "物料编码", width: 130, visible: true },
+    { field: "productName", title: "物料名称", width: 180, visible: true },
+    { field: "spec", title: "规格型号", width: 150, visible: true },
+    { field: "warehouse", title: "仓库", width: 150, visible: true },
+    { field: "qty", title: "数量", width: 110, align: "right", visible: true },
+    { field: "unitPrice", title: "单价", width: 110, align: "right", visible: true },
+    { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+    ...sourceColumns
+  ];
+}
 const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
-const masterFormComponent = masterMaintenance.formComponent;
-const masterDialogOpen = masterMaintenance.dialogOpen;
-const masterEditing = masterMaintenance.editing;
-const masterForm = masterMaintenance.form;
-const masterCreateError = masterMaintenance.createError;
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
@@ -1203,17 +1230,25 @@ watch(() => props.listKey, () => {
   isDetailView.value = false;
   resetColumns();
   resetQuery(false);
+  replaceColumnFilters({});
+  selectedRows.value = [];
+  rows.value = [];
+  total.value = 0;
   void loadOperationLogPresets(true);
-}, { immediate: true });
+  void reload();
+}, { immediate: false });
 
 onMounted(() => {
+  resetColumns();
+  resetQuery(false);
+  void loadOperationLogPresets(true);
   reload();
 });
 
 function resetColumns() {
-  const defaults = (isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column }));
+  const defaults = (isDetailView.value ? detailColumnsForList() : definition.value.columns).map((column) => ({ ...column }));
   const saved = loadColumnPreferences();
-  if (!saved.length) {
+  if (!saved.length || !isValidColumnPreference(saved, defaults)) {
     columns.value = normalizeListColumns(defaults);
     return;
   }
@@ -1240,6 +1275,10 @@ function resetColumns() {
 }
 
 async function reload() {
+  const serial = ++reloadSerial;
+  const listKey = props.listKey;
+  const view = isDetailView.value ? "detail" : "header";
+  const filters = snapshotColumnFilters();
   exportMessage.value = "";
   loading.value = true;
   listState.value = "ready";
@@ -1247,7 +1286,10 @@ async function reload() {
   selectedRows.value = [];
   rows.value = [];
   total.value = 0;
-  const response = await fetchListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters });
+  const response = await fetchListRows(listKey, { ...query, view, columnFilters: filters });
+  if (serial !== reloadSerial || listKey !== props.listKey || view !== (isDetailView.value ? "detail" : "header")) {
+    return;
+  }
   if (response.ok && response.data) {
     rows.value = response.data.rows.map(normalizeListRow);
     total.value = response.data.total;
@@ -1300,7 +1342,7 @@ async function submitStockAlertSetting() {
   const safetyQty = Number(stockAlertSettingForm.safetyQty);
   const maxQty = stockAlertSettingForm.maxQty === "" ? null : Number(stockAlertSettingForm.maxQty);
   if (!stockAlertSettingForm.productCode.trim() || !stockAlertSettingForm.warehouseCode.trim() || !Number.isFinite(safetyQty)) {
-    stockAlertSettingsMessage.value = "请填写商品编码、仓库编码和最低安全量。";
+    stockAlertSettingsMessage.value = "请填写物料编码、仓库编码和最低安全量。";
     return;
   }
   if (maxQty !== null && !Number.isFinite(maxQty)) {
@@ -1442,6 +1484,21 @@ function replaceColumnFilters(nextFilters: Record<string, ColumnFilter>) {
   });
 }
 
+function columnFilterSnapshotKey() {
+  return `${props.listKey}:${isDetailView.value ? "detail" : "header"}`;
+}
+
+function persistCurrentColumnFilters() {
+  columnFilterSnapshots[columnFilterSnapshotKey()] = snapshotColumnFilters();
+}
+
+function restoreCurrentColumnFilters() {
+  const defaults = isDetailView.value ? detailColumnsForList() : definition.value.columns;
+  const allowedFields = new Set(defaults.map((column) => column.field));
+  const saved = columnFilterSnapshots[columnFilterSnapshotKey()] ?? {};
+  replaceColumnFilters(Object.fromEntries(Object.entries(saved).filter(([field]) => allowedFields.has(field))));
+}
+
 async function loadOperationLogPresets(applyDefault = false) {
   if (!isOperationLogList.value) {
     operationLogPresets.value = [];
@@ -1511,10 +1568,11 @@ function resetQuery(shouldReload = true) {
 }
 
 function toggleDetailView() {
+  persistCurrentColumnFilters();
   isDetailView.value = !isDetailView.value;
   query.page = 1;
   selectedRows.value = [];
-  replaceColumnFilters({});
+  restoreCurrentColumnFilters();
   resetColumns();
   reload();
 }
@@ -1687,7 +1745,8 @@ function openDocument(row: Record<string, unknown>) {
 }
 
 function openCreateDialog() {
-  if (masterMaintenance.openCreateDialog()) {
+  if (isMasterList.value) {
+    emit("createMasterData", { listKey: props.listKey });
     return;
   }
   if (openableDocumentType.value) {
@@ -1696,7 +1755,10 @@ function openCreateDialog() {
 }
 
 function openEditDialog() {
-  masterMaintenance.openEditDialog();
+  const row = selectedRows.value[0];
+  if (isMasterList.value && row) {
+    emit("editMasterData", { listKey: props.listKey, row });
+  }
 }
 
 async function submitMasterStatus(enabled: boolean) {
@@ -1798,13 +1860,13 @@ function closeColumnSettings() {
 
 function resetColumnsToDefault() {
   localStorage.removeItem(columnPreferenceKey());
-  columns.value = normalizeListColumns((isDetailView.value ? detailColumns : definition.value.columns).map((column) => ({ ...column })));
+  columns.value = normalizeListColumns((isDetailView.value ? detailColumnsForList() : definition.value.columns).map((column) => ({ ...column })));
   tableVersion.value += 1;
   void syncRenderedColumnWidths();
 }
 
 function columnPreferenceKey() {
-  return `jdy:list-columns:${props.listKey}:${isDetailView.value ? "detail" : "header"}`;
+  return `jdy:list-columns:${columnPreferenceVersion}:${props.listKey}:${isDetailView.value ? "detail" : "header"}`;
 }
 
 function loadColumnPreferences(): ListColumn[] {
@@ -1825,6 +1887,20 @@ function saveColumnPreferences() {
     visible: column.visible
   }));
   localStorage.setItem(columnPreferenceKey(), JSON.stringify(preference));
+}
+
+function isValidColumnPreference(saved: ListColumn[], defaults: ListColumn[]) {
+  const defaultFields = new Set(defaults.map((column) => column.field));
+  const defaultVisibleCount = defaults.filter((column) => column.visible).length;
+  const matched = saved.filter((column) => defaultFields.has(column.field));
+  const visibleMatched = matched.filter((column) => column.visible !== false);
+  if (!matched.length) {
+    return false;
+  }
+  if (defaultVisibleCount >= 3 && visibleMatched.length <= 1) {
+    return false;
+  }
+  return true;
 }
 
 function normalizeListRow(row: Record<string, unknown>) {

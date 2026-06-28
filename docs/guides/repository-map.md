@@ -16,6 +16,7 @@
 改功能、逻辑、规则、机制或动作前，先扫已有复用点：
 
 - 规则口径：`docs/guides/business-rules.md`、`docs/guides/action-button-rules.md`
+- 单据/主数据字段与动作元数据路线：`docs/guides/bill-metadata-roadmap.md`
 - 回归动作：`scripts/helpers/`
 - 前端产品范式：`frontend/src/components/`、对应 `frontend/src/modules/**/use*.ts`
 - 后端业务规则：对应模块的 `application/`、`domain/`
@@ -85,6 +86,7 @@
 | 列表 API | `docs/13-列表API契约.md` |
 | 业务规则 | `docs/guides/business-rules.md` |
 | 动作按钮规则 | `docs/guides/action-button-rules.md` |
+| 单据/主数据元数据路线 | `docs/guides/bill-metadata-roadmap.md` |
 
 ## 常用命令
 

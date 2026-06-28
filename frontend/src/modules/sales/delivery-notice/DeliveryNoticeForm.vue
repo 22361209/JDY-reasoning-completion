@@ -36,6 +36,7 @@
     push-down-test-id="push-sales-out-from-delivery-notice"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
+    :show-customer-material-code-column="true"
     :show-execution-columns="document.showExecutionColumns.value"
     :show-plan-delivery-date-column="document.showPlanDeliveryDateColumn.value"
     :show-stock-columns="document.showStockColumns.value"
@@ -125,8 +126,8 @@
               <th>行号</th>
               <th>客户</th>
               <th>日期</th>
-              <th>商品编码</th>
-              <th>商品名称</th>
+              <th>物料编码</th>
+              <th>物料名称</th>
               <th>剩余可通知</th>
               <th>单价</th>
               <th>预计交期</th>
@@ -352,6 +353,7 @@ function selectableLineToFormLine(line: SelectableSalesOrderLine): OrderLineForm
     taxRate: Number(line.taxRate ?? 13),
     taxAmount: line.taxAmount,
     priceTaxTotal: line.priceTaxTotal,
+    customerMaterialCode: String(line.customerMaterialCode ?? ""),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };

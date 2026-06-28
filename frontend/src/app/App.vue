@@ -309,6 +309,20 @@
           @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
           @create-document="openCreateDocumentFromList"
+          @create-master-data="openCreateMasterData"
+          @edit-master-data="openEditMasterData"
+        />
+        <MasterDataRecordPage
+          v-else-if="activeMasterRecord"
+          :record-id="activeMasterRecord.id"
+          :editing="activeMasterRecord.editing"
+          :title="activeMasterRecord.title"
+          :fields="activeMasterRecord.fields"
+          :form="activeMasterRecord.form"
+          :error="activeMasterRecord.error"
+          @cancel="cancelActiveMasterRecord"
+          @save="saveActiveMasterRecord"
+          @update-field="updateActiveMasterField"
         />
         <SalesOrderForm
           v-else-if="isSalesOrderForm"
@@ -618,6 +632,9 @@ import SalesQuoteForm from "../modules/sales/sales-quote/SalesQuoteForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
+import MasterDataRecordPage from "../modules/master-data/MasterDataRecordPage.vue";
+import { masterDataDefinitions } from "../modules/master-data/registry";
+import type { MasterDataField } from "../modules/master-data/types";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
 import { backendStatusLabel, formatAmount, formatQty } from "../modules/shell/formatters";
@@ -627,6 +644,7 @@ import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixP
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { acquireDocumentLock, fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
+import { createMasterData, updateMasterData } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -650,6 +668,17 @@ interface ShellModule {
   excluded?: boolean;
   groups: EntryGroup[];
 }
+interface MasterRecordState {
+  id: string;
+  listKey: string;
+  type: string;
+  title: string;
+  editing: boolean;
+  originalCode: string;
+  fields: MasterDataField[];
+  form: Record<string, string>;
+  error: string;
+}
 const session = useSessionStore();
 const tabs = useTabStore();
 const preferences = usePreferenceStore();
@@ -667,10 +696,15 @@ const stockTransferTabId = "stock-transfer-form";
 const stockCountTabId = "stock-count-form";
 const stockCountGainTabId = "stock-count-gain-form";
 const stockCountLossTabId = "stock-count-loss-form";
+const masterRecords = reactive<Record<string, MasterRecordState>>({});
+const activeMasterRecord = computed(() => masterRecords[tabs.activeTabId.value] ?? null);
 tabs.onBeforeClose((tab) => {
   const type = documentTypeByFormTabId(tab.id);
   if (type && tab.lockedObjectId) {
     void releaseDocumentLock(type, tab.lockedObjectId);
+  }
+  if (masterRecords[tab.id]) {
+    delete masterRecords[tab.id];
   }
 });
 const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
@@ -1172,7 +1206,7 @@ function openSourceTraceWindow(type: OpenableDocumentType, detail: DocumentDetai
     const active = sourceLineNo && lineNo === sourceLineNo;
     return `<tr${active ? " class=\"active\"" : ""}><td>${escapeTraceHtml(String(line.lineNo ?? ""))}</td><td>${escapeTraceHtml(String(line.productCode ?? ""))}</td><td>${escapeTraceHtml(String(line.productName ?? ""))}</td><td>${escapeTraceHtml(String(line.qty ?? ""))}</td><td>${escapeTraceHtml(String(line.remainingQty ?? ""))}</td><td>${escapeTraceHtml(String(line.lineRemark ?? ""))}</td></tr>`;
   }).join("");
-  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeTraceHtml(title)} ${escapeTraceHtml(document.billNo)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;color:#1f2937}h1{font-size:20px;margin:0 0 12px}.meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 16px;margin-bottom:16px;color:#475569;font-size:13px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #d8e0eb;padding:8px;text-align:left}th{background:#f3f7fb}.active{background:#fff7ed;outline:2px solid #f97316}</style></head><body><h1>${escapeTraceHtml(title)} ${escapeTraceHtml(document.billNo)}</h1><section class="meta"><div>日期：${escapeTraceHtml(document.billDate)}</div><div>状态：${escapeTraceHtml(document.status)}</div><div>部门：${escapeTraceHtml(document.department ?? "")}</div><div>往来：${escapeTraceHtml(document.customer ?? document.supplier ?? "")}</div></section><table><thead><tr><th>行号</th><th>商品编码</th><th>商品名称</th><th>数量</th><th>剩余</th><th>备注</th></tr></thead><tbody>${source}</tbody></table></body></html>`;
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeTraceHtml(title)} ${escapeTraceHtml(document.billNo)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;color:#1f2937}h1{font-size:20px;margin:0 0 12px}.meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 16px;margin-bottom:16px;color:#475569;font-size:13px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #d8e0eb;padding:8px;text-align:left}th{background:#f3f7fb}.active{background:#fff7ed;outline:2px solid #f97316}</style></head><body><h1>${escapeTraceHtml(title)} ${escapeTraceHtml(document.billNo)}</h1><section class="meta"><div>日期：${escapeTraceHtml(document.billDate)}</div><div>状态：${escapeTraceHtml(document.status)}</div><div>部门：${escapeTraceHtml(document.department ?? "")}</div><div>往来：${escapeTraceHtml(document.customer ?? document.supplier ?? "")}</div></section><table><thead><tr><th>行号</th><th>物料编码</th><th>物料名称</th><th>数量</th><th>剩余</th><th>备注</th></tr></thead><tbody>${source}</tbody></table></body></html>`;
   const opened = window.open("", "_blank");
   if (opened) {
     opened.document.open();
@@ -1464,7 +1498,7 @@ function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
-function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
+function toPendingPushLine(line: { lineNo?: number | string; productCode?: string; productName?: string; spec?: string; warehouseCode?: string; qty?: number | string; unitPrice?: number | string; shippedQty?: number | string; receivedQty?: number | string; remainingQty?: number | string; customerMaterialCode?: string; lineRemark?: string; planDeliveryDate?: string }, executedField: "shippedQty" | "receivedQty"): PendingPushLine {
   const sourceQty = normalizedQty(line.qty);
   const executedQty = normalizedQty(line[executedField]);
   const remainingQty = remainingLineQty(line);
@@ -1480,9 +1514,121 @@ function toPendingPushLine(line: { lineNo?: number | string; productCode?: strin
     selected: false,
     qty: remainingQty,
     unitPrice: Number(line.unitPrice ?? 0),
+    customerMaterialCode: String(line.customerMaterialCode ?? ""),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
+}
+function masterTitle(listKey: string) {
+  return ({
+    "product-master-list": "商品资料",
+    "customer-master-list": "客户",
+    "supplier-master-list": "供应商",
+    "warehouse-master-list": "仓库"
+  } as Record<string, string>)[listKey] ?? "基础资料";
+}
+function masterModule(listKey: string) {
+  return listKey === "supplier-master-list" ? "采购管理" : "基础资料";
+}
+function newMasterForm(listKey: string, row: Record<string, unknown> | null) {
+  const definition = masterDataDefinitions[listKey];
+  const form: Record<string, string> = {};
+  definition.fields.forEach((field) => {
+    if (row) {
+      let value = String(row[field.name] ?? "");
+      if (field.type === "checkbox") {
+        value = value === "是" || value === "true" ? "true" : "false";
+      }
+      form[field.name] = value;
+      return;
+    }
+    form[field.name] = field.defaultValue ?? field.options?.[0] ?? "";
+  });
+  form.status = String(row?.status ?? form.status ?? "启用");
+  return form;
+}
+function openCreateMasterData(payload: { listKey: string }) {
+  const definition = masterDataDefinitions[payload.listKey];
+  if (!definition) {
+    return;
+  }
+  const title = masterTitle(payload.listKey);
+  const tabId = `${payload.listKey}:create`;
+  masterRecords[tabId] = {
+    id: tabId,
+    listKey: payload.listKey,
+    type: definition.type,
+    title,
+    editing: false,
+    originalCode: "",
+    fields: definition.fields,
+    form: newMasterForm(payload.listKey, null),
+    error: ""
+  };
+  tabs.openTab({ id: tabId, title: `新增${title}`, module: masterModule(payload.listKey), kind: "form", dirty: true });
+}
+function openEditMasterData(payload: { listKey: string; row: Record<string, unknown> }) {
+  const definition = masterDataDefinitions[payload.listKey];
+  if (!definition) {
+    return;
+  }
+  const code = String(payload.row.code ?? "");
+  if (!code) {
+    return;
+  }
+  const title = masterTitle(payload.listKey);
+  const tabId = `${payload.listKey}:edit:${code}`;
+  masterRecords[tabId] = {
+    id: tabId,
+    listKey: payload.listKey,
+    type: definition.type,
+    title,
+    editing: true,
+    originalCode: code,
+    fields: definition.fields,
+    form: newMasterForm(payload.listKey, payload.row),
+    error: ""
+  };
+  tabs.openTab({ id: tabId, title: `编辑${title}`, module: masterModule(payload.listKey), kind: "form", dirty: true });
+}
+function updateActiveMasterField(name: string, value: string) {
+  if (!activeMasterRecord.value) {
+    return;
+  }
+  activeMasterRecord.value.form[name] = value;
+  markActiveDirty();
+}
+function cancelActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record) {
+    return;
+  }
+  const tabId = record.id;
+  clearActiveDirty();
+  tabs.closeNow(tabId);
+  tabs.activeTabId.value = record.listKey;
+}
+async function saveActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record) {
+    return;
+  }
+  if (!record.form.code?.trim() || !record.form.name?.trim()) {
+    record.error = "编码和名称不能为空。";
+    return;
+  }
+  const result = record.editing
+    ? await updateMasterData(record.type, record.originalCode, { ...record.form })
+    : await createMasterData(record.type, { ...record.form });
+  if (!result.ok) {
+    record.error = result.message;
+    return;
+  }
+  clearActiveDirty();
+  delete masterRecords[record.id];
+  const listKey = record.listKey;
+  tabs.closeNow(record.id);
+  tabs.activeTabId.value = listKey;
 }
 function markActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);

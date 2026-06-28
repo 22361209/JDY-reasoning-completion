@@ -17,6 +17,7 @@ export interface SelectableSalesQuoteLine {
   taxRate?: number | string;
   taxAmount?: number | string;
   priceTaxTotal?: number | string;
+  customerMaterialCode?: string;
   lineRemark?: string;
   planDeliveryDate?: string;
 }

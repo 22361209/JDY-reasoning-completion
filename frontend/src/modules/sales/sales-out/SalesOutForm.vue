@@ -32,6 +32,7 @@
     source-select-test-id="sales-out-open-source-selector"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
+    :show-customer-material-code-column="true"
     :show-execution-columns="false"
     :show-plan-delivery-date-column="true"
     :enable-sales-price-bulk="true"
@@ -278,8 +279,8 @@ const sourceSelectorColumns = ref([
   { key: "lineNo", title: "行号", width: 70, visible: true },
   { key: "customer", title: "客户", width: 190, visible: true },
   { key: "billDate", title: "日期", width: 120, visible: true },
-  { key: "productCode", title: "商品编码", width: 130, visible: true },
-  { key: "productName", title: "商品名称", width: 180, visible: true },
+  { key: "productCode", title: "物料编码", width: 130, visible: true },
+  { key: "productName", title: "物料名称", width: 180, visible: true },
   { key: "warehouseCode", title: "仓库", width: 110, visible: true },
   { key: "sourceQty", title: "通知数量", width: 100, visible: true },
   { key: "shippedQty", title: "已出库", width: 100, visible: true },

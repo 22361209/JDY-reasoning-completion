@@ -45,8 +45,8 @@ async function createAuditedSalesOrder() {
       ownerName: "本地管理员",
       remark: `A106 detail view ${batch}`,
       lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, taxRate: 13, lineRemark: "A106 line 1", planDeliveryDate: "2026-07-03" },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, taxRate: 13, lineRemark: "A106 line 2", planDeliveryDate: "2026-07-04" }
+        { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, taxRate: 13, customerMaterialCode: `KHWL-A106-${batch}-1`, lineRemark: "A106 line 1", planDeliveryDate: "2026-07-03" },
+        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, taxRate: 13, customerMaterialCode: `KHWL-A106-${batch}-2`, lineRemark: "A106 line 2", planDeliveryDate: "2026-07-04" }
       ]
     }
   });
@@ -89,11 +89,17 @@ const filteredDetailRows = await fetchList("sales-order-form-list", {
 
 assert(headerRows.view === "header", "header list should report header view");
 assert(headerRows.total === 1, `header view should return one bill row, got ${headerRows.total}`);
+assert(headerRows.rows[0].customerCode === "KH-001", "header view should expose customer code");
+assert(!Object.hasOwn(headerRows.rows[0], "customerMaterialCode"), "header view should not expose customer material code");
+assert(headerRows.rows[0].billDate === billDate, "header view should use billDate as document date");
+assert(headerRows.rows[0].planDeliveryDate === "2026-07-03", "header view should expose earliest expected delivery date");
 assert(detailRows.view === "detail", "detail list should report detail view");
 assert(detailRows.total === 2, `detail view should return one row per entry, got ${detailRows.total}`);
 assert(detailRows.rows.every((row) => row.billNo === billNo), "detail rows should carry header bill number");
+assert(detailRows.rows.every((row) => row.customerCode === "KH-001"), "detail rows should expose customer code");
 assert(detailRows.rows.every((row) => row.billDate === billDate), "detail rows should carry header bill date");
 assert(detailRows.rows.every((row) => row.partner === "广州测试客户"), "detail rows should carry customer header");
+assert(detailRows.rows.some((row) => row.customerMaterialCode === `KHWL-A106-${batch}-1` && row.planDeliveryDate === "2026-07-03"), "detail rows should include customer material code and expected delivery date");
 assert(detailRows.rows.some((row) => row.productCode === "CP-001" && row.warehouse === "成品仓"), "detail rows should include line product and warehouse");
 assert(detailRows.rows.some((row) => row.productCode === "PJ-014" && row.warehouse === "原料仓"), "detail rows should include second entry line");
 assert(filteredDetailRows.total === 1, `detail column filter should apply to entry rows, got ${filteredDetailRows.total}`);
@@ -116,6 +122,9 @@ try {
 
   await page.getByTestId("list-detail-view-toggle").click();
   await page.getByTestId("column-drag-productCode").waitFor({ state: "visible" });
+  await page.getByTestId("column-drag-customerCode").waitFor({ state: "visible" });
+  await page.getByTestId("column-drag-customerMaterialCode").waitFor({ state: "visible" });
+  await page.getByTestId("column-drag-planDeliveryDate").waitFor({ state: "visible" });
   await page.locator(".vxe-wrap", { hasText: "CP-001" }).waitFor({ state: "visible" });
   await page.locator(".vxe-wrap", { hasText: "PJ-014" }).waitFor({ state: "visible" });
   await page.getByTestId("column-settings").click();

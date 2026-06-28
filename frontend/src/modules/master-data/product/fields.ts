@@ -2,21 +2,19 @@ import type { MasterDataField } from "../types";
 
 export const productMasterFields: MasterDataField[] = [
   { name: "code", label: "物料编码", placeholder: "如 CP-200", section: "基本信息", required: true, readonlyWhenEditing: true },
-  { name: "name", label: "物料名称", placeholder: "如 前摆臂总成", section: "基本信息", required: true },
+  { name: "name", label: "物料名称", placeholder: "输入关键字选择名称", section: "基本信息", required: true, suggestions: ["控制臂总成", "悬挂球头", "前下摆臂", "后桥支架", "衬套", "冲压件", "焊接总成"] },
   { name: "spec", label: "规格型号", placeholder: "规格/颜色/位置", section: "基本信息" },
-  { name: "category", label: "物料分类", placeholder: "原材料/半成品/产成品", section: "基本信息" },
-  { name: "unit", label: "主单位", placeholder: "只/件", section: "基本信息", defaultValue: "只" },
-  { name: "shortName", label: "简称", placeholder: "用于快速检索", section: "基本信息" },
-  { name: "barcode", label: "条码", placeholder: "扫码/外部编码", section: "基本信息" },
-  { name: "productType", label: "物料形态", section: "基本信息", options: ["产成品", "自制半成品", "委外半成品", "原材料", "辅料", "服务"] },
+  { name: "category", label: "物料分类", placeholder: "输入关键字选择分类", section: "基本信息", suggestions: ["原材料", "自制半成品", "委外半成品", "产成品", "辅料", "服务"] },
+  { name: "unit", label: "主单位", placeholder: "输入关键字选择单位", section: "基本信息", defaultValue: "只", suggestions: ["只", "件", "套", "PCS", "kg", "米"] },
 
   { name: "isPurchase", label: "可采购", section: "业务能力", type: "checkbox", defaultValue: "false" },
   { name: "isSale", label: "可销售", section: "业务能力", type: "checkbox", defaultValue: "false" },
   { name: "isInventory", label: "可库存", section: "业务能力", type: "checkbox", defaultValue: "true" },
-  { name: "isProduce", label: "可生产", section: "业务能力", type: "checkbox", defaultValue: "false" },
+  { name: "isProduce", label: "可自制", section: "业务能力", type: "checkbox", defaultValue: "false" },
   { name: "isSubcontract", label: "可委外", section: "业务能力", type: "checkbox", defaultValue: "false" },
 
   { name: "defaultWarehouseCode", label: "默认仓库", placeholder: "如 CK-001", section: "默认业务属性" },
+  { name: "defaultWorkshop", label: "默认生产车间", placeholder: "如 焊接车间", section: "默认业务属性", suggestions: ["焊接车间", "冲压车间", "装配车间", "委外车间"] },
   { name: "saleUnit", label: "销售单位", placeholder: "默认同主单位", section: "默认业务属性" },
   { name: "purchaseUnit", label: "采购单位", placeholder: "默认同主单位", section: "默认业务属性" },
   { name: "bomUnit", label: "生产/BOM单位", placeholder: "默认同主单位", section: "默认业务属性" },

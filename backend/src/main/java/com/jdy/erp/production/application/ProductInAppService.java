@@ -114,7 +114,7 @@ public class ProductInAppService {
         var completionId = String.valueOf(completionRows.get(0).get("id"));
         var lineNo = 1;
         for (var line : requestLines) {
-            var productCode = validationService.required(line.productCode(), "完工商品编码");
+            var productCode = validationService.required(line.productCode(), "完工物料编码");
             var warehouseCode = validationService.required(line.warehouseCode(), "完工仓库");
             var lineQty = positive(line.qty(), "完工数量");
             var unitPrice = line.unitPrice() == null ? BigDecimal.ONE : line.unitPrice();

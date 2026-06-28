@@ -38,6 +38,7 @@
     :can-delete="document.canDelete.value"
     :can-trace-source-order="false"
     :show-source-line-column="false"
+    :show-customer-material-code-column="true"
     :show-execution-columns="false"
     :show-plan-delivery-date-column="document.showPlanDeliveryDateColumn.value"
     :show-stock-columns="false"

@@ -102,6 +102,15 @@
                 >-</button>
               </span>
             </span>
+            <span v-else-if="column.key === 'partyCode'" class="entry-cell-value" :data-testid="columnCellTestId(column.key, lineIndex)">{{ partyCodeForLine }}</span>
+            <input
+              v-else-if="column.key === 'customerMaterialCode'"
+              v-model="line.customerMaterialCode"
+              :disabled="!isDraft"
+              :data-testid="lineCustomerMaterialCodeTestId(lineIndex)"
+              @input="emit('markDirty')"
+              @keydown="handleLineCellKeydown($event, lineIndex, 'customerMaterialCode')"
+            />
             <span v-else-if="column.key === 'productName'" class="entry-cell-value">{{ productInfo(line).name }}</span>
             <span v-else-if="column.key === 'spec'" class="entry-cell-value">{{ productInfo(line).spec }}</span>
             <template v-else-if="column.key === 'warehouse'">
@@ -262,7 +271,7 @@
                 :data-testid="linePlanDeliveryDateTestId(lineIndex)"
                 placeholder="2026-05-01"
                 @input="line.planDeliveryDate = ($event.target as HTMLInputElement).value; emit('markDirty')"
-                @keydown.enter.prevent="handleLineDateEnter(lineIndex)"
+                @keydown="handleLineDateKeydown($event, lineIndex)"
                 @blur="commitLineDate(lineIndex)"
               />
               <button
@@ -449,6 +458,7 @@ import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
 
 export interface EntryLine {
   lineNo?: number;
+  customerMaterialCode?: string;
   productCode: string;
   productName?: string;
   spec?: string;
@@ -481,7 +491,7 @@ export interface MasterOption {
   unit?: string;
 }
 
-type EntryColumnKey = "rowNo" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
+type EntryColumnKey = "rowNo" | "partyCode" | "customerMaterialCode" | "productCode" | "productName" | "spec" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
 interface EntryColumn {
   key: EntryColumnKey;
   title: string;
@@ -514,6 +524,9 @@ const props = defineProps<{
   highlightedSourceBillNo: string;
   highlightedSourceLineNo: number | null;
   currentBillNo: string;
+  partyCode?: string;
+  partyCodeLabel?: string;
+  showCustomerMaterialCodeColumn?: boolean;
   showSourceLineColumn: boolean;
   showExecutionColumns: boolean;
   showTargetWarehouseColumn?: boolean;
@@ -608,8 +621,10 @@ const columnReorder = useColumnReorder<EntryColumn>({
 
 const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", locked: true, configurable: false, numeric: true },
-  { key: "productCode", title: "商品编码", width: 140, visible: true },
-  { key: "productName", title: "商品名称", width: 170, visible: true },
+  { key: "partyCode", title: props.partyCodeLabel || "客户编码", width: 118, visible: true },
+  { key: "customerMaterialCode", title: "客户物料号", width: 150, visible: Boolean(props.showCustomerMaterialCodeColumn) },
+  { key: "productCode", title: "物料编码", width: 140, visible: true },
+  { key: "productName", title: "物料名称", width: 170, visible: true },
   { key: "spec", title: "规格型号", width: 150, visible: true },
   { key: "warehouse", title: "仓库", width: 130, visible: true, bulkFillable: true },
   { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
@@ -658,6 +673,7 @@ const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum 
 const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).amount, 0).toFixed(2));
 const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).taxAmount, 0).toFixed(2));
 const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
+const partyCodeForLine = computed(() => props.partyCode ?? "");
 const draggingColumnTitle = columnReorder.draggingTitle;
 const activeDatePickerValue = computed(() => {
   if (datePickerTarget.value?.type === "line") {
@@ -687,6 +703,8 @@ watch(() => [
   props.showSourceLineColumn,
   props.showExecutionColumns,
   props.showTargetWarehouseColumn,
+  props.partyCodeLabel,
+  props.showCustomerMaterialCodeColumn,
   props.showPlanDeliveryDateColumn,
   props.showTaxColumns,
   props.showStockColumns,
@@ -727,11 +745,17 @@ function resetColumns() {
 }
 
 function isColumnAvailable(column: EntryColumn) {
+  if (column.key === "partyCode") {
+    return Boolean(props.partyCodeLabel);
+  }
   if (column.key === "targetWarehouse") {
     return Boolean(props.showTargetWarehouseColumn);
   }
   if (column.key === "rowNo") {
     return true;
+  }
+  if (column.key === "customerMaterialCode") {
+    return Boolean(props.showCustomerMaterialCodeColumn);
   }
   if (column.key === "planDeliveryDate") {
     return Boolean(props.showPlanDeliveryDateColumn);
@@ -1378,6 +1402,10 @@ function lineRemarkTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-remark` : `${props.testPrefix}-line-remark-${index + 1}`;
 }
 
+function lineCustomerMaterialCodeTestId(index: number) {
+  return index === 0 ? `${props.testPrefix}-line-customer-order-no` : `${props.testPrefix}-line-customer-order-no-${index + 1}`;
+}
+
 function linePlanDeliveryDateTestId(index: number) {
   return index === 0 ? `${props.testPrefix}-line-plan-delivery-date` : `${props.testPrefix}-line-plan-delivery-date-${index + 1}`;
 }
@@ -1394,6 +1422,9 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
   const suffix = index === 0 ? "" : `-${index + 1}`;
   if (key === "rowNo") {
     return `${props.testPrefix}-line-row-no${suffix}`;
+  }
+  if (key === "partyCode") {
+    return `${props.testPrefix}-line-party-code${suffix}`;
   }
   if (key === "productName") {
     return `${props.testPrefix}-line-product-name${suffix}`;
@@ -1433,7 +1464,7 @@ function normalizeEntryColumns(nextColumns: EntryColumn[]) {
   return [...frozen, ...regular];
 }
 
-type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate" | "planDeliveryDate" | "remark";
+type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate" | "planDeliveryDate" | "customerMaterialCode" | "remark";
 
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: EditableLineCell, selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && props.activeSelector === selectorId && props.selectorOptions.length > 0);
@@ -1480,12 +1511,11 @@ function advanceLineCellOnEnter(lineIndex: number, cell: EditableLineCell) {
   void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), cell);
 }
 
-function handleLineDateEnter(lineIndex: number) {
-  commitLineDate(lineIndex);
-  if (!props.isDraft) {
-    return;
+function handleLineDateKeydown(event: KeyboardEvent, lineIndex: number) {
+  if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp") {
+    commitLineDate(lineIndex);
   }
-  void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), "planDeliveryDate");
+  handleLineCellKeydown(event, lineIndex, "planDeliveryDate");
 }
 
 async function focusLineCell(lineIndex: number, cell: EditableLineCell) {
@@ -1509,6 +1539,8 @@ function lineCellTestId(lineIndex: number, cell: EditableLineCell) {
       return lineTaxRateTestId(lineIndex);
     case "planDeliveryDate":
       return linePlanDeliveryDateTestId(lineIndex);
+    case "customerMaterialCode":
+      return lineCustomerMaterialCodeTestId(lineIndex);
     case "remark":
       return lineRemarkTestId(lineIndex);
     case "product":

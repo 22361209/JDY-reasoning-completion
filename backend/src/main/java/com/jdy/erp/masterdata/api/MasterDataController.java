@@ -76,10 +76,10 @@ public class MasterDataController {
             INSERT INTO md_product (
                 code, name, short_name, barcode, brand, spec, category, product_type, unit,
                 is_purchase, is_sale, is_inventory, is_produce, is_subcontract,
-                default_warehouse_code, sale_unit, purchase_unit, bom_unit, default_supplier_code, issue_warehouse_code, issue_method,
+                default_warehouse_code, default_workshop, sale_unit, purchase_unit, bom_unit, default_supplier_code, issue_warehouse_code, issue_method,
                 tax_rate, default_sale_price, cost_price, min_sale_price, remark, enabled
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, code, name
             """,
             code,
@@ -97,6 +97,7 @@ public class MasterDataController {
             checked(payload, "isProduce"),
             checked(payload, "isSubcontract"),
             optional(payload, "defaultWarehouseCode"),
+            optional(payload, "defaultWorkshop"),
             payload.getOrDefault("saleUnit", payload.getOrDefault("unit", "只")),
             payload.getOrDefault("purchaseUnit", payload.getOrDefault("unit", "只")),
             payload.getOrDefault("bomUnit", payload.getOrDefault("unit", "只")),
@@ -187,7 +188,7 @@ public class MasterDataController {
             UPDATE md_product
             SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_type = ?, unit = ?,
                 is_purchase = ?, is_sale = ?, is_inventory = ?, is_produce = ?, is_subcontract = ?,
-                default_warehouse_code = ?, sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, issue_warehouse_code = ?, issue_method = ?,
+                default_warehouse_code = ?, default_workshop = ?, sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, issue_warehouse_code = ?, issue_method = ?,
                 tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, remark = ?,
                 enabled = ?, updated_at = now(), version = version + 1
             WHERE code = ?
@@ -207,6 +208,7 @@ public class MasterDataController {
             checked(payload, "isProduce"),
             checked(payload, "isSubcontract"),
             optional(payload, "defaultWarehouseCode"),
+            optional(payload, "defaultWorkshop"),
             payload.getOrDefault("saleUnit", payload.getOrDefault("unit", "只")),
             payload.getOrDefault("purchaseUnit", payload.getOrDefault("unit", "只")),
             payload.getOrDefault("bomUnit", payload.getOrDefault("unit", "只")),

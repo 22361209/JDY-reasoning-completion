@@ -1,7 +1,7 @@
 <template>
   <div
     class="table-core-header-cell column-header-cell"
-    :class="{ dragging, 'drag-over': dragOver }"
+    :class="{ dragging, 'drag-over': dragOver, 'has-filter': filterable, 'has-bulk': bulkFillable }"
     :data-testid="testId"
     :data-column-field="columnKey"
     @mousedown.left.stop="emit('dragStart', $event)"

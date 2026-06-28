@@ -16,6 +16,7 @@ interface DocumentDraftPayload {
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number;
     sourceLineNo?: number;
+    customerMaterialCode?: string;
     qty: number;
     unitPrice: number;
     taxRate?: number;
@@ -156,6 +157,7 @@ export interface DocumentDetail {
     sourceLineNo?: number | string;
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number | string;
+    customerMaterialCode?: string;
     productCode?: string;
     productName?: string;
     spec?: string;

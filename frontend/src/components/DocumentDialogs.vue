@@ -167,7 +167,7 @@
   <div v-if="pendingEntryPaste" class="modal-mask" data-testid="entry-paste-conflict-dialog">
     <div ref="entryPasteDialogRef" class="dialog entry-paste-conflict-dialog" tabindex="-1" @keydown="emit('handleEntryPasteConflictKeydown', $event)">
       <h3>选择商品</h3>
-      <p>粘贴内容里有商品名称对应多个资料，请选定后再写入分录。</p>
+      <p>粘贴内容里有物料名称对应多个资料，请选定后再写入分录。</p>
       <div v-for="conflict in pendingEntryPaste.conflicts" :key="conflict.lineIndex" class="entry-paste-conflict">
         <div class="entry-paste-conflict-title">第 {{ conflict.lineIndex + 1 }} 行：{{ conflict.productText }}</div>
         <div class="entry-paste-candidates">

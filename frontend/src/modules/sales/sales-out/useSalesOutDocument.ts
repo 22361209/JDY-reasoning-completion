@@ -75,6 +75,7 @@ type PreparedEntryLines = {
     qty: number;
     unitPrice: number;
     taxRate?: number;
+    customerMaterialCode?: string;
     lineRemark: string;
     planDeliveryDate?: string;
   }[];
@@ -348,6 +349,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       qty: normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
+      customerMaterialCode: String(line.customerMaterialCode ?? ""),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
     })));
@@ -1382,6 +1384,7 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
     qty: remainingQty,
     unitPrice: Number(line.unitPrice ?? 0),
     taxRate: Number(line.taxRate ?? 13),
+    customerMaterialCode: String(line.customerMaterialCode ?? ""),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? "")
   };
@@ -1400,6 +1403,7 @@ function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLine
     qty: normalizedQty(line.remainingQty),
     unitPrice: Number(line.unitPrice ?? 0),
     taxRate: Number(line.taxRate ?? 13),
+    customerMaterialCode: String(line.customerMaterialCode ?? ""),
     lineRemark: String(line.lineRemark ?? ""),
     planDeliveryDate: String(line.planDeliveryDate ?? ""),
     stockOnHand: line.stockOnHand,
@@ -1430,6 +1434,7 @@ function toDocumentLines(lines: OrderLineForm[]) {
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0),
     taxRate: Number(line.taxRate ?? 13),
+    customerMaterialCode: String(line.customerMaterialCode ?? "").trim(),
     lineRemark: String(line.lineRemark ?? "").trim(),
     planDeliveryDate: String(line.planDeliveryDate ?? "").trim() || undefined
   }));
@@ -1442,7 +1447,7 @@ function prepareEntryLinesForSave(lines: OrderLineForm[]): ({ ok: true } & Prepa
   }
   const missingProduct = nonBlankLines.find(({ line }) => !entryLineProductCode(line));
   if (missingProduct) {
-    return { ok: false, message: `第 ${missingProduct.index + 1} 行商品编码不能为空。` };
+    return { ok: false, message: `第 ${missingProduct.index + 1} 行物料编码不能为空。` };
   }
   const formLines = nonBlankLines.map(({ line }) => line);
   return { ok: true, formLines, documentLines: toDocumentLines(formLines), removedBlankCount: lines.length - formLines.length };

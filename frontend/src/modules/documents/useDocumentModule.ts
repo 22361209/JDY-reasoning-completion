@@ -92,6 +92,7 @@ type PreparedEntryLines = {
     planDeliveryDate?: string;
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number;
+    customerMaterialCode?: string;
   }[];
   removedBlankCount: number;
 };
@@ -271,6 +272,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         lineNo: normalizedOptionalInt(line.lineNo),
         sourceOrderNo: String(line.sourceOrderNo ?? ""),
         sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
+        customerMaterialCode: String(line.customerMaterialCode ?? ""),
         qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
         remainingQty: documentLineRemainingQty(line),
@@ -374,6 +376,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
       sourceOrderNo: draft.sourceOrderNo,
       sourceLineNo: line.sourceLineNo,
+      customerMaterialCode: String(line.customerMaterialCode ?? ""),
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
       taxRate: Number(line.taxRate ?? 13),
@@ -1366,6 +1369,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       unitPrice: 0,
       taxRate: 13,
       lineRemark: "",
+      customerMaterialCode: "",
       planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
   }
@@ -1379,6 +1383,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       unitPrice: 0,
       taxRate: 13,
       lineRemark: "",
+      customerMaterialCode: "",
       planDeliveryDate: defaultPlanDeliveryDateForDocument()
     };
   }
@@ -1419,7 +1424,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     const missingProduct = nonBlankLines.find(({ line }) => !entryLineProductCode(line));
     if (missingProduct) {
-      return { ok: false, message: `第 ${missingProduct.index + 1} 行商品编码不能为空。` };
+      return { ok: false, message: `第 ${missingProduct.index + 1} 行物料编码不能为空。` };
     }
     const missingTargetWarehouse = config.showTargetWarehouseColumn
       ? nonBlankLines.find(({ line }) => !String(line.targetWarehouseCode ?? "").trim())
@@ -1437,6 +1442,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         targetWarehouseCode: config.showTargetWarehouseColumn ? entryLineTargetWarehouseCode(line) : undefined,
         sourceLineNo: line.sourceLineNo,
         sourceOrderNo: line.sourceOrderNo,
+        customerMaterialCode: String(line.customerMaterialCode ?? "").trim(),
         qty: Number(line.qty || 0),
         unitPrice: Number(line.unitPrice || 0),
         taxRate: Number(line.taxRate ?? 13),

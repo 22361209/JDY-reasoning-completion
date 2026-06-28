@@ -5,6 +5,7 @@ export interface MasterDataField {
   label: string;
   placeholder?: string;
   options?: string[];
+  suggestions?: string[];
   section?: string;
   type?: "text" | "number" | "textarea" | "checkbox";
   span?: 1 | 2;

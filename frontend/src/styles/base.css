@@ -1801,8 +1801,9 @@ input:disabled {
 }
 
 .table-core-header-cell {
-  --table-core-header-padding: 2px 46px 2px 8px;
-  --table-core-header-actions-right: 6px;
+  --table-core-header-action-space: 0px;
+  --table-core-header-padding: 2px calc(var(--table-core-header-action-space) + 6px) 2px 8px;
+  --table-core-header-actions-right: 2px;
   --table-core-header-resizer-right: -6px;
   width: 100%;
   min-height: 22px;
@@ -1815,6 +1816,18 @@ input:disabled {
   padding: var(--table-core-header-padding);
   position: relative;
   box-sizing: border-box;
+}
+
+.table-core-header-cell.has-filter {
+  --table-core-header-action-space: 16px;
+}
+
+.table-core-header-cell.has-bulk {
+  --table-core-header-action-space: 16px;
+}
+
+.table-core-header-cell.has-filter.has-bulk {
+  --table-core-header-action-space: 30px;
 }
 
 .column-header-title {
@@ -1857,7 +1870,7 @@ input:disabled {
   right: var(--table-core-header-actions-right);
   display: inline-flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   transform: translateY(-50%);
 }
 
@@ -1866,7 +1879,7 @@ input:disabled {
   position: relative;
   flex: 0 0 auto;
   margin-left: auto;
-  width: 16px;
+  width: 15px;
   height: 16px;
   display: grid;
   place-items: center;
@@ -2174,6 +2187,124 @@ input:disabled {
 
 .master-create-fields input:disabled,
 .master-create-fields select:disabled {
+  background: #f3f6fa;
+  color: #64748b;
+}
+
+.master-record-page {
+  min-height: 100%;
+  background: #ffffff;
+  border: 1px solid #d8e1ec;
+}
+
+.master-record-head {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #d8e1ec;
+  background: #fbfdff;
+}
+
+.master-record-head h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 17px;
+}
+
+.master-record-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.master-record-status {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid #b7d7c1;
+  border-radius: 4px;
+  background: #ecfdf3;
+  color: #16734a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.master-record-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.master-record-section {
+  border: 1px solid #d8e1ec;
+  background: #ffffff;
+}
+
+.master-record-section h3 {
+  margin: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid #d8e1ec;
+  background: #f4f7fb;
+  color: #26384d;
+  font-size: 13px;
+}
+
+.master-record-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+.master-record-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: #5b6b7a;
+  font-size: 12px;
+}
+
+.master-record-fields label.required > span::before {
+  content: "*";
+  margin-right: 2px;
+  color: #d53f3a;
+}
+
+.master-record-fields .field-wide {
+  grid-column: span 2;
+}
+
+.master-record-fields input,
+.master-record-fields select,
+.master-record-fields textarea {
+  min-width: 0;
+  border: 1px solid #c7d2df;
+  border-radius: 4px;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.master-record-fields input,
+.master-record-fields select {
+  height: 30px;
+  padding: 0 8px;
+}
+
+.master-record-fields textarea {
+  resize: vertical;
+  padding: 6px 8px;
+  line-height: 1.45;
+}
+
+.master-record-fields input:disabled,
+.master-record-fields select:disabled {
   background: #f3f6fa;
   color: #64748b;
 }
@@ -2681,15 +2812,7 @@ table {
 .table-core-frame--entry .table-core-body-wrapper {
   flex: 1 1 auto;
   min-height: 0;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(var(--table-core-row-height) - var(--table-core-grid-line-width)),
-      var(--table-core-grid-line-color) calc(var(--table-core-row-height) - var(--table-core-grid-line-width)),
-      var(--table-core-grid-line-color) var(--table-core-row-height)
-    );
-  background-attachment: local;
+  background: #ffffff;
   overflow-x: hidden;
   overflow-y: auto;
 }

@@ -199,6 +199,7 @@ public class DeliveryNoticeAppService {
                    GREATEST(0, l.qty - COALESCE(out_qty.shipped_qty, 0)) AS "remainingQty",
                    l.unit_price AS "unitPrice",
                    l.tax_rate AS "taxRate",
+                   COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                    COALESCE(l.line_remark, '') AS "lineRemark",
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
@@ -252,8 +253,8 @@ public class DeliveryNoticeAppService {
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
             var sourceLineNo = line.sourceLineNo() == null && sourceOrderNo != null ? lineNo : line.sourceLineNo();
             jdbcTemplate.update("""
-                INSERT INTO delivery_notice_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO delivery_notice_line (bill_id, line_no, source_order_no, source_line_no, product_id, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 billId,
                 lineNo,
@@ -267,6 +268,7 @@ public class DeliveryNoticeAppService {
                 amounts.taxRate(),
                 amounts.taxAmount(),
                 amounts.priceTaxTotal(),
+                validationService.optionalText(line.customerMaterialCode()),
                 validationService.optionalText(line.lineRemark()),
                 optionalDate(line.planDeliveryDate())
             );
@@ -293,6 +295,7 @@ public class DeliveryNoticeAppService {
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
+                   COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                    COALESCE(l.line_remark, '') AS "lineRemark",
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                    COALESCE(b.qty_on_hand, 0) AS "stockOnHand",
@@ -426,6 +429,6 @@ public class DeliveryNoticeAppService {
         }
     }
 
-    public record DeliveryNoticeLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String lineRemark, String planDeliveryDate) {
+    public record DeliveryNoticeLineRequest(String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String customerMaterialCode, String lineRemark, String planDeliveryDate) {
     }
 }

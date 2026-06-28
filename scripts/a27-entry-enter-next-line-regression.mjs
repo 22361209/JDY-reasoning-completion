@@ -85,6 +85,13 @@ try {
   assertEqual("focus after tax rate Enter", focusAfterTaxRateEnter, "sales-line-product-2");
   assertEqual("row count after price Enter", await page.getByTestId("sales-entry-row").count(), 2);
 
+  await page.getByTestId("sales-line-plan-delivery-date").fill("2026/6/7");
+  await page.keyboard.press("ArrowDown");
+  const focusAfterPlanDateArrowDown = await activeTestId(page);
+  assertEqual("focus after plan delivery date ArrowDown", focusAfterPlanDateArrowDown, "sales-line-plan-delivery-date-2");
+  const normalizedPlanDate = await page.getByTestId("sales-line-plan-delivery-date").inputValue();
+  assertEqual("normalized plan delivery date after ArrowDown", normalizedPlanDate, "2026-06-07");
+
   await page.getByTestId("sales-line-product-2").fill("PJ-014");
   await page.getByTestId("sales-line-warehouse-2").fill("CK-002");
   await page.getByTestId("sales-line-qty-2").fill("2");
@@ -120,6 +127,8 @@ try {
     billNo,
     focusAfterQtyEnter,
     focusAfterPriceEnter,
+    focusAfterPlanDateArrowDown,
+    normalizedPlanDate,
     line1Amount,
     line2Amount,
     total,

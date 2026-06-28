@@ -121,6 +121,18 @@ async function tableMetrics(page) {
       const frameBox = frame.getBoundingClientRect();
       return box.width > 0 && box.right > frameBox.left && box.left < frameBox.right;
     };
+    const titleMetric = (selector) => {
+      const node = document.querySelector(selector);
+      if (!(node instanceof HTMLElement)) {
+        return { missing: true };
+      }
+      return {
+        missing: false,
+        text: node.textContent?.trim() ?? "",
+        clientWidth: Math.round(node.clientWidth),
+        scrollWidth: Math.round(node.scrollWidth)
+      };
+    };
     const entryControlMetric = (name, selector, controlSelector = null) => {
       const node = document.querySelector(selector);
       if (!node) {
@@ -160,6 +172,9 @@ async function tableMetrics(page) {
       entryHeaders: text(".entry-table thead th").slice(0, 8),
       listCoreHeaderCount: document.querySelectorAll(".vxe-wrap .table-core-header-cell").length,
       entryCoreHeaderCount: document.querySelectorAll(".entry-table .table-core-header-cell").length,
+      entryProductCodeHeaderTitle: titleMetric("[data-testid='entry-column-drag-productCode'] .column-header-title"),
+      entryQtyHeaderTitle: titleMetric("[data-testid='entry-column-drag-qty'] .column-header-title"),
+      listBillNoHeaderTitle: titleMetric("[data-testid='column-drag-billNo'] .column-header-title"),
       listQtyFilterRightGap: rightGap("[data-testid='column-filter-qty']", "[data-testid='column-drag-qty']"),
       entryQtyFilterRightGap: rightGap("[data-testid='entry-column-filter-qty']", "[data-testid='entry-column-drag-qty']"),
       stockOnHandVisible: visibleInside("[data-testid='delivery-notice-line-stockOnHand']", ".entry-table"),
@@ -218,12 +233,59 @@ const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
+  await page.evaluate(() => {
+    localStorage.setItem("jdy:list-columns:v3:sales-order-form-list:header", JSON.stringify([
+      { field: "status", width: 100, visible: true },
+      { field: "partner", width: 160, visible: true }
+    ]));
+  });
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("query-sales-order-form").click();
+  await page.getByTestId("column-drag-billNo").waitFor({ state: "visible" });
+  await page.getByTestId("column-drag-customer").waitFor({ state: "visible" });
+  await page.getByTestId("module-销售管理").hover();
+  await page.getByTestId("query-sales-quote-form").click();
+  await page.getByTestId("column-drag-validUntil").waitFor({ state: "visible" });
+  await page.getByTestId("column-drag-validStatus").waitFor({ state: "visible" });
+  await page.locator("[data-testid^='open-document-XSBJ']").first().waitFor({ state: "visible" });
+  const quoteListText = await page.locator(".data-list-page").innerText();
+  assert(quoteListText.includes("XSBJ-"), `sales quote list should render quote rows after sales order tab: ${quoteListText.slice(0, 500)}`);
+  assert(!quoteListText.includes("XSDD-A112"), `sales quote list must not retain sales order rows: ${quoteListText.slice(0, 500)}`);
+  await page.getByTestId("module-销售管理").hover();
+  await page.getByTestId("query-sales-order-form").click();
+  await page.getByTestId("column-drag-outStatus").waitFor({ state: "visible" });
+  await page.locator("[data-testid^='open-document-XSDD']").first().waitFor({ state: "visible" });
+  const orderListText = await page.locator(".data-list-page").innerText();
+  assert(orderListText.includes("XSDD-"), `sales order list should render order rows after quote tab: ${orderListText.slice(0, 500)}`);
   await page.getByTestId("list-keyword").fill(orderNo);
   await page.getByTestId("list-query").click();
   await page.getByTestId(`open-document-${orderNo}`).waitFor({ state: "visible" });
+  const salesListApiState = await page.evaluate(async () => {
+    const read = async (view) => {
+      const response = await fetch(`/api/lists/sales-order-form-list?page=1&pageSize=20&view=${view}`);
+      const data = await response.json();
+      return {
+        view,
+        status: response.status,
+        total: data.total,
+        rows: data.rows?.length ?? 0,
+        first: data.rows?.[0] ?? null
+      };
+    };
+    return {
+      header: await read("header"),
+      detail: await read("detail")
+    };
+  });
+  assert(salesListApiState.header.status === 200, `sales order header list should load: ${JSON.stringify(salesListApiState)}`);
+  assert(salesListApiState.detail.status === 200, `sales order detail list should load: ${JSON.stringify(salesListApiState)}`);
+  assert(salesListApiState.header.total > 100, `sales order header total should not shrink: ${JSON.stringify(salesListApiState)}`);
+  assert(salesListApiState.detail.total > salesListApiState.header.total, `sales order detail total should exceed header total: ${JSON.stringify(salesListApiState)}`);
+  assert(
+    salesListApiState.header.first?.billNo && salesListApiState.header.first?.customer && salesListApiState.header.first?.amount,
+    `sales order header rows should keep non-status fields: ${JSON.stringify(salesListApiState)}`
+  );
   await screenshot(page, "a112b-header-core-scrollbar", screenshots);
   const headerMetrics = await tableMetrics(page);
   assert(headerMetrics.listScroll.overflowX === "scroll", `header view outer scrollbar should be always on: ${JSON.stringify(headerMetrics.listScroll)}`);
@@ -300,7 +362,7 @@ try {
   assert(entryMetrics.entryScroll.scrollLeft > 0, `entry horizontal scroll should move right: ${JSON.stringify(entryMetrics.entryScroll)}`);
   assert(entryMetrics.entryBodyScroll.overflowX === "hidden", `entry body should not own horizontal scroll: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
   assert(entryMetrics.entryBodyScroll.overflowY === "auto", `entry body should use auto vertical scroll: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
-  assert(entryMetrics.entryBodyScroll.backgroundImage.includes("repeating-linear-gradient"), `entry empty space should continue grid lines: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
+  assert(entryMetrics.entryBodyScroll.backgroundImage === "none", `entry body should not draw duplicate background grid lines: ${JSON.stringify(entryMetrics.entryBodyScroll)}`);
   assert(
     entryMetrics.entryFooterRect && entryMetrics.entryBodyRect && entryMetrics.entryFooterRect.y >= entryMetrics.entryBodyRect.bottom - 1,
     `entry footer should render outside the scrollable body: ${JSON.stringify(entryMetrics)}`
@@ -323,6 +385,16 @@ try {
     metric.missing || metric.cellHeight < 32 || metric.cellHeight > 33 || metric.controlHeight !== 28 || Math.abs(metric.topGap - metric.bottomGap) > 1
   );
   assert(
+    !entryLeftMetrics.entryProductCodeHeaderTitle.missing
+      && entryLeftMetrics.entryProductCodeHeaderTitle.scrollWidth <= entryLeftMetrics.entryProductCodeHeaderTitle.clientWidth + 1,
+    `entry product code header title should not be squeezed by header actions: ${JSON.stringify(entryLeftMetrics.entryProductCodeHeaderTitle)}`
+  );
+  assert(
+    !entryLeftMetrics.entryQtyHeaderTitle.missing
+      && entryLeftMetrics.entryQtyHeaderTitle.scrollWidth <= entryLeftMetrics.entryQtyHeaderTitle.clientWidth + 1,
+    `entry qty header title should not be squeezed when filter and bulk buttons coexist: ${JSON.stringify(entryLeftMetrics.entryQtyHeaderTitle)}`
+  );
+  assert(
     badEntryControls.length === 0,
     `entry editable/readonly cell controls should share one 32-33/28px geometry: ${JSON.stringify(entryLeftMetrics.entryCellControls)}`
   );
@@ -335,6 +407,7 @@ try {
     noticeNo,
     checks: {
       header: headerMetrics,
+      salesListApiState,
       headerResize: { beforeResize, afterResize },
       tabState: { openedBillNo, restoredBillNo, restoredProduct },
       newLine,

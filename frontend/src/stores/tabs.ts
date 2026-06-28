@@ -14,7 +14,7 @@ export interface WorkTab {
   lockCanOverride?: boolean;
 }
 
-const maxTabs = 8;
+const maxTabs = 20;
 const tabs = ref<WorkTab[]>([
   { id: "home", title: "首页工作台", module: "首页工作台", kind: "home" }
 ]);

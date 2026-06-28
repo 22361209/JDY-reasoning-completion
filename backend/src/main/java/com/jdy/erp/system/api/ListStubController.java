@@ -305,7 +305,10 @@ public class ListStubController {
             case "sales-quote-form-list" -> queryDetailRows("""
                 SELECT concat(sq.id::text, '-', l.line_no) AS id,
                        sq.bill_no AS "billNo",
+                       c.code AS "customerCode",
+                       COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                        to_char(sq.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
                        CASE WHEN sq.status = 'DRAFT' THEN '草稿' WHEN sq.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
                        l.line_no AS "lineNo",
@@ -328,7 +331,10 @@ public class ListStubController {
             case "sales-order-form-list" -> queryDetailRows("""
                 SELECT concat(so.id::text, '-', l.line_no) AS id,
                        so.bill_no AS "billNo",
+                       c.code AS "customerCode",
+                       COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                        to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
                        CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
                        l.line_no AS "lineNo",
@@ -351,6 +357,7 @@ public class ListStubController {
             case "purchase-order-form-list" -> queryDetailRows("""
                 SELECT concat(po.id::text, '-', l.line_no) AS id,
                        po.bill_no AS "billNo",
+                       s.code AS "supplierCode",
                        to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
                        s.name AS partner,
                        CASE WHEN po.status = 'DRAFT' THEN '草稿' WHEN po.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
@@ -374,7 +381,10 @@ public class ListStubController {
             case "sales-out-list", "sales-out-form-list" -> queryDetailRows("""
                 SELECT concat(so.id::text, '-', l.line_no) AS id,
                        so.bill_no AS "billNo",
+                       c.code AS "customerCode",
+                       COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                        to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
                        CASE
                            WHEN so.status = 'DRAFT' THEN '草稿'
@@ -403,7 +413,10 @@ public class ListStubController {
             case "delivery-notice-form-list" -> queryDetailRows("""
                 SELECT concat(dn.id::text, '-', l.line_no) AS id,
                        dn.bill_no AS "billNo",
+                       c.code AS "customerCode",
+                       COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                        to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
                        CASE
                            WHEN dn.status = 'DRAFT' THEN '草稿'
@@ -431,6 +444,7 @@ public class ListStubController {
             case "purchase-in-list", "purchase-in-form-list" -> queryDetailRows("""
                 SELECT concat(pi.id::text, '-', l.line_no) AS id,
                        pi.bill_no AS "billNo",
+                       s.code AS "supplierCode",
                        to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
                        s.name AS partner,
                        CASE
@@ -629,6 +643,7 @@ public class ListStubController {
                    CASE WHEN is_produce THEN '是' ELSE '否' END AS "isProduce",
                    CASE WHEN is_subcontract THEN '是' ELSE '否' END AS "isSubcontract",
                    COALESCE(default_warehouse_code, '') AS "defaultWarehouseCode",
+                   COALESCE(default_workshop, '') AS "defaultWorkshop",
                    COALESCE(sale_unit, unit) AS "saleUnit",
                    COALESCE(purchase_unit, unit) AS "purchaseUnit",
                    COALESCE(bom_unit, unit) AS "bomUnit",
@@ -765,8 +780,10 @@ public class ListStubController {
         var realRows = new ArrayList<Map<String, ?>>(jdbcTemplate.queryForList("""
             SELECT so.id::text AS id,
                    so.bill_no AS "billNo",
+                   c.code AS "customerCode",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
                    CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
                    CASE
                        WHEN so.out_status = 'ALL_OUT' THEN '全部出库'
@@ -779,6 +796,12 @@ public class ListStubController {
                    COALESCE(so.owner_name, '') AS owner
             FROM sales_order so
             JOIN md_customer c ON c.id = so.customer_id
+            LEFT JOIN (
+                SELECT order_id,
+                       MIN(plan_delivery_date) AS plan_delivery_date
+                FROM sales_order_line
+                GROUP BY order_id
+            ) extra ON extra.order_id = so.id
             ORDER BY so.updated_at DESC
             """));
         realRows.addAll(Stream.<Map<String, ?>>of(
@@ -793,6 +816,7 @@ public class ListStubController {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT po.id::text AS id,
                    po.bill_no AS "billNo",
+                   s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
                    CASE WHEN po.status = 'DRAFT' THEN '草稿' WHEN po.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
@@ -815,8 +839,10 @@ public class ListStubController {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT sq.id::text AS id,
                    sq.bill_no AS "billNo",
+                   c.code AS "customerCode",
                    c.name AS customer,
                    to_char(sq.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
                    to_char(sq.valid_until, 'YYYY-MM-DD') AS "validUntil",
                    CASE
                        WHEN sq.status = 'DRAFT' THEN '草稿'
@@ -834,6 +860,12 @@ public class ListStubController {
                    COALESCE(sq.owner_name, '') AS owner
             FROM sales_quote sq
             JOIN md_customer c ON c.id = sq.customer_id
+            LEFT JOIN (
+                SELECT quote_id,
+                       MIN(plan_delivery_date) AS plan_delivery_date
+                FROM sales_quote_line
+                GROUP BY quote_id
+            ) extra ON extra.quote_id = sq.id
             ORDER BY sq.updated_at DESC
             """));
     }
@@ -842,6 +874,7 @@ public class ListStubController {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT pi.id::text AS id,
                    pi.bill_no AS "billNo",
+                   s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
                    CASE
@@ -872,8 +905,10 @@ public class ListStubController {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT so.id::text AS id,
                    so.bill_no AS "billNo",
+                   c.code AS "customerCode",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
                    CASE
                        WHEN so.status = 'DRAFT' THEN '草稿'
                        WHEN so.status = 'REVERSED' THEN '已反审核'
@@ -893,6 +928,12 @@ public class ListStubController {
                 WHERE COALESCE(source_delivery_notice_no, source_order_no) IS NOT NULL AND COALESCE(source_delivery_notice_no, source_order_no) <> ''
                 GROUP BY bill_id
             ) src ON src.bill_id = so.id
+            LEFT JOIN (
+                SELECT bill_id,
+                       MIN(plan_delivery_date) AS plan_delivery_date
+                FROM sales_out_line
+                GROUP BY bill_id
+            ) extra ON extra.bill_id = so.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY so.updated_at DESC
             """));
@@ -902,8 +943,10 @@ public class ListStubController {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT dn.id::text AS id,
                    dn.bill_no AS "billNo",
+                   c.code AS "customerCode",
                    c.name AS customer,
                    to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
                    CASE
                        WHEN dn.status = 'DRAFT' THEN '草稿'
                        WHEN dn.status = 'REVERSED' THEN '已反审核'
@@ -922,6 +965,12 @@ public class ListStubController {
                 WHERE source_order_no IS NOT NULL AND source_order_no <> ''
                 GROUP BY bill_id
             ) src ON src.bill_id = dn.id
+            LEFT JOIN (
+                SELECT bill_id,
+                       MIN(plan_delivery_date) AS plan_delivery_date
+                FROM delivery_notice_line
+                GROUP BY bill_id
+            ) extra ON extra.bill_id = dn.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY dn.updated_at DESC
             """));

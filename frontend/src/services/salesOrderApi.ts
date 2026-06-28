@@ -11,7 +11,9 @@ export interface SalesOrderDraftPayload {
     qty: number;
     unitPrice: number;
     taxRate?: number;
+    customerMaterialCode?: string;
     lineRemark?: string;
+    planDeliveryDate?: string;
   }>;
 }
 
@@ -45,6 +47,7 @@ export interface SalesOrderDetail {
     taxRate?: number | string;
     taxAmount?: number | string;
     priceTaxTotal?: number | string;
+    customerMaterialCode?: string;
     lineRemark?: string;
     planDeliveryDate?: string;
   }>;
@@ -70,6 +73,7 @@ export interface SelectableSalesOrderLine {
   taxRate?: number | string;
   taxAmount?: number | string;
   priceTaxTotal?: number | string;
+  customerMaterialCode?: string;
   lineRemark?: string;
   planDeliveryDate?: string;
 }
