@@ -9,6 +9,7 @@ import com.jdy.erp.production.application.ProductInAppService;
 import com.jdy.erp.production.application.ProductInAppService.CompleteRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.production.application.ProductionTaskAppService.BomRequest;
+import com.jdy.erp.production.application.ProductionTaskAppService.PlanRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.TaskRequest;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
@@ -59,6 +60,13 @@ public class ProductionController {
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> createTask(@RequestBody TaskRequest request) {
         return taskAppService.createTask(request);
+    }
+
+    @PostMapping("/plans")
+    @RequirePermission("production.task.audit")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> createPlan(@RequestBody PlanRequest request) {
+        return taskAppService.createPlan(request);
     }
 
     @PostMapping("/tasks/{billNo}/issue")

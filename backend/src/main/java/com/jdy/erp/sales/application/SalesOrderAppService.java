@@ -229,7 +229,7 @@ public class SalesOrderAppService {
                 SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
                 FROM delivery_notice_line dnl
                 JOIN delivery_notice dn ON dn.id = dnl.bill_id
-                WHERE dn.status = 'AUDITED'
+                WHERE dn.status <> 'VOID'
                 GROUP BY source_order_no, source_line_no
             ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE c.code = ?
@@ -310,7 +310,7 @@ public class SalesOrderAppService {
                 SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
                 FROM delivery_notice_line dnl
                 JOIN delivery_notice dn ON dn.id = dnl.bill_id
-                WHERE dn.status = 'AUDITED'
+                WHERE dn.status <> 'VOID'
                 GROUP BY source_order_no, source_line_no
             ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE so.bill_no = ?

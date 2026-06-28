@@ -15,7 +15,7 @@
     :row-visible="lineMatchesFilters"
     :row-class="entryRowClass"
     :row-attrs="entryRowAttrs"
-    :row-draggable="() => isDraft"
+    :row-draggable="false"
     :cell-attrs="entryCellAttrs"
     @column-drag-start="startEntryColumnMouseDrag"
     @column-filter="openEntryColumnFilter"
@@ -102,8 +102,8 @@
                 >-</button>
               </span>
             </span>
-            <span v-else-if="column.key === 'productName'" class="entry-cell-text">{{ productInfo(line).name }}</span>
-            <span v-else-if="column.key === 'spec'" class="entry-cell-text">{{ productInfo(line).spec }}</span>
+            <span v-else-if="column.key === 'productName'" class="entry-cell-value">{{ productInfo(line).name }}</span>
+            <span v-else-if="column.key === 'spec'" class="entry-cell-value">{{ productInfo(line).spec }}</span>
             <template v-else-if="column.key === 'warehouse'">
               <span class="master-selector in-cell">
                 <input
@@ -177,26 +177,26 @@
             <template v-else-if="column.key === 'sourceOrderNo'">
               <button
                 v-if="line.sourceOrderNo"
-                class="source-line-link"
+                class="entry-cell-value source-line-link"
                 type="button"
                 :data-testid="`${lineSourceOrderNoTestId(lineIndex)}-open`"
                 @click="emit('traceSourceOrder', line.sourceLineNo, line.sourceOrderNo)"
               >
                 {{ line.sourceOrderNo }}
               </button>
-              <span v-else>-</span>
+              <span v-else class="entry-cell-value">-</span>
             </template>
             <template v-else-if="column.key === 'sourceLineNo'">
               <button
                 v-if="line.sourceOrderNo && line.sourceLineNo"
-                class="source-line-link"
+                class="entry-cell-value source-line-link"
                 type="button"
                 :data-testid="lineSourceTraceTestId(lineIndex)"
                 @click="emit('traceSourceOrder', line.sourceLineNo, line.sourceOrderNo)"
               >
                 {{ lineSourceLineNo(line) }}
               </button>
-              <span v-else>-</span>
+              <span v-else class="entry-cell-value">-</span>
             </template>
             <input
               v-else-if="column.key === 'qty'"
@@ -211,24 +211,24 @@
             <template v-else-if="column.key === 'executedQty'">
               <button
                 v-if="line.downstreamDocs?.length"
-                class="source-line-link"
+                class="entry-cell-value entry-cell-value--number source-line-link"
                 type="button"
                 :data-testid="lineDownstreamTraceTestId(lineIndex)"
                 @click="emit('openDownstreamTrace', line, lineIndex)"
               >
                 {{ lineExecutedQty(line) }}
               </button>
-              <span v-else>{{ lineExecutedQty(line) }}</span>
+              <span v-else class="entry-cell-value entry-cell-value--number">{{ lineExecutedQty(line) }}</span>
             </template>
             <span v-else-if="column.key === 'remainingQty'" class="line-lifecycle-state">
               {{ lineRemainingQty(line) }}
               <small v-if="line.lineCloseStatus === 'CLOSED'">已关闭</small>
               <small v-if="line.lineFrozenStatus === 'FROZEN'">已冻结</small>
             </span>
-            <span v-else-if="column.key === 'stockOnHand'">{{ formatQty(line.stockOnHand) }}</span>
-            <span v-else-if="column.key === 'stockReserved'">{{ formatQty(line.stockReserved) }}</span>
-            <span v-else-if="column.key === 'stockAvailable'">{{ formatQty(line.stockAvailable) }}</span>
-            <span v-else-if="column.key === 'stockInTransit'">{{ formatQty(line.stockInTransit) }}</span>
+            <span v-else-if="column.key === 'stockOnHand'" class="entry-cell-value entry-cell-value--number">{{ formatQty(line.stockOnHand) }}</span>
+            <span v-else-if="column.key === 'stockReserved'" class="entry-cell-value entry-cell-value--number">{{ formatQty(line.stockReserved) }}</span>
+            <span v-else-if="column.key === 'stockAvailable'" class="entry-cell-value entry-cell-value--number">{{ formatQty(line.stockAvailable) }}</span>
+            <span v-else-if="column.key === 'stockInTransit'" class="entry-cell-value entry-cell-value--number">{{ formatQty(line.stockInTransit) }}</span>
             <input
               v-else-if="column.key === 'unitPrice'"
               v-model.number="line.unitPrice"
@@ -248,9 +248,9 @@
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'taxRate')"
             />
-            <span v-else-if="column.key === 'amount'" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</span>
-            <span v-else-if="column.key === 'taxAmount'" :data-testid="lineTaxAmountTestId(lineIndex)">{{ lineTaxAmount(line) }}</span>
-            <span v-else-if="column.key === 'priceTaxTotal'" :data-testid="linePriceTaxTotalTestId(lineIndex)">{{ linePriceTaxTotal(line) }}</span>
+            <span v-else-if="column.key === 'amount'" class="entry-cell-value entry-cell-value--number" :data-testid="lineAmountTestId(lineIndex)">{{ lineAmount(line) }}</span>
+            <span v-else-if="column.key === 'taxAmount'" class="entry-cell-value entry-cell-value--number" :data-testid="lineTaxAmountTestId(lineIndex)">{{ lineTaxAmount(line) }}</span>
+            <span v-else-if="column.key === 'priceTaxTotal'" class="entry-cell-value entry-cell-value--number" :data-testid="linePriceTaxTotalTestId(lineIndex)">{{ linePriceTaxTotal(line) }}</span>
             <span
               v-else-if="column.key === 'planDeliveryDate'"
               class="entry-date-cell"
@@ -262,7 +262,7 @@
                 :data-testid="linePlanDeliveryDateTestId(lineIndex)"
                 placeholder="2026-05-01"
                 @input="line.planDeliveryDate = ($event.target as HTMLInputElement).value; emit('markDirty')"
-                @keydown.enter.prevent="commitLineDate(lineIndex)"
+                @keydown.enter.prevent="handleLineDateEnter(lineIndex)"
                 @blur="commitLineDate(lineIndex)"
               />
               <button
@@ -275,7 +275,14 @@
                 @click="openLineDatePicker(lineIndex, $event)"
               />
             </span>
-            <input v-else-if="column.key === 'remark'" v-model="line.lineRemark" :disabled="!isDraft" :data-testid="lineRemarkTestId(lineIndex)" @input="emit('markDirty')" />
+            <input
+              v-else-if="column.key === 'remark'"
+              v-model="line.lineRemark"
+              :disabled="!isDraft"
+              :data-testid="lineRemarkTestId(lineIndex)"
+              @input="emit('markDirty')"
+              @keydown="handleLineCellKeydown($event, lineIndex, 'remark')"
+            />
     </template>
     <template #footer>
         <tr class="entry-total-row">
@@ -1384,8 +1391,15 @@ function lineInsertTestId(index: number) {
 }
 
 function columnCellTestId(key: EntryColumnKey, index: number) {
+  const suffix = index === 0 ? "" : `-${index + 1}`;
   if (key === "rowNo") {
-    return index === 0 ? `${props.testPrefix}-line-row-no` : `${props.testPrefix}-line-row-no-${index + 1}`;
+    return `${props.testPrefix}-line-row-no${suffix}`;
+  }
+  if (key === "productName") {
+    return `${props.testPrefix}-line-product-name${suffix}`;
+  }
+  if (key === "spec") {
+    return `${props.testPrefix}-line-spec${suffix}`;
   }
   if (key === "sourceLineNo") {
     return lineSourceLineNoTestId(index);
@@ -1400,7 +1414,6 @@ function columnCellTestId(key: EntryColumnKey, index: number) {
     return lineRemainingQtyTestId(index);
   }
   if (key === "stockOnHand" || key === "stockReserved" || key === "stockAvailable" || key === "stockInTransit") {
-    const suffix = index === 0 ? "" : `-${index + 1}`;
     return `${props.testPrefix}-line-${key}${suffix}`;
   }
   return undefined;
@@ -1420,7 +1433,7 @@ function normalizeEntryColumns(nextColumns: EntryColumn[]) {
   return [...frozen, ...regular];
 }
 
-type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate";
+type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate" | "planDeliveryDate" | "remark";
 
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: EditableLineCell, selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && props.activeSelector === selectorId && props.selectorOptions.length > 0);
@@ -1467,6 +1480,14 @@ function advanceLineCellOnEnter(lineIndex: number, cell: EditableLineCell) {
   void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), cell);
 }
 
+function handleLineDateEnter(lineIndex: number) {
+  commitLineDate(lineIndex);
+  if (!props.isDraft) {
+    return;
+  }
+  void focusLineCell(Math.min(lineIndex + 1, props.lines.length - 1), "planDeliveryDate");
+}
+
 async function focusLineCell(lineIndex: number, cell: EditableLineCell) {
   await nextTick();
   const input = document.querySelector<HTMLInputElement>(`[data-testid="${lineCellTestId(lineIndex, cell)}"]`);
@@ -1486,6 +1507,10 @@ function lineCellTestId(lineIndex: number, cell: EditableLineCell) {
       return linePriceTestId(lineIndex);
     case "taxRate":
       return lineTaxRateTestId(lineIndex);
+    case "planDeliveryDate":
+      return linePlanDeliveryDateTestId(lineIndex);
+    case "remark":
+      return lineRemarkTestId(lineIndex);
     case "product":
     default:
       return lineProductTestId(lineIndex);

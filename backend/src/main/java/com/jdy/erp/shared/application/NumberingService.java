@@ -24,6 +24,7 @@ public class NumberingService {
         Map.entry("stockCount", new NumberingRule("PD", "stock_count")),
         Map.entry("stockCountGain", new NumberingRule("PY", "stock_count_gain")),
         Map.entry("stockCountLoss", new NumberingRule("PK", "stock_count_loss")),
+        Map.entry("productionPlan", new NumberingRule("SCJH", "production_plan")),
         Map.entry("productionTask", new NumberingRule("SCRW", "production_task"))
     );
 

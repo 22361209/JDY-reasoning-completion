@@ -32,7 +32,7 @@ export function useMasterDataMaintenance(
     createError.value = "";
     resetForm();
     masterDefinition.fields.forEach((field) => {
-      form[field.name] = field.options?.[0] ?? "";
+      form[field.name] = field.defaultValue ?? field.options?.[0] ?? "";
     });
     editDialogOpen.value = false;
     createDialogOpen.value = true;
@@ -48,7 +48,11 @@ export function useMasterDataMaintenance(
     createError.value = "";
     resetForm();
     masterDefinition.fields.forEach((field) => {
-      form[field.name] = String(row[field.name] ?? "");
+      var value = String(row[field.name] ?? "");
+      if (field.type === "checkbox") {
+        value = value === "是" || value === "true" ? "true" : "false";
+      }
+      form[field.name] = value;
     });
     form.status = String(row.status ?? "启用");
     editOriginalCode.value = String(row.code ?? "");

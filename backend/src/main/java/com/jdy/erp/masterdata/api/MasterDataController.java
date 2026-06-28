@@ -73,45 +73,92 @@ public class MasterDataController {
 
     private Map<String, Object> createProduct(String code, String name, Map<String, String> payload, boolean enabled) {
         return jdbcTemplate.queryForMap("""
-            INSERT INTO md_product (code, name, spec, category, unit, default_sale_price, enabled)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO md_product (
+                code, name, short_name, barcode, brand, spec, category, product_type, unit,
+                is_purchase, is_sale, is_inventory, is_produce, is_subcontract,
+                default_warehouse_code, sale_unit, purchase_unit, bom_unit, default_supplier_code, issue_warehouse_code, issue_method,
+                tax_rate, default_sale_price, cost_price, min_sale_price, remark, enabled
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, code, name
             """,
             code,
             name,
+            optional(payload, "shortName"),
+            optional(payload, "barcode"),
+            optional(payload, "brand"),
             payload.getOrDefault("spec", ""),
             payload.getOrDefault("category", "成品总成"),
+            payload.getOrDefault("productType", "成品"),
             payload.getOrDefault("unit", "只"),
+            checked(payload, "isPurchase"),
+            checked(payload, "isSale"),
+            checked(payload, "isInventory", true),
+            checked(payload, "isProduce"),
+            checked(payload, "isSubcontract"),
+            optional(payload, "defaultWarehouseCode"),
+            payload.getOrDefault("saleUnit", payload.getOrDefault("unit", "只")),
+            payload.getOrDefault("purchaseUnit", payload.getOrDefault("unit", "只")),
+            payload.getOrDefault("bomUnit", payload.getOrDefault("unit", "只")),
+            optional(payload, "defaultSupplierCode"),
+            optional(payload, "issueWarehouseCode"),
+            payload.getOrDefault("issueMethod", "按单领料"),
+            decimalOrDefault(payload, "taxRate", BigDecimal.valueOf(13)),
             defaultSalePrice(payload),
+            optionalDecimal(payload, "costPrice", "成本价"),
+            optionalDecimal(payload, "minSalePrice", "最低销售价"),
+            optional(payload, "remark"),
             enabled
         );
     }
 
     private Map<String, Object> createCustomer(String code, String name, Map<String, String> payload, boolean enabled) {
         return jdbcTemplate.queryForMap("""
-            INSERT INTO md_customer (code, name, contact, phone, region, enabled)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO md_customer (
+                code, name, short_name, customer_level, contact, phone, region, tax_no,
+                address, credit_limit, settlement_method, owner_name, remark, enabled
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, code, name
             """,
             code,
             name,
+            optional(payload, "shortName"),
+            payload.getOrDefault("customerLevel", "普通客户"),
             payload.getOrDefault("contact", ""),
             payload.getOrDefault("phone", ""),
             payload.getOrDefault("region", ""),
+            optional(payload, "taxNo"),
+            optional(payload, "address"),
+            optionalDecimal(payload, "creditLimit", "信用额度"),
+            payload.getOrDefault("settlementMethod", "月结"),
+            optional(payload, "ownerName"),
+            optional(payload, "remark"),
             enabled
         );
     }
 
     private Map<String, Object> createSupplier(String code, String name, Map<String, String> payload, boolean enabled) {
         return jdbcTemplate.queryForMap("""
-            INSERT INTO md_supplier (code, name, contact, phone, enabled)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO md_supplier (
+                code, name, short_name, supplier_level, contact, phone, tax_no,
+                address, bank_account, settlement_method, owner_name, remark, enabled
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, code, name
             """,
             code,
             name,
+            optional(payload, "shortName"),
+            payload.getOrDefault("supplierLevel", "普通供应商"),
             payload.getOrDefault("contact", ""),
             payload.getOrDefault("phone", ""),
+            optional(payload, "taxNo"),
+            optional(payload, "address"),
+            optional(payload, "bankAccount"),
+            payload.getOrDefault("settlementMethod", "月结"),
+            optional(payload, "ownerName"),
+            optional(payload, "remark"),
             enabled
         );
     }
@@ -119,13 +166,18 @@ public class MasterDataController {
     private Map<String, Object> createWarehouse(String code, String name, Map<String, String> payload, boolean enabled) {
         var allowNegative = "允许负库存".equals(payload.getOrDefault("stockPolicy", "不允许负库存"));
         return jdbcTemplate.queryForMap("""
-            INSERT INTO md_warehouse (code, name, allow_negative_stock, enabled)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO md_warehouse (code, name, warehouse_type, manager, phone, address, allow_negative_stock, remark, enabled)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, code, name
             """,
             code,
             name,
+            payload.getOrDefault("warehouseType", "普通仓"),
+            optional(payload, "manager"),
+            optional(payload, "phone"),
+            optional(payload, "address"),
             allowNegative,
+            optional(payload, "remark"),
             enabled
         );
     }
@@ -133,15 +185,39 @@ public class MasterDataController {
     private Map<String, Object> updateProduct(String code, String name, Map<String, String> payload, boolean enabled) {
         return updateAndReturn("""
             UPDATE md_product
-            SET name = ?, spec = ?, category = ?, unit = ?, default_sale_price = ?, enabled = ?, updated_at = now(), version = version + 1
+            SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_type = ?, unit = ?,
+                is_purchase = ?, is_sale = ?, is_inventory = ?, is_produce = ?, is_subcontract = ?,
+                default_warehouse_code = ?, sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, issue_warehouse_code = ?, issue_method = ?,
+                tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, remark = ?,
+                enabled = ?, updated_at = now(), version = version + 1
             WHERE code = ?
             RETURNING id::text AS id, code, name
             """,
             name,
+            optional(payload, "shortName"),
+            optional(payload, "barcode"),
+            optional(payload, "brand"),
             payload.getOrDefault("spec", ""),
             payload.getOrDefault("category", "成品总成"),
+            payload.getOrDefault("productType", "成品"),
             payload.getOrDefault("unit", "只"),
+            checked(payload, "isPurchase"),
+            checked(payload, "isSale"),
+            checked(payload, "isInventory", true),
+            checked(payload, "isProduce"),
+            checked(payload, "isSubcontract"),
+            optional(payload, "defaultWarehouseCode"),
+            payload.getOrDefault("saleUnit", payload.getOrDefault("unit", "只")),
+            payload.getOrDefault("purchaseUnit", payload.getOrDefault("unit", "只")),
+            payload.getOrDefault("bomUnit", payload.getOrDefault("unit", "只")),
+            optional(payload, "defaultSupplierCode"),
+            optional(payload, "issueWarehouseCode"),
+            payload.getOrDefault("issueMethod", "按单领料"),
+            decimalOrDefault(payload, "taxRate", BigDecimal.valueOf(13)),
             defaultSalePrice(payload),
+            optionalDecimal(payload, "costPrice", "成本价"),
+            optionalDecimal(payload, "minSalePrice", "最低销售价"),
+            optional(payload, "remark"),
             enabled,
             code
         );
@@ -166,14 +242,24 @@ public class MasterDataController {
     private Map<String, Object> updateCustomer(String code, String name, Map<String, String> payload, boolean enabled) {
         return updateAndReturn("""
             UPDATE md_customer
-            SET name = ?, contact = ?, phone = ?, region = ?, enabled = ?, updated_at = now(), version = version + 1
+            SET name = ?, short_name = ?, customer_level = ?, contact = ?, phone = ?, region = ?, tax_no = ?,
+                address = ?, credit_limit = ?, settlement_method = ?, owner_name = ?, remark = ?,
+                enabled = ?, updated_at = now(), version = version + 1
             WHERE code = ?
             RETURNING id::text AS id, code, name
             """,
             name,
+            optional(payload, "shortName"),
+            payload.getOrDefault("customerLevel", "普通客户"),
             payload.getOrDefault("contact", ""),
             payload.getOrDefault("phone", ""),
             payload.getOrDefault("region", ""),
+            optional(payload, "taxNo"),
+            optional(payload, "address"),
+            optionalDecimal(payload, "creditLimit", "信用额度"),
+            payload.getOrDefault("settlementMethod", "月结"),
+            optional(payload, "ownerName"),
+            optional(payload, "remark"),
             enabled,
             code
         );
@@ -182,13 +268,23 @@ public class MasterDataController {
     private Map<String, Object> updateSupplier(String code, String name, Map<String, String> payload, boolean enabled) {
         return updateAndReturn("""
             UPDATE md_supplier
-            SET name = ?, contact = ?, phone = ?, enabled = ?, updated_at = now(), version = version + 1
+            SET name = ?, short_name = ?, supplier_level = ?, contact = ?, phone = ?, tax_no = ?,
+                address = ?, bank_account = ?, settlement_method = ?, owner_name = ?, remark = ?,
+                enabled = ?, updated_at = now(), version = version + 1
             WHERE code = ?
             RETURNING id::text AS id, code, name
             """,
             name,
+            optional(payload, "shortName"),
+            payload.getOrDefault("supplierLevel", "普通供应商"),
             payload.getOrDefault("contact", ""),
             payload.getOrDefault("phone", ""),
+            optional(payload, "taxNo"),
+            optional(payload, "address"),
+            optional(payload, "bankAccount"),
+            payload.getOrDefault("settlementMethod", "月结"),
+            optional(payload, "ownerName"),
+            optional(payload, "remark"),
             enabled,
             code
         );
@@ -198,12 +294,18 @@ public class MasterDataController {
         var allowNegative = "允许负库存".equals(payload.getOrDefault("stockPolicy", "不允许负库存"));
         return updateAndReturn("""
             UPDATE md_warehouse
-            SET name = ?, allow_negative_stock = ?, enabled = ?, updated_at = now(), version = version + 1
+            SET name = ?, warehouse_type = ?, manager = ?, phone = ?, address = ?, allow_negative_stock = ?, remark = ?,
+                enabled = ?, updated_at = now(), version = version + 1
             WHERE code = ?
             RETURNING id::text AS id, code, name
             """,
             name,
+            payload.getOrDefault("warehouseType", "普通仓"),
+            optional(payload, "manager"),
+            optional(payload, "phone"),
+            optional(payload, "address"),
             allowNegative,
+            optional(payload, "remark"),
             enabled,
             code
         );
@@ -240,6 +342,51 @@ public class MasterDataController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " is required");
         }
         return value;
+    }
+
+    private String optional(Map<String, String> payload, String field) {
+        var value = payload.getOrDefault(field, "").trim();
+        return value.isBlank() ? null : value;
+    }
+
+    private boolean checked(Map<String, String> payload, String field) {
+        return checked(payload, field, false);
+    }
+
+    private boolean checked(Map<String, String> payload, String field, boolean defaultValue) {
+        var value = payload.get(field);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return "true".equalsIgnoreCase(value) || "是".equals(value) || "1".equals(value) || "on".equalsIgnoreCase(value);
+    }
+
+    private BigDecimal decimalOrDefault(Map<String, String> payload, String field, BigDecimal defaultValue) {
+        var value = payload.getOrDefault(field, "").trim();
+        if (value.isBlank()) {
+            return defaultValue;
+        }
+        return parseNonNegativeDecimal(value, field);
+    }
+
+    private BigDecimal optionalDecimal(Map<String, String> payload, String field, String label) {
+        var value = payload.getOrDefault(field, "").trim();
+        if (value.isBlank()) {
+            return null;
+        }
+        return parseNonNegativeDecimal(value, label);
+    }
+
+    private BigDecimal parseNonNegativeDecimal(String value, String label) {
+        try {
+            var decimal = new BigDecimal(value);
+            if (decimal.compareTo(BigDecimal.ZERO) < 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能小于 0");
+            }
+            return decimal;
+        } catch (NumberFormatException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "格式不正确");
+        }
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

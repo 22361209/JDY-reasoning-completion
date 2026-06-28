@@ -63,8 +63,65 @@ public class ProductionTaskAppService {
     }
 
     @Transactional
+    public Map<String, Object> createPlan(PlanRequest request) {
+        return createPlanRow(request);
+    }
+
+    @Transactional
     public Map<String, Object> createTask(TaskRequest request) {
         var billNo = numberingService.assignBillNo("productionTask", request.billNo());
+        var plan = resolveOrCreatePlan(request);
+        var rows = jdbcTemplate.queryForList("""
+            INSERT INTO production_task (bill_no, plan_id, bom_id, product_id, warehouse_id, qty, status)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?)
+            ON CONFLICT (bill_no) DO UPDATE
+            SET plan_id = EXCLUDED.plan_id,
+                bom_id = EXCLUDED.bom_id,
+                product_id = EXCLUDED.product_id,
+                warehouse_id = EXCLUDED.warehouse_id,
+                qty = EXCLUDED.qty,
+                status = EXCLUDED.status,
+                updated_at = now()
+            RETURNING id::text AS id, bill_no AS "billNo", qty, status
+            """,
+            billNo,
+            plan.get("id"),
+            plan.get("bomId"),
+            plan.get("productId"),
+            plan.get("warehouseId"),
+            plan.get("plannedQty"),
+            BillStatus.AUDITED.name()
+        );
+        var taskId = String.valueOf(rows.get(0).get("id"));
+        rebuildTaskMaterialSnapshot(taskId);
+        operationLogService.log("PRODUCTION", "CREATE_TASK", "production_task", taskId, true, null);
+        return rows.get(0);
+    }
+
+    private Map<String, Object> resolveOrCreatePlan(TaskRequest request) {
+        var planNo = validationService.optionalText(request.planNo());
+        if (planNo != null) {
+            var planRows = jdbcTemplate.queryForList("""
+                SELECT p.id::text AS id,
+                       p.bom_id::text AS "bomId",
+                       p.product_id::text AS "productId",
+                       p.warehouse_id::text AS "warehouseId",
+                       p.planned_qty AS "plannedQty"
+                FROM production_plan p
+                WHERE p.bill_no = ?
+                  AND p.status = 'AUDITED'
+                """, planNo);
+            if (planRows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "生产计划不存在或未审核");
+            }
+            return planRows.get(0);
+        }
+        var qty = request.qty();
+        return createPlanRow(new PlanRequest(null, request.bomCode(), request.warehouseCode(), qty, "SELF"));
+    }
+
+    private Map<String, Object> createPlanRow(PlanRequest request) {
+        var planNo = numberingService.assignBillNo("productionPlan", request.billNo());
         var bomRows = jdbcTemplate.queryForList("""
             SELECT b.id::text AS id, b.product_id::text AS product_id
             FROM prod_bom b
@@ -76,26 +133,51 @@ public class ProductionTaskAppService {
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", request.warehouseCode(), "完工仓库");
         var bom = bomRows.get(0);
         var rows = jdbcTemplate.queryForList("""
-            INSERT INTO production_task (bill_no, bom_id, product_id, warehouse_id, qty, status)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?)
+            INSERT INTO production_plan (bill_no, bom_id, product_id, warehouse_id, planned_qty, source_type, status)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET bom_id = EXCLUDED.bom_id,
                 product_id = EXCLUDED.product_id,
                 warehouse_id = EXCLUDED.warehouse_id,
-                qty = EXCLUDED.qty,
+                planned_qty = EXCLUDED.planned_qty,
+                source_type = EXCLUDED.source_type,
                 status = EXCLUDED.status,
                 updated_at = now()
-            RETURNING id::text AS id, bill_no AS "billNo", qty, status
+            RETURNING id::text AS id,
+                      bill_no AS "billNo",
+                      bom_id::text AS "bomId",
+                      product_id::text AS "productId",
+                      warehouse_id::text AS "warehouseId",
+                      planned_qty AS "plannedQty",
+                      status
             """,
-            billNo,
+            planNo,
             bom.get("id"),
             bom.get("product_id"),
             warehouseId,
-            positive(request.qty(), "生产数量"),
+            positive(request.qty(), "计划数量"),
+            validationService.optionalText(request.sourceType()) == null ? "SELF" : validationService.optionalText(request.sourceType()),
             BillStatus.AUDITED.name()
         );
-        operationLogService.log("PRODUCTION", "CREATE_TASK", "production_task", String.valueOf(rows.get(0).get("id")), true, null);
+        operationLogService.log("PRODUCTION", "CREATE_PLAN", "production_plan", String.valueOf(rows.get(0).get("id")), true, null);
         return rows.get(0);
+    }
+
+    private void rebuildTaskMaterialSnapshot(String taskId) {
+        jdbcTemplate.update("DELETE FROM production_task_material_snapshot WHERE task_id = ?::uuid", taskId);
+        jdbcTemplate.update("""
+            INSERT INTO production_task_material_snapshot (task_id, line_no, source_bom_line_id, product_id, unit_qty, required_qty)
+            SELECT t.id,
+                   l.line_no,
+                   l.id,
+                   l.material_id,
+                   l.qty,
+                   l.qty * t.qty
+            FROM production_task t
+            JOIN prod_bom_line l ON l.bom_id = t.bom_id
+            WHERE t.id = ?::uuid
+            ORDER BY l.line_no
+            """, taskId);
     }
 
     private BigDecimal positive(BigDecimal value, String label) {
@@ -116,6 +198,9 @@ public class ProductionTaskAppService {
     public record BomLineRequest(String materialCode, BigDecimal qty) {
     }
 
-    public record TaskRequest(String billNo, String bomCode, String warehouseCode, BigDecimal qty) {
+    public record PlanRequest(String billNo, String bomCode, String warehouseCode, BigDecimal qty, String sourceType) {
+    }
+
+    public record TaskRequest(String billNo, String planNo, String bomCode, String warehouseCode, BigDecimal qty) {
     }
 }

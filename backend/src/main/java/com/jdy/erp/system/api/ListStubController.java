@@ -290,6 +290,7 @@ public class ListStubController {
             case "receivable-list", "ar-receivable-list" -> receivableRows();
             case "payable-list", "ap-payable-list" -> payableRows();
             case "bom-list" -> bomRows();
+            case "production-plan-list" -> productionPlanRows();
             case "production-task-list", "production-task-form-list" -> productionTaskRows();
             case "material-issue-list", "material-issue-form-list" -> materialIssueRows();
             case "product-in-list", "product-in-form-list" -> productInRows();
@@ -615,10 +616,30 @@ public class ListStubController {
             SELECT id::text AS id,
                    code,
                    name,
+                   COALESCE(short_name, '') AS "shortName",
+                   COALESCE(barcode, '') AS barcode,
+                   COALESCE(brand, '') AS brand,
                    COALESCE(spec, '') AS spec,
                    category,
+                   product_type AS "productType",
                    unit,
+                   CASE WHEN is_purchase THEN '是' ELSE '否' END AS "isPurchase",
+                   CASE WHEN is_sale THEN '是' ELSE '否' END AS "isSale",
+                   CASE WHEN is_inventory THEN '是' ELSE '否' END AS "isInventory",
+                   CASE WHEN is_produce THEN '是' ELSE '否' END AS "isProduce",
+                   CASE WHEN is_subcontract THEN '是' ELSE '否' END AS "isSubcontract",
+                   COALESCE(default_warehouse_code, '') AS "defaultWarehouseCode",
+                   COALESCE(sale_unit, unit) AS "saleUnit",
+                   COALESCE(purchase_unit, unit) AS "purchaseUnit",
+                   COALESCE(bom_unit, unit) AS "bomUnit",
+                   COALESCE(default_supplier_code, '') AS "defaultSupplierCode",
+                   COALESCE(issue_warehouse_code, '') AS "issueWarehouseCode",
+                   issue_method AS "issueMethod",
+                   trim(to_char(tax_rate, 'FM9999999990.####')) AS "taxRate",
                    trim(to_char(default_sale_price, 'FM9999999990.00')) AS "defaultSalePrice",
+                   trim(to_char(cost_price, 'FM9999999990.00')) AS "costPrice",
+                   trim(to_char(min_sale_price, 'FM9999999990.00')) AS "minSalePrice",
+                   COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_product
@@ -631,9 +652,17 @@ public class ListStubController {
             SELECT id::text AS id,
                    code,
                    name,
+                   COALESCE(short_name, '') AS "shortName",
+                   customer_level AS "customerLevel",
                    COALESCE(contact, '') AS contact,
                    COALESCE(phone, '') AS phone,
                    COALESCE(region, '') AS region,
+                   COALESCE(tax_no, '') AS "taxNo",
+                   COALESCE(address, '') AS address,
+                   trim(to_char(credit_limit, 'FM9999999990.00')) AS "creditLimit",
+                   settlement_method AS "settlementMethod",
+                   COALESCE(owner_name, '') AS "ownerName",
+                   COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
             FROM md_customer
             ORDER BY code
@@ -645,8 +674,16 @@ public class ListStubController {
             SELECT id::text AS id,
                    code,
                    name,
+                   COALESCE(short_name, '') AS "shortName",
+                   supplier_level AS "supplierLevel",
                    COALESCE(contact, '') AS contact,
                    COALESCE(phone, '') AS phone,
+                   COALESCE(tax_no, '') AS "taxNo",
+                   COALESCE(address, '') AS address,
+                   COALESCE(bank_account, '') AS "bankAccount",
+                   settlement_method AS "settlementMethod",
+                   COALESCE(owner_name, '') AS "ownerName",
+                   COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
             FROM md_supplier
             ORDER BY code
@@ -658,7 +695,12 @@ public class ListStubController {
             SELECT id::text AS id,
                    code,
                    name,
+                   warehouse_type AS "warehouseType",
+                   COALESCE(manager, '') AS manager,
+                   COALESCE(phone, '') AS phone,
+                   COALESCE(address, '') AS address,
                    CASE WHEN allow_negative_stock THEN '允许负库存' ELSE '不允许负库存' END AS stockPolicy,
+                   COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
             FROM md_warehouse
             ORDER BY code
@@ -1013,6 +1055,7 @@ public class ListStubController {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT t.id::text AS id,
                    t.bill_no AS "billNo",
+                   COALESCE(pl.bill_no, '') AS "planNo",
                    b.code AS "bomCode",
                    p.code AS "productCode",
                    p.name AS "productName",
@@ -1027,10 +1070,36 @@ public class ListStubController {
                        ELSE '草稿'
                    END AS status
             FROM production_task t
+            LEFT JOIN production_plan pl ON pl.id = t.plan_id
             JOIN prod_bom b ON b.id = t.bom_id
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
             ORDER BY t.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> productionPlanRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT pl.id::text AS id,
+                   pl.bill_no AS "billNo",
+                   b.code AS "bomCode",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   w.name AS warehouse,
+                   trim(to_char(pl.planned_qty, 'FM9999999990.####')) AS qty,
+                   CASE
+                       WHEN pl.source_type = 'SELF' THEN '自发计划'
+                       ELSE pl.source_type
+                   END AS "sourceType",
+                   CASE
+                       WHEN pl.status = 'AUDITED' THEN '已审核'
+                       ELSE '草稿'
+                   END AS status
+            FROM production_plan pl
+            JOIN prod_bom b ON b.id = pl.bom_id
+            JOIN md_product p ON p.id = pl.product_id
+            JOIN md_warehouse w ON w.id = pl.warehouse_id
+            ORDER BY pl.updated_at DESC
             """));
     }
 

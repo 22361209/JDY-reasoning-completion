@@ -236,6 +236,14 @@ public class SalesQuoteAppService {
               AND sq.status = ?
               AND sq.enabled = TRUE
               AND sq.valid_until >= CURRENT_DATE
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM sales_order_line sol
+                  JOIN sales_order so ON so.id = sol.order_id
+                  WHERE sol.source_order_no = sq.bill_no
+                    AND sol.source_line_no = l.line_no
+                    AND so.status <> 'VOID'
+              )
             ORDER BY sq.bill_date DESC, sq.updated_at DESC, sq.bill_no DESC, l.line_no
             """, customerCode == null ? "" : customerCode.trim(), BillStatus.AUDITED.name());
         return Map.of("customerCode", customerCode == null ? "" : customerCode.trim(), "lines", rows);

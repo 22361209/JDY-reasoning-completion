@@ -89,6 +89,13 @@ const areaScripts = {
     "scripts/a52-print-template-role-default-regression.mjs",
     "scripts/a53-production-red-source-print-regression.mjs",
     "scripts/a63-print-page-settings-regression.mjs"
+  ],
+  production: [
+    "scripts/a40-production-document-pdf-regression.mjs",
+    "scripts/a46-document-print-template-regression.mjs",
+    "scripts/a53-production-red-source-print-regression.mjs",
+    "scripts/a64-production-red-source-ui-regression.mjs",
+    "scripts/a114-production-plan-snapshot-regression.mjs"
   ]
 };
 

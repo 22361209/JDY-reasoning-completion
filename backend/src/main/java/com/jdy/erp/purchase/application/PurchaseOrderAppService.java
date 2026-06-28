@@ -146,8 +146,8 @@ public class PurchaseOrderAppService {
                    COALESCE(p.spec, '') AS spec,
                    w.code AS "warehouseCode",
                    l.qty AS "sourceQty",
-                   l.received_qty AS "receivedQty",
-                   GREATEST(0, l.qty - l.received_qty) AS "remainingQty",
+                   GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0)) AS "receivedQty",
+                   GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))) AS "remainingQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
@@ -160,13 +160,22 @@ public class PurchaseOrderAppService {
             JOIN purchase_order_line l ON l.order_id = po.id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            LEFT JOIN (
+                SELECT pil.source_order_no,
+                       pil.source_line_no,
+                       SUM(pil.qty) AS received_qty
+                FROM purchase_in_line pil
+                JOIN purchase_in pi ON pi.id = pil.bill_id
+                WHERE pi.status <> 'VOID'
+                GROUP BY pil.source_order_no, pil.source_line_no
+            ) in_qty ON in_qty.source_order_no = po.bill_no AND in_qty.source_line_no = l.line_no
             WHERE s.code = ?
               AND po.status = ?
               AND po.close_status = 'OPEN'
               AND po.frozen_status = 'NORMAL'
               AND l.line_close_status = 'OPEN'
               AND l.line_frozen_status = 'NORMAL'
-              AND GREATEST(0, l.qty - l.received_qty) > 0
+              AND GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))) > 0
             ORDER BY po.bill_date DESC, po.bill_no DESC, l.line_no
             """, supplierCode == null ? "" : supplierCode.trim(), BillStatus.AUDITED.name());
         return Map.of("supplierCode", supplierCode == null ? "" : supplierCode.trim(), "lines", rows);

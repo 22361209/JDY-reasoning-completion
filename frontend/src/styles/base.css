@@ -1994,7 +1994,9 @@ input:disabled {
 }
 
 .master-create-dialog {
-  width: 560px;
+  width: min(860px, calc(100vw - 36px));
+  max-height: calc(100vh - 56px);
+  overflow: auto;
 }
 
 .stock-alert-settings-dialog {
@@ -2055,11 +2057,57 @@ input:disabled {
   font-weight: 600;
 }
 
+.master-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.master-dialog-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #b7d7c1;
+  border-radius: 4px;
+  background: #ecfdf3;
+  color: #16734a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.master-create-sections {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+
+.master-create-section {
+  border: 1px solid #d8e1ec;
+  background: #ffffff;
+}
+
+.master-create-section h4 {
+  margin: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid #d8e1ec;
+  background: #f4f7fb;
+  color: #26384d;
+  font-size: 13px;
+}
+
 .master-create-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin: 10px 0 12px;
+  margin: 0;
+  padding: 10px;
 }
 
 .master-create-fields label {
@@ -2070,14 +2118,64 @@ input:disabled {
   font-size: 12px;
 }
 
+.master-create-fields label.required > span::before {
+  content: "*";
+  margin-right: 2px;
+  color: #d53f3a;
+}
+
+.master-create-fields .field-wide {
+  grid-column: span 2;
+}
+
 .master-create-fields input,
-.master-create-fields select {
+.master-create-fields select,
+.master-create-fields textarea {
   min-width: 0;
-  height: 30px;
   border: 1px solid #c7d2df;
   border-radius: 4px;
   background: #ffffff;
+  font-size: 13px;
+}
+
+.master-create-fields input,
+.master-create-fields select {
+  height: 30px;
   padding: 0 8px;
+}
+
+.master-create-fields textarea {
+  resize: vertical;
+  padding: 6px 8px;
+  line-height: 1.45;
+}
+
+.master-checkbox-field {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #24364a;
+  font-size: 13px;
+}
+
+.master-checkbox-field input {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+  accent-color: #1f72b8;
+}
+
+.master-checkbox-field em {
+  color: #52677d;
+  font-style: normal;
+}
+
+.master-create-fields input:disabled,
+.master-create-fields select:disabled {
+  background: #f3f6fa;
+  color: #64748b;
 }
 
 .form-error {
@@ -2489,6 +2587,15 @@ input:disabled {
   width: 300px;
 }
 
+.master-selector.in-cell {
+  width: 100%;
+  height: 28px;
+}
+
+.master-selector.in-cell > input {
+  height: 28px;
+}
+
 .master-selector.in-cell .master-selector__open {
   opacity: 0;
   pointer-events: auto;
@@ -2635,9 +2742,9 @@ td input {
 }
 
 .entry-table tbody tr[data-testid$="-entry-row"] td {
+  position: relative;
   height: 32px;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  padding: 2px;
   line-height: 20px;
 }
 
@@ -2662,12 +2769,12 @@ td input {
 }
 
 .entry-table td input:disabled {
-  height: 22px;
+  height: 28px;
   min-width: 0;
   border-color: transparent;
   background: transparent;
   color: #26394d;
-  padding: 0;
+  padding: 0 2px;
   line-height: 20px;
 }
 
@@ -2774,11 +2881,26 @@ thead .entry-frozen-cell {
   display: grid;
 }
 
-.entry-cell-text {
-  display: block;
+.entry-cell-text,
+.entry-cell-value {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 6px;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 20px;
+}
+
+.entry-cell-value--number {
+  justify-content: flex-end;
+  padding-right: 9px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .entry-number-cell {
@@ -2793,12 +2915,14 @@ thead .entry-frozen-cell {
   min-width: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  padding-right: 9px;
+  padding-right: 9px !important;
 }
 
 .entry-date-cell {
   position: relative;
   display: block;
+  width: 100%;
+  height: 28px;
   min-width: 0;
 }
 
@@ -2985,18 +3109,29 @@ thead .entry-frozen-cell {
   color: #32475c;
   font-variant-numeric: tabular-nums;
   text-align: right;
-  background: #f9fbfd;
+  background: transparent;
 }
 
 .source-line-link {
-  height: 20px;
-  min-width: 34px;
+  min-width: 0;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: #1f67b1;
   font-weight: 700;
   cursor: pointer;
+}
+
+.source-line-link.entry-cell-value {
+  height: 28px;
+  display: flex;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.source-line-link.entry-cell-value--number {
+  justify-content: flex-end;
+  text-align: right;
 }
 
 .source-line-link:hover {

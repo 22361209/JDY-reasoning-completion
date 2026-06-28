@@ -3,7 +3,7 @@
     <div class="business-head list-head">
       <div>
         <h2>{{ definition.title }}</h2>
-        <p>{{ definition.subtitle }}</p>
+        <p v-if="definition.subtitle">{{ definition.subtitle }}</p>
       </div>
       <div class="status-stamp">列表</div>
     </div>
@@ -510,44 +510,79 @@ const operationLogTargetTypes = [
 const definitions: Record<string, ListDefinition> = {
   "product-master-list": {
     title: "商品资料",
-    subtitle: "编码、名称、规格型号、类别、单位和状态按高密度列表范式展示。",
-    keywordPlaceholder: "商品编码、名称、规格型号",
+    subtitle: "",
+    keywordPlaceholder: "物料编码、名称、规格型号",
     statuses: ["启用", "禁用"],
     columns: [
-      { field: "code", title: "商品编码", width: 140, fixed: "left", visible: true },
-      { field: "name", title: "商品名称", width: 180, visible: true },
+      { field: "code", title: "物料编码", width: 140, fixed: "left", visible: true },
+      { field: "name", title: "物料名称", width: 180, visible: true },
+      { field: "shortName", title: "简称", width: 120, visible: true },
       { field: "spec", title: "规格型号", width: 170, visible: true },
-      { field: "category", title: "商品类别", width: 130, visible: true },
-      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "category", title: "物料分类", width: 130, visible: true },
+      { field: "productType", title: "物料形态", width: 120, visible: true },
+      { field: "unit", title: "主单位", width: 80, visible: true },
+      { field: "isPurchase", title: "可采购", width: 86, visible: true },
+      { field: "isSale", title: "可销售", width: 86, visible: true },
+      { field: "isInventory", title: "可库存", width: 86, visible: true },
+      { field: "isProduce", title: "可生产", width: 86, visible: true },
+      { field: "isSubcontract", title: "可委外", width: 86, visible: true },
+      { field: "defaultWarehouseCode", title: "默认仓库", width: 120, visible: true },
+      { field: "saleUnit", title: "销售单位", width: 90, visible: false },
+      { field: "purchaseUnit", title: "采购单位", width: 90, visible: false },
+      { field: "bomUnit", title: "生产/BOM单位", width: 120, visible: false },
+      { field: "defaultSupplierCode", title: "默认供应商", width: 130, visible: false },
+      { field: "issueWarehouseCode", title: "默认领料仓", width: 130, visible: false },
+      { field: "issueMethod", title: "发料方式", width: 110, visible: false },
+      { field: "barcode", title: "条码", width: 130, visible: false },
+      { field: "taxRate", title: "税率(%)", width: 90, align: "right", visible: true },
       { field: "defaultSalePrice", title: "默认销售价", width: 120, align: "right", visible: true },
+      { field: "minSalePrice", title: "最低销售价", width: 120, align: "right", visible: false },
+      { field: "costPrice", title: "成本价", width: 110, align: "right", visible: false },
       { field: "status", title: "状态", width: 100, visible: true },
+      { field: "remark", title: "备注", width: 180, visible: false },
       { field: "updatedAt", title: "最近更新时间", width: 160, visible: true }
     ]
   },
   "customer-master-list": {
     title: "客户",
-    subtitle: "客户编码、联系人、电话、地区和状态保持同一列表骨架。",
+    subtitle: "",
     keywordPlaceholder: "客户编码、客户名称、联系人",
     statuses: ["启用", "禁用"],
     columns: [
       { field: "code", title: "客户编码", width: 140, fixed: "left", visible: true },
       { field: "name", title: "客户名称", width: 220, visible: true },
+      { field: "shortName", title: "客户简称", width: 130, visible: true },
+      { field: "customerLevel", title: "客户等级", width: 110, visible: true },
       { field: "contact", title: "联系人", width: 120, visible: true },
       { field: "phone", title: "电话", width: 150, visible: true },
       { field: "region", title: "地区", width: 160, visible: true },
+      { field: "taxNo", title: "税号", width: 160, visible: false },
+      { field: "settlementMethod", title: "结算方式", width: 110, visible: true },
+      { field: "creditLimit", title: "信用额度", width: 120, align: "right", visible: true },
+      { field: "ownerName", title: "负责业务员", width: 120, visible: true },
+      { field: "address", title: "地址", width: 220, visible: false },
+      { field: "remark", title: "备注", width: 180, visible: false },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
   "supplier-master-list": {
     title: "供应商",
-    subtitle: "供应商资料使用与客户一致的筛选、勾选、列设置和分页范式。",
+    subtitle: "",
     keywordPlaceholder: "供应商编码、供应商名称",
     statuses: ["启用", "禁用"],
     columns: [
       { field: "code", title: "供应商编码", width: 150, fixed: "left", visible: true },
       { field: "name", title: "供应商名称", width: 220, visible: true },
+      { field: "shortName", title: "供应商简称", width: 140, visible: true },
+      { field: "supplierLevel", title: "供应商等级", width: 120, visible: true },
       { field: "contact", title: "联系人", width: 120, visible: true },
       { field: "phone", title: "电话", width: 150, visible: true },
+      { field: "settlementMethod", title: "结算方式", width: 110, visible: true },
+      { field: "ownerName", title: "采购负责人", width: 120, visible: true },
+      { field: "taxNo", title: "税号", width: 160, visible: false },
+      { field: "bankAccount", title: "银行账号", width: 180, visible: false },
+      { field: "address", title: "地址", width: 220, visible: false },
+      { field: "remark", title: "备注", width: 180, visible: false },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
@@ -704,13 +739,18 @@ const definitions: Record<string, ListDefinition> = {
   },
   "warehouse-master-list": {
     title: "仓库",
-    subtitle: "仓库资料展示编码、名称、库存策略和启用状态。",
+    subtitle: "",
     keywordPlaceholder: "仓库编码、仓库名称",
     statuses: ["启用", "禁用"],
     columns: [
       { field: "code", title: "仓库编码", width: 140, fixed: "left", visible: true },
       { field: "name", title: "仓库名称", width: 220, visible: true },
+      { field: "warehouseType", title: "仓库类型", width: 110, visible: true },
       { field: "stockPolicy", title: "库存策略", width: 150, visible: true },
+      { field: "manager", title: "仓管员", width: 110, visible: true },
+      { field: "phone", title: "联系电话", width: 140, visible: true },
+      { field: "address", title: "仓库地址", width: 220, visible: false },
+      { field: "remark", title: "备注", width: 180, visible: false },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
   },

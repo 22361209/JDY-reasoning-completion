@@ -5,6 +5,12 @@ export interface MasterDataField {
   label: string;
   placeholder?: string;
   options?: string[];
+  section?: string;
+  type?: "text" | "number" | "textarea" | "checkbox";
+  span?: 1 | 2;
+  required?: boolean;
+  readonlyWhenEditing?: boolean;
+  defaultValue?: string;
 }
 
 export interface MasterDataDefinition {

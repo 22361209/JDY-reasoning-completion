@@ -224,7 +224,7 @@ public class DeliveryNoticeAppService {
                 SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
                 FROM sales_out_line sol
                 JOIN sales_out so ON so.id = sol.bill_id
-                WHERE so.status = 'AUDITED'
+                WHERE so.status <> 'VOID'
                 GROUP BY source_delivery_notice_no, source_delivery_line_no
             ) out_qty ON out_qty.source_delivery_notice_no = dn.bill_no AND out_qty.source_delivery_line_no = l.line_no
             WHERE c.code = ?
@@ -317,7 +317,7 @@ public class DeliveryNoticeAppService {
                 SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
                 FROM sales_out_line sol
                 JOIN sales_out so ON so.id = sol.bill_id
-                WHERE so.status = 'AUDITED'
+                WHERE so.status <> 'VOID'
                 GROUP BY source_delivery_notice_no, source_delivery_line_no
             ) out_qty ON out_qty.source_delivery_notice_no = dn.bill_no AND out_qty.source_delivery_line_no = l.line_no
             WHERE dn.bill_no = ?

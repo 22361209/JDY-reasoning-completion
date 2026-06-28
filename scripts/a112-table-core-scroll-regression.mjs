@@ -121,6 +121,31 @@ async function tableMetrics(page) {
       const frameBox = frame.getBoundingClientRect();
       return box.width > 0 && box.right > frameBox.left && box.left < frameBox.right;
     };
+    const entryControlMetric = (name, selector, controlSelector = null) => {
+      const node = document.querySelector(selector);
+      if (!node) {
+        return { name, missing: true };
+      }
+      const cell = node.tagName === "TD" ? node : node.closest("td");
+      const control = controlSelector
+        ? node.querySelector(controlSelector)
+        : node.tagName === "TD"
+          ? node.firstElementChild
+          : node;
+      if (!cell || !control) {
+        return { name, missing: true };
+      }
+      const cellBox = cell.getBoundingClientRect();
+      const controlBox = control.getBoundingClientRect();
+      return {
+        name,
+        cellHeight: Math.round(cellBox.height),
+        controlHeight: Math.round(controlBox.height),
+        topGap: Math.round(controlBox.top - cellBox.top),
+        bottomGap: Math.round(cellBox.bottom - controlBox.bottom),
+        className: control.className?.toString() ?? ""
+      };
+    };
     return {
       listScroll: scroll(".vxe-wrap"),
       listBodyScroll: scroll(".vxe-wrap .vxe-table--body-wrapper"),
@@ -139,7 +164,18 @@ async function tableMetrics(page) {
       entryQtyFilterRightGap: rightGap("[data-testid='entry-column-filter-qty']", "[data-testid='entry-column-drag-qty']"),
       stockOnHandVisible: visibleInside("[data-testid='delivery-notice-line-stockOnHand']", ".entry-table"),
       stockAvailableVisible: visibleInside("[data-testid='delivery-notice-line-stockAvailable']", ".entry-table"),
-      stockReservedVisible: visibleInside("[data-testid='delivery-notice-line-stockReserved']", ".entry-table")
+      stockReservedVisible: visibleInside("[data-testid='delivery-notice-line-stockReserved']", ".entry-table"),
+      entryCellControls: [
+        entryControlMetric("productCode", "[data-testid='delivery-notice-line-product']"),
+        entryControlMetric("productName", "[data-testid='delivery-notice-line-product-name']"),
+        entryControlMetric("spec", "[data-testid='delivery-notice-line-spec']"),
+        entryControlMetric("warehouse", "[data-testid='delivery-notice-line-warehouse']"),
+        entryControlMetric("sourceOrderNo", "[data-testid='delivery-notice-line-source-order-no']"),
+        entryControlMetric("qty", "[data-testid='delivery-notice-line-qty']"),
+        entryControlMetric("stockOnHand", "[data-testid='delivery-notice-line-stockOnHand']"),
+        entryControlMetric("stockReserved", "[data-testid='delivery-notice-line-stockReserved']"),
+        entryControlMetric("stockAvailable", "[data-testid='delivery-notice-line-stockAvailable']")
+      ]
     };
   });
 }
@@ -282,6 +318,13 @@ try {
   assert(
     Math.abs(entryLeftMetrics.entryQtyFilterRightGap - listMetrics.listQtyFilterRightGap) <= 3,
     `list and entry filter buttons should share the same relative right position: ${JSON.stringify({ list: listMetrics.listQtyFilterRightGap, entry: entryLeftMetrics.entryQtyFilterRightGap })}`
+  );
+  const badEntryControls = entryLeftMetrics.entryCellControls.filter((metric) =>
+    metric.missing || metric.cellHeight < 32 || metric.cellHeight > 33 || metric.controlHeight !== 28 || Math.abs(metric.topGap - metric.bottomGap) > 1
+  );
+  assert(
+    badEntryControls.length === 0,
+    `entry editable/readonly cell controls should share one 32-33/28px geometry: ${JSON.stringify(entryLeftMetrics.entryCellControls)}`
   );
 
   const result = {

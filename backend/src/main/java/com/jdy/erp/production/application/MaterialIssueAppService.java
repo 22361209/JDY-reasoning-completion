@@ -98,7 +98,7 @@ public class MaterialIssueAppService {
     public Map<String, Object> issue(String billNo, IssueRequest request) {
         var issueBillNo = numberingService.assignBillNo("materialIssue", request.billNo());
         var taskRows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id, bom_id::text AS bom_id, qty
+            SELECT id::text AS id, qty
             FROM production_task
             WHERE bill_no = ? AND status IN ('AUDITED', 'ISSUED')
             """, billNo);
@@ -115,21 +115,28 @@ public class MaterialIssueAppService {
             """, issueBillNo, task.get("id"), BillStatus.AUDITED.name());
         var issueId = String.valueOf(issueRows.get(0).get("id"));
         var lines = jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo",
-                   l.material_id::text AS "productId",
+            SELECT s.line_no AS "lineNo",
+                   s.product_id::text AS "productId",
                    p.code AS "materialCode",
-                   l.qty
-            FROM prod_bom_line l
-            JOIN md_product p ON p.id = l.material_id
-            WHERE l.bom_id = ?::uuid
-            ORDER BY l.line_no
-            """, task.get("bom_id"));
-        var taskQty = (BigDecimal) task.get("qty");
+                   s.required_qty AS "requiredQty"
+            FROM production_task_material_snapshot s
+            JOIN md_product p ON p.id = s.product_id
+            WHERE s.task_id = ?::uuid
+            ORDER BY s.line_no
+            """, task.get("id"));
+        if (lines.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务缺少用料快照，不能领料");
+        }
         for (var line : lines) {
-            var neededQty = ((BigDecimal) line.get("qty")).multiply(taskQty);
+            var neededQty = (BigDecimal) line.get("requiredQty");
             insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), materialWarehouseId, neededQty, BigDecimal.ONE);
             post(String.valueOf(line.get("materialCode")), materialWarehouseCode, neededQty.negate(), "PRODUCTION_ISSUE", "PRODUCTION_ISSUE:" + issueBillNo);
         }
+        jdbcTemplate.update("""
+            UPDATE production_task_material_snapshot
+            SET issued_qty = required_qty
+            WHERE task_id = ?::uuid
+            """, task.get("id"));
         jdbcTemplate.update("""
             UPDATE production_task
             SET issued_qty = qty,

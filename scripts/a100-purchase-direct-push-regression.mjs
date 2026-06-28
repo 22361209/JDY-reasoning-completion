@@ -94,11 +94,29 @@ async function createData() {
   const orderB = await createPurchaseOrder("B", [
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 8, lineRemark: "A100 多源 B" }
   ]);
+  const draftOccupiedOrderNo = await createPurchaseOrder("DRAFT-OCCUPY", [
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 72, lineRemark: "A100 草稿占用源单" }
+  ]);
+  const draftOccupiedInNo = `CGRK-A100-DRAFT-OCCUPY-${batch}`;
+  await requireApi("/api/purchase-ins/draft", {
+    body: {
+      billNo: draftOccupiedInNo,
+      supplierCode: "GYS-001",
+      billDate,
+      department: "采购部",
+      ownerName: "本地管理员",
+      lines: [
+        { productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: draftOccupiedOrderNo, sourceLineNo: 1, qty: 4, unitPrice: 72, lineRemark: "A100 未审核入库占用源单" }
+      ]
+    }
+  });
   return {
     directOrderNo,
     partialInNo,
     orderA,
     orderB,
+    draftOccupiedOrderNo,
+    draftOccupiedInNo,
     expectedDirect: {
       sources: [`${directOrderNo} / #1`, `${directOrderNo} / #2`, `${directOrderNo} / #3`],
       products: ["CP-001", "CP-T413874", "PJ-014"],
@@ -199,6 +217,9 @@ try {
   const orderBDetail = await requireApi(`/api/purchase-orders/${encodeURIComponent(data.orderB)}`, { method: "GET" });
   assert(Number(orderADetail.lines[0].remainingQty) === 0, "purchase order A should have no remaining qty after multi-source purchase in audit");
   assert(Number(orderBDetail.lines[0].remainingQty) === 0, "purchase order B should have no remaining qty after multi-source purchase in audit");
+  const selectableAfterDraft = await requireApi(`/api/purchase-orders/selectable-lines?supplierCode=${encodeURIComponent("GYS-001")}`, { method: "GET" });
+  const occupiedSelectableLine = selectableAfterDraft.lines.find((line) => line.billNo === data.draftOccupiedOrderNo);
+  assert(!occupiedSelectableLine, `purchase order line occupied by non-void draft purchase in should not be selectable: ${JSON.stringify(occupiedSelectableLine)}`);
 
   const duplicateNo = `CGRK-A100-OVER-${batch}`;
   await requireApi("/api/purchase-ins/draft", {
@@ -223,11 +244,14 @@ try {
       "采购订单下推采购入库直连无确认对话框",
       "采购下推按剩余可入数量带全行并在入库单内改数量",
       "采购入库支持多采购订单行级源单号",
+      "未审核采购入库草稿占用采购订单源单剩余量",
       "采购入库审核保留超剩余数量守卫"
     ],
     directOrderNo: data.directOrderNo,
     directLines,
     multiSource: auditedDetail.lines.map((line) => ({ lineNo: line.lineNo, sourceOrderNo: line.sourceOrderNo, sourceLineNo: line.sourceLineNo })),
+    draftOccupiedOrderNo: data.draftOccupiedOrderNo,
+    draftOccupiedInNo: data.draftOccupiedInNo,
     duplicateAuditStatus: duplicateAudit.status,
     screenshots
   };

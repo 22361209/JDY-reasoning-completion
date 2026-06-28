@@ -70,6 +70,7 @@ export const moduleCatalog = [
     short: "产",
     groups: [
       { title: "生产执行", entries: [
+        { id: "production-plan-list", label: "生产计划", module: "生产管理", mode: "list", queryable: true, permission: "production.task.audit" },
         { id: "production-task-form", label: "生产任务单", module: "生产管理", mode: "form", queryable: true, permission: "production.task.audit" },
         { id: "material-issue-form", label: "生产领料单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" },
         { id: "product-in-form", label: "产品入库单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" }
