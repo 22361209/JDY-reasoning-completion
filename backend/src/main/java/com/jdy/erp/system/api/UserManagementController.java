@@ -9,6 +9,7 @@ import com.jdy.erp.system.application.NotificationProviderService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,7 +33,7 @@ public class UserManagementController {
     private final NotificationProviderService notificationProviderService;
 
     public UserManagementController(
-        JdbcTemplate jdbcTemplate,
+        @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         CurrentSessionService currentSessionService,
         PasswordPolicy passwordPolicy,
         NotificationProviderService notificationProviderService
@@ -63,7 +64,7 @@ public class UserManagementController {
 
     @PutMapping("/notification-outbox/{notificationId}/resend")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> resendNotification(@PathVariable String notificationId) {
         var normalizedNotificationId = required(notificationId, "通知ID");
         var rows = jdbcTemplate.queryForList("""
@@ -96,7 +97,7 @@ public class UserManagementController {
 
     @PutMapping("/notification-outbox/{notificationId}/receipt")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> syncNotificationReceipt(@PathVariable String notificationId, @RequestBody NotificationReceiptRequest request) {
         var normalizedNotificationId = required(notificationId, "通知ID");
         var receiptStatus = required(request.providerReceiptStatus(), "回执状态").toUpperCase();
@@ -135,7 +136,7 @@ public class UserManagementController {
     }
 
     @PostMapping("/password-reset-requests")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> requestPasswordReset(@RequestBody PasswordResetRequest request) {
         var username = required(request.username(), "用户名");
         var contactNote = optionalLimited(request.contactNote(), 240);
@@ -161,7 +162,7 @@ public class UserManagementController {
 
     @PostMapping("/managed-users")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> createUser(@RequestBody UserRequest request) {
         var username = required(request.username(), "用户名");
         var displayName = required(request.displayName(), "姓名");
@@ -188,7 +189,7 @@ public class UserManagementController {
 
     @PutMapping("/managed-users/{username}")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> updateUser(@PathVariable String username, @RequestBody UserRequest request) {
         var normalizedUsername = required(username, "用户名");
         var displayName = required(request.displayName(), "姓名");
@@ -216,7 +217,7 @@ public class UserManagementController {
 
     @PutMapping("/managed-users/{username}/account-sets")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> saveUserAccountSets(@PathVariable String username, @RequestBody AccountSetGrantRequest request) {
         var normalizedUsername = required(username, "用户名");
         var userId = userId(normalizedUsername);
@@ -227,7 +228,7 @@ public class UserManagementController {
 
     @PutMapping("/managed-users/{username}/password")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> resetPassword(@PathVariable String username, @RequestBody PasswordRequest request) {
         var normalizedUsername = required(username, "用户名");
         var password = required(request.password(), "新密码");
@@ -286,7 +287,7 @@ public class UserManagementController {
 
     @PutMapping("/password-reset-requests/{requestId}")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> handlePasswordResetRequest(@PathVariable String requestId, @RequestBody PasswordResetHandleRequest request) {
         var normalizedRequestId = required(requestId, "申请ID");
         var status = required(request.status(), "处理状态").toUpperCase();

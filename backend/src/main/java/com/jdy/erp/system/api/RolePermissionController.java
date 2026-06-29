@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.system.security.RequirePermission;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class RolePermissionController {
     private final JdbcTemplate jdbcTemplate;
 
-    public RolePermissionController(JdbcTemplate jdbcTemplate) {
+    public RolePermissionController(@Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -77,7 +78,7 @@ public class RolePermissionController {
 
     @PutMapping("/roles/{roleCode}/permissions")
     @RequirePermission("system.role_permission.manage")
-    @Transactional
+    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> saveRolePermissions(@PathVariable String roleCode, @RequestBody RolePermissionRequest request) {
         var normalizedRoleCode = roleCode == null ? "" : roleCode.trim();
         var roleRows = jdbcTemplate.queryForList("""

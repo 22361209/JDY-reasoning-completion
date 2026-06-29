@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -33,7 +34,7 @@ public class CurrentSessionService {
 
     private final JdbcTemplate jdbcTemplate;
 
-    public CurrentSessionService(JdbcTemplate jdbcTemplate) {
+    public CurrentSessionService(@Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 

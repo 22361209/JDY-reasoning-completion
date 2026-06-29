@@ -1,5 +1,6 @@
 package com.jdy.erp.system.security;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -8,7 +9,7 @@ public class CurrentPermissionService {
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
 
-    public CurrentPermissionService(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
+    public CurrentPermissionService(@Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
     }
