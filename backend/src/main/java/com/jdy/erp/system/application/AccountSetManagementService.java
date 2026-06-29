@@ -1,0 +1,183 @@
+package com.jdy.erp.system.application;
+
+import java.util.List;
+import java.util.Map;
+
+import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantSchemaProvisioner;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class AccountSetManagementService {
+    private final JdbcTemplate platformJdbcTemplate;
+    private final CurrentSessionService currentSessionService;
+    private final TenantSchemaProvisioner tenantSchemaProvisioner;
+
+    public AccountSetManagementService(
+        @Qualifier("platformJdbcTemplate") JdbcTemplate platformJdbcTemplate,
+        CurrentSessionService currentSessionService,
+        TenantSchemaProvisioner tenantSchemaProvisioner
+    ) {
+        this.platformJdbcTemplate = platformJdbcTemplate;
+        this.currentSessionService = currentSessionService;
+        this.tenantSchemaProvisioner = tenantSchemaProvisioner;
+    }
+
+    @Transactional(transactionManager = "platformTransactionManager")
+    public Map<String, Object> createAccountSet(AccountSetCreateRequest request) {
+        var code = normalizeCode(required(request.code(), "账套编码"));
+        var name = required(request.name(), "账套名称");
+        var environment = optionalText(request.environment(), "本地开发");
+        var accountingPeriod = periodOrDefault(request.accountingPeriod());
+        var businessPeriod = periodOrDefault(request.businessPeriod());
+        var databaseName = currentDatabaseName();
+        var schemaName = tenantSchemaProvisioner.normalizeSchemaName(
+            optionalText(request.schemaName(), tenantSchemaProvisioner.defaultSchemaName(code))
+        );
+        var attachmentPrefix = optionalText(request.attachmentPrefix(), "account-sets/" + code);
+        var redisKeyPrefix = optionalText(request.redisKeyPrefix(), code);
+
+        Map<String, Object> accountSet;
+        try {
+            accountSet = platformJdbcTemplate.queryForMap("""
+                INSERT INTO sys_account_set (
+                    code, name, environment, database_name, schema_name, attachment_prefix, redis_key_prefix,
+                    accounting_period, business_period, enabled, initialized
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, FALSE)
+                RETURNING id::text AS id,
+                          code,
+                          name,
+                          environment,
+                          COALESCE(database_name, '') AS "databaseName",
+                          COALESCE(schema_name, '') AS "schemaName",
+                          COALESCE(attachment_prefix, '') AS "attachmentPrefix",
+                          COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                          accounting_period AS "accountingPeriod",
+                          business_period AS "businessPeriod",
+                          enabled,
+                          initialized
+                """, code, name, environment, databaseName, schemaName, attachmentPrefix, redisKeyPrefix, accountingPeriod, businessPeriod);
+        } catch (DuplicateKeyException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "账套编码已存在");
+        }
+
+        tenantSchemaProvisioner.provisionSchema(schemaName);
+        grantCurrentUserAndAdmins(String.valueOf(accountSet.get("id")));
+        logCreate(String.valueOf(accountSet.get("id")), code);
+        return Map.of(
+            "ok", true,
+            "accountSet", accountSet,
+            "accountSets", currentSessionService.availableAccountSets(),
+            "message", "账套已创建，tenant schema 已初始化。切换到账套后可执行本账套初始化。"
+        );
+    }
+
+    public List<Map<String, Object>> accountSets() {
+        return currentSessionService.availableAccountSets();
+    }
+
+    private void grantCurrentUserAndAdmins(String accountSetId) {
+        var currentUsername = currentSessionService.currentUsername();
+        platformJdbcTemplate.update("""
+            INSERT INTO sys_user_account_set (user_id, account_set_id, role_code, is_default, enabled)
+            SELECT u.id,
+                   ?::uuid,
+                   CASE WHEN bool_or(r.code = 'ADMIN') THEN 'ADMIN' ELSE 'MEMBER' END,
+                   FALSE,
+                   TRUE
+            FROM sys_user u
+            LEFT JOIN sys_user_role ur ON ur.user_id = u.id
+            LEFT JOIN sys_role r ON r.id = ur.role_id AND r.enabled = TRUE
+            WHERE u.username = ?
+              AND u.enabled = TRUE
+            GROUP BY u.id
+            ON CONFLICT (user_id, account_set_id) DO UPDATE
+            SET enabled = TRUE,
+                role_code = EXCLUDED.role_code,
+                updated_at = now(),
+                version = sys_user_account_set.version + 1
+            """, accountSetId, currentUsername);
+        platformJdbcTemplate.update("""
+            INSERT INTO sys_user_account_set (user_id, account_set_id, role_code, is_default, enabled)
+            SELECT u.id,
+                   ?::uuid,
+                   'ADMIN',
+                   FALSE,
+                   TRUE
+            FROM sys_user u
+            JOIN sys_user_role ur ON ur.user_id = u.id
+            JOIN sys_role r ON r.id = ur.role_id AND r.code = 'ADMIN' AND r.enabled = TRUE
+            WHERE u.enabled = TRUE
+            ON CONFLICT (user_id, account_set_id) DO UPDATE
+            SET role_code = 'ADMIN',
+                enabled = TRUE,
+                updated_at = now(),
+                version = sys_user_account_set.version + 1
+            """, accountSetId);
+    }
+
+    private void logCreate(String accountSetId, String code) {
+        platformJdbcTemplate.update("""
+            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
+            SELECT 'SYSTEM', 'CREATE_ACCOUNT_SET', 'sys_account_set', ?::uuid, TRUE, ?, id
+            FROM sys_user
+            WHERE username = ?
+            """, accountSetId, "account_set=" + code, currentSessionService.currentUsername());
+    }
+
+    private String currentDatabaseName() {
+        return platformJdbcTemplate.queryForObject("SELECT current_database()", String.class);
+    }
+
+    private String required(String value, String label) {
+        var normalized = value == null ? "" : value.trim();
+        if (normalized.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能为空");
+        }
+        return normalized;
+    }
+
+    private String optionalText(String value, String defaultValue) {
+        var normalized = value == null ? "" : value.trim();
+        return normalized.isBlank() ? defaultValue : normalized;
+    }
+
+    private String normalizeCode(String code) {
+        var normalized = code.toUpperCase();
+        if (!normalized.matches("[A-Z0-9_-]{2,40}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账套编码只能使用 2-40 位字母、数字、下划线或短横线");
+        }
+        return normalized;
+    }
+
+    private String periodOrDefault(String value) {
+        var normalized = value == null ? "" : value.trim();
+        if (normalized.isBlank()) {
+            return "2026-06";
+        }
+        if (!normalized.matches("\\d{4}-\\d{2}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "期间格式必须为 YYYY-MM");
+        }
+        return normalized;
+    }
+
+    public record AccountSetCreateRequest(
+        String code,
+        String name,
+        String environment,
+        String databaseName,
+        String schemaName,
+        String attachmentPrefix,
+        String redisKeyPrefix,
+        String accountingPeriod,
+        String businessPeriod
+    ) {
+    }
+}

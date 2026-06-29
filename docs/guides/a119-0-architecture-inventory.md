@@ -49,6 +49,12 @@ tenant_history
 
 若后续要改成 schema 路线，必须新开 ADR 或更新本文件，不能在实现过程中静默混用。
 
+### A119-3 过渡补充
+
+A119-3 实现采用 schema-first 过渡：平台表仍在 `public`，新账套先创建独立 `tenant_*` schema，`sys_account_set.database_name` 记录当前数据库，`schema_name` 指向 tenant schema。原因是当前 Flyway 迁移尚未拆成 platform/tenant 两套脚本；如果直接给新 tenant database 跑全量迁移，会把平台用户、权限、账套配置一起复制进去。
+
+因此：长期目标仍是独立 tenant database；A119-3 只把“新建账套、初始化 tenant 结构、清空当前账套”先落成 schema 边界。等迁移脚本拆分后，再把 tenant schema 升级为 tenant database。详见 `docs/guides/a119-3-account-set-initialization.md`。
+
 ## 表归属清单
 
 探针识别当前迁移中的表共 80 张。
@@ -197,6 +203,6 @@ tenant_history
 ## A119-0 结论
 
 - 当前 A117 是单数据库过渡，不是完整多账套。
-- 业务表当前基本未按账套字段隔离；A119 应通过 tenant database 边界隔离，而不是继续补丁式塞 `account_set_id`。
+- 业务表当前基本未按账套字段隔离；A119 长期应通过 tenant database 边界隔离，而不是继续补丁式塞 `account_set_id`。A119-3 在 Flyway 拆分前先用 tenant schema 作为过渡边界。
 - A119 最危险的不是登录页，而是中心列表、生命周期服务、库存过账、编号、打印导出和模块 AppService 里的直接 SQL。
 - A119-1 可以从平台表和平台 API 拆分开始；A119-2 必须先建 TenantContext/DataSource 路由，再进入 A119-4 业务表迁移。

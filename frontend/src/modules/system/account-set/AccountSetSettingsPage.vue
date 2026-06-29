@@ -25,6 +25,33 @@
         </div>
       </section>
       <section class="settings-card">
+        <h3>新建账套</h3>
+        <p>新账套会创建独立 tenant schema；用户和权限仍由平台统一管理。</p>
+        <label>
+          <span>账套编码</span>
+          <input v-model.trim="createForm.code" :disabled="!canManage" data-testid="account-set-create-code" placeholder="如 TEST2026" />
+        </label>
+        <label>
+          <span>账套名称</span>
+          <input v-model.trim="createForm.name" :disabled="!canManage" data-testid="account-set-create-name" placeholder="如 测试账套" />
+        </label>
+        <label>
+          <span>环境说明</span>
+          <input v-model.trim="createForm.environment" :disabled="!canManage" data-testid="account-set-create-environment" />
+        </label>
+        <div class="settings-inline-fields">
+          <label>
+            <span>会计期间</span>
+            <input v-model.trim="createForm.accountingPeriod" :disabled="!canManage" data-testid="account-set-create-accounting-period" />
+          </label>
+          <label>
+            <span>业务期间</span>
+            <input v-model.trim="createForm.businessPeriod" :disabled="!canManage" data-testid="account-set-create-business-period" />
+          </label>
+        </div>
+        <button type="button" :disabled="!canManage" data-testid="account-set-create" @click="createNewAccountSet">新建账套</button>
+      </section>
+      <section class="settings-card">
         <h3>本账套初始化</h3>
         <p>开发期初始化会清空当前项目的业务单据、库存余额、库存期初和编号流水，保留主数据、用户、权限、账套配置和 BOM。</p>
         <label class="settings-check">
@@ -39,8 +66,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { initializeCurrentAccountSet, switchCurrentAccountSet, type SystemAccountSet } from "../../../services/systemApi";
+import { reactive, ref, watch } from "vue";
+import { createAccountSet, initializeCurrentAccountSet, switchCurrentAccountSet, type SystemAccountSet } from "../../../services/systemApi";
 
 const props = defineProps<{
   accountSets: SystemAccountSet[];
@@ -56,6 +83,13 @@ const selectedCode = ref(props.currentAccountSetCode);
 const clearBusinessData = ref(true);
 const confirmText = ref("");
 const message = ref("");
+const createForm = reactive({
+  code: "",
+  name: "",
+  environment: "本地开发",
+  accountingPeriod: "2026-06",
+  businessPeriod: "2026-06"
+});
 
 watch(() => props.currentAccountSetCode, (code) => {
   selectedCode.value = code;
@@ -82,5 +116,27 @@ async function initializeCurrent() {
   if (result.ok) {
     confirmText.value = "";
   }
+}
+
+async function createNewAccountSet() {
+  message.value = "";
+  if (!createForm.code || !createForm.name) {
+    message.value = "请填写账套编码和账套名称。";
+    return;
+  }
+  const result = await createAccountSet({ ...createForm });
+  message.value = result.message || (result.ok ? "账套已创建。" : "账套创建失败。");
+  if (!result.ok) {
+    return;
+  }
+  selectedCode.value = result.accountSet?.code || createForm.code.toUpperCase();
+  const switchResult = await switchCurrentAccountSet(selectedCode.value);
+  if (!switchResult.ok) {
+    message.value = switchResult.message || "账套已创建，但切换账套失败。";
+    return;
+  }
+  createForm.code = "";
+  createForm.name = "";
+  emit("accountSetSwitched");
 }
 </script>

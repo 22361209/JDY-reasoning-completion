@@ -2,6 +2,7 @@ package com.jdy.erp.system.api;
 
 import java.util.Map;
 
+import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.application.AccountSetInitializationService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.RequirePermission;
@@ -16,10 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AccountSetController {
     private final CurrentSessionService currentSessionService;
     private final AccountSetInitializationService initializationService;
+    private final AccountSetManagementService accountSetManagementService;
 
-    public AccountSetController(CurrentSessionService currentSessionService, AccountSetInitializationService initializationService) {
+    public AccountSetController(
+        CurrentSessionService currentSessionService,
+        AccountSetInitializationService initializationService,
+        AccountSetManagementService accountSetManagementService
+    ) {
         this.currentSessionService = currentSessionService;
         this.initializationService = initializationService;
+        this.accountSetManagementService = accountSetManagementService;
     }
 
     @GetMapping("/current")
@@ -31,6 +38,12 @@ public class AccountSetController {
     public Map<String, Object> switchCurrent(@RequestBody SwitchAccountSetRequest request) {
         currentSessionService.switchAccountSet(request.accountSetCode());
         return Map.of("current", currentSessionService.currentAccountSet());
+    }
+
+    @PostMapping
+    @RequirePermission("system.account_set.manage")
+    public Map<String, Object> create(@RequestBody AccountSetManagementService.AccountSetCreateRequest request) {
+        return accountSetManagementService.createAccountSet(request);
     }
 
     @PostMapping("/current/initialize")

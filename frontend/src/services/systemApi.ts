@@ -264,6 +264,36 @@ export async function switchCurrentAccountSet(accountSetCode: string): Promise<{
   }
 }
 
+export async function createAccountSet(payload: {
+  code: string;
+  name: string;
+  environment: string;
+  accountingPeriod: string;
+  businessPeriod: string;
+}): Promise<{ ok: boolean; status: number; message: string; accountSet: SystemAccountSet | null; accountSets: SystemAccountSet[] }> {
+  try {
+    const response = await fetch("/api/system/account-sets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "账套创建失败。", accountSet: null, accountSets: [] };
+    }
+    const result = await response.json() as { message?: string; accountSet?: SystemAccountSet; accountSets?: SystemAccountSet[] };
+    return {
+      ok: true,
+      status: response.status,
+      message: result.message || "账套已创建。",
+      accountSet: result.accountSet ?? null,
+      accountSets: result.accountSets ?? []
+    };
+  } catch {
+    return { ok: false, status: 0, message: "账套创建失败。", accountSet: null, accountSets: [] };
+  }
+}
+
 export async function initializeCurrentAccountSet(payload: { clearBusinessData: boolean }): Promise<{ ok: boolean; status: number; message: string; accountSet: SystemAccountSet | null }> {
   try {
     const response = await fetch("/api/system/account-sets/current/initialize", {
