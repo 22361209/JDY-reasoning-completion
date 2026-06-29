@@ -95,7 +95,8 @@ const areaScripts = {
     "scripts/a46-document-print-template-regression.mjs",
     "scripts/a53-production-red-source-print-regression.mjs",
     "scripts/a64-production-red-source-ui-regression.mjs",
-    "scripts/a114-production-plan-snapshot-regression.mjs"
+    "scripts/a114-production-plan-snapshot-regression.mjs",
+    "scripts/a118-outsourcing-chain-regression.mjs"
   ]
 };
 

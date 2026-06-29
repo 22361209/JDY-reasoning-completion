@@ -140,6 +140,7 @@ const bomV1 = await requireJson("/api/production/boms", {
     ]
   }
 });
+await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
 const planNoResult = await requireJson("/api/production/plans/next-number", { method: "POST" });
 const plan = await requireJson("/api/production/plans", {
@@ -164,6 +165,7 @@ const bomV2 = await requireJson("/api/production/boms", {
     ]
   }
 });
+await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
 assert(Number(bomV2.versionNo) > Number(bomV1.versionNo), "second BOM save should create a newer history version");
 assert(Number(plan.bomVersionNo) === Number(bomV1.versionNo), "production plan should snapshot BOM version before later BOM edits");

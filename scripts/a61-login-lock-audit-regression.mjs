@@ -37,7 +37,7 @@ async function browserFetch(page, pathname, options = {}) {
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
   await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").selectOption(usernameValue);
+  await page.getByTestId("login-username").fill(usernameValue);
   await page.getByTestId("login-password").fill(passwordValue);
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
@@ -65,7 +65,7 @@ try {
   await page.getByTestId("session-logout").click();
   await page.getByTestId("login-page").waitFor({ state: "visible" });
   await page.reload({ waitUntil: "networkidle" });
-  await page.getByTestId("login-username").selectOption(username);
+  await page.getByTestId("login-username").fill(username);
   await page.getByTestId("login-password").fill(wrongPassword);
   for (let index = 0; index < 4; index += 1) {
     await page.getByTestId("login-submit").click();
@@ -80,7 +80,7 @@ try {
   await page.getByTestId("login-submit").click();
   await page.getByTestId("login-message").filter({ hasText: "锁定" }).waitFor({ state: "visible" });
 
-  await page.getByTestId("login-username").selectOption("admin");
+  await page.getByTestId("login-username").fill("admin");
   await page.getByTestId("login-password").fill("admin123");
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });

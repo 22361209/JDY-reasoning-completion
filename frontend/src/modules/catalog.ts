@@ -89,7 +89,12 @@ export const moduleCatalog = [
     short: "委",
     groups: [
       { title: "委外业务", entries: [
-        { id: "outsourcing-surface-list", label: "委外表面处理", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" }
+        { id: "outsourcing-work-order-list", label: "委外加工单", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" },
+        { id: "outsourcing-issue-list", label: "委外发料单", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" },
+        { id: "outsourcing-receipt-list", label: "委外产品入库单", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" },
+        { id: "outsourcing-return-list", label: "委外产品退货单", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" },
+        { id: "outsourcing-scrap-list", label: "委外产品报废单", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" },
+        { id: "outsourcing-surface-list", label: "委外表面处理（旧）", module: "委外管理", mode: "list", queryable: true, permission: "production.document.audit" }
       ] }
     ]
   },

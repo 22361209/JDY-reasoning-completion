@@ -66,6 +66,7 @@ await requireJson("/api/production/boms", {
     ]
   }
 });
+await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
 const task = await requireJson("/api/production/tasks", {
   method: "POST",
@@ -74,13 +75,10 @@ const task = await requireJson("/api/production/tasks", {
 
 const taskList = await requireJson(`/api/lists/production-task-form-list?keyword=${encodeURIComponent(taskNo)}&pageSize=200`);
 const taskRow = taskList.rows.find((row) => row.billNo === taskNo);
-const planNo = taskRow?.planNo;
-const planList = planNo ? await requireJson(`/api/lists/production-plan-list?keyword=${encodeURIComponent(planNo)}&pageSize=200`) : { rows: [] };
-const planRow = planList.rows.find((row) => row.billNo === planNo);
 
 assert(task.billNo === taskNo, "task should keep requested bill number");
-assert(taskRow?.planNo, "production task list should show linked plan number");
-assert(planRow, "creating task should create self production plan row");
+assert(taskRow, "production task list should show created task");
+assert(!taskRow.planNo, "standalone production task must not create a hidden production plan");
 assert(taskRow?.bomCode === bomCode, "production task should keep BOM code");
 
 await requireJson("/api/production/boms", {
@@ -95,6 +93,7 @@ await requireJson("/api/production/boms", {
     ]
   }
 });
+await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
 await requireJson(`/api/production/tasks/${encodeURIComponent(taskNo)}/issue`, {
   method: "POST",
@@ -112,10 +111,8 @@ const result = {
   bomCode,
   taskNo,
   issueNo,
-  planNo,
   checks: {
-    selfPlanCreated: Boolean(planRow),
-    taskHasPlanNo: Boolean(taskRow.planNo),
+    standaloneTaskHasNoPlanNo: !taskRow.planNo,
     issueUsesSnapshotQty: Number(pjLine.qty) === 6
   }
 };

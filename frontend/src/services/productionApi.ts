@@ -9,9 +9,19 @@ export interface BomPayload {
   code: string;
   productCode: string;
   qty: number;
+  bomCategory?: string;
+  remark?: string;
   lines: Array<{
     materialCode: string;
-    qty: number;
+    qty?: number;
+    productQty?: number;
+    materialQty?: number;
+    unitQty?: number;
+    issueMethod?: string;
+    issueWarehouseCode?: string;
+    fixedLossQty?: number;
+    lossRate?: number;
+    childBomCode?: string;
   }>;
 }
 
@@ -34,19 +44,19 @@ export interface ProductionTaskPayload {
   qty: number;
 }
 
-async function postJson(path: string, payload: Record<string, unknown>): Promise<ProductionWriteResult> {
+async function requestJson(path: string, method: "GET" | "POST" | "DELETE", payload?: Record<string, unknown>): Promise<ProductionWriteResult> {
   try {
     const response = await fetch(path, {
-      method: "POST",
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: payload == null ? undefined : JSON.stringify(payload)
     });
     const data = await parseJson(response);
     if (!response.ok) {
       return {
         ok: false,
         status: response.status,
-        message: errorMessage(data) || "生产单据保存失败。",
+        message: errorMessage(data) || "生产单据处理失败。",
         data
       };
     }
@@ -60,9 +70,13 @@ async function postJson(path: string, payload: Record<string, unknown>): Promise
     return {
       ok: false,
       status: 0,
-      message: "网络异常，生产单据保存失败。"
+      message: "网络异常，生产单据处理失败。"
     };
   }
+}
+
+async function postJson(path: string, payload: Record<string, unknown>): Promise<ProductionWriteResult> {
+  return requestJson(path, "POST", payload);
 }
 
 async function parseJson(response: Response): Promise<Record<string, unknown> | undefined> {
@@ -86,6 +100,26 @@ function compactPayload(payload: Record<string, unknown>) {
 
 export function saveBom(payload: BomPayload) {
   return postJson("/api/production/boms", compactPayload(payload as unknown as Record<string, unknown>));
+}
+
+export function fetchBomDetail(code: string) {
+  return requestJson(`/api/production/boms/${encodeURIComponent(code)}`, "GET");
+}
+
+export function auditBom(code: string) {
+  return postJson(`/api/production/boms/${encodeURIComponent(code)}/audit`, {});
+}
+
+export function reverseBom(code: string) {
+  return postJson(`/api/production/boms/${encodeURIComponent(code)}/reverse`, {});
+}
+
+export function setBomEnabled(code: string, enabled: boolean) {
+  return postJson(`/api/production/boms/${encodeURIComponent(code)}/${enabled ? "enable" : "disable"}`, {});
+}
+
+export function deleteBom(code: string) {
+  return requestJson(`/api/production/boms/${encodeURIComponent(code)}`, "DELETE");
 }
 
 export function createProductionPlan(payload: ProductionPlanPayload) {

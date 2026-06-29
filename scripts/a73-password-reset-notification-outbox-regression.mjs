@@ -39,7 +39,7 @@ async function browserFetch(page, pathname, options = {}) {
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
   await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").selectOption(usernameValue);
+  await page.getByTestId("login-username").fill(usernameValue);
   await page.getByTestId("login-password").fill(passwordValue);
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
@@ -60,7 +60,7 @@ async function createUser(page, username, displayName) {
 }
 
 async function submitResetRequest(page, username, contactNote) {
-  await page.getByTestId("login-username").selectOption(username);
+  await page.getByTestId("login-username").fill(username);
   await page.getByTestId("forgot-password-open").click();
   await page.getByTestId("password-reset-request-dialog").waitFor({ state: "visible" });
   await page.getByTestId("password-reset-contact").fill(contactNote);

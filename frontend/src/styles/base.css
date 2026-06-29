@@ -451,6 +451,8 @@ input:disabled {
 
 .global-actions button,
 .action-bar button,
+.master-record-toolbar button,
+.master-record-foot button,
 .primary-action,
 .danger-action {
   height: 26px;
@@ -2518,6 +2520,8 @@ input:disabled {
   font-weight: 600;
 }
 
+.global-actions button:disabled,
+.action-bar button:disabled,
 .master-record-toolbar button:disabled,
 .master-record-foot button:disabled {
   border-color: #c7d2df;
@@ -2645,6 +2649,37 @@ input:disabled {
 
 .master-record-page--product .master-record-fields .field-wide {
   grid-column: span 4;
+}
+
+.master-record-page--product .master-record-fields input,
+.master-record-page--product .master-record-fields select,
+.master-record-page--product .master-record-fields textarea {
+  border-width: 0 0 1px;
+  border-color: #c7d2df;
+  border-radius: 0;
+  background: transparent;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.master-record-page--product .master-record-fields textarea {
+  min-height: 34px;
+  padding-top: 4px;
+}
+
+.master-record-page--product .master-record-fields input:focus,
+.master-record-page--product .master-record-fields select:focus,
+.master-record-page--product .master-record-fields textarea:focus {
+  border-color: #2f7cf6;
+  outline: 0;
+  background: #ffffff;
+}
+
+.master-record-page--product .master-record-fields input:disabled,
+.master-record-page--product .master-record-fields select:disabled,
+.master-record-page--product .master-record-fields textarea:disabled {
+  background: transparent;
+  color: #26394d;
 }
 
 .master-record-page--product .master-record-section.section-checkboxes .master-record-fields {

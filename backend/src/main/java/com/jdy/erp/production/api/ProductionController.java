@@ -13,6 +13,7 @@ import com.jdy.erp.production.application.ProductionTaskAppService.BomRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.PlanRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.TaskRequest;
 import com.jdy.erp.system.security.RequirePermission;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -54,6 +55,42 @@ public class ProductionController {
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveBom(@RequestBody BomRequest request) {
         return taskAppService.saveBom(request);
+    }
+
+    @GetMapping("/boms/{code}")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> bomDetail(@PathVariable String code) {
+        return taskAppService.bomDetail(code);
+    }
+
+    @PostMapping("/boms/{code}/audit")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> auditBom(@PathVariable String code) {
+        return taskAppService.auditBom(code);
+    }
+
+    @PostMapping("/boms/{code}/reverse")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> reverseBom(@PathVariable String code) {
+        return taskAppService.reverseBom(code);
+    }
+
+    @PostMapping("/boms/{code}/enable")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> enableBom(@PathVariable String code) {
+        return taskAppService.setBomEnabled(code, true);
+    }
+
+    @PostMapping("/boms/{code}/disable")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> disableBom(@PathVariable String code) {
+        return taskAppService.setBomEnabled(code, false);
+    }
+
+    @DeleteMapping("/boms/{code}")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> deleteBom(@PathVariable String code) {
+        return taskAppService.deleteBom(code);
     }
 
     @PostMapping("/tasks")

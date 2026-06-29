@@ -1,6 +1,7 @@
 package com.jdy.erp.production.application;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -37,38 +38,342 @@ public class ProductionTaskAppService {
     @Transactional
     public Map<String, Object> saveBom(BomRequest request) {
         var productCode = validationService.required(request.productCode(), "母件编码");
-        var productId = lookupService.lookupEnabledId("md_product", productCode, "成品");
+        var product = lookupAuditedMaterial(productCode, "母件");
+        var productId = String.valueOf(product.get("id"));
         var requestedCode = validationService.required(request.code(), "BOM 编码");
-        var versionNo = jdbcTemplate.queryForObject("SELECT COALESCE(MAX(version_no), 0) + 1 FROM prod_bom WHERE product_id = ?::uuid", Integer.class, productId);
+        var bomQty = positive(request.qty(), "母件数量");
+        var existingDraft = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM prod_bom
+            WHERE code = ?
+              AND audit_status = 'DRAFT'
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """, requestedCode);
+        var versionNo = jdbcTemplate.queryForObject(
+            "SELECT COALESCE(MAX(version_no), 0) + 1 FROM prod_bom WHERE product_id = ?::uuid",
+            Integer.class,
+            productId
+        );
+        var bomId = existingDraft.isEmpty()
+            ? String.valueOf(jdbcTemplate.queryForMap("""
+                INSERT INTO prod_bom (code, product_id, qty, enabled, audit_status, version_no, is_current, bom_category, remark, updated_at)
+                VALUES (?, ?::uuid, ?, TRUE, 'DRAFT', ?, FALSE, ?, ?, now())
+                RETURNING id::text AS id
+                """,
+                requestedCode,
+                productId,
+                bomQty,
+                versionNo == null ? 1 : versionNo,
+                validationService.optionalText(request.bomCategory()),
+                validationService.optionalText(request.remark())
+            ).get("id"))
+            : String.valueOf(existingDraft.get(0).get("id"));
+        if (!existingDraft.isEmpty()) {
+            jdbcTemplate.update("""
+                UPDATE prod_bom
+                SET product_id = ?::uuid,
+                    qty = ?,
+                    enabled = TRUE,
+                    is_current = FALSE,
+                    bom_category = ?,
+                    remark = ?,
+                    updated_at = now()
+                WHERE id = ?::uuid
+                """,
+                productId,
+                bomQty,
+                validationService.optionalText(request.bomCategory()),
+                validationService.optionalText(request.remark()),
+                bomId
+            );
+        }
+        jdbcTemplate.update("DELETE FROM prod_bom_line WHERE bom_id = ?::uuid", bomId);
+        var lineNo = 1;
+        for (var line : request.lines()) {
+            var material = lookupAuditedMaterial(line.materialCode(), "子件物料");
+            var materialId = String.valueOf(material.get("id"));
+            var productQty = positive(line.productQty() == null ? bomQty : line.productQty(), "产品产量");
+            var materialQty = line.materialQty() == null
+                ? positive(line.qty(), "材料用量")
+                : positive(line.materialQty(), "材料用量");
+            var unitQty = line.unitQty() == null
+                ? materialQty.divide(productQty, 6, RoundingMode.HALF_UP)
+                : positive(line.unitQty(), "单位用量");
+            var issueWarehouseCode = validationService.optionalText(line.issueWarehouseCode());
+            var issueWarehouseId = issueWarehouseCode == null
+                ? nullableText(material.get("defaultWarehouseId"))
+                : lookupService.lookupEnabledId("md_warehouse", issueWarehouseCode, "发料仓库");
+            var resolvedIssueWarehouseCode = issueWarehouseCode == null
+                ? nullableText(material.get("defaultWarehouseCode"))
+                : issueWarehouseCode;
+            var childBom = lookupOptionalCurrentBom(line.childBomCode());
+            jdbcTemplate.update("""
+                INSERT INTO prod_bom_line (
+                    bom_id, line_no, material_id, qty, product_qty, material_qty, unit_qty,
+                    issue_method, issue_warehouse_id, issue_warehouse_code, fixed_loss_qty,
+                    loss_rate, child_bom_id, child_bom_code_snapshot, child_bom_version_no
+                )
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?)
+                """,
+                bomId,
+                lineNo,
+                materialId,
+                unitQty,
+                productQty,
+                materialQty,
+                unitQty,
+                normalizedIssueMethod(line.issueMethod()),
+                issueWarehouseId,
+                resolvedIssueWarehouseCode,
+                nonNegative(line.fixedLossQty(), "固定损耗"),
+                nonNegative(line.lossRate(), "损耗率"),
+                childBom.get("id"),
+                childBom.get("code"),
+                childBom.get("versionNo")
+            );
+            lineNo += 1;
+        }
+        operationLogService.log("PRODUCTION", "SAVE_BOM", "prod_bom", bomId, true, null);
+        return bomDetailById(bomId);
+    }
+
+    public Map<String, Object> bomDetail(String code) {
+        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        return bomDetailById(String.valueOf(bom.get("id")));
+    }
+
+    @Transactional
+    public Map<String, Object> auditBom(String code) {
+        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bomId = String.valueOf(bom.get("id"));
+        var productId = String.valueOf(bom.get("productId"));
+        var lineCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM prod_bom_line WHERE bom_id = ?::uuid", Integer.class, bomId);
+        if (lineCount == null || lineCount == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 至少需要一条子件明细");
+        }
         jdbcTemplate.update("""
             UPDATE prod_bom
             SET is_current = FALSE,
                 enabled = FALSE,
                 updated_at = now()
             WHERE product_id = ?::uuid
-            """, productId);
-        var rows = jdbcTemplate.queryForList("""
-            INSERT INTO prod_bom (code, product_id, qty, enabled, version_no, is_current, updated_at)
-            VALUES (?, ?::uuid, ?, TRUE, ?, TRUE, now())
-            RETURNING id::text AS id, code, qty, version_no AS "versionNo", is_current AS "isCurrent"
-            """, requestedCode, productId, positive(request.qty(), "BOM 数量"), versionNo == null ? 1 : versionNo);
-        var bomId = String.valueOf(rows.get(0).get("id"));
-        jdbcTemplate.update("DELETE FROM prod_bom_line WHERE bom_id = ?::uuid", bomId);
-        var lineNo = 1;
-        for (var line : request.lines()) {
-            jdbcTemplate.update("""
-                INSERT INTO prod_bom_line (bom_id, line_no, material_id, qty)
-                VALUES (?::uuid, ?, ?::uuid, ?)
-                """,
-                bomId,
-                lineNo,
-                lookupService.lookupEnabledId("md_product", line.materialCode(), "物料"),
-                positive(line.qty(), "物料用量")
-            );
-            lineNo += 1;
+              AND id <> ?::uuid
+              AND is_current = TRUE
+            """, productId, bomId);
+        jdbcTemplate.update("""
+            UPDATE prod_bom
+            SET audit_status = 'AUDITED',
+                enabled = TRUE,
+                is_current = TRUE,
+                updated_at = now()
+            WHERE id = ?::uuid
+            """, bomId);
+        operationLogService.log("PRODUCTION", "AUDIT_BOM", "prod_bom", bomId, true, null);
+        return bomDetailById(bomId);
+    }
+
+    @Transactional
+    public Map<String, Object> reverseBom(String code) {
+        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bomId = String.valueOf(bom.get("id"));
+        ensureBomNotReferenced(bomId, "反审核");
+        jdbcTemplate.update("""
+            UPDATE prod_bom
+            SET audit_status = 'DRAFT',
+                is_current = FALSE,
+                updated_at = now()
+            WHERE id = ?::uuid
+            """, bomId);
+        operationLogService.log("PRODUCTION", "REVERSE_BOM", "prod_bom", bomId, true, null);
+        return bomDetailById(bomId);
+    }
+
+    @Transactional
+    public Map<String, Object> setBomEnabled(String code, boolean enabled) {
+        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bomId = String.valueOf(bom.get("id"));
+        if (enabled && !"AUDITED".equals(String.valueOf(bom.get("auditStatus")))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 未审核，不能启用为当前版本");
         }
-        operationLogService.log("PRODUCTION", "SAVE_BOM", "prod_bom", bomId, true, null);
+        if (enabled) {
+            jdbcTemplate.update("""
+                UPDATE prod_bom
+                SET enabled = FALSE,
+                    is_current = FALSE,
+                    updated_at = now()
+                WHERE product_id = ?::uuid
+                  AND id <> ?::uuid
+                  AND is_current = TRUE
+                """, bom.get("productId"), bomId);
+        }
+        jdbcTemplate.update("""
+            UPDATE prod_bom
+            SET enabled = ?,
+                is_current = ?,
+                updated_at = now()
+            WHERE id = ?::uuid
+            """, enabled, enabled, bomId);
+        operationLogService.log("PRODUCTION", enabled ? "ENABLE_BOM" : "DISABLE_BOM", "prod_bom", bomId, true, null);
+        return bomDetailById(bomId);
+    }
+
+    @Transactional
+    public Map<String, Object> deleteBom(String code) {
+        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bomId = String.valueOf(bom.get("id"));
+        if (!"DRAFT".equals(String.valueOf(bom.get("auditStatus")))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只能删除未审核 BOM");
+        }
+        ensureBomNotReferenced(bomId, "删除");
+        jdbcTemplate.update("DELETE FROM prod_bom WHERE id = ?::uuid", bomId);
+        operationLogService.log("PRODUCTION", "DELETE_BOM", "prod_bom", bomId, true, null);
+        return Map.of("code", code, "deleted", true);
+    }
+
+    private Map<String, Object> bomDetailById(String bomId) {
+        var header = jdbcTemplate.queryForMap("""
+            SELECT b.id::text AS id,
+                   b.code,
+                   b.product_id::text AS "productId",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   COALESCE(p.default_warehouse_code, '') AS "warehouseCode",
+                   b.qty,
+                   COALESCE(b.bom_category, '') AS "bomCategory",
+                   COALESCE(b.remark, '') AS remark,
+                   b.version_no AS "versionNo",
+                   b.is_current AS "isCurrent",
+                   b.audit_status AS "auditStatus",
+                   b.enabled
+            FROM prod_bom b
+            JOIN md_product p ON p.id = b.product_id
+            WHERE b.id = ?::uuid
+            """, bomId);
+        var lines = jdbcTemplate.queryForList("""
+            SELECT l.id::text AS id,
+                   l.line_no AS "lineNo",
+                   material.code AS "materialCode",
+                   material.name AS "materialName",
+                   COALESCE(material.spec, '') AS spec,
+                   COALESCE(material.unit, '') AS unit,
+                   l.product_qty AS "productQty",
+                   COALESCE(l.material_qty, l.qty) AS "materialQty",
+                   COALESCE(l.unit_qty, l.qty) AS "unitQty",
+                   l.issue_method AS "issueMethod",
+                   COALESCE(l.issue_warehouse_code, material.default_warehouse_code, '') AS "issueWarehouseCode",
+                   COALESCE(warehouse.name, '') AS "issueWarehouseName",
+                   l.fixed_loss_qty AS "fixedLossQty",
+                   l.loss_rate AS "lossRate",
+                   COALESCE(l.child_bom_code_snapshot, '') AS "childBomCode",
+                   l.child_bom_version_no AS "childBomVersionNo"
+            FROM prod_bom_line l
+            JOIN md_product material ON material.id = l.material_id
+            LEFT JOIN md_warehouse warehouse ON warehouse.id = l.issue_warehouse_id
+            WHERE l.bom_id = ?::uuid
+            ORDER BY l.line_no
+            """, bomId);
+        var result = new LinkedHashMap<String, Object>(header);
+        result.put("lines", lines);
+        return result;
+    }
+
+    private Map<String, Object> findBomByCode(String code) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   product_id::text AS "productId",
+                   code,
+                   audit_status AS "auditStatus",
+                   enabled,
+                   is_current AS "isCurrent"
+            FROM prod_bom
+            WHERE code = ?
+            ORDER BY CASE WHEN audit_status = 'DRAFT' THEN 0 ELSE 1 END,
+                     is_current DESC,
+                     updated_at DESC,
+                     created_at DESC
+            LIMIT 1
+            """, code);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "BOM 不存在");
+        }
         return rows.get(0);
+    }
+
+    private Map<String, Object> lookupAuditedMaterial(String code, String label) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   COALESCE(spec, '') AS spec,
+                   COALESCE(unit, '') AS unit,
+                   default_warehouse_id::text AS "defaultWarehouseId",
+                   COALESCE(default_warehouse_code, '') AS "defaultWarehouseCode"
+            FROM md_product
+            WHERE code = ?
+              AND enabled = TRUE
+              AND audit_status = 'AUDITED'
+            """, validationService.required(code, label));
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未启用或未审核");
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> lookupOptionalCurrentBom(String code) {
+        var normalized = validationService.optionalText(code);
+        var result = new LinkedHashMap<String, Object>();
+        result.put("id", null);
+        result.put("code", null);
+        result.put("versionNo", null);
+        if (normalized == null) {
+            return result;
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   version_no AS "versionNo"
+            FROM prod_bom
+            WHERE code = ?
+              AND audit_status = 'AUDITED'
+              AND enabled = TRUE
+              AND is_current = TRUE
+            """, normalized);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "子件 BOM 不存在或不是当前可用版本");
+        }
+        return rows.get(0);
+    }
+
+    private void ensureBomNotReferenced(String bomId, String action) {
+        var references = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM (
+                SELECT 1 FROM production_plan WHERE bom_id = ?::uuid
+                UNION ALL
+                SELECT 1 FROM production_task WHERE bom_id = ?::uuid
+                UNION ALL
+                SELECT 1 FROM prod_bom_line WHERE child_bom_id = ?::uuid
+            ) refs
+            """, Integer.class, bomId, bomId, bomId);
+        if (references != null && references > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "BOM 已被业务或上级 BOM 引用，不能" + action);
+        }
+    }
+
+    private String nullableText(Object value) {
+        if (value == null) {
+            return null;
+        }
+        var text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private String normalizedIssueMethod(String value) {
+        var method = validationService.optionalText(value);
+        return method == null ? "按单领料" : method;
     }
 
     @Transactional
@@ -148,10 +453,18 @@ public class ProductionTaskAppService {
                    material.name AS "materialName",
                    COALESCE(material.spec, '') AS spec,
                    COALESCE(material.unit, '') AS unit,
-                   s.qty * pl.planned_qty AS "requiredQty",
+                   (COALESCE(s.unit_qty, s.qty) * pl.planned_qty)
+                       + COALESCE(s.fixed_loss_qty, 0)
+                       + ((COALESCE(s.unit_qty, s.qty) * pl.planned_qty) * COALESCE(s.loss_rate, 0) / 100) AS "requiredQty",
                    COALESCE(stock.qty_available, 0) AS "availableQty",
-                   GREATEST(s.qty * pl.planned_qty - COALESCE(stock.qty_available, 0), 0) AS "shortageQty",
-                   CASE WHEN COALESCE(stock.qty_available, 0) >= s.qty * pl.planned_qty THEN '齐套' ELSE '缺料' END AS status
+                   GREATEST((COALESCE(s.unit_qty, s.qty) * pl.planned_qty)
+                       + COALESCE(s.fixed_loss_qty, 0)
+                       + ((COALESCE(s.unit_qty, s.qty) * pl.planned_qty) * COALESCE(s.loss_rate, 0) / 100)
+                       - COALESCE(stock.qty_available, 0), 0) AS "shortageQty",
+                   CASE WHEN COALESCE(stock.qty_available, 0) >= (COALESCE(s.unit_qty, s.qty) * pl.planned_qty)
+                       + COALESCE(s.fixed_loss_qty, 0)
+                       + ((COALESCE(s.unit_qty, s.qty) * pl.planned_qty) * COALESCE(s.loss_rate, 0) / 100)
+                       THEN '齐套' ELSE '缺料' END AS status
             FROM production_plan pl
             JOIN prod_bom_line s ON s.bom_id = pl.bom_id
             JOIN md_product material ON material.id = s.material_id
@@ -242,6 +555,8 @@ public class ProductionTaskAppService {
             JOIN md_product p ON p.id = b.product_id
             LEFT JOIN md_production_department department ON department.id = p.default_workshop_id
             WHERE b.code = ? AND b.enabled = TRUE
+              AND b.audit_status = 'AUDITED'
+              AND b.is_current = TRUE
             """, validationService.required(request.bomCode(), "BOM 编码"));
         if (bomRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 不存在或未启用");
@@ -351,6 +666,7 @@ public class ProductionTaskAppService {
                   AND p.audit_status = 'AUDITED'
                   AND b.enabled = TRUE
                   AND b.is_current = TRUE
+                  AND b.audit_status = 'AUDITED'
                 """, normalizedProductCode);
             if (rows.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "母件没有当前可用 BOM");
@@ -375,6 +691,8 @@ public class ProductionTaskAppService {
             LEFT JOIN md_production_department department ON department.id = p.default_workshop_id
             WHERE b.code = ?
               AND b.enabled = TRUE
+              AND b.is_current = TRUE
+              AND b.audit_status = 'AUDITED'
             """, validationService.required(bomCode, "母件编码或 BOM 编码"));
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 不存在或未启用");
@@ -429,7 +747,9 @@ public class ProductionTaskAppService {
                    supplier.code AS "supplierCode",
                    supplier.name AS "supplierName",
                    material.default_warehouse_id::text AS "warehouseId",
-                   line.qty * ? AS qty
+                   (COALESCE(line.unit_qty, line.qty) * ?)
+                       + COALESCE(line.fixed_loss_qty, 0)
+                       + ((COALESCE(line.unit_qty, line.qty) * ?) * COALESCE(line.loss_rate, 0) / 100) AS qty
             FROM production_plan plan
             JOIN prod_bom_line line ON line.bom_id = plan.bom_id
             JOIN md_product material ON material.id = line.material_id
@@ -439,7 +759,7 @@ public class ProductionTaskAppService {
               AND material.audit_status = 'AUDITED'
               AND material.is_purchase = TRUE
             ORDER BY supplier.code NULLS LAST, line.line_no
-            """, taskQty, planNo);
+            """, taskQty, taskQty, planNo);
         if (sourceLines.stream().anyMatch(line -> line.get("supplierId") == null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "可采购物料缺少默认供应商，无法自动生成采购申请");
         }
@@ -515,8 +835,10 @@ public class ProductionTaskAppService {
                    p.gross_weight,
                    t.bom_code_snapshot,
                    t.bom_version_no,
-                   l.qty,
-                   l.qty * t.qty
+                   COALESCE(l.unit_qty, l.qty),
+                   (COALESCE(l.unit_qty, l.qty) * t.qty)
+                       + COALESCE(l.fixed_loss_qty, 0)
+                       + ((COALESCE(l.unit_qty, l.qty) * t.qty) * COALESCE(l.loss_rate, 0) / 100)
             FROM production_task t
             JOIN prod_bom_line l ON l.bom_id = t.bom_id
             JOIN md_product p ON p.id = l.material_id
@@ -532,7 +854,17 @@ public class ProductionTaskAppService {
         return value;
     }
 
-    public record BomRequest(String code, String productCode, BigDecimal qty, List<BomLineRequest> lines) {
+    private BigDecimal nonNegative(BigDecimal value, String label) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value.compareTo(BigDecimal.ZERO) < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能小于 0");
+        }
+        return value;
+    }
+
+    public record BomRequest(String code, String productCode, BigDecimal qty, String bomCategory, String remark, List<BomLineRequest> lines) {
         public BomRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 至少需要一条物料");
@@ -540,7 +872,18 @@ public class ProductionTaskAppService {
         }
     }
 
-    public record BomLineRequest(String materialCode, BigDecimal qty) {
+    public record BomLineRequest(
+        String materialCode,
+        BigDecimal qty,
+        BigDecimal productQty,
+        BigDecimal materialQty,
+        BigDecimal unitQty,
+        String issueMethod,
+        String issueWarehouseCode,
+        BigDecimal fixedLossQty,
+        BigDecimal lossRate,
+        String childBomCode
+    ) {
     }
 
     public record PlanRequest(String billNo, String productCode, String bomCode, String warehouseCode, BigDecimal qty, String sourceType, String departmentCode, String planDeliveryDate) {

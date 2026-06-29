@@ -547,6 +547,51 @@
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
         />
+        <OutsourcingDocumentForm
+          v-else-if="tabs.activeTab.value.id === outsourcingWorkOrderTabId"
+          ref="outsourcingWorkOrderFormRef"
+          kind="workOrder"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
+        <OutsourcingDocumentForm
+          v-else-if="tabs.activeTab.value.id === outsourcingIssueTabId"
+          ref="outsourcingIssueFormRef"
+          kind="issue"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
+        <OutsourcingDocumentForm
+          v-else-if="tabs.activeTab.value.id === outsourcingReceiptTabId"
+          ref="outsourcingReceiptFormRef"
+          kind="receipt"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
+        <OutsourcingDocumentForm
+          v-else-if="tabs.activeTab.value.id === outsourcingReturnTabId"
+          ref="outsourcingReturnFormRef"
+          kind="return"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
+        <OutsourcingDocumentForm
+          v-else-if="tabs.activeTab.value.id === outsourcingScrapTabId"
+          ref="outsourcingScrapFormRef"
+          kind="scrap"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
         <OutsourcingSurfaceForm
           v-else-if="tabs.activeTab.value.id === outsourcingSurfaceTabId"
           ref="outsourcingSurfaceFormRef"
@@ -715,6 +760,7 @@ import BomForm from "../modules/production/bom/BomForm.vue";
 import ProductionPlanForm from "../modules/production/production-plan/ProductionPlanForm.vue";
 import ProductionTaskForm from "../modules/production/production-task/ProductionTaskForm.vue";
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
+import OutsourcingDocumentForm from "../modules/outsourcing/OutsourcingDocumentForm.vue";
 import OutsourcingSurfaceForm from "../modules/outsourcing/surface/OutsourcingSurfaceForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
@@ -791,6 +837,11 @@ const productInTabId = "product-in-form";
 const bomFormTabId = "bom-form";
 const productionPlanTabId = "production-plan-form";
 const productionTaskTabId = "production-task-form";
+const outsourcingWorkOrderTabId = "outsourcing-work-order-form";
+const outsourcingIssueTabId = "outsourcing-issue-form";
+const outsourcingReceiptTabId = "outsourcing-receipt-form";
+const outsourcingReturnTabId = "outsourcing-return-form";
+const outsourcingScrapTabId = "outsourcing-scrap-form";
 const outsourcingSurfaceTabId = "outsourcing-surface-form";
 const otherStockInTabId = "other-in-form";
 const otherStockOutTabId = "other-out-form";
@@ -821,6 +872,11 @@ const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
 const bomFormRef = ref<InstanceType<typeof BomForm> | null>(null);
 const productionPlanFormRef = ref<InstanceType<typeof ProductionPlanForm> | null>(null);
 const productionTaskFormRef = ref<InstanceType<typeof ProductionTaskForm> | null>(null);
+const outsourcingWorkOrderFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
+const outsourcingIssueFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
+const outsourcingReceiptFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
+const outsourcingReturnFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
+const outsourcingScrapFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
 const outsourcingSurfaceFormRef = ref<InstanceType<typeof OutsourcingSurfaceForm> | null>(null);
 const otherStockInFormRef = ref<InstanceType<typeof OtherStockInForm> | null>(null);
 const otherStockOutFormRef = ref<InstanceType<typeof OtherStockOutForm> | null>(null);
@@ -1019,6 +1075,16 @@ function startNewModuleDocument(entryId: string) {
     productInFormRef.value?.startNew();
   } else if (entryId === productionTaskTabId) {
     productionTaskFormRef.value?.startNew();
+  } else if (entryId === outsourcingWorkOrderTabId) {
+    outsourcingWorkOrderFormRef.value?.startNew();
+  } else if (entryId === outsourcingIssueTabId) {
+    outsourcingIssueFormRef.value?.startNew();
+  } else if (entryId === outsourcingReceiptTabId) {
+    outsourcingReceiptFormRef.value?.startNew();
+  } else if (entryId === outsourcingReturnTabId) {
+    outsourcingReturnFormRef.value?.startNew();
+  } else if (entryId === outsourcingScrapTabId) {
+    outsourcingScrapFormRef.value?.startNew();
   } else if (entryId === outsourcingSurfaceTabId) {
     outsourcingSurfaceFormRef.value?.startNew();
   } else if (entryId === otherStockInTabId) {
@@ -1061,7 +1127,7 @@ async function openCreateDocumentFromList(payload: { type: OpenableDocumentType 
   }
 }
 
-async function openCreateListRecord(payload: { listKey: string }) {
+async function openCreateListRecord(payload: { listKey: string; row?: Record<string, unknown> }) {
   const target = createListRecordTarget(payload.listKey);
   if (!target) {
     return;
@@ -1076,8 +1142,10 @@ async function openCreateListRecord(payload: { listKey: string }) {
   activeModuleName.value = target.module;
   if (opened) {
     await nextTick();
-    target.startNew();
-    markActiveDirty();
+    target.open(payload.row);
+    if (!payload.row) {
+      markActiveDirty();
+    }
   }
 }
 
@@ -1087,7 +1155,14 @@ function createListRecordTarget(listKey: string) {
       tabId: bomFormTabId,
       title: "BOM维护",
       module: "生产管理",
-      startNew: () => bomFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => {
+        const code = row?.code == null ? "" : String(row.code);
+        if (code) {
+          void bomFormRef.value?.loadBom(code);
+          return;
+        }
+        bomFormRef.value?.startNew();
+      }
     };
   }
   if (listKey === "production-plan-list") {
@@ -1095,7 +1170,7 @@ function createListRecordTarget(listKey: string) {
       tabId: productionPlanTabId,
       title: "生产计划",
       module: "生产管理",
-      startNew: () => productionPlanFormRef.value?.startNew()
+      open: () => productionPlanFormRef.value?.startNew()
     };
   }
   if (listKey === "production-task-form-list") {
@@ -1103,7 +1178,7 @@ function createListRecordTarget(listKey: string) {
       tabId: productionTaskTabId,
       title: "生产任务单",
       module: "生产管理",
-      startNew: () => productionTaskFormRef.value?.startNew()
+      open: () => productionTaskFormRef.value?.startNew()
     };
   }
   if (listKey === "outsourcing-surface-list") {
@@ -1111,7 +1186,47 @@ function createListRecordTarget(listKey: string) {
       tabId: outsourcingSurfaceTabId,
       title: "委外表面处理",
       module: "委外管理",
-      startNew: () => outsourcingSurfaceFormRef.value?.startNew()
+      open: () => outsourcingSurfaceFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "outsourcing-work-order-list") {
+    return {
+      tabId: outsourcingWorkOrderTabId,
+      title: "委外加工单",
+      module: "委外管理",
+      open: () => outsourcingWorkOrderFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "outsourcing-issue-list") {
+    return {
+      tabId: outsourcingIssueTabId,
+      title: "委外发料单",
+      module: "委外管理",
+      open: () => outsourcingIssueFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "outsourcing-receipt-list") {
+    return {
+      tabId: outsourcingReceiptTabId,
+      title: "委外产品入库单",
+      module: "委外管理",
+      open: () => outsourcingReceiptFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "outsourcing-return-list") {
+    return {
+      tabId: outsourcingReturnTabId,
+      title: "委外产品退货单",
+      module: "委外管理",
+      open: () => outsourcingReturnFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "outsourcing-scrap-list") {
+    return {
+      tabId: outsourcingScrapTabId,
+      title: "委外产品报废单",
+      module: "委外管理",
+      open: () => outsourcingScrapFormRef.value?.startNew()
     };
   }
   return null;

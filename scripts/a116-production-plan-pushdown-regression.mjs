@@ -99,6 +99,7 @@ const bom = await requireJson("/api/production/boms", {
     ]
   }
 });
+await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
 const number = await requireJson("/api/production/plans/next-number", { method: "POST" });
 assert(/^SCJH\d{6}$/.test(number.billNo), "production plan should pre-generate SCJH number");

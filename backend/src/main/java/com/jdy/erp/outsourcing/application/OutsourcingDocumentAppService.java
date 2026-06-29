@@ -1,0 +1,626 @@
+package com.jdy.erp.outsourcing.application;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+import com.jdy.erp.shared.application.InventoryPostingHook;
+import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.OperationLogService;
+import com.jdy.erp.shared.application.PostingContext;
+import com.jdy.erp.shared.application.PostingPipeline;
+import com.jdy.erp.shared.application.ValidationService;
+import com.jdy.erp.shared.domain.BillStatus;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class OutsourcingDocumentAppService {
+    private final JdbcTemplate jdbcTemplate;
+    private final LookupService lookupService;
+    private final ValidationService validationService;
+    private final NumberingService numberingService;
+    private final PostingPipeline postingPipeline;
+    private final OperationLogService operationLogService;
+
+    public OutsourcingDocumentAppService(
+        JdbcTemplate jdbcTemplate,
+        LookupService lookupService,
+        ValidationService validationService,
+        NumberingService numberingService,
+        PostingPipeline postingPipeline,
+        OperationLogService operationLogService
+    ) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.lookupService = lookupService;
+        this.validationService = validationService;
+        this.numberingService = numberingService;
+        this.postingPipeline = postingPipeline;
+        this.operationLogService = operationLogService;
+    }
+
+    @Transactional
+    public Map<String, Object> saveWorkOrder(WorkOrderRequest request) {
+        var billNo = numberingService.assignBillNo("outsourcingWorkOrder", request.billNo());
+        var supplier = supplier(request.supplierCode());
+        var bom = currentBomForProduct(request.productCode());
+        var qty = positive(request.qty(), "委外数量");
+        var planDeliveryDate = parseOptionalDate(request.planDeliveryDate());
+        var headerRows = jdbcTemplate.queryForList("""
+            INSERT INTO outsourcing_work_order (
+                bill_no, supplier_id, supplier_code_snapshot, supplier_name_snapshot, bill_date, status, remark
+            )
+            VALUES (?, ?::uuid, ?, ?, CURRENT_DATE, ?, ?)
+            ON CONFLICT (bill_no) DO UPDATE
+            SET supplier_id = EXCLUDED.supplier_id,
+                supplier_code_snapshot = EXCLUDED.supplier_code_snapshot,
+                supplier_name_snapshot = EXCLUDED.supplier_name_snapshot,
+                remark = EXCLUDED.remark,
+                updated_at = now(),
+                version = outsourcing_work_order.version + 1
+            WHERE outsourcing_work_order.status = 'DRAFT'
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """,
+            billNo,
+            supplier.id(),
+            supplier.code(),
+            supplier.name(),
+            BillStatus.DRAFT.name(),
+            validationService.optionalText(request.remark())
+        );
+        if (headerRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿委外加工单可以覆盖保存");
+        }
+        var header = headerRows.get(0);
+        var workOrderId = String.valueOf(header.get("id"));
+        jdbcTemplate.update("DELETE FROM outsourcing_work_order_component WHERE work_order_id = ?::uuid", workOrderId);
+        jdbcTemplate.update("DELETE FROM outsourcing_work_order_line WHERE work_order_id = ?::uuid", workOrderId);
+        insertWorkOrderLine(workOrderId, bom, qty, planDeliveryDate);
+        insertWorkOrderComponents(workOrderId, bom, qty);
+        operationLogService.log("OUTSOURCING", "SAVE_WORK_ORDER_DRAFT", "outsourcing_work_order", workOrderId, true, null);
+        return detailForWorkOrder(workOrderId);
+    }
+
+    @Transactional
+    public Map<String, Object> auditWorkOrder(String billNo) {
+        return transition("outsourcing_work_order", billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), "AUDIT_WORK_ORDER");
+    }
+
+    @Transactional
+    public Map<String, Object> pushIssue(String workOrderBillNo) {
+        var workOrder = auditedWorkOrder(workOrderBillNo);
+        var existing = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, bill_no AS "billNo", status
+            FROM outsourcing_material_issue
+            WHERE source_work_order_id = ?::uuid AND status <> 'VOID'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """, workOrder.get("id"));
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        var billNo = numberingService.nextBillNo("outsourcingIssue");
+        var issue = jdbcTemplate.queryForMap("""
+            INSERT INTO outsourcing_material_issue (
+                bill_no, source_work_order_id, source_work_order_no,
+                supplier_id, supplier_code_snapshot, supplier_name_snapshot, status
+            )
+            VALUES (?, ?::uuid, ?, ?::uuid, ?, ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """,
+            billNo,
+            workOrder.get("id"),
+            workOrder.get("billNo"),
+            workOrder.get("supplierId"),
+            workOrder.get("supplierCode"),
+            workOrder.get("supplierName"),
+            BillStatus.DRAFT.name()
+        );
+        jdbcTemplate.update("""
+            INSERT INTO outsourcing_material_issue_line (
+                issue_id, line_no, source_component_id, product_id,
+                product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                net_weight_snapshot, gross_weight_snapshot, warehouse_id, warehouse_code_snapshot, qty
+            )
+            SELECT ?::uuid, line_no, id, product_id,
+                   product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                   net_weight_snapshot, gross_weight_snapshot, warehouse_id, warehouse_code_snapshot,
+                   required_qty - issued_qty
+            FROM outsourcing_work_order_component
+            WHERE work_order_id = ?::uuid
+              AND required_qty > issued_qty
+            ORDER BY line_no
+            """, issue.get("id"), workOrder.get("id"));
+        operationLogService.log("OUTSOURCING", "PUSH_ISSUE", "outsourcing_material_issue", String.valueOf(issue.get("id")), true, null);
+        return issue;
+    }
+
+    @Transactional
+    public Map<String, Object> auditIssue(String billNo) {
+        var issue = transition("outsourcing_material_issue", billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), "AUDIT_ISSUE");
+        var lines = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   source_component_id::text AS "sourceComponentId",
+                   product_code_snapshot AS "productCode",
+                   warehouse_code_snapshot AS "warehouseCode",
+                   qty
+            FROM outsourcing_material_issue_line
+            WHERE issue_id = ?::uuid
+            ORDER BY line_no
+            """, issue.get("id"));
+        for (var line : lines) {
+            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_ISSUE", billNo);
+            jdbcTemplate.update("""
+                UPDATE outsourcing_work_order_component
+                SET issued_qty = issued_qty + ?
+                WHERE id = ?::uuid
+                """, line.get("qty"), line.get("sourceComponentId"));
+        }
+        return issue;
+    }
+
+    @Transactional
+    public Map<String, Object> pushReceipt(String workOrderBillNo, QtyRequest request) {
+        var workOrder = auditedWorkOrder(workOrderBillNo);
+        var existing = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, bill_no AS "billNo", status
+            FROM outsourcing_receipt
+            WHERE source_work_order_id = ?::uuid AND status <> 'VOID'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """, workOrder.get("id"));
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        var billNo = numberingService.nextBillNo("outsourcingReceipt");
+        var receipt = jdbcTemplate.queryForMap("""
+            INSERT INTO outsourcing_receipt (
+                bill_no, source_work_order_id, source_work_order_no,
+                supplier_id, supplier_code_snapshot, supplier_name_snapshot, status
+            )
+            VALUES (?, ?::uuid, ?, ?::uuid, ?, ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """,
+            billNo,
+            workOrder.get("id"),
+            workOrder.get("billNo"),
+            workOrder.get("supplierId"),
+            workOrder.get("supplierCode"),
+            workOrder.get("supplierName"),
+            BillStatus.DRAFT.name()
+        );
+        var line = workOrderLine(String.valueOf(workOrder.get("id")));
+        var remaining = ((BigDecimal) line.get("qty")).subtract((BigDecimal) line.get("receivedQty"));
+        var receiptQty = request == null || request.qty() == null ? remaining : positive(request.qty(), "入库数量");
+        if (receiptQty.compareTo(remaining) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "入库数量不能超过委外加工单未入库数量");
+        }
+        insertReceiptLikeLine("outsourcing_receipt_line", "receipt_id", String.valueOf(receipt.get("id")), line, receiptQty);
+        operationLogService.log("OUTSOURCING", "PUSH_RECEIPT", "outsourcing_receipt", String.valueOf(receipt.get("id")), true, null);
+        return receipt;
+    }
+
+    @Transactional
+    public Map<String, Object> auditReceipt(String billNo) {
+        var receipt = transition("outsourcing_receipt", billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), "AUDIT_RECEIPT");
+        var lines = jdbcTemplate.queryForList("""
+            SELECT source_work_order_line_id::text AS "sourceLineId",
+                   product_code_snapshot AS "productCode",
+                   warehouse_code_snapshot AS "warehouseCode",
+                   qty
+            FROM outsourcing_receipt_line
+            WHERE receipt_id = ?::uuid
+            ORDER BY line_no
+            """, receipt.get("id"));
+        for (var line : lines) {
+            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), (BigDecimal) line.get("qty"), "OUTSOURCING_RECEIPT", billNo);
+            jdbcTemplate.update("""
+                UPDATE outsourcing_work_order_line
+                SET received_qty = received_qty + ?
+                WHERE id = ?::uuid
+                """, line.get("qty"), line.get("sourceLineId"));
+        }
+        return receipt;
+    }
+
+    @Transactional
+    public Map<String, Object> pushReturn(String receiptBillNo, QtyRequest request) {
+        return pushReceiptAdjustment("return", receiptBillNo, request);
+    }
+
+    @Transactional
+    public Map<String, Object> pushScrap(String receiptBillNo, QtyRequest request) {
+        return pushReceiptAdjustment("scrap", receiptBillNo, request);
+    }
+
+    @Transactional
+    public Map<String, Object> auditReturn(String billNo) {
+        return auditReceiptAdjustment("return", billNo);
+    }
+
+    @Transactional
+    public Map<String, Object> auditScrap(String billNo) {
+        return auditReceiptAdjustment("scrap", billNo);
+    }
+
+    private Map<String, Object> pushReceiptAdjustment(String kind, String receiptBillNo, QtyRequest request) {
+        var receipt = auditedReceipt(receiptBillNo);
+        var table = "return".equals(kind) ? "outsourcing_return" : "outsourcing_scrap";
+        var lineTable = "return".equals(kind) ? "outsourcing_return_line" : "outsourcing_scrap_line";
+        var sequenceType = "return".equals(kind) ? "outsourcingReturn" : "outsourcingScrap";
+        var existing = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, bill_no AS "billNo", status
+            FROM %s
+            WHERE source_receipt_id = ?::uuid AND status <> 'VOID'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """.formatted(table), receipt.get("id"));
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        var billNo = numberingService.nextBillNo(sequenceType);
+        var adjustment = jdbcTemplate.queryForMap("""
+            INSERT INTO %s (
+                bill_no, source_receipt_id, source_receipt_no,
+                supplier_id, supplier_code_snapshot, supplier_name_snapshot, status
+            )
+            VALUES (?, ?::uuid, ?, ?::uuid, ?, ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """.formatted(table),
+            billNo,
+            receipt.get("id"),
+            receipt.get("billNo"),
+            receipt.get("supplierId"),
+            receipt.get("supplierCode"),
+            receipt.get("supplierName"),
+            BillStatus.DRAFT.name()
+        );
+        var line = receiptLine(String.valueOf(receipt.get("id")));
+        var remaining = ((BigDecimal) line.get("qty"))
+            .subtract((BigDecimal) line.get("returnedQty"))
+            .subtract((BigDecimal) line.get("scrappedQty"));
+        var qty = request == null || request.qty() == null ? remaining : positive(request.qty(), "处理数量");
+        if (qty.compareTo(remaining) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "处理数量不能超过委外入库单剩余数量");
+        }
+        jdbcTemplate.update("""
+            INSERT INTO %s (
+                %s_id, line_no, source_receipt_line_id, product_id,
+                product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                net_weight_snapshot, gross_weight_snapshot, warehouse_id, warehouse_code_snapshot, qty
+            )
+            VALUES (?::uuid, 1, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?)
+            """.formatted(lineTable, kind),
+            adjustment.get("id"),
+            line.get("id"),
+            line.get("productId"),
+            line.get("productCode"),
+            line.get("productName"),
+            line.get("spec"),
+            line.get("unit"),
+            line.get("netWeight"),
+            line.get("grossWeight"),
+            line.get("warehouseId"),
+            line.get("warehouseCode"),
+            qty
+        );
+        operationLogService.log("OUTSOURCING", "PUSH_" + kind.toUpperCase(), table, String.valueOf(adjustment.get("id")), true, null);
+        return adjustment;
+    }
+
+    private Map<String, Object> auditReceiptAdjustment(String kind, String billNo) {
+        var table = "return".equals(kind) ? "outsourcing_return" : "outsourcing_scrap";
+        var lineTable = "return".equals(kind) ? "outsourcing_return_line" : "outsourcing_scrap_line";
+        var action = "return".equals(kind) ? "AUDIT_RETURN" : "AUDIT_SCRAP";
+        var adjustment = transition(table, billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), action);
+        var lines = jdbcTemplate.queryForList("""
+            SELECT source_receipt_line_id::text AS "sourceReceiptLineId",
+                   product_code_snapshot AS "productCode",
+                   warehouse_code_snapshot AS "warehouseCode",
+                   qty
+            FROM %s
+            WHERE %s_id = ?::uuid
+            ORDER BY line_no
+            """.formatted(lineTable, kind), adjustment.get("id"));
+        for (var line : lines) {
+            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_" + kind.toUpperCase(), billNo);
+            jdbcTemplate.update("""
+                UPDATE outsourcing_receipt_line
+                SET %s_qty = %s_qty + ?
+                WHERE id = ?::uuid
+                """.formatted("return".equals(kind) ? "returned" : "scrapped", "return".equals(kind) ? "returned" : "scrapped"),
+                line.get("qty"),
+                line.get("sourceReceiptLineId")
+            );
+        }
+        return adjustment;
+    }
+
+    private Map<String, Object> transition(String table, String billNo, String from, String to, String action) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE %s
+            SET status = ?, updated_at = now(), version = version + 1
+            WHERE bill_no = ? AND status = ?
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """.formatted(table), to, billNo, from);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在或状态不允许当前操作");
+        }
+        operationLogService.log("OUTSOURCING", action, table, String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
+    }
+
+    private void insertWorkOrderLine(String workOrderId, Map<String, Object> bom, BigDecimal qty, LocalDate planDeliveryDate) {
+        var warehouseId = validationService.optionalText(String.valueOf(bom.get("defaultWarehouseId")));
+        var warehouseCode = validationService.optionalText(String.valueOf(bom.get("defaultWarehouseCode")));
+        if (warehouseId == null || "null".equals(warehouseId) || warehouseCode == null || "null".equals(warehouseCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "母件缺少默认仓库，无法生成委外入库仓库");
+        }
+        jdbcTemplate.update("""
+            INSERT INTO outsourcing_work_order_line (
+                work_order_id, line_no, product_id, product_code_snapshot, product_name_snapshot,
+                product_spec_snapshot, product_unit_snapshot, net_weight_snapshot, gross_weight_snapshot,
+                bom_id, bom_code_snapshot, bom_version_no, warehouse_id, warehouse_code_snapshot, qty, plan_delivery_date
+            )
+            VALUES (?::uuid, 1, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?)
+            """,
+            workOrderId,
+            bom.get("productId"),
+            bom.get("productCode"),
+            bom.get("productName"),
+            bom.get("spec"),
+            bom.get("unit"),
+            bom.get("netWeight"),
+            bom.get("grossWeight"),
+            bom.get("id"),
+            bom.get("bomCode"),
+            bom.get("bomVersionNo"),
+            warehouseId,
+            warehouseCode,
+            qty,
+            planDeliveryDate
+        );
+    }
+
+    private void insertWorkOrderComponents(String workOrderId, Map<String, Object> bom, BigDecimal qty) {
+        var components = jdbcTemplate.queryForList("""
+            SELECT line.id::text AS "bomLineId",
+                   line.line_no AS "lineNo",
+                   material.id::text AS "productId",
+                   material.code AS "productCode",
+                   material.name AS "productName",
+                   COALESCE(material.spec, '') AS spec,
+                   COALESCE(material.unit, '') AS unit,
+                   material.net_weight AS "netWeight",
+                   material.gross_weight AS "grossWeight",
+                   COALESCE(line.issue_warehouse_id::text, material.default_warehouse_id::text) AS "warehouseId",
+                   COALESCE(line.issue_warehouse_code, material.default_warehouse_code) AS "warehouseCode",
+                   COALESCE(line.unit_qty, line.qty) AS "unitQty",
+                   (COALESCE(line.unit_qty, line.qty) * ?)
+                       + COALESCE(line.fixed_loss_qty, 0)
+                       + ((COALESCE(line.unit_qty, line.qty) * ?) * COALESCE(line.loss_rate, 0) / 100) AS "requiredQty"
+            FROM prod_bom_line line
+            JOIN md_product material ON material.id = line.material_id
+            WHERE line.bom_id = ?::uuid
+              AND material.enabled = TRUE
+              AND material.audit_status = 'AUDITED'
+            ORDER BY line.line_no
+            """, qty, qty, bom.get("id"));
+        if (components.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 子件为空，无法生成委外发料需求");
+        }
+        if (components.stream().anyMatch(row -> row.get("warehouseId") == null || row.get("warehouseCode") == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 子件缺少默认发料仓库");
+        }
+        for (var component : components) {
+            jdbcTemplate.update("""
+                INSERT INTO outsourcing_work_order_component (
+                    work_order_id, line_no, source_bom_line_id, product_id,
+                    product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                    net_weight_snapshot, gross_weight_snapshot, warehouse_id, warehouse_code_snapshot, unit_qty, required_qty
+                )
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?)
+                """,
+                workOrderId,
+                component.get("lineNo"),
+                component.get("bomLineId"),
+                component.get("productId"),
+                component.get("productCode"),
+                component.get("productName"),
+                component.get("spec"),
+                component.get("unit"),
+                component.get("netWeight"),
+                component.get("grossWeight"),
+                component.get("warehouseId"),
+                component.get("warehouseCode"),
+                component.get("unitQty"),
+                component.get("requiredQty")
+            );
+        }
+    }
+
+    private Map<String, Object> detailForWorkOrder(String workOrderId) {
+        var row = jdbcTemplate.queryForMap("""
+            SELECT h.id::text AS id, h.bill_no AS "billNo", h.status,
+                   h.supplier_code_snapshot AS "supplierCode",
+                   h.supplier_name_snapshot AS "supplierName"
+            FROM outsourcing_work_order h
+            WHERE h.id = ?::uuid
+            """, workOrderId);
+        row.put("components", jdbcTemplate.queryForList("""
+            SELECT line_no AS "lineNo",
+                   product_code_snapshot AS "productCode",
+                   product_name_snapshot AS "productName",
+                   product_spec_snapshot AS spec,
+                   product_unit_snapshot AS unit,
+                   warehouse_code_snapshot AS "warehouseCode",
+                   trim(to_char(required_qty, 'FM9999999990.####')) AS qty
+            FROM outsourcing_work_order_component
+            WHERE work_order_id = ?::uuid
+            ORDER BY line_no
+            """, workOrderId));
+        return row;
+    }
+
+    private Map<String, Object> auditedWorkOrder(String billNo) {
+        return single("""
+            SELECT id::text AS id, bill_no AS "billNo",
+                   supplier_id::text AS "supplierId",
+                   supplier_code_snapshot AS "supplierCode",
+                   supplier_name_snapshot AS "supplierName"
+            FROM outsourcing_work_order
+            WHERE bill_no = ? AND status = 'AUDITED'
+            """, billNo, "委外加工单不存在或未审核");
+    }
+
+    private Map<String, Object> auditedReceipt(String billNo) {
+        return single("""
+            SELECT id::text AS id, bill_no AS "billNo",
+                   supplier_id::text AS "supplierId",
+                   supplier_code_snapshot AS "supplierCode",
+                   supplier_name_snapshot AS "supplierName"
+            FROM outsourcing_receipt
+            WHERE bill_no = ? AND status = 'AUDITED'
+            """, billNo, "委外产品入库单不存在或未审核");
+    }
+
+    private Map<String, Object> workOrderLine(String workOrderId) {
+        return single("""
+            SELECT id::text AS id,
+                   product_id::text AS "productId",
+                   product_code_snapshot AS "productCode",
+                   product_name_snapshot AS "productName",
+                   product_spec_snapshot AS spec,
+                   product_unit_snapshot AS unit,
+                   net_weight_snapshot AS "netWeight",
+                   gross_weight_snapshot AS "grossWeight",
+                   warehouse_id::text AS "warehouseId",
+                   warehouse_code_snapshot AS "warehouseCode",
+                   qty,
+                   received_qty AS "receivedQty"
+            FROM outsourcing_work_order_line
+            WHERE work_order_id = ?::uuid
+            ORDER BY line_no
+            LIMIT 1
+            """, workOrderId, "委外加工单分录不存在");
+    }
+
+    private Map<String, Object> receiptLine(String receiptId) {
+        return single("""
+            SELECT id::text AS id,
+                   product_id::text AS "productId",
+                   product_code_snapshot AS "productCode",
+                   product_name_snapshot AS "productName",
+                   product_spec_snapshot AS spec,
+                   product_unit_snapshot AS unit,
+                   net_weight_snapshot AS "netWeight",
+                   gross_weight_snapshot AS "grossWeight",
+                   warehouse_id::text AS "warehouseId",
+                   warehouse_code_snapshot AS "warehouseCode",
+                   qty,
+                   returned_qty AS "returnedQty",
+                   scrapped_qty AS "scrappedQty"
+            FROM outsourcing_receipt_line
+            WHERE receipt_id = ?::uuid
+            ORDER BY line_no
+            LIMIT 1
+            """, receiptId, "委外产品入库单分录不存在");
+    }
+
+    private void insertReceiptLikeLine(String table, String fkColumn, String headerId, Map<String, Object> line, BigDecimal qty) {
+        jdbcTemplate.update("""
+            INSERT INTO %s (
+                %s, line_no, source_work_order_line_id, product_id,
+                product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                net_weight_snapshot, gross_weight_snapshot, warehouse_id, warehouse_code_snapshot, qty
+            )
+            VALUES (?::uuid, 1, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?)
+            """.formatted(table, fkColumn),
+            headerId,
+            line.get("id"),
+            line.get("productId"),
+            line.get("productCode"),
+            line.get("productName"),
+            line.get("spec"),
+            line.get("unit"),
+            line.get("netWeight"),
+            line.get("grossWeight"),
+            line.get("warehouseId"),
+            line.get("warehouseCode"),
+            qty
+        );
+    }
+
+    private Map<String, Object> currentBomForProduct(String productCode) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT b.id::text AS id,
+                   b.code AS "bomCode",
+                   b.version_no AS "bomVersionNo",
+                   p.id::text AS "productId",
+                   p.code AS "productCode",
+                   p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   p.net_weight AS "netWeight",
+                   p.gross_weight AS "grossWeight",
+                   p.default_warehouse_id::text AS "defaultWarehouseId",
+                   p.default_warehouse_code AS "defaultWarehouseCode"
+            FROM prod_bom b
+            JOIN md_product p ON p.id = b.product_id
+            WHERE p.code = ?
+              AND p.enabled = TRUE
+              AND p.audit_status = 'AUDITED'
+              AND b.enabled = TRUE
+              AND b.is_current = TRUE
+              AND b.audit_status = 'AUDITED'
+            """, validationService.required(productCode, "母件物料编码"));
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "母件没有当前可用 BOM");
+        }
+        return rows.get(0);
+    }
+
+    private Supplier supplier(String supplierCode) {
+        var supplierId = lookupService.lookupEnabledId("md_supplier", supplierCode, "供应商");
+        var row = jdbcTemplate.queryForMap("SELECT code, name FROM md_supplier WHERE id = ?::uuid", supplierId);
+        return new Supplier(supplierId, String.valueOf(row.get("code")), String.valueOf(row.get("name")));
+    }
+
+    private Map<String, Object> single(String sql, Object arg, String message) {
+        var rows = jdbcTemplate.queryForList(sql, arg);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+        return rows.get(0);
+    }
+
+    private LocalDate parseOptionalDate(String value) {
+        var text = validationService.optionalText(value);
+        return text == null ? null : LocalDate.parse(text);
+    }
+
+    private BigDecimal positive(BigDecimal value, String label) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "必须大于 0");
+        }
+        return value;
+    }
+
+    private void postInventory(String productCode, String warehouseCode, BigDecimal qty, String txnType, String billNo) {
+        postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, productCode, warehouseCode, qty, txnType, txnType + ":" + billNo));
+    }
+
+    private record Supplier(String id, String code, String name) {
+    }
+
+    public record WorkOrderRequest(String billNo, String supplierCode, String productCode, BigDecimal qty, String planDeliveryDate, String remark) {
+    }
+
+    public record QtyRequest(BigDecimal qty) {
+    }
+}

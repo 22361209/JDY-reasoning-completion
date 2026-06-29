@@ -305,6 +305,11 @@ public class ListStubController {
             case "material-issue-list", "material-issue-form-list" -> materialIssueRows();
             case "product-in-list", "product-in-form-list" -> productInRows();
             case "outsourcing-surface-list" -> outsourcingSurfaceRows();
+            case "outsourcing-work-order-list" -> outsourcingWorkOrderRows();
+            case "outsourcing-issue-list" -> outsourcingIssueRows();
+            case "outsourcing-receipt-list" -> outsourcingReceiptRows();
+            case "outsourcing-return-list" -> outsourcingReturnRows();
+            case "outsourcing-scrap-list" -> outsourcingScrapRows();
             case "role-list", "user-role-list" -> roleRows();
             case "operation-log-list" -> operationLogRows();
             default -> salesRows();
@@ -1713,20 +1718,121 @@ public class ListStubController {
             """));
     }
 
+    private List<Map<String, ?>> outsourcingWorkOrderRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT h.id::text AS id,
+                   h.bill_no AS "billNo",
+                   h.supplier_code_snapshot AS "supplierCode",
+                   h.supplier_name_snapshot AS "supplierName",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   l.bom_code_snapshot AS "bomCode",
+                   l.bom_version_no AS "bomVersion",
+                   COALESCE(l.product_unit_snapshot, '') AS unit,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.issued_qty, 'FM9999999990.####')) AS "issuedQty",
+                   trim(to_char(l.received_qty, 'FM9999999990.####')) AS "receivedQty",
+                   COALESCE(to_char(l.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
+                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+            FROM outsourcing_work_order h
+            JOIN outsourcing_work_order_line l ON l.work_order_id = h.id
+            ORDER BY h.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> outsourcingIssueRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT (h.id::text || '-' || l.line_no::text) AS id,
+                   h.bill_no AS "billNo",
+                   h.source_work_order_no AS "sourceOrderNo",
+                   h.supplier_name_snapshot AS "supplierName",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
+                   COALESCE(l.product_unit_snapshot, '') AS unit,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+            FROM outsourcing_material_issue h
+            JOIN outsourcing_material_issue_line l ON l.issue_id = h.id
+            ORDER BY h.updated_at DESC, l.line_no
+            """));
+    }
+
+    private List<Map<String, ?>> outsourcingReceiptRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT (h.id::text || '-' || l.line_no::text) AS id,
+                   h.bill_no AS "billNo",
+                   h.source_work_order_no AS "sourceOrderNo",
+                   h.supplier_name_snapshot AS "supplierName",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
+                   COALESCE(l.product_unit_snapshot, '') AS unit,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+            FROM outsourcing_receipt h
+            JOIN outsourcing_receipt_line l ON l.receipt_id = h.id
+            ORDER BY h.updated_at DESC, l.line_no
+            """));
+    }
+
+    private List<Map<String, ?>> outsourcingReturnRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT (h.id::text || '-' || l.line_no::text) AS id,
+                   h.bill_no AS "billNo",
+                   h.source_receipt_no AS "sourceOrderNo",
+                   h.supplier_name_snapshot AS "supplierName",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
+                   COALESCE(l.product_unit_snapshot, '') AS unit,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+            FROM outsourcing_return h
+            JOIN outsourcing_return_line l ON l.return_id = h.id
+            ORDER BY h.updated_at DESC, l.line_no
+            """));
+    }
+
+    private List<Map<String, ?>> outsourcingScrapRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT (h.id::text || '-' || l.line_no::text) AS id,
+                   h.bill_no AS "billNo",
+                   h.source_receipt_no AS "sourceOrderNo",
+                   h.supplier_name_snapshot AS "supplierName",
+                   l.product_code_snapshot AS "productCode",
+                   l.product_name_snapshot AS "productName",
+                   COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
+                   COALESCE(l.product_unit_snapshot, '') AS unit,
+                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+            FROM outsourcing_scrap h
+            JOIN outsourcing_scrap_line l ON l.scrap_id = h.id
+            ORDER BY h.updated_at DESC, l.line_no
+            """));
+    }
+
     private List<Map<String, ?>> bomRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT b.id::text AS id,
                    b.code,
+                   COALESCE(b.bom_category, '') AS "bomCategory",
                    p.code AS "productCode",
                    p.name AS "productName",
+                   COALESCE(p.spec, '') AS spec,
                    COALESCE(p.unit, '') AS unit,
                    trim(to_char(p.net_weight, 'FM9999999990.00')) AS "netWeight",
                    trim(to_char(p.gross_weight, 'FM9999999990.00')) AS "grossWeight",
                    trim(to_char(b.qty, 'FM9999999990.####')) AS qty,
-                   CASE WHEN b.enabled THEN '启用' ELSE '禁用' END AS status
+                   b.version_no AS "versionNo",
+                   CASE WHEN b.is_current THEN '是' ELSE '否' END AS "isCurrent",
+                   CASE WHEN b.audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   CASE WHEN b.enabled THEN '启用' ELSE '禁用' END AS status,
+                   COALESCE(b.remark, '') AS remark,
+                   to_char(b.updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM prod_bom b
             JOIN md_product p ON p.id = b.product_id
-            ORDER BY b.code
+            ORDER BY b.updated_at DESC, b.code
             """));
     }
 

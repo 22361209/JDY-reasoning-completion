@@ -15,6 +15,15 @@ export interface OutsourcingSurfacePayload {
   remark?: string;
 }
 
+export interface OutsourcingWorkOrderPayload {
+  billNo?: string;
+  supplierCode?: string;
+  productCode?: string;
+  qty?: number;
+  planDeliveryDate?: string;
+  remark?: string;
+}
+
 async function postJson(path: string, payload: Record<string, unknown>): Promise<OutsourcingWriteResult> {
   try {
     const response = await fetch(path, {
@@ -75,4 +84,44 @@ export function auditOutsourcingSurface(billNo: string) {
 
 export function completeOutsourcingSurface(billNo: string) {
   return postJson(`/api/outsourcing/surface-processes/${encodeURIComponent(billNo)}/complete`, {});
+}
+
+export function saveOutsourcingWorkOrder(payload: OutsourcingWorkOrderPayload) {
+  return postJson("/api/outsourcing/work-orders/draft", payload as unknown as Record<string, unknown>);
+}
+
+export function auditOutsourcingWorkOrder(billNo: string) {
+  return postJson(`/api/outsourcing/work-orders/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function pushOutsourcingIssue(billNo: string) {
+  return postJson(`/api/outsourcing/work-orders/${encodeURIComponent(billNo)}/push-issue`, {});
+}
+
+export function pushOutsourcingReceipt(billNo: string, qty?: number) {
+  return postJson(`/api/outsourcing/work-orders/${encodeURIComponent(billNo)}/push-receipt`, qty == null ? {} : { qty });
+}
+
+export function auditOutsourcingIssue(billNo: string) {
+  return postJson(`/api/outsourcing/issues/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function auditOutsourcingReceipt(billNo: string) {
+  return postJson(`/api/outsourcing/receipts/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function pushOutsourcingReturn(billNo: string, qty?: number) {
+  return postJson(`/api/outsourcing/receipts/${encodeURIComponent(billNo)}/push-return`, qty == null ? {} : { qty });
+}
+
+export function pushOutsourcingScrap(billNo: string, qty?: number) {
+  return postJson(`/api/outsourcing/receipts/${encodeURIComponent(billNo)}/push-scrap`, qty == null ? {} : { qty });
+}
+
+export function auditOutsourcingReturn(billNo: string) {
+  return postJson(`/api/outsourcing/returns/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function auditOutsourcingScrap(billNo: string) {
+  return postJson(`/api/outsourcing/scraps/${encodeURIComponent(billNo)}/audit`, {});
 }

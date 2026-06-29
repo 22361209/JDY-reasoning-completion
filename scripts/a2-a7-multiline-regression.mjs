@@ -148,6 +148,7 @@ async function createBusinessData() {
       { materialCode: "PJ-014", qty: 3 }
     ]
   });
+  await post(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`);
   await post("/api/production/tasks", { billNo: taskIssue, bomCode, warehouseCode: "CK-001", qty: 2 });
   await post("/api/production/tasks", { billNo: taskComplete, bomCode, warehouseCode: "CK-001", qty: 30 });
 

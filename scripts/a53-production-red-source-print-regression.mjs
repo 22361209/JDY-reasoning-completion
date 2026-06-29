@@ -91,6 +91,7 @@ async function createProductionPairs() {
       ]
     }
   });
+  await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
   await requireJson("/api/production/tasks", {
     method: "POST",
     body: { billNo: issueTaskNo, bomCode, warehouseCode: "CK-001", qty: 3 }

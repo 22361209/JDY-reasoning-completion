@@ -37,6 +37,7 @@
 - `frontend/src/components/table/TableCore.vue`：列表/分录共同的原生表格框架、列宽计算、横滚、列宽拖曳热区。
 - `frontend/src/components/table/TableCoreHeaderCell.vue`：列头文字、筛选按钮、批量填充按钮、列头拖拽入口的统一渲染。
 - `frontend/src/components/table/useColumnReorder.ts`：列表/分录共同的列顺序拖拽机制。普通业务列默认可拖；`locked` 或 `reorderable: false` 的系统列/关键列不可拖。以后新增业务列不要额外写拖拽逻辑，只有确实需要锁定时才声明不可拖。
+- 业务模块页不要直接使用 `TableCore`。单据页外壳以 `StandardDocument` 为准，分录表以 `EntryTable` 或同层专用分录组件为准；`TableCore` 只作为这些共享组件内部实现细节。
 
 ## 目录地图
 

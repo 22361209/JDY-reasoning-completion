@@ -6,9 +6,9 @@
         <span class="master-record-status">{{ statusText }} / {{ auditStatusText }}</span>
       </div>
       <div class="master-record-toolbar" role="toolbar" aria-label="主数据动作">
-        <button type="button" @click="emit('newRecord')">新增</button>
+        <button class="primary-action" type="button" @click="emit('newRecord')">新增</button>
         <button v-if="readOnly" type="button" data-testid="master-record-edit" @click="emit('editRecord')">编辑</button>
-        <button class="primary-action" type="button" data-testid="master-record-save" :disabled="!canSave" @click="requestSave">保存</button>
+        <button type="button" data-testid="master-record-save" :disabled="!canSave" @click="requestSave">保存</button>
         <button type="button" :disabled="readOnly || !editing || auditStatusText === '已审核'" @click="emit('audit')">审核</button>
         <button type="button" :disabled="readOnly || !editing || auditStatusText !== '已审核'" @click="emit('reverseAudit')">反审核</button>
         <button type="button" :disabled="!canEditSavedDraft" @click="emit('toggleStatus')">{{ statusActionLabel }}</button>

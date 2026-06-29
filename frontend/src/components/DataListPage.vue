@@ -446,7 +446,7 @@ const emit = defineEmits<{
   pushDownPurchaseIn: [row: Record<string, unknown>];
   openDocument: [payload: { type: OpenableDocumentType; row: Record<string, unknown> }];
   createDocument: [payload: { type: OpenableDocumentType }];
-  createListRecord: [payload: { listKey: string }];
+  createListRecord: [payload: { listKey: string; row?: Record<string, unknown> }];
   createMasterData: [payload: { listKey: string }];
   viewMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
   editMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
@@ -938,6 +938,95 @@ const definitions: Record<string, ListDefinition> = {
       { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
+  "outsourcing-work-order-list": {
+    title: "委外加工单",
+    subtitle: "委外加工单是 A118 委外闭环主单，后续将承载供应商、母件、BOM 子件需求和下推发料。",
+    keywordPlaceholder: "委外加工单号、供应商、母件物料",
+    statuses: ["草稿", "已审核", "已关闭", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+      { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
+      { field: "supplierName", title: "供应商名称", width: 180, visible: true },
+      { field: "productCode", title: "母件物料编码", width: 150, visible: true },
+      { field: "productName", title: "母件物料名称", width: 190, visible: true },
+      { field: "bomCode", title: "BOM", width: 120, visible: true },
+      { field: "bomVersion", title: "BOM版本", width: 110, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "委外数量", width: 110, align: "right", visible: true },
+      { field: "issuedQty", title: "已发料数", width: 110, align: "right", visible: true },
+      { field: "receivedQty", title: "已入库数", width: 110, align: "right", visible: true },
+      { field: "planDeliveryDate", title: "预计交期", width: 120, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "outsourcing-issue-list": {
+    title: "委外发料单",
+    subtitle: "委外发料单由委外加工单下推，审核后按 BOM 子件从默认仓库发出。",
+    keywordPlaceholder: "委外发料单号、委外加工单、供应商、子件物料",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "委外加工单", width: 170, visible: true },
+      { field: "supplierName", title: "供应商名称", width: 180, visible: true },
+      { field: "productCode", title: "子件物料编码", width: 150, visible: true },
+      { field: "productName", title: "子件物料名称", width: 190, visible: true },
+      { field: "warehouse", title: "发料仓库", width: 130, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "发料数量", width: 110, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "outsourcing-receipt-list": {
+    title: "委外产品入库单",
+    subtitle: "委外产品入库单从委外加工链路选源，审核后母件入默认仓库。",
+    keywordPlaceholder: "委外入库单号、委外加工单、供应商、母件物料",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "委外加工单", width: 170, visible: true },
+      { field: "supplierName", title: "供应商名称", width: 180, visible: true },
+      { field: "productCode", title: "母件物料编码", width: 150, visible: true },
+      { field: "productName", title: "母件物料名称", width: 190, visible: true },
+      { field: "warehouse", title: "入库仓库", width: 130, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "入库数量", width: 110, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "outsourcing-return-list": {
+    title: "委外产品退货单",
+    subtitle: "委外产品退货单来源于已审核委外产品入库单，用于不良品退回供应商。",
+    keywordPlaceholder: "委外退货单号、委外入库单、供应商、母件物料",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "委外入库单", width: 170, visible: true },
+      { field: "supplierName", title: "供应商名称", width: 180, visible: true },
+      { field: "productCode", title: "母件物料编码", width: 150, visible: true },
+      { field: "productName", title: "母件物料名称", width: 190, visible: true },
+      { field: "warehouse", title: "退货仓库", width: 130, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "退货数量", width: 110, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "outsourcing-scrap-list": {
+    title: "委外产品报废单",
+    subtitle: "委外产品报废单来源于已审核委外产品入库单，用于确认无法退回或需内部报废的不良品。",
+    keywordPlaceholder: "委外报废单号、委外入库单、供应商、母件物料",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+      { field: "sourceOrderNo", title: "委外入库单", width: 170, visible: true },
+      { field: "supplierName", title: "供应商名称", width: 180, visible: true },
+      { field: "productCode", title: "母件物料编码", width: 150, visible: true },
+      { field: "productName", title: "母件物料名称", width: 190, visible: true },
+      { field: "warehouse", title: "报废仓库", width: 130, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "报废数量", width: 110, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
   "other-in-form-list": {
     title: "其他入库单列表",
     subtitle: "其他入库单按库存业务列表范式展示，审核后只增加库存数量。",
@@ -1067,18 +1156,25 @@ const definitions: Record<string, ListDefinition> = {
   },
   "bom-list": {
     title: "BOM维护",
-    subtitle: "BOM 维护展示成品、基准数量和启用状态，明细由后端 BOM 接口维护。",
-    keywordPlaceholder: "BOM编码、物料编码、物料名称",
+    subtitle: "BOM 维护以已审核、启用、当前版本作为生产计划可用口径。",
+    keywordPlaceholder: "BOM编码、母件物料编码、物料名称、BOM分类",
     statuses: ["启用", "禁用"],
     columns: [
       { field: "code", title: "BOM编码", width: 150, fixed: "left", visible: true },
-      { field: "productCode", title: "成品编码", width: 140, visible: true },
-      { field: "productName", title: "成品名称", width: 200, visible: true },
+      { field: "bomCategory", title: "BOM分类", width: 120, visible: true },
+      { field: "productCode", title: "母件编码", width: 140, visible: true },
+      { field: "productName", title: "母件名称", width: 200, visible: true },
+      { field: "spec", title: "规格型号", width: 160, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
       { field: "netWeight", title: "净重", width: 90, align: "right", visible: false },
       { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
-      { field: "qty", title: "基准数量", width: 100, align: "right", visible: true },
-      { field: "status", title: "状态", width: 100, visible: true }
+      { field: "qty", title: "母件数量", width: 100, align: "right", visible: true },
+      { field: "versionNo", title: "版本号", width: 90, align: "right", visible: true },
+      { field: "isCurrent", title: "当前版本", width: 90, visible: true },
+      { field: "auditStatus", title: "审核状态", width: 100, visible: true },
+      { field: "status", title: "启用状态", width: 100, visible: true },
+      { field: "updatedAt", title: "最后修改时间", width: 150, visible: true },
+      { field: "remark", title: "BOM备注", width: 220, visible: false }
     ]
   },
   "user-role-list": {
@@ -1232,6 +1328,7 @@ const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
 const canCopyMasterRecord = computed(() => props.listKey === "product-master-list");
+const isBomList = computed(() => props.listKey === "bom-list");
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
@@ -1268,6 +1365,11 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "bom-list": "master.data.manage",
   "production-plan-list": "production.task.audit",
   "production-task-form-list": "production.task.audit",
+  "outsourcing-work-order-list": "production.document.audit",
+  "outsourcing-issue-list": "production.document.audit",
+  "outsourcing-receipt-list": "production.document.audit",
+  "outsourcing-return-list": "production.document.audit",
+  "outsourcing-scrap-list": "production.document.audit",
   "outsourcing-surface-list": "production.document.audit",
   "sales-quote-form-list": "sales.order.audit",
   "sales-order-form-list": "sales.order.audit",
@@ -2010,10 +2112,14 @@ function openDocument(row: Record<string, unknown>) {
 }
 
 function isOpenableMasterCodeColumn(columnKey: string) {
-  return isMasterList.value && columnKey === "code";
+  return (isMasterList.value || isBomList.value) && columnKey === "code";
 }
 
 function openMasterRecord(row: Record<string, unknown>) {
+  if (isBomList.value) {
+    emit("createListRecord", { listKey: props.listKey, row });
+    return;
+  }
   if (isMasterList.value) {
     emit("viewMasterData", { listKey: props.listKey, row });
   }
@@ -2038,6 +2144,11 @@ function canCreateListRecord(listKey: string) {
     "bom-list",
     "production-plan-list",
     "production-task-form-list",
+    "outsourcing-work-order-list",
+    "outsourcing-issue-list",
+    "outsourcing-receipt-list",
+    "outsourcing-return-list",
+    "outsourcing-scrap-list",
     "outsourcing-surface-list"
   ].includes(listKey);
 }

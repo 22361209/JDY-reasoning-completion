@@ -108,7 +108,7 @@ const overrideScreenshot = `a104-override-${batch}.png`;
 
 try {
   await bPage.goto(frontendUrl, { waitUntil: "networkidle" });
-  await bPage.getByTestId("login-username").selectOption(editorB);
+  await bPage.getByTestId("login-username").fill(editorB);
   await bPage.getByTestId("login-password").fill(password);
   await bPage.getByTestId("login-submit").click();
   await bPage.getByTestId("content-area").waitFor({ state: "visible", timeout: 10000 });

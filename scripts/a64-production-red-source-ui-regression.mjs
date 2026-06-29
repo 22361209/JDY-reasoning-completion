@@ -36,7 +36,7 @@ async function requireJson(page, pathname, options = {}) {
 
 async function loginAsAdmin(page) {
   await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").selectOption("admin");
+  await page.getByTestId("login-username").fill("admin");
   await page.getByTestId("login-password").fill("admin123");
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
@@ -82,6 +82,7 @@ async function createProductionPairs(page) {
       ]
     }
   });
+  await requireJson(page, `/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
   await requireJson(page, "/api/production/tasks", {
     method: "POST",
     body: { billNo: issueTaskNo, bomCode, warehouseCode: "CK-001", qty: 3 }

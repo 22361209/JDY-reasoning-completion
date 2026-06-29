@@ -93,6 +93,7 @@ async function createDocuments() {
       ]
     }
   });
+  await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
   await requireJson("/api/production/tasks", {
     method: "POST",
     body: { billNo: taskIssue, bomCode, warehouseCode: "CK-001", qty: 3 }

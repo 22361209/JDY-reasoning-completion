@@ -34,7 +34,7 @@ async function browserFetch(page, pathname, options = {}) {
 
 async function loginAs(page, username, password, expectedRole) {
   await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").selectOption(username);
+  await page.getByTestId("login-username").fill(username);
   await page.getByTestId("login-password").fill(password);
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });

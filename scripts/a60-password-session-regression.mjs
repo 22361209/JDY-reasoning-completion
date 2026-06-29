@@ -37,7 +37,7 @@ async function browserFetch(page, pathname, options = {}) {
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
   await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").selectOption(usernameValue);
+  await page.getByTestId("login-username").fill(usernameValue);
   await page.getByTestId("login-password").fill(passwordValue);
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
@@ -86,7 +86,7 @@ try {
   await page.getByTestId("password-submit").click();
   await page.getByTestId("login-message").filter({ hasText: "密码已修改" }).waitFor({ state: "visible" });
 
-  await page.getByTestId("login-username").selectOption(username);
+  await page.getByTestId("login-username").fill(username);
   await page.getByTestId("login-password").fill(oldPassword);
   await page.getByTestId("login-submit").click();
   await page.waitForTimeout(500);

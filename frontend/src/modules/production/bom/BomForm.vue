@@ -1,81 +1,121 @@
 <template>
-  <section class="master-record-page production-lite-form" data-testid="bom-form">
-    <header class="master-record-head">
-      <div class="master-record-title-row">
-        <h2>{{ title }}</h2>
-        <span class="master-record-status">草稿</span>
-      </div>
-      <div class="master-record-toolbar">
-        <button type="button" data-testid="bom-new" @click="startNew">新增</button>
-        <button class="primary-action" type="button" data-testid="bom-save" @click="save">保存</button>
-        <button type="button" data-testid="bom-back-list" @click="emit('showExisting')">列表</button>
-        <span v-if="dirty" class="production-message warn">有未保存改动</span>
-        <span v-if="message" class="production-message" :class="{ error: hasError }" data-testid="bom-message">{{ message }}</span>
-      </div>
-    </header>
-
+  <StandardDocument
+    class="bom-form"
+    data-testid="bom-form"
+    :title="title"
+    subtitle=""
+    :show-subtitle="false"
+    :status-label="statusText"
+    :status-class="statusClass"
+    :locked="false"
+    :dirty="dirty"
+    :message="message"
+    :can-save="!isAudited"
+    :can-audit="Boolean(form.code) && !dirty && !isAudited"
+    :can-reverse="Boolean(form.code) && isAudited"
+    :can-red-reverse="false"
+    :can-void="false"
+    :can-close="false"
+    :can-unclose="false"
+    :can-freeze="false"
+    :can-unfreeze="false"
+    :can-delete="Boolean(form.code) && !isAudited"
+    :can-output="false"
+    :show-red-reverse="false"
+    :show-void="false"
+    :show-close="false"
+    :show-unclose="false"
+    :show-freeze="false"
+    :show-unfreeze="false"
+    :show-export="false"
+    :show-print="false"
+    :show-extra-action="true"
+    :can-extra-action="Boolean(form.code) && isAudited"
+    :extra-action-label="form.enabled ? '禁用' : '启用'"
+    extra-action-test-id="bom-toggle-status"
+    @create="startNew"
+    @save="save"
+    @audit="audit"
+    @reverse="reverseAudit"
+    @extra-action="toggleStatus"
+    @delete-document="remove"
+  >
     <div class="master-record-body">
       <section class="master-record-section">
-        <h3>BOM 信息</h3>
-        <div class="master-record-fields">
+        <h3>基本信息</h3>
+        <div class="form-head-fields bom-fields">
           <label class="required">
             <span>BOM 编码</span>
-            <input v-model.trim="form.code" data-testid="bom-code" placeholder="如 BOM-CP001" @input="markDirty" />
+            <input v-model.trim="form.code" data-testid="bom-code" placeholder="如 BOM-CP001" :readonly="isAudited" @input="markDirty" />
           </label>
-          <label class="required">
-            <span>成品物料编码</span>
-            <input v-model.trim="form.productCode" data-testid="bom-product-code" placeholder="录入已审核成品物料" @input="markDirty" />
+          <label>
+            <span>BOM 分类</span>
+            <input v-model.trim="form.bomCategory" data-testid="bom-category" placeholder="如 总成 / 焊接件 / 包装" :readonly="isAudited" @input="markDirty" />
           </label>
-          <label class="required">
-            <span>成品数量</span>
-            <input v-model.number="form.qty" data-testid="bom-qty" type="number" min="0" step="0.01" @input="markDirty" />
+          <label>
+            <span>版本号</span>
+            <input :value="form.versionNo || '保存后生成'" disabled />
           </label>
           <label>
             <span>状态</span>
-            <input value="启用" disabled />
+            <input :value="statusText" disabled />
+          </label>
+          <label class="required">
+            <span>母件物料编码</span>
+            <input v-model.trim="form.productCode" data-testid="bom-product-code" placeholder="录入已审核母件物料" :readonly="isAudited" @input="markDirty" />
+          </label>
+          <label class="required">
+            <span>母件数量</span>
+            <input v-model.number="form.qty" data-testid="bom-qty" type="number" min="0" step="0.01" :readonly="isAudited" @input="markDirty" />
+          </label>
+          <label>
+            <span>物料名称</span>
+            <input v-model="form.productName" disabled />
+          </label>
+          <label>
+            <span>规格型号</span>
+            <input v-model="form.spec" disabled />
+          </label>
+          <label>
+            <span>单位</span>
+            <input v-model="form.unit" disabled />
+          </label>
+          <label>
+            <span>默认仓库</span>
+            <input v-model="form.warehouseCode" disabled />
+          </label>
+          <label class="wide">
+            <span>BOM 备注</span>
+            <textarea v-model.trim="form.remark" data-testid="bom-remark" :readonly="isAudited" @input="markDirty" />
           </label>
         </div>
       </section>
 
       <section class="master-record-section">
-        <h3>子件明细</h3>
-        <table class="production-lite-table" data-testid="bom-lines">
-          <thead>
-            <tr>
-              <th class="line-no">序号</th>
-              <th>物料编码</th>
-              <th class="qty-col">用量</th>
-              <th class="row-action">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(line, index) in form.lines" :key="line.localId">
-              <td class="line-no">{{ index + 1 }}</td>
-              <td><input v-model.trim="line.materialCode" :data-testid="`bom-line-material-${index + 1}`" @input="markDirty" /></td>
-              <td><input v-model.number="line.qty" :data-testid="`bom-line-qty-${index + 1}`" type="number" min="0" step="0.01" @input="markDirty" /></td>
-              <td class="row-action">
-                <button type="button" :disabled="form.lines.length === 1" @click="removeLine(index)">删除</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <button type="button" data-testid="bom-add-line" @click="addLine">增加子件</button>
+        <div class="section-title-row">
+          <h3>子件明细</h3>
+        </div>
+        <BomEntryTable
+          :lines="form.lines"
+          :is-draft="!isAudited"
+          :material-options="materialOptions"
+          @mark-dirty="markDirty"
+          @insert-line-after="insertLineAfter"
+          @remove-line="removeLine"
+        />
       </section>
     </div>
-  </section>
+  </StandardDocument>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from "vue";
-import { saveBom } from "../../../services/productionApi";
+import { computed, onMounted, reactive, ref } from "vue";
+import BomEntryTable, { type BomEntryLine, type BomMaterialOption } from "../../../components/BomEntryTable.vue";
+import StandardDocument from "../../../components/StandardDocument.vue";
+import { fetchListRows } from "../../../services/listApi";
+import { auditBom, deleteBom, fetchBomDetail, reverseBom, saveBom, setBomEnabled } from "../../../services/productionApi";
 
-interface BomLineForm {
-  localId: string;
-  materialCode: string;
-  qty: number;
-}
-
-const props = defineProps<{
+defineProps<{
   title: string;
   dirty: boolean;
 }>();
@@ -88,18 +128,52 @@ const emit = defineEmits<{
 
 const message = ref("");
 const hasError = ref(false);
+const materialOptions = ref<BomMaterialOption[]>([]);
 const form = reactive({
   code: "",
+  bomCategory: "",
   productCode: "",
+  productName: "",
+  spec: "",
+  unit: "",
+  warehouseCode: "",
   qty: 1,
+  remark: "",
+  versionNo: "",
+  auditStatus: "DRAFT",
+  enabled: true,
+  isCurrent: false,
   lines: [blankLine()]
 });
 
-function blankLine(): BomLineForm {
+const isAudited = computed(() => form.auditStatus === "AUDITED");
+const statusClass = computed(() => isAudited.value ? "audited" : "draft");
+const statusText = computed(() => {
+  const audit = isAudited.value ? "已审核" : "草稿";
+  const status = form.enabled ? "启用" : "禁用";
+  return `${status} / ${audit}`;
+});
+
+onMounted(() => {
+  void loadMaterialOptions();
+});
+
+function blankLine(): BomEntryLine {
   return {
     localId: crypto.randomUUID(),
     materialCode: "",
-    qty: 1
+    materialName: "",
+    spec: "",
+    unit: "",
+    productQty: 1,
+    materialQty: 1,
+    unitQty: 1,
+    issueMethod: "按单领料",
+    issueWarehouseCode: "",
+    fixedLossQty: 0,
+    lossRate: 0,
+    childBomCode: "",
+    childBomVersionNo: ""
   };
 }
 
@@ -111,16 +185,39 @@ function markDirty() {
 
 function startNew() {
   form.code = "";
+  form.bomCategory = "";
   form.productCode = "";
+  form.productName = "";
+  form.spec = "";
+  form.unit = "";
+  form.warehouseCode = "";
   form.qty = 1;
+  form.remark = "";
+  form.versionNo = "";
+  form.auditStatus = "DRAFT";
+  form.enabled = true;
+  form.isCurrent = false;
   form.lines.splice(0, form.lines.length, blankLine());
   message.value = "";
   hasError.value = false;
   emit("markDirty");
 }
 
-function addLine() {
-  form.lines.push(blankLine());
+async function loadBom(code: string) {
+  const result = await fetchBomDetail(code);
+  if (!result.ok || !result.data) {
+    hasError.value = true;
+    message.value = result.message || "BOM 加载失败。";
+    return;
+  }
+  applyBomData(result.data);
+  hasError.value = false;
+  message.value = "";
+  emit("clearDirty");
+}
+
+function insertLineAfter(index: number) {
+  form.lines.splice(index + 1, 0, blankLine());
   markDirty();
 }
 
@@ -132,91 +229,200 @@ function removeLine(index: number) {
   markDirty();
 }
 
+async function loadMaterialOptions() {
+  const result = await fetchListRows("product-master-list", {
+    keyword: "",
+    status: "启用",
+    page: 1,
+    pageSize: 1000
+  });
+  if (!result.ok || !result.data) {
+    materialOptions.value = [];
+    return;
+  }
+  materialOptions.value = result.data.rows
+    .filter((row) => String(row.auditStatus ?? "已审核") === "已审核")
+    .map((row) => {
+      const code = text(row.code);
+      const name = text(row.name);
+      const spec = text(row.spec);
+      const unit = text(row.unit);
+      const defaultWarehouseCode = text(row.defaultWarehouseCode);
+      return {
+        code,
+        name,
+        spec,
+        unit,
+        defaultWarehouseCode,
+        searchText: normalizeLookupText(`${code} ${name} ${spec} ${unit}`)
+      };
+    })
+    .filter((option) => option.code);
+}
+
+function normalizeLookupText(value: string) {
+  return value.trim().toLowerCase();
+}
+
 async function save() {
   const lines = form.lines
     .filter((line) => line.materialCode.trim())
-    .map((line) => ({ materialCode: line.materialCode.trim(), qty: Number(line.qty) || 0 }));
+    .map((line) => ({
+      materialCode: line.materialCode.trim(),
+      qty: Number(line.unitQty) || 0,
+      productQty: Number(line.productQty) || 0,
+      materialQty: Number(line.materialQty) || 0,
+      unitQty: Number(line.unitQty) || 0,
+      issueMethod: line.issueMethod,
+      issueWarehouseCode: line.issueWarehouseCode.trim(),
+      fixedLossQty: Number(line.fixedLossQty) || 0,
+      lossRate: Number(line.lossRate) || 0,
+      childBomCode: line.childBomCode.trim()
+    }));
   const result = await saveBom({
     code: form.code.trim(),
     productCode: form.productCode.trim(),
     qty: Number(form.qty) || 0,
+    bomCategory: form.bomCategory.trim(),
+    remark: form.remark.trim(),
     lines
   });
-  if (!result.ok) {
-    hasError.value = true;
-    message.value = result.message;
+  handleWriteResult(result, "BOM 已保存。");
+}
+
+async function audit() {
+  const result = await auditBom(form.code);
+  handleWriteResult(result, "BOM 已审核并设为当前可用版本。");
+}
+
+async function reverseAudit() {
+  if (!window.confirm("反审核后该 BOM 将不再作为当前可用版本，确认继续？")) {
     return;
   }
+  const result = await reverseBom(form.code);
+  handleWriteResult(result, "BOM 已反审核。");
+}
+
+async function toggleStatus() {
+  const result = await setBomEnabled(form.code, !form.enabled);
+  handleWriteResult(result, form.enabled ? "BOM 已禁用。" : "BOM 已启用。");
+}
+
+async function remove() {
+  if (!window.confirm("确定删除当前未审核 BOM 吗？")) {
+    return;
+  }
+  const result = await deleteBom(form.code);
+  if (!result.ok) {
+    hasError.value = true;
+    message.value = result.message || "BOM 删除失败。";
+    return;
+  }
+  startNew();
+  emit("clearDirty");
+  message.value = "BOM 已删除。";
+}
+
+function handleWriteResult(result: { ok: boolean; message: string; data?: Record<string, unknown> }, successMessage: string) {
+  if (!result.ok || !result.data) {
+    hasError.value = true;
+    message.value = result.message || "BOM 处理失败。";
+    return;
+  }
+  applyBomData(result.data);
   hasError.value = false;
-  message.value = `BOM 已保存：${String(result.data?.code ?? form.code)}`;
+  message.value = successMessage;
   emit("clearDirty");
 }
 
-defineExpose({ startNew });
+function applyBomData(data: Record<string, unknown>) {
+  form.code = text(data.code);
+  form.bomCategory = text(data.bomCategory);
+  form.productCode = text(data.productCode);
+  form.productName = text(data.productName);
+  form.spec = text(data.spec);
+  form.unit = text(data.unit);
+  form.warehouseCode = text(data.warehouseCode);
+  form.qty = numberValue(data.qty, 1);
+  form.remark = text(data.remark);
+  form.versionNo = text(data.versionNo);
+  form.auditStatus = text(data.auditStatus) || "DRAFT";
+  form.enabled = Boolean(data.enabled);
+  form.isCurrent = Boolean(data.isCurrent);
+  const lines = Array.isArray(data.lines) ? data.lines as Record<string, unknown>[] : [];
+  form.lines.splice(0, form.lines.length, ...(lines.length ? lines.map(lineFromData) : [blankLine()]));
+}
 
-void props;
+function lineFromData(data: Record<string, unknown>): BomEntryLine {
+  return {
+    localId: crypto.randomUUID(),
+    materialCode: text(data.materialCode),
+    materialName: text(data.materialName),
+    spec: text(data.spec),
+    unit: text(data.unit),
+    productQty: numberValue(data.productQty, 1),
+    materialQty: numberValue(data.materialQty, 1),
+    unitQty: numberValue(data.unitQty, 1),
+    issueMethod: text(data.issueMethod) || "按单领料",
+    issueWarehouseCode: text(data.issueWarehouseCode),
+    fixedLossQty: numberValue(data.fixedLossQty, 0),
+    lossRate: numberValue(data.lossRate, 0),
+    childBomCode: text(data.childBomCode),
+    childBomVersionNo: text(data.childBomVersionNo)
+  };
+}
+
+function text(value: unknown) {
+  return value == null ? "" : String(value);
+}
+
+function numberValue(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+defineExpose({ startNew, loadBom });
 </script>
 
 <style scoped>
-.production-lite-form {
-  min-width: 960px;
+.bom-form {
+  min-width: 1120px;
 }
 
-.production-message {
-  color: #16734a;
+.bom-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 10px 14px;
+  border: 0;
+  padding: 10px;
+}
+
+.bom-fields label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: #5d7188;
   font-size: 12px;
 }
 
-.production-message.warn {
-  color: #b44b37;
+.bom-fields label.required span::before {
+  content: "*";
+  margin-right: 2px;
+  color: #d1412f;
 }
 
-.production-message.error {
-  color: #b44b37;
+.bom-fields textarea {
+  resize: vertical;
 }
 
-.production-lite-table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  font-size: 13px;
+.bom-fields .wide {
+  grid-column: span 2;
 }
 
-.production-lite-table th,
-.production-lite-table td {
-  height: 32px;
-  border: 1px solid #d8e1ec;
-  padding: 0 8px;
-  background: #ffffff;
-}
-
-.production-lite-table th {
-  background: #f4f7fb;
-  color: #26384d;
-  font-weight: 600;
-  text-align: left;
-}
-
-.production-lite-table input {
-  width: 100%;
-  height: 26px;
-  border: 1px solid #c7d2df;
-  border-radius: 4px;
-  padding: 0 6px;
-  font-size: 13px;
-}
-
-.line-no {
-  width: 56px;
-  text-align: center;
-}
-
-.qty-col {
-  width: 160px;
-}
-
-.row-action {
-  width: 100px;
-  text-align: center;
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 </style>
