@@ -100,6 +100,10 @@ export function pushDownProductionPlan(billNo: string) {
   return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/push-down`, {});
 }
 
+export function pushDownMaterialIssueProductIn(billNo: string) {
+  return postJson(`/api/production/material-issues/${encodeURIComponent(billNo)}/push-product-in`, {});
+}
+
 export function createProductionTask(payload: ProductionTaskPayload) {
   const body = compactPayload(payload as unknown as Record<string, unknown>);
   const planNo = typeof payload.planNo === "string" ? payload.planNo.trim() : "";

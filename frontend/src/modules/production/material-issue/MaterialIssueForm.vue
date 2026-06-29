@@ -24,6 +24,10 @@
     :can-freeze="document.canFreeze.value"
     :can-unfreeze="document.canUnfreeze.value"
     :can-delete="document.canDelete.value"
+    :show-push-down="true"
+    :can-push-down="canPushDownProductIn"
+    push-down-label="下推产品入库"
+    push-down-test-id="push-product-in-from-material-issue"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="document.showExecutionColumns.value"
@@ -57,6 +61,7 @@
     @unclose-document="document.openLifecycleAction('unclose')"
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
+    @push-down="pushDownProductIn"
     @delete-document="noop"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -98,6 +103,7 @@ import { computed } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
+import { pushDownMaterialIssueProductIn } from "../../../services/productionApi";
 import { useMaterialIssueDocument } from "./useMaterialIssueDocument";
 
 const props = defineProps<{
@@ -127,6 +133,12 @@ const document = useMaterialIssueDocument({
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
+
+const canPushDownProductIn = computed(() => (
+  document.form.status === "AUDITED" &&
+  Boolean(document.form.billNo) &&
+  props.hasPermission("production.document.audit")
+));
 
 const dialogBindings = computed(() => ({
   pendingZeroEntrySave: document.pendingZeroEntrySave.value,
@@ -178,6 +190,24 @@ const dialogHandlers = {
 };
 
 function noop() {}
+
+async function pushDownProductIn() {
+  if (!canPushDownProductIn.value) {
+    return;
+  }
+  const result = await pushDownMaterialIssueProductIn(document.form.billNo);
+  if (!result.ok) {
+    document.message.value = result.message || "生产领料单下推产品入库失败。";
+    return;
+  }
+  const billNo = String(result.data?.billNo ?? "");
+  if (!billNo) {
+    document.message.value = "产品入库单已生成，但返回单号为空。";
+    return;
+  }
+  document.message.value = `已下推生成产品入库单 ${billNo}`;
+  emit("requestOpenDocument", { type: "productIn", billNo });
+}
 
 async function loadByBillNo(billNo: string) {
   await document.loadByBillNo(billNo);

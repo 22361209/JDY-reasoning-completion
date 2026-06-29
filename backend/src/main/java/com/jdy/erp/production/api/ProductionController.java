@@ -129,6 +129,13 @@ public class ProductionController {
         return materialIssueAppService.redReverse(billNo, request);
     }
 
+    @PostMapping("/material-issues/{billNo}/push-product-in")
+    @RequirePermission("production.document.audit")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> pushProductInFromIssue(@PathVariable String billNo, @RequestBody(required = false) CompleteRequest request) {
+        return productInAppService.completeFromIssue(billNo, request);
+    }
+
     @PostMapping("/tasks/{billNo}/complete")
     @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)

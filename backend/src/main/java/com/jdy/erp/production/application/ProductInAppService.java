@@ -95,6 +95,39 @@ public class ProductInAppService {
     }
 
     @Transactional
+    public Map<String, Object> completeFromIssue(String issueBillNo, CompleteRequest request) {
+        var issueRows = jdbcTemplate.queryForList("""
+            SELECT i.bill_no AS "issueBillNo",
+                   t.bill_no AS "taskBillNo",
+                   t.qty,
+                   t.completed_qty AS "completedQty"
+            FROM production_material_issue i
+            JOIN production_task t ON t.id = i.task_id
+            WHERE i.bill_no = ?
+              AND i.status = ?
+              AND t.status IN ('AUDITED', 'ISSUED')
+            """, issueBillNo, BillStatus.AUDITED.name());
+        if (issueRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在、未审核或来源任务不能完工入库");
+        }
+        var issue = issueRows.get(0);
+        var taskQty = (BigDecimal) issue.get("qty");
+        var completedQty = (BigDecimal) issue.get("completedQty");
+        var remainingQty = taskQty.subtract(completedQty);
+        if (remainingQty.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "来源生产任务已全部完工入库");
+        }
+        var completionRequest = new CompleteRequest(
+            request == null ? null : request.billNo(),
+            request == null || request.qty() == null ? remainingQty : request.qty(),
+            request == null ? null : request.lines()
+        );
+        var result = new LinkedHashMap<String, Object>(complete(String.valueOf(issue.get("taskBillNo")), completionRequest));
+        result.put("sourceIssueNo", issueBillNo);
+        return result;
+    }
+
+    @Transactional
     public Map<String, Object> complete(String billNo, CompleteRequest request) {
         var productInBillNo = numberingService.assignBillNo("productIn", request.billNo());
         var taskRows = jdbcTemplate.queryForList("""
