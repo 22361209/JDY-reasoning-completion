@@ -106,6 +106,34 @@
           <input v-model="page.managedUserForm.enabled" type="checkbox" data-testid="managed-user-enabled" />
           <span>启用</span>
         </label>
+        <section class="account-set-grant-panel" data-testid="managed-user-account-sets">
+          <div class="password-reset-admin-panel__head">
+            <strong>账套授权</strong>
+            <span>{{ page.managedUserForm.accountSetCodes.length }} 个</span>
+          </div>
+          <div class="account-set-grant-grid">
+            <label
+              v-for="accountSet in page.managedAccountSets.value"
+              :key="accountSet.code"
+              class="account-set-grant-row"
+            >
+              <input
+                type="checkbox"
+                :checked="page.managedUserForm.accountSetCodes.includes(accountSet.code)"
+                :data-testid="`managed-user-account-set-${accountSet.code}`"
+                @change="page.toggleAccountSetGrant(accountSet.code, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>{{ accountSet.name }}</span>
+              <em>{{ accountSet.code }}</em>
+            </label>
+          </div>
+          <label>
+            <span>默认账套</span>
+            <select v-model="page.managedUserForm.defaultAccountSetCode" data-testid="managed-user-default-account-set">
+              <option v-for="accountSetCode in page.managedUserForm.accountSetCodes" :key="accountSetCode" :value="accountSetCode">{{ accountSetCode }}</option>
+            </select>
+          </label>
+        </section>
         <label>
           <span>{{ page.userManagementMode.value === "create" ? "初始密码" : "重置密码" }}</span>
           <input v-model="page.managedUserPassword.value" type="password" data-testid="managed-user-password" />

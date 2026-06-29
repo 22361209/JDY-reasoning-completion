@@ -130,19 +130,22 @@ public class CurrentSessionService {
     }
 
     public String currentUserId() {
-        var rows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id
-            FROM sys_user
-            WHERE username = ?
-              AND enabled = TRUE
-            """, currentUsername());
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
-        }
-        return String.valueOf(rows.get(0).get("id"));
+        return userIdByUsername(currentUsername());
     }
 
     public List<Map<String, Object>> availableAccountSets() {
+        var username = optionalCurrentUsername();
+        if (username == null) {
+            return enabledAccountSets();
+        }
+        var userId = userIdByUsername(username);
+        if (canAccessAllAccountSets(userId)) {
+            return enabledAccountSets();
+        }
+        return authorizedAccountSets(userId);
+    }
+
+    private List<Map<String, Object>> enabledAccountSets() {
         return jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    code,
@@ -169,7 +172,19 @@ public class CurrentSessionService {
     public String currentAccountSetId() {
         var accountSetId = optionalCurrentAccountSetId();
         if (accountSetId != null && !accountSetId.isBlank()) {
-            return accountSetId;
+            var username = optionalCurrentUsername();
+            if (username == null) {
+                return accountSetId;
+            }
+            var userId = userIdByUsername(username);
+            if (canAccessAccountSetId(userId, accountSetId)) {
+                return accountSetId;
+            }
+            return String.valueOf(resolveAuthorizedDefaultAccountSet(userId).get("id"));
+        }
+        var username = optionalCurrentUsername();
+        if (username != null) {
+            return String.valueOf(resolveAuthorizedDefaultAccountSet(userIdByUsername(username)).get("id"));
         }
         return defaultAccountSetId();
     }
@@ -179,8 +194,9 @@ public class CurrentSessionService {
     }
 
     public void switchAccountSet(String accountSetCode) {
-        currentUsername();
+        var userId = currentUserId();
         var accountSet = accountSetByCode(accountSetCode);
+        assertCanAccessAccountSet(userId, String.valueOf(accountSet.get("id")));
         var request = currentRequest();
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法切换当前账套");
@@ -516,48 +532,12 @@ public class CurrentSessionService {
 
     private Map<String, Object> resolveLoginAccountSet(String accountSetCode, String userId) {
         var normalizedCode = accountSetCode == null ? "" : accountSetCode.trim();
-        var rows = normalizedCode.isBlank()
-            ? jdbcTemplate.queryForList("""
-                SELECT a.id::text AS id,
-                       a.code,
-                       a.name,
-                       a.environment,
-                       COALESCE(a.database_name, '') AS "databaseName",
-                       COALESCE(a.schema_name, '') AS "schemaName",
-                       COALESCE(a.attachment_prefix, '') AS "attachmentPrefix",
-                       COALESCE(a.redis_key_prefix, '') AS "redisKeyPrefix",
-                       a.accounting_period AS "accountingPeriod",
-                       a.business_period AS "businessPeriod",
-                       a.enabled,
-                       a.initialized
-                FROM sys_account_set a
-                LEFT JOIN sys_user u ON u.default_account_set_id = a.id AND u.id = ?::uuid
-                WHERE a.enabled = TRUE
-                ORDER BY CASE WHEN u.id IS NULL THEN 1 ELSE 0 END, a.created_at, a.code
-                LIMIT 1
-                """, userId)
-            : jdbcTemplate.queryForList("""
-                SELECT id::text AS id,
-                       code,
-                       name,
-                       environment,
-                       COALESCE(database_name, '') AS "databaseName",
-                       COALESCE(schema_name, '') AS "schemaName",
-                       COALESCE(attachment_prefix, '') AS "attachmentPrefix",
-                       COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
-                       accounting_period AS "accountingPeriod",
-                       business_period AS "businessPeriod",
-                       enabled,
-                       initialized
-                FROM sys_account_set
-                WHERE code = ?
-                  AND enabled = TRUE
-                LIMIT 1
-                """, normalizedCode);
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账套不存在或已停用");
+        if (normalizedCode.isBlank()) {
+            return resolveAuthorizedDefaultAccountSet(userId);
         }
-        return rows.get(0);
+        var accountSet = accountSetByCode(normalizedCode);
+        assertCanAccessAccountSet(userId, String.valueOf(accountSet.get("id")));
+        return accountSet;
     }
 
     private Map<String, Object> accountSetByCode(String accountSetCode) {
@@ -612,6 +592,122 @@ public class CurrentSessionService {
             return accountSetById(defaultAccountSetId());
         }
         return rows.get(0);
+    }
+
+    private String userIdByUsername(String username) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM sys_user
+            WHERE username = ?
+              AND enabled = TRUE
+            """, username);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
+        }
+        return String.valueOf(rows.get(0).get("id"));
+    }
+
+    private Map<String, Object> resolveAuthorizedDefaultAccountSet(String userId) {
+        if (canAccessAllAccountSets(userId)) {
+            var rows = defaultAccountSetRows(userId);
+            if (!rows.isEmpty()) {
+                return rows.get(0);
+            }
+        }
+        var rows = authorizedAccountSets(userId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户未授权任何可用账套");
+        }
+        return rows.get(0);
+    }
+
+    private List<Map<String, Object>> defaultAccountSetRows(String userId) {
+        return jdbcTemplate.queryForList("""
+            SELECT a.id::text AS id,
+                   a.code,
+                   a.name,
+                   a.environment,
+                   COALESCE(a.database_name, '') AS "databaseName",
+                   COALESCE(a.schema_name, '') AS "schemaName",
+                   COALESCE(a.attachment_prefix, '') AS "attachmentPrefix",
+                   COALESCE(a.redis_key_prefix, '') AS "redisKeyPrefix",
+                   a.accounting_period AS "accountingPeriod",
+                   a.business_period AS "businessPeriod",
+                   a.enabled,
+                   a.initialized
+            FROM sys_account_set a
+            LEFT JOIN sys_user u ON u.default_account_set_id = a.id AND u.id = ?::uuid
+            WHERE a.enabled = TRUE
+            ORDER BY CASE WHEN u.id IS NULL THEN 1 ELSE 0 END, a.created_at, a.code
+            LIMIT 1
+            """, userId);
+    }
+
+    private List<Map<String, Object>> authorizedAccountSets(String userId) {
+        return jdbcTemplate.queryForList("""
+            SELECT a.id::text AS id,
+                   a.code,
+                   a.name,
+                   a.environment,
+                   COALESCE(a.database_name, '') AS "databaseName",
+                   COALESCE(a.schema_name, '') AS "schemaName",
+                   COALESCE(a.attachment_prefix, '') AS "attachmentPrefix",
+                   COALESCE(a.redis_key_prefix, '') AS "redisKeyPrefix",
+                   a.accounting_period AS "accountingPeriod",
+                   a.business_period AS "businessPeriod",
+                   a.enabled,
+                   a.initialized
+            FROM sys_user_account_set uas
+            JOIN sys_account_set a ON a.id = uas.account_set_id
+            LEFT JOIN sys_user u ON u.id = uas.user_id
+            WHERE uas.user_id = ?::uuid
+              AND uas.enabled = TRUE
+              AND a.enabled = TRUE
+            ORDER BY CASE WHEN uas.is_default = TRUE THEN 0 ELSE 1 END,
+                     CASE WHEN u.default_account_set_id = a.id THEN 0 ELSE 1 END,
+                     a.created_at,
+                     a.code
+            """, userId);
+    }
+
+    private void assertCanAccessAccountSet(String userId, String accountSetId) {
+        if (!canAccessAccountSetId(userId, accountSetId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权进入该账套");
+        }
+    }
+
+    private boolean canAccessAccountSetId(String userId, String accountSetId) {
+        if (canAccessAllAccountSets(userId)) {
+            return true;
+        }
+        var counts = jdbcTemplate.queryForList("""
+            SELECT count(*)::int
+            FROM sys_user_account_set uas
+            JOIN sys_account_set a ON a.id = uas.account_set_id
+            WHERE uas.user_id = ?::uuid
+              AND uas.account_set_id = ?::uuid
+              AND uas.enabled = TRUE
+              AND a.enabled = TRUE
+            """, Integer.class, userId, accountSetId);
+        return !counts.isEmpty() && counts.get(0) > 0;
+    }
+
+    private boolean canAccessAllAccountSets(String userId) {
+        var counts = jdbcTemplate.queryForList("""
+            SELECT count(*)::int
+            FROM sys_user_role ur
+            JOIN sys_role r ON r.id = ur.role_id
+            LEFT JOIN sys_permission p
+              ON p.role_id = r.id
+             AND p.permission_code = 'system.account_set.manage'
+             AND p.enabled = TRUE
+            LEFT JOIN sys_permission_catalog c
+              ON c.permission_code = p.permission_code
+            WHERE ur.user_id = ?::uuid
+              AND r.enabled = TRUE
+              AND (r.code = 'ADMIN' OR (p.id IS NOT NULL AND COALESCE(c.enabled, TRUE) = TRUE))
+            """, Integer.class, userId);
+        return !counts.isEmpty() && counts.get(0) > 0;
     }
 
     private String defaultAccountSetId() {

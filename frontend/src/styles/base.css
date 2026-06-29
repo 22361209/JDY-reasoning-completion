@@ -1224,6 +1224,47 @@ input:disabled {
   height: 16px;
 }
 
+.account-set-grant-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d8e1ec;
+  background: #fbfdff;
+  padding: 10px;
+  max-width: 620px;
+}
+
+.account-set-grant-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.account-set-grant-row {
+  max-width: none !important;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.account-set-grant-row input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.account-set-grant-row span,
+.account-set-grant-row em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-set-grant-row em {
+  color: #708295;
+  font-style: normal;
+}
+
 .role-permission-summary {
   min-height: 42px;
   display: flex;

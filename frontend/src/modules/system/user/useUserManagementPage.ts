@@ -10,6 +10,7 @@ import {
   type ManagedRole,
   type ManagedUser,
   type PasswordResetRequestItem,
+  type SystemAccountSet,
   type SystemUser
 } from "../../../services/systemApi";
 
@@ -20,6 +21,7 @@ export function useUserManagementPage(options: {
 }) {
   const managedUsers = ref<ManagedUser[]>([]);
   const managedRoles = ref<ManagedRole[]>([]);
+  const managedAccountSets = ref<SystemAccountSet[]>([]);
   const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
   const selectedPasswordResetRequestId = ref("");
   const passwordResetHandleNote = ref("");
@@ -31,7 +33,9 @@ export function useUserManagementPage(options: {
     username: "",
     displayName: "",
     roleCode: "WAREHOUSE",
-    enabled: true
+    enabled: true,
+    accountSetCodes: [] as string[],
+    defaultAccountSetCode: ""
   });
   const selectedManagedUser = computed(() => managedUsers.value.find((user) => user.username === selectedManagedUsername.value) ?? null);
   const pendingPasswordResetRequests = computed(() => passwordResetRequests.value.filter((request) => request.status === "PENDING"));
@@ -47,6 +51,7 @@ export function useUserManagementPage(options: {
     }
     managedUsers.value = result.data.users;
     managedRoles.value = result.data.roles;
+    managedAccountSets.value = result.data.accountSets ?? [];
     passwordResetRequests.value = result.data.passwordResetRequests ?? [];
     if (!pendingPasswordResetRequests.value.some((request) => request.id === selectedPasswordResetRequestId.value)) {
       selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
@@ -92,6 +97,8 @@ export function useUserManagementPage(options: {
     managedUserForm.displayName = user.displayName;
     managedUserForm.roleCode = user.roleCode;
     managedUserForm.enabled = user.enabled;
+    managedUserForm.accountSetCodes = splitAccountSetCodes(user.accountSetCodes);
+    managedUserForm.defaultAccountSetCode = user.defaultAccountSetCode || managedUserForm.accountSetCodes[0] || managedAccountSets.value[0]?.code || "";
     managedUserPassword.value = "";
   }
 
@@ -112,6 +119,8 @@ export function useUserManagementPage(options: {
     managedUserForm.displayName = "";
     managedUserForm.roleCode = managedRoles.value.find((role) => role.code === "WAREHOUSE")?.code ?? managedRoles.value[0]?.code ?? "";
     managedUserForm.enabled = true;
+    managedUserForm.accountSetCodes = managedAccountSets.value[0]?.code ? [managedAccountSets.value[0].code] : [];
+    managedUserForm.defaultAccountSetCode = managedUserForm.accountSetCodes[0] ?? "";
     managedUserPassword.value = "";
     userManagementMessage.value = "";
   }
@@ -126,7 +135,9 @@ export function useUserManagementPage(options: {
       : await updateManagedUser(managedUserForm.username, {
         displayName: managedUserForm.displayName,
         roleCode: managedUserForm.roleCode,
-        enabled: managedUserForm.enabled
+        enabled: managedUserForm.enabled,
+        accountSetCodes: managedUserForm.accountSetCodes,
+        defaultAccountSetCode: managedUserForm.defaultAccountSetCode
       });
     if (!result.ok || !result.data) {
       userManagementMessage.value = result.message || "用户保存失败。";
@@ -134,6 +145,7 @@ export function useUserManagementPage(options: {
     }
     managedUsers.value = result.data.users;
     managedRoles.value = result.data.roles;
+    managedAccountSets.value = result.data.accountSets ?? managedAccountSets.value;
     passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
     selectedManagedUsername.value = managedUserForm.username;
     userManagementMode.value = "edit";
@@ -196,9 +208,30 @@ export function useUserManagementPage(options: {
     userManagementMessage.value = message;
   }
 
+  function splitAccountSetCodes(accountSetCodes?: string) {
+    if (!accountSetCodes) {
+      return [] as string[];
+    }
+    return accountSetCodes.split(",").map((code) => code.trim()).filter(Boolean);
+  }
+
+  function toggleAccountSetGrant(accountSetCode: string, checked: boolean) {
+    const next = new Set(managedUserForm.accountSetCodes);
+    if (checked) {
+      next.add(accountSetCode);
+    } else {
+      next.delete(accountSetCode);
+    }
+    managedUserForm.accountSetCodes = Array.from(next);
+    if (!managedUserForm.accountSetCodes.includes(managedUserForm.defaultAccountSetCode)) {
+      managedUserForm.defaultAccountSetCode = managedUserForm.accountSetCodes[0] ?? "";
+    }
+  }
+
   return {
     managedUsers,
     managedRoles,
+    managedAccountSets,
     passwordResetRequests,
     selectedPasswordResetRequestId,
     passwordResetHandleNote,
@@ -219,6 +252,7 @@ export function useUserManagementPage(options: {
     resetManagedUserPasswordAction,
     rejectPasswordResetRequestAction,
     unlockManagedUserAction,
-    setUserManagementMessage
+    setUserManagementMessage,
+    toggleAccountSetGrant
   };
 }

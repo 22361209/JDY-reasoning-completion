@@ -1,5 +1,7 @@
 package com.jdy.erp.system.api;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +49,7 @@ public class UserManagementController {
         return Map.of(
             "users", userRows(),
             "roles", roleRows(),
+            "accountSets", accountSetRows(),
             "passwordResetRequests", passwordResetRequestRows(),
             "notificationOutbox", notificationRows("")
         );
@@ -176,6 +179,7 @@ public class UserManagementController {
                 INSERT INTO sys_user_role (user_id, role_id)
                 VALUES (?::uuid, ?::uuid)
                 """, user.get("id"), roleId);
+            saveUserAccountSetGrants(String.valueOf(user.get("id")), request.accountSetCodes(), request.defaultAccountSetCode());
         } catch (DuplicateKeyException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "用户名已存在");
         }
@@ -204,6 +208,20 @@ public class UserManagementController {
             INSERT INTO sys_user_role (user_id, role_id)
             VALUES (?::uuid, ?::uuid)
             """, userId, roleId);
+        if (request.accountSetCodes() != null || request.defaultAccountSetCode() != null) {
+            saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
+        }
+        return managedUsers();
+    }
+
+    @PutMapping("/managed-users/{username}/account-sets")
+    @RequirePermission("system.role_permission.manage")
+    @Transactional
+    public Map<String, Object> saveUserAccountSets(@PathVariable String username, @RequestBody AccountSetGrantRequest request) {
+        var normalizedUsername = required(username, "用户名");
+        var userId = userId(normalizedUsername);
+        saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
+        log("SYSTEM", "SAVE_USER_ACCOUNT_SETS", "sys_user", userId, true, null);
         return managedUsers();
     }
 
@@ -362,6 +380,8 @@ public class UserManagementController {
                    CASE WHEN u.active_session_token IS NULL THEN FALSE ELSE TRUE END AS "activeSession",
                    COALESCE(to_char(u.active_session_started_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "activeSessionStartedAt",
                    COALESCE(to_char(u.last_session_replaced_at, 'YYYY-MM-DD HH24:MI:SS'), '') AS "lastSessionReplacedAt",
+                   COALESCE(default_account_set.code, '') AS "defaultAccountSetCode",
+                   COALESCE(string_agg(account_set.code, ',' ORDER BY account_set.created_at, account_set.code) FILTER (WHERE account_set.code IS NOT NULL), '') AS "accountSetCodes",
                    CASE WHEN EXISTS (
                        SELECT 1
                        FROM sys_password_reset_request pr
@@ -371,6 +391,12 @@ public class UserManagementController {
             FROM sys_user u
             LEFT JOIN sys_user_role ur ON ur.user_id = u.id
             LEFT JOIN sys_role r ON r.id = ur.role_id
+            LEFT JOIN sys_account_set default_account_set ON default_account_set.id = u.default_account_set_id
+            LEFT JOIN sys_user_account_set uas ON uas.user_id = u.id AND uas.enabled = TRUE
+            LEFT JOIN sys_account_set account_set ON account_set.id = uas.account_set_id AND account_set.enabled = TRUE
+            GROUP BY u.id, u.username, u.display_name, r.code, r.name, u.enabled, u.failed_login_count,
+                     u.locked_until, u.last_login_at, u.active_session_token, u.active_session_started_at,
+                     u.last_session_replaced_at, default_account_set.code
             ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 WHEN 'WAREHOUSE' THEN 1 WHEN 'FINANCE' THEN 2 ELSE 3 END, u.username
             """);
     }
@@ -434,6 +460,125 @@ public class UserManagementController {
             WHERE enabled = TRUE
             ORDER BY CASE code WHEN 'ADMIN' THEN 0 WHEN 'WAREHOUSE' THEN 1 WHEN 'FINANCE' THEN 2 ELSE 3 END, code
             """);
+    }
+
+    private List<Map<String, Object>> accountSetRows() {
+        return jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   environment,
+                   enabled,
+                   initialized
+            FROM sys_account_set
+            WHERE enabled = TRUE
+            ORDER BY created_at, code
+            """);
+    }
+
+    private void saveUserAccountSetGrants(String userId, List<String> requestedAccountSetCodes, String requestedDefaultAccountSetCode) {
+        var accountSetCodes = normalizeCodes(requestedAccountSetCodes);
+        var defaultAccountSetCode = requestedDefaultAccountSetCode == null ? "" : requestedDefaultAccountSetCode.trim();
+        if (accountSetCodes.isEmpty()) {
+            if (!defaultAccountSetCode.isBlank()) {
+                accountSetCodes.add(defaultAccountSetCode);
+            } else {
+                accountSetCodes.add(defaultAccountSetCode(userId));
+            }
+        }
+        if (defaultAccountSetCode.isBlank() || !accountSetCodes.contains(defaultAccountSetCode)) {
+            defaultAccountSetCode = accountSetCodes.get(0);
+        }
+        var knownAccountSets = accountSetIdsByCode(accountSetCodes);
+        if (knownAccountSets.size() != accountSetCodes.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "包含不存在或已停用的账套");
+        }
+        var defaultAccountSetId = knownAccountSets.get(defaultAccountSetCode);
+        if (defaultAccountSetId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "默认账套必须在授权账套范围内");
+        }
+        var roleCode = roleCodeOfUser(userId);
+        jdbcTemplate.update("""
+            UPDATE sys_user_account_set
+            SET enabled = FALSE,
+                is_default = FALSE,
+                updated_at = now(),
+                version = version + 1
+            WHERE user_id = ?::uuid
+            """, userId);
+        for (var accountSetCode : accountSetCodes) {
+            jdbcTemplate.update("""
+                INSERT INTO sys_user_account_set (user_id, account_set_id, role_code, is_default, enabled)
+                VALUES (?::uuid, ?::uuid, ?, ?, TRUE)
+                ON CONFLICT (user_id, account_set_id) DO UPDATE
+                SET role_code = EXCLUDED.role_code,
+                    is_default = EXCLUDED.is_default,
+                    enabled = TRUE,
+                    updated_at = now(),
+                    version = sys_user_account_set.version + 1
+                """, userId, knownAccountSets.get(accountSetCode), "ADMIN".equals(roleCode) ? "ADMIN" : "MEMBER", accountSetCode.equals(defaultAccountSetCode));
+        }
+        jdbcTemplate.update("""
+            UPDATE sys_user
+            SET default_account_set_id = ?::uuid,
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, defaultAccountSetId, userId);
+    }
+
+    private ArrayList<String> normalizeCodes(List<String> rawCodes) {
+        var normalized = new LinkedHashSet<String>();
+        if (rawCodes != null) {
+            for (var code : rawCodes) {
+                if (code != null && !code.isBlank()) {
+                    normalized.add(code.trim());
+                }
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private Map<String, String> accountSetIdsByCode(List<String> accountSetCodes) {
+        var placeholders = String.join(", ", accountSetCodes.stream().map(code -> "?").toList());
+        var rows = jdbcTemplate.queryForList("""
+            SELECT code, id::text AS id
+            FROM sys_account_set
+            WHERE enabled = TRUE
+              AND code IN (%s)
+            """.formatted(placeholders), accountSetCodes.toArray());
+        return rows.stream().collect(java.util.stream.Collectors.toMap(
+            row -> String.valueOf(row.get("code")),
+            row -> String.valueOf(row.get("id"))
+        ));
+    }
+
+    private String defaultAccountSetCode(String userId) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT a.code
+            FROM sys_account_set a
+            LEFT JOIN sys_user u ON u.default_account_set_id = a.id AND u.id = ?::uuid
+            WHERE a.enabled = TRUE
+            ORDER BY CASE WHEN u.id IS NULL THEN 1 ELSE 0 END, a.created_at, a.code
+            LIMIT 1
+            """, userId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "未配置可用账套");
+        }
+        return String.valueOf(rows.get(0).get("code"));
+    }
+
+    private String roleCodeOfUser(String userId) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT r.code
+            FROM sys_user_role ur
+            JOIN sys_role r ON r.id = ur.role_id
+            WHERE ur.user_id = ?::uuid
+              AND r.enabled = TRUE
+            ORDER BY CASE r.code WHEN 'ADMIN' THEN 0 ELSE 1 END, r.code
+            LIMIT 1
+            """, userId);
+        return rows.isEmpty() ? "MEMBER" : String.valueOf(rows.get(0).get("code"));
     }
 
     private String userId(String username) {
@@ -528,7 +673,18 @@ public class UserManagementController {
         log("SYSTEM", "SEND_PASSWORD_RESET_NOTICE", "sys_notification_outbox", null, true, templateCode + "：" + recipientUsername);
     }
 
-    public record UserRequest(String username, String displayName, String roleCode, String password, Boolean enabled) {
+    public record UserRequest(
+        String username,
+        String displayName,
+        String roleCode,
+        String password,
+        Boolean enabled,
+        List<String> accountSetCodes,
+        String defaultAccountSetCode
+    ) {
+    }
+
+    public record AccountSetGrantRequest(List<String> accountSetCodes, String defaultAccountSetCode) {
     }
 
     public record PasswordRequest(String password) {

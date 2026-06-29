@@ -36,6 +36,8 @@ export interface SystemUser {
 export interface ManagedUser extends SystemUser {
   id: string;
   enabled: boolean;
+  accountSetCodes?: string;
+  defaultAccountSetCode?: string;
   failedLoginCount?: number;
   locked?: boolean;
   lockedUntil?: string;
@@ -88,6 +90,7 @@ export interface NotificationOutboxItem {
 export interface ManagedUsersPayload {
   users: ManagedUser[];
   roles: ManagedRole[];
+  accountSets?: SystemAccountSet[];
   passwordResetRequests: PasswordResetRequestItem[];
   notificationOutbox?: NotificationOutboxItem[];
 }
@@ -335,11 +338,25 @@ export async function fetchManagedUsers(): Promise<ManagedUsersResult> {
   }
 }
 
-export async function createManagedUser(payload: { username: string; displayName: string; roleCode: string; password: string; enabled: boolean }): Promise<ManagedUsersResult> {
+export async function createManagedUser(payload: {
+  username: string;
+  displayName: string;
+  roleCode: string;
+  password: string;
+  enabled: boolean;
+  accountSetCodes: string[];
+  defaultAccountSetCode: string;
+}): Promise<ManagedUsersResult> {
   return writeManagedUser("/api/system/managed-users", "POST", payload);
 }
 
-export async function updateManagedUser(username: string, payload: { displayName: string; roleCode: string; enabled: boolean }): Promise<ManagedUsersResult> {
+export async function updateManagedUser(username: string, payload: {
+  displayName: string;
+  roleCode: string;
+  enabled: boolean;
+  accountSetCodes: string[];
+  defaultAccountSetCode: string;
+}): Promise<ManagedUsersResult> {
   return writeManagedUser(`/api/system/managed-users/${encodeURIComponent(username)}`, "PUT", payload);
 }
 
