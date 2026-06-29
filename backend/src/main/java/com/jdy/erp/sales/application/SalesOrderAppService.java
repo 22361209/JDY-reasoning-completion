@@ -16,6 +16,7 @@ import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class SalesOrderAppService {
     private final CurrentSessionService currentSessionService;
     private final TaxAmountCalculator taxAmountCalculator;
     private final ProductSnapshotService productSnapshotService;
+    private final TenantDataScopeService tenantDataScopeService;
 
     public SalesOrderAppService(
         JdbcTemplate jdbcTemplate,
@@ -43,7 +45,8 @@ public class SalesOrderAppService {
         NumberingService numberingService,
         CurrentSessionService currentSessionService,
         TaxAmountCalculator taxAmountCalculator,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        TenantDataScopeService tenantDataScopeService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -53,6 +56,7 @@ public class SalesOrderAppService {
         this.currentSessionService = currentSessionService;
         this.taxAmountCalculator = taxAmountCalculator;
         this.productSnapshotService = productSnapshotService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     @Transactional
@@ -230,7 +234,7 @@ public class SalesOrderAppService {
             JOIN sales_order_line l ON l.order_id = so.id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
-            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id AND b.account_set_id = ?::uuid
             LEFT JOIN (
                 SELECT pol.product_id, pol.warehouse_id,
                        SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
@@ -255,7 +259,7 @@ public class SalesOrderAppService {
               AND l.line_frozen_status = 'NORMAL'
               AND GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) > 0
             ORDER BY so.bill_date DESC, so.bill_no DESC, l.line_no
-            """, customerCode == null ? "" : customerCode.trim(), BillStatus.AUDITED.name());
+            """, inventoryScopeId(), customerCode == null ? "" : customerCode.trim(), BillStatus.AUDITED.name());
         return Map.of("customerCode", customerCode == null ? "" : customerCode.trim(), "lines", rows);
     }
 
@@ -277,7 +281,7 @@ public class SalesOrderAppService {
                    COALESCE(so.remark, '') AS remark
             FROM sales_order so
             JOIN md_customer c ON c.id = so.customer_id
-            LEFT JOIN sys_user creator ON creator.id = so.created_by
+            LEFT JOIN public.sys_user creator ON creator.id = so.created_by
             WHERE so.bill_no = ?
             """, billNo);
         if (orderRows.isEmpty()) {
@@ -317,7 +321,7 @@ public class SalesOrderAppService {
             JOIN sales_order so ON so.id = l.order_id
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
-            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id AND b.account_set_id = ?::uuid
             LEFT JOIN (
                 SELECT pol.product_id, pol.warehouse_id,
                        SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
@@ -336,7 +340,7 @@ public class SalesOrderAppService {
             ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE so.bill_no = ?
             ORDER BY l.line_no
-            """, billNo);
+            """, inventoryScopeId(), billNo);
         var sourceOrderId = String.valueOf(orderRows.get(0).get("id"));
         var enrichedLines = lines.stream().map(line -> {
             var copy = new HashMap<String, Object>(line);
@@ -411,5 +415,9 @@ public class SalesOrderAppService {
 
     private LocalDate optionalDate(String value) {
         return value == null || value.isBlank() ? null : LocalDate.parse(value);
+    }
+
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
     }
 }

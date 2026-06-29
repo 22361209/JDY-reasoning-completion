@@ -16,6 +16,7 @@ import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ public class DeliveryNoticeAppService {
     private final TaxAmountCalculator taxAmountCalculator;
     private final InventoryPostingService inventoryPostingService;
     private final ProductSnapshotService productSnapshotService;
+    private final TenantDataScopeService tenantDataScopeService;
 
     public DeliveryNoticeAppService(
         JdbcTemplate jdbcTemplate,
@@ -46,7 +48,8 @@ public class DeliveryNoticeAppService {
         CurrentSessionService currentSessionService,
         TaxAmountCalculator taxAmountCalculator,
         InventoryPostingService inventoryPostingService,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        TenantDataScopeService tenantDataScopeService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -57,6 +60,7 @@ public class DeliveryNoticeAppService {
         this.taxAmountCalculator = taxAmountCalculator;
         this.inventoryPostingService = inventoryPostingService;
         this.productSnapshotService = productSnapshotService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -77,7 +81,7 @@ public class DeliveryNoticeAppService {
                    COALESCE(dn.remark, '') AS remark
             FROM delivery_notice dn
             JOIN md_customer c ON c.id = dn.customer_id
-            LEFT JOIN sys_user creator ON creator.id = dn.created_by
+            LEFT JOIN public.sys_user creator ON creator.id = dn.created_by
             WHERE dn.bill_no = ?
             """, billNo);
         if (billRows.isEmpty()) {
@@ -220,7 +224,7 @@ public class DeliveryNoticeAppService {
             JOIN delivery_notice_line l ON l.bill_id = dn.id
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
-            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id AND b.account_set_id = ?::uuid
             LEFT JOIN (
                 SELECT pol.product_id, pol.warehouse_id,
                        SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
@@ -241,7 +245,7 @@ public class DeliveryNoticeAppService {
               AND dn.status = 'AUDITED'
               AND GREATEST(0, l.qty - COALESCE(out_qty.shipped_qty, 0)) > 0
             ORDER BY dn.bill_date DESC, dn.bill_no DESC, l.line_no
-            """, customerCode == null ? "" : customerCode.trim());
+            """, inventoryScopeId(), customerCode == null ? "" : customerCode.trim());
         return Map.of("customerCode", customerCode == null ? "" : customerCode.trim(), "lines", rows);
     }
 
@@ -324,7 +328,7 @@ public class DeliveryNoticeAppService {
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
             JOIN delivery_notice dn ON dn.id = l.bill_id
-            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id AND b.account_set_id = ?::uuid
             LEFT JOIN (
                 SELECT pol.product_id, pol.warehouse_id,
                        SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
@@ -343,7 +347,7 @@ public class DeliveryNoticeAppService {
             ) out_qty ON out_qty.source_delivery_notice_no = dn.bill_no AND out_qty.source_delivery_line_no = l.line_no
             WHERE dn.bill_no = ?
             ORDER BY l.line_no
-            """, billNo);
+            """, inventoryScopeId(), billNo);
         return mergeStock(lines, stockRowsForBill(billNo));
     }
 
@@ -373,7 +377,7 @@ public class DeliveryNoticeAppService {
                    COALESCE(it.qty, 0) AS "stockInTransit"
             FROM delivery_notice_line l
             JOIN delivery_notice dn ON dn.id = l.bill_id
-            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id
+            LEFT JOIN inv_stock_balance b ON b.product_id = l.product_id AND b.warehouse_id = l.warehouse_id AND b.account_set_id = ?::uuid
             LEFT JOIN (
                 SELECT pol.product_id, pol.warehouse_id,
                        SUM(GREATEST(0, pol.qty - pol.received_qty)) AS qty
@@ -385,7 +389,7 @@ public class DeliveryNoticeAppService {
             ) it ON it.product_id = l.product_id AND it.warehouse_id = l.warehouse_id
             WHERE dn.bill_no = ?
             ORDER BY l.line_no
-            """, billNo);
+            """, inventoryScopeId(), billNo);
     }
 
     private List<Map<String, Object>> mergeStock(List<Map<String, Object>> lines, List<Map<String, Object>> stocks) {
@@ -437,6 +441,10 @@ public class DeliveryNoticeAppService {
 
     private LocalDate optionalDate(String value) {
         return value == null || value.isBlank() ? null : LocalDate.parse(value);
+    }
+
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
     }
 
     public record DeliveryNoticeDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, Boolean isTaxInclusive, List<DeliveryNoticeLineRequest> lines) {

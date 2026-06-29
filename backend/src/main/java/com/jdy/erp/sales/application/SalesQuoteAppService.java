@@ -204,7 +204,7 @@ public class SalesQuoteAppService {
                    COALESCE(sq.remark, '') AS remark
             FROM sales_quote sq
             JOIN md_customer c ON c.id = sq.customer_id
-            LEFT JOIN sys_user creator ON creator.id = sq.created_by
+            LEFT JOIN public.sys_user creator ON creator.id = sq.created_by
             WHERE sq.bill_no = ?
             """, billNo);
         if (rows.isEmpty()) {

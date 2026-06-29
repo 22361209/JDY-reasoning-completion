@@ -126,7 +126,7 @@ public class SalesOutAppService {
                    ) AS "redSourceBillNo"
             FROM sales_out so
             JOIN md_customer c ON c.id = so.customer_id
-            LEFT JOIN sys_user creator ON creator.id = so.created_by
+            LEFT JOIN public.sys_user creator ON creator.id = so.created_by
             WHERE so.bill_no = ?
             """, BillStatus.RED_REVERSED.name(), BillStatus.RED_REVERSED.name(), billNo);
         if (billRows.isEmpty()) {
