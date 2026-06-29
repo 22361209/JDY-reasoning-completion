@@ -9,6 +9,7 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
@@ -27,11 +28,18 @@ public class ListStubController {
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
+    private final TenantDataScopeService tenantDataScopeService;
 
-    public ListStubController(ObjectMapper objectMapper, JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
+    public ListStubController(
+        ObjectMapper objectMapper,
+        JdbcTemplate jdbcTemplate,
+        CurrentSessionService currentSessionService,
+        TenantDataScopeService tenantDataScopeService
+    ) {
         this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     @GetMapping("/{listKey}")
@@ -938,7 +946,7 @@ public class ListStubController {
             JOIN md_warehouse w ON w.id = b.warehouse_id
             WHERE b.account_set_id = ?::uuid
             ORDER BY p.code, w.code
-            """, currentSessionService.currentAccountSetId()));
+            """, inventoryScopeId()));
     }
 
     private List<Map<String, ?>> stockAlertRows() {
@@ -977,7 +985,7 @@ public class ListStubController {
                 CASE WHEN b.qty_available < s.safety_qty THEN 0 ELSE 1 END,
                 p.code,
                 w.code
-            """, currentSessionService.currentAccountSetId()));
+            """, inventoryScopeId()));
     }
 
     private List<Map<String, ?>> salesRows() {
@@ -1630,7 +1638,7 @@ public class ListStubController {
             ) stock ON stock.product_id = s.material_id
             WHERE pl.status = 'AUDITED'
             ORDER BY pl.updated_at DESC, s.line_no
-            """, currentSessionService.currentAccountSetId()));
+            """, inventoryScopeId()));
     }
 
     private List<Map<String, ?>> materialIssueRows() {
@@ -1903,5 +1911,9 @@ public class ListStubController {
             LEFT JOIN sys_user u ON u.id = l.operated_by
             ORDER BY l.operated_at DESC
             """));
+    }
+
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
     }
 }

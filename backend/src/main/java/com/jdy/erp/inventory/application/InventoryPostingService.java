@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.LookupService;
-import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,19 +16,19 @@ import org.springframework.web.server.ResponseStatusException;
 public class InventoryPostingService {
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
-    private final CurrentSessionService currentSessionService;
+    private final TenantDataScopeService tenantDataScopeService;
 
-    public InventoryPostingService(JdbcTemplate jdbcTemplate, LookupService lookupService, CurrentSessionService currentSessionService) {
+    public InventoryPostingService(JdbcTemplate jdbcTemplate, LookupService lookupService, TenantDataScopeService tenantDataScopeService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
-        this.currentSessionService = currentSessionService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     @Transactional
     public Map<String, Object> post(String productCode, String warehouseCode, BigDecimal qtyDelta, String txnType, String sourceBillType) {
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = inventoryScopeId();
         if (qtyDelta == null || BigDecimal.ZERO.compareTo(qtyDelta) == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "数量不能为 0");
         }
@@ -97,7 +97,7 @@ public class InventoryPostingService {
         }
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = inventoryScopeId();
         ensureBalance(accountSetId, productId, warehouseId);
         Map<String, Object> updated;
         try {
@@ -133,7 +133,7 @@ public class InventoryPostingService {
         }
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = inventoryScopeId();
         ensureBalance(accountSetId, productId, warehouseId);
         Map<String, Object> updated;
         try {
@@ -163,7 +163,7 @@ public class InventoryPostingService {
     private Map<String, Object> changeReservation(String productCode, String warehouseCode, BigDecimal qtyDelta, String txnType, String sourceBillType) {
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = inventoryScopeId();
         ensureBalance(accountSetId, productId, warehouseId);
         Map<String, Object> updated;
         try {
@@ -199,7 +199,7 @@ public class InventoryPostingService {
     }
 
     private void insertTxn(String productId, String warehouseId, BigDecimal qtyDelta, String txnType, String sourceBillType) {
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = inventoryScopeId();
         jdbcTemplate.update("""
             INSERT INTO inv_stock_txn (account_set_id, txn_type, product_id, warehouse_id, qty_delta, source_bill_type, source_bill_id, amount)
             VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, gen_random_uuid(), 0)
@@ -211,5 +211,9 @@ public class InventoryPostingService {
             qtyDelta,
             sourceBillType == null || sourceBillType.isBlank() ? "MANUAL_ADJUSTMENT" : sourceBillType
         );
+    }
+
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
     }
 }

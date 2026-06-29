@@ -8,6 +8,7 @@ import java.util.Map;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,17 +21,20 @@ public class OpeningStockService {
     private final LookupService lookupService;
     private final ValidationService validationService;
     private final CurrentSessionService currentSessionService;
+    private final TenantDataScopeService tenantDataScopeService;
 
     public OpeningStockService(
         JdbcTemplate jdbcTemplate,
         LookupService lookupService,
         ValidationService validationService,
-        CurrentSessionService currentSessionService
+        CurrentSessionService currentSessionService,
+        TenantDataScopeService tenantDataScopeService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.currentSessionService = currentSessionService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     public List<Map<String, Object>> rows() {
@@ -52,7 +56,7 @@ public class OpeningStockService {
             JOIN md_warehouse w ON w.id = o.warehouse_id
             WHERE o.account_set_id = ?::uuid
             ORDER BY p.code, w.code
-            """, currentSessionService.currentAccountSetId());
+            """, inventoryScopeId());
     }
 
     @Transactional
@@ -60,7 +64,7 @@ public class OpeningStockService {
         if (lines == null || lines.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请至少录入一行期初库存");
         }
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = inventoryScopeId();
         var userId = currentSessionService.currentUserId();
         for (var line : lines) {
             saveLine(accountSetId, userId, line);
@@ -138,5 +142,9 @@ public class OpeningStockService {
     }
 
     public record OpeningStockLineRequest(String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitCost, String remark) {
+    }
+
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
     }
 }

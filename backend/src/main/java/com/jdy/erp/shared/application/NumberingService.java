@@ -2,16 +2,13 @@ package com.jdy.erp.shared.application;
 
 import java.util.Map;
 import java.util.List;
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.jdy.erp.system.security.CurrentSessionService;
-import com.jdy.erp.system.tenant.TenantContext;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 
 @Service
 public class NumberingService {
@@ -45,12 +42,12 @@ public class NumberingService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ValidationService validationService;
-    private final CurrentSessionService currentSessionService;
+    private final TenantDataScopeService tenantDataScopeService;
 
-    public NumberingService(JdbcTemplate jdbcTemplate, ValidationService validationService, CurrentSessionService currentSessionService) {
+    public NumberingService(JdbcTemplate jdbcTemplate, ValidationService validationService, TenantDataScopeService tenantDataScopeService) {
         this.jdbcTemplate = jdbcTemplate;
         this.validationService = validationService;
-        this.currentSessionService = currentSessionService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     public synchronized String nextBillNo(String documentType) {
@@ -204,11 +201,7 @@ public class NumberingService {
     }
 
     private String numberingScopeId() {
-        var context = TenantContext.current().orElse(null);
-        if (context == null || !context.isTenant() || context.schemaName() == null || context.schemaName().isBlank() || "public".equalsIgnoreCase(context.schemaName())) {
-            return currentSessionService.currentAccountSetId();
-        }
-        return UUID.nameUUIDFromBytes(("numbering:" + context.databaseName() + ":" + context.schemaName()).getBytes(StandardCharsets.UTF_8)).toString();
+        return tenantDataScopeService.currentScopeId("numbering");
     }
 
     private record NumberingRule(String prefix, String tableName, String label) {
