@@ -3,6 +3,7 @@ package com.jdy.erp.system.application;
 import java.util.Map;
 
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantContext;
 import com.jdy.erp.system.tenant.TenantSchemaProvisioner;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,10 +37,7 @@ public class AccountSetInitializationService {
         if (clearBusinessData) {
             clearBusinessTables();
         }
-        jdbcTemplate.update("""
-            DELETE FROM document_number_sequence
-            WHERE account_set_id = ?::uuid
-            """, accountSetId);
+        clearNumberingRules(accountSetId);
         platformJdbcTemplate.update("""
             UPDATE sys_account_set
             SET initialized = TRUE,
@@ -122,5 +120,18 @@ public class AccountSetInitializationService {
                 outsourcing_surface_process
             RESTART IDENTITY CASCADE
             """);
+    }
+
+    private void clearNumberingRules(String accountSetId) {
+        var context = TenantContext.current().orElse(null);
+        var schemaName = context == null ? "" : context.schemaName();
+        if (schemaName == null || schemaName.isBlank() || "public".equalsIgnoreCase(schemaName)) {
+            jdbcTemplate.update("""
+                DELETE FROM document_number_sequence
+                WHERE account_set_id = ?::uuid
+                """, accountSetId);
+            return;
+        }
+        jdbcTemplate.update("DELETE FROM document_number_sequence");
     }
 }

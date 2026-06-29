@@ -2,6 +2,8 @@ package com.jdy.erp.shared.application;
 
 import java.util.Map;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantContext;
 
 @Service
 public class NumberingService {
@@ -52,7 +55,7 @@ public class NumberingService {
 
     public synchronized String nextBillNo(String documentType) {
         var rule = ruleFor(documentType);
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = numberingScopeId();
         var currentMax = currentMaxSequence(rule);
         jdbcTemplate.update("""
             INSERT INTO document_number_sequence (account_set_id, document_type, prefix, last_number, width, description)
@@ -80,7 +83,7 @@ public class NumberingService {
     }
 
     public List<Map<String, Object>> listRules() {
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = numberingScopeId();
         ensureDefaultRules(accountSetId);
         return jdbcTemplate.queryForList("""
             SELECT document_type AS "documentType",
@@ -108,7 +111,7 @@ public class NumberingService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "流水位数需在 3-12 位之间");
         }
         var normalizedLastNumber = lastNumber == null ? 0 : Math.max(0, lastNumber);
-        var accountSetId = currentSessionService.currentAccountSetId();
+        var accountSetId = numberingScopeId();
         jdbcTemplate.update("""
             INSERT INTO document_number_sequence (account_set_id, document_type, prefix, last_number, width, description, enabled)
             VALUES (?::uuid, ?, ?, ?, ?, ?, ?)
@@ -152,7 +155,7 @@ public class NumberingService {
         var tableExists = Boolean.TRUE.equals(jdbcTemplate.queryForObject(
             "SELECT to_regclass(?) IS NOT NULL",
             Boolean.class,
-            "public." + rule.tableName()
+            rule.tableName()
         ));
         if (!tableExists) {
             return 0;
@@ -193,11 +196,19 @@ public class NumberingService {
             FROM document_number_sequence
             WHERE account_set_id = ?::uuid
               AND document_type = ?
-            """, currentSessionService.currentAccountSetId(), documentType);
+            """, numberingScopeId(), documentType);
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "编号规则不存在");
         }
         return rows.get(0);
+    }
+
+    private String numberingScopeId() {
+        var context = TenantContext.current().orElse(null);
+        if (context == null || !context.isTenant() || context.schemaName() == null || context.schemaName().isBlank() || "public".equalsIgnoreCase(context.schemaName())) {
+            return currentSessionService.currentAccountSetId();
+        }
+        return UUID.nameUUIDFromBytes(("numbering:" + context.databaseName() + ":" + context.schemaName()).getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     private record NumberingRule(String prefix, String tableName, String label) {
