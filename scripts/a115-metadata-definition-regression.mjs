@@ -19,6 +19,8 @@ const masterDataController = readFileSync("backend/src/main/java/com/jdy/erp/mas
 const masterDataSystemNoMigration = readFileSync("backend/src/main/resources/db/migration/V67__master_data_visible_system_no.sql", "utf8");
 const materialCategoryUnitMigration = readFileSync("backend/src/main/resources/db/migration/V68__material_category_unit_master_data.sql", "utf8");
 const productUnitWeightSnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V69__product_unit_weight_snapshots.sql", "utf8");
+const productMasterReferenceMigration = readFileSync("backend/src/main/resources/db/migration/V72__product_master_reference_ids.sql", "utf8");
+const masterDataReferenceIntegrationTest = readFileSync("backend/src/test/java/com/jdy/erp/masterdata/api/MasterDataReferenceIntegrationTest.java", "utf8");
 const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
 const purchaseOrderDocument = readFileSync("frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts", "utf8");
 const listStubController = readFileSync("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java", "utf8");
@@ -277,8 +279,23 @@ assertContains(
 );
 assertContains(
   masterDataController,
-  /createProduct[\s\S]*?var unit = required\(payload,\s*"unit"\)[\s\S]*?updateProduct[\s\S]*?var unit = required\(payload,\s*"unit"\)/,
-  "后端物料新增和编辑也必须强制校验计量单位"
+  /createProduct[\s\S]*?requiredReference\("md_product_category",\s*required\(payload,\s*"category"\)[\s\S]*?requiredReference\("md_unit",\s*required\(payload,\s*"unit"\)[\s\S]*?updateProduct[\s\S]*?requiredReference\("md_product_category",\s*required\(payload,\s*"category"\)[\s\S]*?requiredReference\("md_unit",\s*required\(payload,\s*"unit"\)/,
+  "后端物料新增和编辑必须强制校验物料类别和计量单位引用"
+);
+assertContains(
+  productMasterReferenceMigration,
+  /ADD COLUMN IF NOT EXISTS product_category_id UUID[\s\S]*?ADD COLUMN IF NOT EXISTS unit_id UUID[\s\S]*?ADD COLUMN IF NOT EXISTS default_warehouse_id UUID[\s\S]*?ADD COLUMN IF NOT EXISTS default_supplier_id UUID[\s\S]*?ADD COLUMN IF NOT EXISTS default_workshop_id UUID[\s\S]*?FOREIGN KEY \(product_category_id\) REFERENCES md_product_category\(id\)[\s\S]*?FOREIGN KEY \(unit_id\) REFERENCES md_unit\(id\)/,
+  "物料主档必须用隐藏 UUID 外键引用类别、单位、默认仓库、默认供应商和默认生产车间"
+);
+assertContains(
+  masterDataController,
+  /createProduct[\s\S]*?requiredReference\("md_product_category"[\s\S]*?requiredReference\("md_unit"[\s\S]*?optionalReference\("md_warehouse"[\s\S]*?optionalReference\("md_supplier"[\s\S]*?optionalReference\("md_production_department"[\s\S]*?updateProduct[\s\S]*?requiredReference\("md_product_category"[\s\S]*?validateProductReferencesBeforeAudit[\s\S]*?assertNotReferencedByProduct/,
+  "物料保存和审核必须由后端校验已审核启用主数据引用，并阻止被引用主数据随意反审核/禁用"
+);
+assertContains(
+  masterDataReferenceIntegrationTest,
+  /productStoresAuditedEnabledMasterReferencesAndProtectsReferencedMasters[\s\S]*?JOIN md_product_category[\s\S]*?JOIN md_unit[\s\S]*?updateStatus\("unit"[\s\S]*?reverseAudit\("unit"/,
+  "后端必须有集成测试覆盖物料主数据 UUID 引用和被引用主数据禁用/反审核保护"
 );
 assertNotContains(
   masterDataController,

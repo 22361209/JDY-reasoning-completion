@@ -279,8 +279,17 @@ class CoreBusinessFastIntegrationTest {
 
     private void insertProduct(String code) {
         jdbcTemplate.update("""
-            INSERT INTO md_product (code, name, spec, category, unit, enabled, audit_status)
-            VALUES (?, ?, 'A109', '成品总成', '只', TRUE, 'AUDITED')
+            INSERT INTO md_product (code, name, spec, category, product_category_id, unit, unit_id, enabled, audit_status)
+            SELECT ?, ?, 'A109', category.name, category.id, unit_ref.code, unit_ref.id, TRUE, 'AUDITED'
+            FROM md_product_category category
+            CROSS JOIN md_unit unit_ref
+            WHERE category.name = '成品总成'
+              AND category.enabled = TRUE
+              AND category.audit_status = 'AUDITED'
+              AND unit_ref.code = '只'
+              AND unit_ref.enabled = TRUE
+              AND unit_ref.audit_status = 'AUDITED'
+            LIMIT 1
             """, code, code);
     }
 

@@ -99,17 +99,22 @@ public class MasterDataController {
     }
 
     private Map<String, Object> createProduct(String code, String name, Map<String, String> payload, boolean enabled) {
-        var unit = required(payload, "unit");
+        var category = requiredReference("md_product_category", required(payload, "category"), "物料类别");
+        var unit = requiredReference("md_unit", required(payload, "unit"), "计量单位");
+        var defaultWarehouse = optionalReference("md_warehouse", optional(payload, "defaultWarehouseCode"), "默认仓库");
+        var defaultSupplier = optionalReference("md_supplier", optional(payload, "defaultSupplierCode"), "默认供应商");
+        var defaultWorkshop = optionalReference("md_production_department", optional(payload, "defaultWorkshop"), "默认生产车间");
         return jdbcTemplate.queryForMap("""
             INSERT INTO md_product (
-                code, name, short_name, barcode, brand, spec, category, product_type, unit, net_weight, gross_weight,
+                code, name, short_name, barcode, brand, spec, category, product_category_id, product_type, unit, unit_id, net_weight, gross_weight,
                 oe_no, position_name, surface_treatment,
                 is_purchase, is_sale, is_inventory, is_produce, is_subcontract,
-                default_warehouse_code, default_workshop, sale_unit, purchase_unit, bom_unit, default_supplier_code, issue_warehouse_code, issue_method,
+                default_warehouse_code, default_warehouse_id, default_workshop, default_workshop_id, sale_unit, purchase_unit, bom_unit,
+                default_supplier_code, default_supplier_id, issue_warehouse_code, issue_method,
                 tax_rate, default_sale_price, cost_price, min_sale_price, purchase_price, max_purchase_price, subcontract_price, wholesale_price, retail_price,
                 min_stock_qty, safety_stock_qty, max_stock_qty, remark, drawing_file_name, drawing_file_data, image_file_names, image_file_data, enabled
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?::uuid, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             code,
@@ -118,9 +123,11 @@ public class MasterDataController {
             optional(payload, "barcode"),
             optional(payload, "brand"),
             payload.getOrDefault("spec", ""),
-            payload.getOrDefault("category", "成品总成"),
+            category.name(),
+            category.id(),
             payload.getOrDefault("productType", "普通"),
-            unit,
+            unit.code(),
+            unit.id(),
             optionalDecimal(payload, "netWeight", "净重"),
             optionalDecimal(payload, "grossWeight", "毛重"),
             optional(payload, "oeNo"),
@@ -131,12 +138,15 @@ public class MasterDataController {
             checked(payload, "isInventory", true),
             checked(payload, "isProduce"),
             checked(payload, "isSubcontract"),
-            optional(payload, "defaultWarehouseCode"),
-            optional(payload, "defaultWorkshop"),
-            payload.getOrDefault("saleUnit", unit),
-            payload.getOrDefault("purchaseUnit", unit),
-            payload.getOrDefault("bomUnit", unit),
-            optional(payload, "defaultSupplierCode"),
+            defaultWarehouse.codeOrNull(),
+            defaultWarehouse.idOrNull(),
+            defaultWorkshop.nameOrNull(),
+            defaultWorkshop.idOrNull(),
+            payload.getOrDefault("saleUnit", unit.code()),
+            payload.getOrDefault("purchaseUnit", unit.code()),
+            payload.getOrDefault("bomUnit", unit.code()),
+            defaultSupplier.codeOrNull(),
+            defaultSupplier.idOrNull(),
             optional(payload, "issueWarehouseCode"),
             payload.getOrDefault("issueMethod", "按单领料"),
             decimalOrDefault(payload, "taxRate", BigDecimal.valueOf(13)),
@@ -231,13 +241,18 @@ public class MasterDataController {
     }
 
     private Map<String, Object> updateProduct(String code, String name, Map<String, String> payload, boolean enabled) {
-        var unit = required(payload, "unit");
+        var category = requiredReference("md_product_category", required(payload, "category"), "物料类别");
+        var unit = requiredReference("md_unit", required(payload, "unit"), "计量单位");
+        var defaultWarehouse = optionalReference("md_warehouse", optional(payload, "defaultWarehouseCode"), "默认仓库");
+        var defaultSupplier = optionalReference("md_supplier", optional(payload, "defaultSupplierCode"), "默认供应商");
+        var defaultWorkshop = optionalReference("md_production_department", optional(payload, "defaultWorkshop"), "默认生产车间");
         return updateAndReturn("""
             UPDATE md_product
-            SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_type = ?, unit = ?, net_weight = ?, gross_weight = ?,
+            SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_category_id = ?::uuid, product_type = ?, unit = ?, unit_id = ?::uuid, net_weight = ?, gross_weight = ?,
                 oe_no = ?, position_name = ?, surface_treatment = ?,
                 is_purchase = ?, is_sale = ?, is_inventory = ?, is_produce = ?, is_subcontract = ?,
-                default_warehouse_code = ?, default_workshop = ?, sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, issue_warehouse_code = ?, issue_method = ?,
+                default_warehouse_code = ?, default_warehouse_id = ?::uuid, default_workshop = ?, default_workshop_id = ?::uuid,
+                sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, default_supplier_id = ?::uuid, issue_warehouse_code = ?, issue_method = ?,
                 tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, purchase_price = ?, max_purchase_price = ?, subcontract_price = ?,
                 wholesale_price = ?, retail_price = ?, min_stock_qty = ?, safety_stock_qty = ?, max_stock_qty = ?, remark = ?,
                 drawing_file_name = ?, drawing_file_data = COALESCE(NULLIF(?, ''), drawing_file_data),
@@ -251,9 +266,11 @@ public class MasterDataController {
             optional(payload, "barcode"),
             optional(payload, "brand"),
             payload.getOrDefault("spec", ""),
-            payload.getOrDefault("category", "成品总成"),
+            category.name(),
+            category.id(),
             payload.getOrDefault("productType", "普通"),
-            unit,
+            unit.code(),
+            unit.id(),
             optionalDecimal(payload, "netWeight", "净重"),
             optionalDecimal(payload, "grossWeight", "毛重"),
             optional(payload, "oeNo"),
@@ -264,12 +281,15 @@ public class MasterDataController {
             checked(payload, "isInventory", true),
             checked(payload, "isProduce"),
             checked(payload, "isSubcontract"),
-            optional(payload, "defaultWarehouseCode"),
-            optional(payload, "defaultWorkshop"),
-            payload.getOrDefault("saleUnit", unit),
-            payload.getOrDefault("purchaseUnit", unit),
-            payload.getOrDefault("bomUnit", unit),
-            optional(payload, "defaultSupplierCode"),
+            defaultWarehouse.codeOrNull(),
+            defaultWarehouse.idOrNull(),
+            defaultWorkshop.nameOrNull(),
+            defaultWorkshop.idOrNull(),
+            payload.getOrDefault("saleUnit", unit.code()),
+            payload.getOrDefault("purchaseUnit", unit.code()),
+            payload.getOrDefault("bomUnit", unit.code()),
+            defaultSupplier.codeOrNull(),
+            defaultSupplier.idOrNull(),
             optional(payload, "issueWarehouseCode"),
             payload.getOrDefault("issueMethod", "按单领料"),
             decimalOrDefault(payload, "taxRate", BigDecimal.valueOf(13)),
@@ -368,6 +388,129 @@ public class MasterDataController {
             enabled,
             code
         );
+    }
+
+    private MasterReference requiredReference(String table, String value, String label) {
+        return resolveReference(table, value, label, true);
+    }
+
+    private MasterReference optionalReference(String table, String value, String label) {
+        return resolveReference(table, value, label, false);
+    }
+
+    private MasterReference resolveReference(String table, String value, String label, boolean required) {
+        if (!isSupportedReferenceTable(table)) {
+            throw new IllegalArgumentException("Unsupported reference table: " + table);
+        }
+        var normalized = value == null ? "" : value.trim();
+        if (normalized.isBlank()) {
+            if (required) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "必填");
+            }
+            return MasterReference.empty();
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, code, name
+            FROM %s
+            WHERE enabled = TRUE
+              AND audit_status = 'AUDITED'
+              AND (code = ? OR name = ?)
+            ORDER BY CASE WHEN code = ? THEN 0 ELSE 1 END, code
+            LIMIT 2
+            """.formatted(table), normalized, normalized, normalized);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未审核或已禁用");
+        }
+        var hasExactCode = rows.stream().anyMatch(row -> normalized.equals(String.valueOf(row.get("code"))));
+        if (rows.size() > 1 && !hasExactCode) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "名称不唯一，请输入编码");
+        }
+        var row = rows.get(0);
+        return new MasterReference(
+            String.valueOf(row.get("id")),
+            String.valueOf(row.get("code")),
+            String.valueOf(row.get("name"))
+        );
+    }
+
+    private boolean isSupportedReferenceTable(String table) {
+        return switch (table) {
+            case "md_product_category", "md_unit", "md_warehouse", "md_supplier", "md_production_department" -> true;
+            default -> false;
+        };
+    }
+
+    private void validateProductReferencesBeforeAudit(String code) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT p.code
+            FROM md_product p
+            LEFT JOIN md_product_category category ON category.id = p.product_category_id
+            LEFT JOIN md_unit unit_ref ON unit_ref.id = p.unit_id
+            LEFT JOIN md_warehouse warehouse ON warehouse.id = p.default_warehouse_id
+            LEFT JOIN md_supplier supplier ON supplier.id = p.default_supplier_id
+            LEFT JOIN md_production_department department ON department.id = p.default_workshop_id
+            WHERE p.code = ?
+              AND (
+                   category.id IS NULL OR category.enabled = FALSE OR category.audit_status <> 'AUDITED'
+                OR unit_ref.id IS NULL OR unit_ref.enabled = FALSE OR unit_ref.audit_status <> 'AUDITED'
+                OR (p.default_warehouse_id IS NOT NULL AND (warehouse.id IS NULL OR warehouse.enabled = FALSE OR warehouse.audit_status <> 'AUDITED'))
+                OR (p.default_supplier_id IS NOT NULL AND (supplier.id IS NULL OR supplier.enabled = FALSE OR supplier.audit_status <> 'AUDITED'))
+                OR (p.default_workshop_id IS NOT NULL AND (department.id IS NULL OR department.enabled = FALSE OR department.audit_status <> 'AUDITED'))
+              )
+            """, code);
+        if (!rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "物料引用的类别、单位、默认仓库、默认供应商或默认生产车间不存在、未审核或已禁用");
+        }
+    }
+
+    private void assertNotReferencedByProduct(String type, String code, String action) {
+        var referenceColumn = productReferenceColumn(type);
+        if (referenceColumn == null) {
+            return;
+        }
+        var table = tableName(type);
+        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ?", code);
+        if (rows.isEmpty()) {
+            return;
+        }
+        var id = String.valueOf(rows.get(0).get("id"));
+        var count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM md_product WHERE " + referenceColumn + " = ?::uuid",
+            Long.class,
+            id
+        );
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该主数据已被物料资料引用，不能" + action + "；请先调整引用它的物料。");
+        }
+    }
+
+    private String productReferenceColumn(String type) {
+        return switch (type) {
+            case "productCategory" -> "product_category_id";
+            case "unit" -> "unit_id";
+            case "warehouse" -> "default_warehouse_id";
+            case "supplier" -> "default_supplier_id";
+            case "productionDepartment" -> "default_workshop_id";
+            default -> null;
+        };
+    }
+
+    private record MasterReference(String id, String code, String name) {
+        static MasterReference empty() {
+            return new MasterReference(null, null, null);
+        }
+
+        String idOrNull() {
+            return id;
+        }
+
+        String codeOrNull() {
+            return code;
+        }
+
+        String nameOrNull() {
+            return name;
+        }
     }
 
     private BigDecimal defaultSalePrice(Map<String, String> payload) {
@@ -474,6 +617,9 @@ public class MasterDataController {
     }
 
     private Map<String, Object> setEnabled(String type, String code, boolean enabled) {
+        if (!enabled) {
+            assertNotReferencedByProduct(type, code, "禁用");
+        }
         var table = tableName(type);
         return updateAndReturn("UPDATE " + table + " SET enabled = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING " + returningFor(type),
             enabled,
@@ -482,6 +628,12 @@ public class MasterDataController {
     }
 
     private Map<String, Object> setAuditStatus(String type, String code, String auditStatus) {
+        if ("product".equals(type) && "AUDITED".equals(auditStatus)) {
+            validateProductReferencesBeforeAudit(code);
+        }
+        if ("DRAFT".equals(auditStatus)) {
+            assertNotReferencedByProduct(type, code, "反审核");
+        }
         var table = tableName(type);
         return updateAndReturn("UPDATE " + table + " SET audit_status = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING " + returningFor(type),
             auditStatus,
