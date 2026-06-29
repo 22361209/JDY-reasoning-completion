@@ -39,6 +39,7 @@ export const moduleCatalog = [
     groups: [
       { title: "库存业务", entries: [
         { id: "inventory-query-list", label: "库存查询", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" },
+        { id: "opening-stock-settings", label: "库存期初数", module: "库存管理", mode: "shell", permission: "inventory.opening_stock.manage" },
         stockAlertListEntry,
         { id: "stock-transfer-form", label: "调拨单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_transfer.audit" },
         { id: "stock-count-form", label: "盘点单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count.audit" },
@@ -113,6 +114,8 @@ export const moduleCatalog = [
     groups: [
       { title: "系统基础", entries: [
         { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
+        { id: "account-set-settings", label: "账套管理", module: "系统设置", mode: "shell", permission: "system.account_set.manage" },
+        { id: "numbering-rule-settings", label: "单据编号规则", module: "系统设置", mode: "shell", permission: "system.numbering_rule.manage" },
         { id: "security-settings", label: "安全设置", module: "系统设置", mode: "shell", permission: "system.security.manage" },
         { id: "notification-provider-settings", label: "通知供应商", module: "系统设置", mode: "shell", permission: "system.notification_provider.manage" },
         { id: "user-role-list", label: "用户角色", module: "系统设置", mode: "shell", permission: "system.role_permission.manage" },

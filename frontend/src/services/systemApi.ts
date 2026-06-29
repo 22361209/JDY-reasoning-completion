@@ -1,9 +1,29 @@
 export interface SystemSession {
   authenticated?: boolean;
   user?: { name: string; username?: string; role: string; roleCode?: string; permissionCodes?: string[] };
-  tenant: { name: string; environment: string };
+  tenant: SystemAccountSet;
   period: { accounting: string; business: string };
   security?: { sessionTimeoutMinutes: number; sessionMaxInactiveSeconds: number; passwordPolicy?: PasswordPolicySettings };
+}
+
+export interface SystemAccountSet {
+  id?: string;
+  code: string;
+  name: string;
+  environment: string;
+  databaseName?: string;
+  schemaName?: string;
+  attachmentPrefix?: string;
+  redisKeyPrefix?: string;
+  accountingPeriod?: string;
+  businessPeriod?: string;
+  enabled?: boolean;
+  initialized?: boolean;
+}
+
+export interface AccountSetPayload {
+  accountSets: SystemAccountSet[];
+  current: SystemAccountSet;
 }
 
 export interface SystemUser {
@@ -187,12 +207,12 @@ export async function fetchSystemUsers(): Promise<SystemUser[]> {
   }
 }
 
-export async function loginSystemUser(username: string, password: string): Promise<LoginResult> {
+export async function loginSystemUser(username: string, password: string, accountSetCode = ""): Promise<LoginResult> {
   try {
     const response = await fetch("/api/system/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, accountSetCode })
     });
     if (!response.ok) {
       const text = await response.text();
@@ -204,6 +224,58 @@ export async function loginSystemUser(username: string, password: string): Promi
     return { ok: true, status: response.status, message: "", session: await response.json() as SystemSession };
   } catch {
     return { ok: false, status: 0, message: "登录失败。", session: null };
+  }
+}
+
+export async function fetchAccountSets(): Promise<AccountSetPayload> {
+  try {
+    const response = await fetch("/api/system/account-sets");
+    if (!response.ok) {
+      return { accountSets: [], current: defaultAccountSet() };
+    }
+    const payload = await response.json() as Partial<AccountSetPayload>;
+    return {
+      accountSets: payload.accountSets ?? [],
+      current: payload.current ?? defaultAccountSet()
+    };
+  } catch {
+    return { accountSets: [], current: defaultAccountSet() };
+  }
+}
+
+export async function switchCurrentAccountSet(accountSetCode: string): Promise<{ ok: boolean; status: number; message: string; current: SystemAccountSet | null }> {
+  try {
+    const response = await fetch("/api/system/account-sets/current", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountSetCode })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "账套切换失败。", current: null };
+    }
+    const payload = await response.json() as { current?: SystemAccountSet };
+    return { ok: true, status: response.status, message: "", current: payload.current ?? null };
+  } catch {
+    return { ok: false, status: 0, message: "账套切换失败。", current: null };
+  }
+}
+
+export async function initializeCurrentAccountSet(payload: { clearBusinessData: boolean }): Promise<{ ok: boolean; status: number; message: string; accountSet: SystemAccountSet | null }> {
+  try {
+    const response = await fetch("/api/system/account-sets/current/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "本账套初始化失败。", accountSet: null };
+    }
+    const result = await response.json() as { message?: string; accountSet?: SystemAccountSet };
+    return { ok: true, status: response.status, message: result.message || "本账套已初始化。", accountSet: result.accountSet ?? null };
+  } catch {
+    return { ok: false, status: 0, message: "本账套初始化失败。", accountSet: null };
   }
 }
 
@@ -370,6 +442,17 @@ function parseErrorMessage(text: string) {
   } catch {
     return text;
   }
+}
+
+function defaultAccountSet(): SystemAccountSet {
+  return {
+    code: "BLD-TEST",
+    name: "博莱德机械测试账套",
+    environment: "本地开发",
+    accountingPeriod: "2026-06",
+    businessPeriod: "2026-06",
+    initialized: true
+  };
 }
 
 export async function fetchRolePermissions(): Promise<RolePermissionResult> {

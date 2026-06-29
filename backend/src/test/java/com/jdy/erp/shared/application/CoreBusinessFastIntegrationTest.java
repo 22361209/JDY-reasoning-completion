@@ -61,6 +61,7 @@ class CoreBusinessFastIntegrationTest {
         when(currentSessionService.currentUserId()).thenReturn(adminId);
         when(currentSessionService.currentUsername()).thenReturn("admin");
         when(currentSessionService.currentRoleCode()).thenReturn("ADMIN");
+        when(currentSessionService.currentAccountSetId()).thenReturn(defaultAccountSetId());
         doNothing().when(currentSessionService).verifyPassword(any(), any());
     }
 
@@ -302,22 +303,24 @@ class CoreBusinessFastIntegrationTest {
 
     private void resetStock(String productCode, String warehouseCode, String onHand, String reserved) {
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_balance (product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved)
-            VALUES (?::uuid, ?::uuid, ?::numeric, (?::numeric - ?::numeric), ?::numeric)
-            ON CONFLICT (product_id, warehouse_id) DO UPDATE
+            INSERT INTO inv_stock_balance (account_set_id, product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?::numeric, (?::numeric - ?::numeric), ?::numeric)
+            ON CONFLICT (account_set_id, product_id, warehouse_id) DO UPDATE
             SET qty_on_hand = EXCLUDED.qty_on_hand,
                 qty_available = EXCLUDED.qty_available,
                 qty_reserved = EXCLUDED.qty_reserved,
                 updated_at = now()
-            """, productId(productCode), warehouseId(warehouseCode), onHand, onHand, reserved, reserved);
+            """, defaultAccountSetId(), productId(productCode), warehouseId(warehouseCode), onHand, onHand, reserved, reserved);
     }
 
     private void assertStock(String productCode, String warehouseCode, String onHand, String reserved, String available) {
         var row = jdbcTemplate.queryForMap("""
             SELECT b.qty_on_hand AS "onHand", b.qty_reserved AS reserved, b.qty_available AS available
             FROM inv_stock_balance b
-            WHERE b.product_id = ?::uuid AND b.warehouse_id = ?::uuid
-            """, productId(productCode), warehouseId(warehouseCode));
+            WHERE b.account_set_id = ?::uuid
+              AND b.product_id = ?::uuid
+              AND b.warehouse_id = ?::uuid
+            """, defaultAccountSetId(), productId(productCode), warehouseId(warehouseCode));
         assertThat((BigDecimal) row.get("onHand")).isEqualByComparingTo(onHand);
         assertThat((BigDecimal) row.get("reserved")).isEqualByComparingTo(reserved);
         assertThat((BigDecimal) row.get("available")).isEqualByComparingTo(available);
@@ -351,6 +354,10 @@ class CoreBusinessFastIntegrationTest {
 
     private String warehouseId(String code) {
         return idByCode("md_warehouse", code);
+    }
+
+    private String defaultAccountSetId() {
+        return jdbcTemplate.queryForObject("SELECT id::text FROM sys_account_set WHERE code = 'BLD-TEST'", String.class);
     }
 
     private String idByCode(String table, String code) {

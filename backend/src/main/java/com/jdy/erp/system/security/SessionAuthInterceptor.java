@@ -16,6 +16,7 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
     private static final Set<String> PUBLIC_API_PATHS = Set.of(
         "/api/system/health",
         "/api/system/session",
+        "/api/system/account-sets",
         "/api/system/users",
         "/api/system/login",
         "/api/system/logout",

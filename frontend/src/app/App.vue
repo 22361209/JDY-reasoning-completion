@@ -1,5 +1,5 @@
 <template>
-  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :users="systemUsers" :message="loginPageMessage" @login-success="handleLoginSuccess" />
+  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :users="systemUsers" :account-sets="accountSets" :message="loginPageMessage" @login-success="handleLoginSuccess" />
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
@@ -89,6 +89,14 @@
               <span data-testid="session-user-role">{{ session.userRole.value }}</span>
             </summary>
             <div class="global-menu account-menu">
+              <div v-if="isAdminUser" class="account-menu__section">
+                <strong>账套</strong>
+                <select v-model="selectedAccountSetCode" data-testid="account-menu-account-set">
+                  <option v-for="accountSet in accountSets" :key="accountSet.code" :value="accountSet.code">{{ accountSet.name }}</option>
+                </select>
+                <button type="button" data-testid="account-menu-switch-account-set" @click="switchAccountSetFromMenu">切换账套</button>
+                <button type="button" data-testid="account-menu-open-account-set" @click="openAccountSetSettings">账套管理/初始化</button>
+              </div>
               <button type="button" data-testid="session-password-change" @click="passwordChangeDialogRef?.openPasswordDialog()">修改密码</button>
               <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出登录</button>
             </div>
@@ -153,10 +161,24 @@
           <p>模块功能面板在统一工作容器内打开，左侧和顶部全局区保持稳定。</p>
           <div class="empty-shell">请选择功能名称、查询小按钮或直达新增入口继续。</div>
         </div>
-        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['print-template-settings', 'role-permission-settings', 'user-role-list', 'security-settings', 'notification-provider-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
+        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['account-set-settings', 'opening-stock-settings', 'numbering-rule-settings', 'print-template-settings', 'role-permission-settings', 'user-role-list', 'security-settings', 'notification-provider-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
         </div>
+        <AccountSetSettingsPage
+          v-else-if="tabs.activeTab.value.id === 'account-set-settings'"
+          :account-sets="accountSets"
+          :current-account-set-code="session.accountSetCode.value"
+          :can-manage="isAdminUser"
+          @account-set-switched="reloadAfterAccountSetSwitch"
+        />
+        <OpeningStockPage
+          v-else-if="tabs.activeTab.value.id === 'opening-stock-settings'"
+        />
+        <NumberingRuleSettingsPage
+          v-else-if="tabs.activeTab.value.id === 'numbering-rule-settings'"
+          :can-manage="canManageNumberingRules"
+        />
         <SecuritySettingsPage
           v-else-if="tabs.activeTab.value.id === 'security-settings'"
           :can-manage="canManageSecuritySettings"
@@ -675,7 +697,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import { featureScope } from "./featureScope";
 import {
   defaultPrintTemplateForm,
@@ -709,12 +731,16 @@ import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vu
 import { backendStatusLabel, formatAmount, formatQty } from "../modules/shell/formatters";
 import { useShellSession } from "../modules/shell/useShellSession";
 import NotificationProviderSettingsPage from "../modules/system/notification/NotificationProviderSettingsPage.vue";
+import AccountSetSettingsPage from "../modules/system/account-set/AccountSetSettingsPage.vue";
+import NumberingRuleSettingsPage from "../modules/system/numbering/NumberingRuleSettingsPage.vue";
+import OpeningStockPage from "../modules/inventory/opening-stock/OpeningStockPage.vue";
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { acquireDocumentLock, fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { auditMasterData, createMasterData, deleteMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
+import { switchCurrentAccountSet } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -807,12 +833,14 @@ const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | 
 const shellSession = useShellSession({ loginPageRef, passwordChangeDialogRef });
 const activePasswordPolicy = shellSession.activePasswordPolicy;
 const systemUsers = shellSession.systemUsers;
+const accountSets = shellSession.accountSets;
 const isAuthenticated = shellSession.isAuthenticated;
 const loginPageMessage = shellSession.loginPageMessage;
 const handleLoginSuccess = shellSession.handleLoginSuccess;
 const logoutCurrentUser = shellSession.logoutCurrentUser;
 const handlePasswordChanged = shellSession.handlePasswordChanged;
 const keyword = ref("");
+const selectedAccountSetCode = ref(session.accountSetCode.value);
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
@@ -873,11 +901,16 @@ const canManagePrintTemplates = computed(() => session.hasPermission("system.pri
 const canManageRolePermissions = computed(() => session.hasPermission("system.role_permission.manage"));
 const canManageSecuritySettings = computed(() => session.hasPermission("system.security.manage"));
 const canManageNotificationProviderSettings = computed(() => session.hasPermission("system.notification_provider.manage"));
+const canManageNumberingRules = computed(() => session.hasPermission("system.numbering_rule.manage"));
+const isAdminUser = computed(() => session.userRoleCode.value === "ADMIN" || session.hasPermission("system.account_set.manage"));
 const activeLockReadOnly = computed(() => Boolean(tabs.activeTab.value.lockReadOnly));
 const activeLockMessage = computed(() => tabs.activeTab.value.lockMessage ?? "");
 const activeLockCanOverride = computed(() => Boolean(tabs.activeTab.value.lockCanOverride));
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
 const isSalesQuoteForm = computed(() => tabs.activeTab.value.id === salesQuoteTabId);
+watch(() => session.accountSetCode.value, (code) => {
+  selectedAccountSetCode.value = code;
+});
 function downstreamReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
@@ -938,6 +971,33 @@ function openEntry(entry: ShellEntry) {
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
 }
+
+function openAccountSetSettings() {
+  openEntry({
+    id: "account-set-settings",
+    label: "账套管理",
+    module: "系统设置",
+    mode: "shell",
+    permission: "system.account_set.manage"
+  });
+}
+
+async function switchAccountSetFromMenu() {
+  if (!selectedAccountSetCode.value || selectedAccountSetCode.value === session.accountSetCode.value) {
+    return;
+  }
+  const result = await switchCurrentAccountSet(selectedAccountSetCode.value);
+  if (result.ok) {
+    reloadAfterAccountSetSwitch();
+    return;
+  }
+  formMessage.value = result.message || "账套切换失败。";
+}
+
+function reloadAfterAccountSetSwitch() {
+  window.location.reload();
+}
+
 function startNewModuleDocument(entryId: string) {
   if (entryId === "sales-order-form") {
     salesOrderFormRef.value?.startNew();

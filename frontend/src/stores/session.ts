@@ -1,6 +1,10 @@
 import { computed, ref } from "vue";
 
 const tenantName = ref("博莱德机械测试账套");
+const accountSetCode = ref("BLD-TEST");
+const accountSetId = ref("");
+const accountSetEnvironment = ref("本地开发");
+const accountSetInitialized = ref(true);
 const userName = ref("本地管理员");
 const userRole = ref("系统管理员");
 const userRoleCode = ref("ADMIN");
@@ -15,6 +19,10 @@ export function useSessionStore() {
 
   return {
     tenantName,
+    accountSetCode,
+    accountSetId,
+    accountSetEnvironment,
+    accountSetInitialized,
     userName,
     userRole,
     userRoleCode,

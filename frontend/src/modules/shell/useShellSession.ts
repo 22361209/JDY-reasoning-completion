@@ -1,9 +1,11 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import {
+  fetchAccountSets,
   fetchSystemSession,
   fetchSystemUsers,
   logoutSystemUser,
   type PasswordPolicySettings,
+  type SystemAccountSet,
   type SystemSession,
   type SystemUser
 } from "../../services/systemApi";
@@ -22,7 +24,7 @@ type PasswordChangeDialogHandle = {
 const SESSION_EXPIRED_EVENT = "jdy:session-expired";
 const SESSION_INVALIDATION_STORAGE_KEY = "jdy:session-invalidation";
 type SessionInvalidationReason = "logout" | "password-changed" | "session-expired";
-const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/users", "/api/system/login", "/api/system/logout", "/api/system/password-reset-requests"]);
+const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/account-sets", "/api/system/users", "/api/system/login", "/api/system/logout", "/api/system/password-reset-requests"]);
 
 export function useShellSession(handles: {
   loginPageRef: Ref<LoginPageHandle | null>;
@@ -38,6 +40,7 @@ export function useShellSession(handles: {
     requireSymbol: true
   });
   const systemUsers = ref<SystemUser[]>([]);
+  const accountSets = ref<SystemAccountSet[]>([]);
   const isAuthenticated = ref(false);
   const loginPageMessage = ref("");
 
@@ -46,6 +49,7 @@ export function useShellSession(handles: {
     window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
     window.addEventListener("storage", handleSessionStorageEvent);
     window.addEventListener("focus", verifyActiveSession);
+    accountSets.value = (await fetchAccountSets()).accountSets;
     systemUsers.value = await fetchSystemUsers();
     const remoteSession = await fetchSystemSession();
     if (remoteSession?.authenticated && remoteSession.user) {
@@ -68,6 +72,10 @@ export function useShellSession(handles: {
     session.userRoleCode.value = remoteSession.user.roleCode || "";
     session.permissionCodes.value = remoteSession.user.permissionCodes ?? [];
     session.tenantName.value = remoteSession.tenant.name;
+    session.accountSetCode.value = remoteSession.tenant.code || "";
+    session.accountSetId.value = remoteSession.tenant.id || "";
+    session.accountSetEnvironment.value = remoteSession.tenant.environment || "";
+    session.accountSetInitialized.value = Boolean(remoteSession.tenant.initialized);
     session.accountingPeriod.value = remoteSession.period.accounting;
     session.businessPeriod.value = remoteSession.period.business;
     if (remoteSession.security?.passwordPolicy) {
@@ -102,6 +110,9 @@ export function useShellSession(handles: {
     session.userRole.value = "";
     session.userRoleCode.value = "";
     session.permissionCodes.value = [];
+    session.accountSetCode.value = "";
+    session.accountSetId.value = "";
+    session.accountSetInitialized.value = false;
     loginPageMessage.value = message;
     handles.loginPageRef.value?.clearPassword(message);
     handles.passwordChangeDialogRef.value?.resetPasswordForm();
@@ -179,6 +190,7 @@ export function useShellSession(handles: {
   return {
     activePasswordPolicy,
     systemUsers,
+    accountSets,
     isAuthenticated,
     loginPageMessage,
     handleLoginSuccess,

@@ -20,6 +20,8 @@ public class CurrentSessionService {
     public static final String SESSION_USERNAME = "jdy.username";
     public static final String SESSION_TOKEN = "jdy.sessionToken";
     public static final String SESSION_GENERATION = "jdy.sessionGeneration";
+    public static final String SESSION_ACCOUNT_SET_ID = "jdy.accountSetId";
+    public static final String SESSION_ACCOUNT_SET_CODE = "jdy.accountSetCode";
     private static final int MAX_FAILED_LOGIN = 5;
     private static final int DEFAULT_SESSION_TIMEOUT_MINUTES = 30;
     private static final int MIN_SESSION_TIMEOUT_MINUTES = 5;
@@ -140,15 +142,79 @@ public class CurrentSessionService {
         return String.valueOf(rows.get(0).get("id"));
     }
 
+    public List<Map<String, Object>> availableAccountSets() {
+        return jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   environment,
+                   COALESCE(database_name, '') AS "databaseName",
+                   COALESCE(schema_name, '') AS "schemaName",
+                   COALESCE(attachment_prefix, '') AS "attachmentPrefix",
+                   COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                   accounting_period AS "accountingPeriod",
+                   business_period AS "businessPeriod",
+                   enabled,
+                   initialized
+            FROM sys_account_set
+            WHERE enabled = TRUE
+            ORDER BY created_at, code
+            """);
+    }
+
+    public Map<String, Object> currentAccountSet() {
+        return accountSetById(currentAccountSetId());
+    }
+
+    public String currentAccountSetId() {
+        var accountSetId = optionalCurrentAccountSetId();
+        if (accountSetId != null && !accountSetId.isBlank()) {
+            return accountSetId;
+        }
+        return defaultAccountSetId();
+    }
+
+    public String currentAccountSetCode() {
+        return String.valueOf(currentAccountSet().get("code"));
+    }
+
+    public void switchAccountSet(String accountSetCode) {
+        currentUsername();
+        var accountSet = accountSetByCode(accountSetCode);
+        var request = currentRequest();
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法切换当前账套");
+        }
+        setSessionAccountSet(request.getSession(true), accountSet);
+        logSetting("SWITCH_ACCOUNT_SET", "account_set=" + accountSet.get("code"));
+    }
+
+    private String optionalCurrentAccountSetId() {
+        var request = currentRequest();
+        if (request == null) {
+            return null;
+        }
+        var session = request.getSession(false);
+        if (session == null) {
+            return null;
+        }
+        var accountSetId = session.getAttribute(SESSION_ACCOUNT_SET_ID);
+        return accountSetId == null ? null : String.valueOf(accountSetId);
+    }
+
     public String currentDisplayName() {
         return String.valueOf(currentUser().get("name"));
     }
 
     public void login(String username) {
-        login(username, null);
+        login(username, null, null);
     }
 
     public void login(String username, String password) {
+        login(username, password, null);
+    }
+
+    public void login(String username, String password, String accountSetCode) {
         var normalizedUsername = username == null ? "" : username.trim();
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
@@ -241,6 +307,7 @@ public class CurrentSessionService {
         session.setAttribute(SESSION_USERNAME, normalizedUsername);
         session.setAttribute(SESSION_TOKEN, newSessionToken);
         session.setAttribute(SESSION_GENERATION, sessionGeneration);
+        setSessionAccountSet(session, resolveLoginAccountSet(accountSetCode, userId));
         if (singleActiveSession && oldSessionToken != null && !String.valueOf(oldSessionToken).isBlank()) {
             logLogin("LOGIN_REPLACED", userId, userId, true, "重复登录，新会话已替换旧会话");
         }
@@ -440,6 +507,125 @@ public class CurrentSessionService {
 
     private void applySessionTimeout(jakarta.servlet.http.HttpSession session) {
         session.setMaxInactiveInterval(sessionTimeoutMinutes() * 60);
+    }
+
+    private void setSessionAccountSet(jakarta.servlet.http.HttpSession session, Map<String, Object> accountSet) {
+        session.setAttribute(SESSION_ACCOUNT_SET_ID, String.valueOf(accountSet.get("id")));
+        session.setAttribute(SESSION_ACCOUNT_SET_CODE, String.valueOf(accountSet.get("code")));
+    }
+
+    private Map<String, Object> resolveLoginAccountSet(String accountSetCode, String userId) {
+        var normalizedCode = accountSetCode == null ? "" : accountSetCode.trim();
+        var rows = normalizedCode.isBlank()
+            ? jdbcTemplate.queryForList("""
+                SELECT a.id::text AS id,
+                       a.code,
+                       a.name,
+                       a.environment,
+                       COALESCE(a.database_name, '') AS "databaseName",
+                       COALESCE(a.schema_name, '') AS "schemaName",
+                       COALESCE(a.attachment_prefix, '') AS "attachmentPrefix",
+                       COALESCE(a.redis_key_prefix, '') AS "redisKeyPrefix",
+                       a.accounting_period AS "accountingPeriod",
+                       a.business_period AS "businessPeriod",
+                       a.enabled,
+                       a.initialized
+                FROM sys_account_set a
+                LEFT JOIN sys_user u ON u.default_account_set_id = a.id AND u.id = ?::uuid
+                WHERE a.enabled = TRUE
+                ORDER BY CASE WHEN u.id IS NULL THEN 1 ELSE 0 END, a.created_at, a.code
+                LIMIT 1
+                """, userId)
+            : jdbcTemplate.queryForList("""
+                SELECT id::text AS id,
+                       code,
+                       name,
+                       environment,
+                       COALESCE(database_name, '') AS "databaseName",
+                       COALESCE(schema_name, '') AS "schemaName",
+                       COALESCE(attachment_prefix, '') AS "attachmentPrefix",
+                       COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                       accounting_period AS "accountingPeriod",
+                       business_period AS "businessPeriod",
+                       enabled,
+                       initialized
+                FROM sys_account_set
+                WHERE code = ?
+                  AND enabled = TRUE
+                LIMIT 1
+                """, normalizedCode);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账套不存在或已停用");
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> accountSetByCode(String accountSetCode) {
+        var normalizedCode = accountSetCode == null ? "" : accountSetCode.trim();
+        if (normalizedCode.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择账套");
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   environment,
+                   COALESCE(database_name, '') AS "databaseName",
+                   COALESCE(schema_name, '') AS "schemaName",
+                   COALESCE(attachment_prefix, '') AS "attachmentPrefix",
+                   COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                   accounting_period AS "accountingPeriod",
+                   business_period AS "businessPeriod",
+                   enabled,
+                   initialized
+            FROM sys_account_set
+            WHERE code = ?
+              AND enabled = TRUE
+            LIMIT 1
+            """, normalizedCode);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账套不存在或已停用");
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> accountSetById(String accountSetId) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   environment,
+                   COALESCE(database_name, '') AS "databaseName",
+                   COALESCE(schema_name, '') AS "schemaName",
+                   COALESCE(attachment_prefix, '') AS "attachmentPrefix",
+                   COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                   accounting_period AS "accountingPeriod",
+                   business_period AS "businessPeriod",
+                   enabled,
+                   initialized
+            FROM sys_account_set
+            WHERE id = ?::uuid
+              AND enabled = TRUE
+            LIMIT 1
+            """, accountSetId);
+        if (rows.isEmpty()) {
+            return accountSetById(defaultAccountSetId());
+        }
+        return rows.get(0);
+    }
+
+    private String defaultAccountSetId() {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM sys_account_set
+            WHERE enabled = TRUE
+            ORDER BY created_at, code
+            LIMIT 1
+            """);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "未配置可用账套");
+        }
+        return String.valueOf(rows.get(0).get("id"));
     }
 
     private int normalizeSessionTimeoutMinutes(Object rawMinutes) {

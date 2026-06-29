@@ -3,18 +3,29 @@
     <form class="login-panel" @submit.prevent="submitLogin">
       <div class="login-panel__brand">BLD</div>
       <h1>博莱德机械工作台</h1>
-      <p>选择员工账号并输入密码后进入当前测试账套。</p>
+      <p>输入账号密码，选择账套后进入工作台。</p>
       <label>
         <span>账号</span>
-        <select v-model="auth.loginForm.username" data-testid="login-username">
-          <option v-for="user in users" :key="user.username" :value="user.username">
-            {{ user.displayName }} / {{ user.roleName }}
-          </option>
-        </select>
+        <input v-model.trim="auth.loginForm.username" data-testid="login-username" list="login-user-candidates" autocomplete="username" placeholder="请输入账号" />
+        <datalist id="login-user-candidates">
+          <option v-for="user in users" :key="user.username" :value="user.username">{{ user.displayName }} / {{ user.roleName }}</option>
+        </datalist>
       </label>
       <label>
         <span>密码</span>
         <input v-model="auth.loginForm.password" data-testid="login-password" type="password" autocomplete="current-password" />
+      </label>
+      <label>
+        <span>账套</span>
+        <select v-model="auth.loginForm.accountSetCode" data-testid="login-account-set">
+          <option v-for="accountSet in accountSets" :key="accountSet.code" :value="accountSet.code">
+            {{ accountSet.name }} / {{ accountSet.code }}
+          </option>
+        </select>
+      </label>
+      <label class="login-remember">
+        <input v-model="auth.loginForm.rememberCredentials" type="checkbox" data-testid="login-remember" />
+        <span>记住账号密码和账套</span>
       </label>
       <button class="primary-action" type="submit" data-testid="login-submit">登录</button>
       <button class="text-action" type="button" data-testid="forgot-password-open" @click="auth.openPasswordResetRequestDialog">忘记密码</button>
@@ -44,10 +55,11 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import type { SystemSession } from "../../../services/systemApi";
-import { useLoginPage, type LoginPageUser } from "./useAuthForms";
+import { useLoginPage, type LoginPageAccountSet, type LoginPageUser } from "./useAuthForms";
 
 const props = defineProps<{
   users: LoginPageUser[];
+  accountSets: LoginPageAccountSet[];
   message: string;
 }>();
 
@@ -67,6 +79,16 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => props.accountSets,
+  (accountSets) => {
+    if (!auth.loginForm.accountSetCode && accountSets.length > 0) {
+      auth.setAccountSet(accountSets[0].code);
+    }
+  },
+  { immediate: true }
+);
+
 async function submitLogin() {
   const remoteSession = await auth.loginCurrentUser();
   if (remoteSession) {
@@ -76,6 +98,7 @@ async function submitLogin() {
 
 defineExpose({
   clearPassword: auth.clearPassword,
-  setUsername: auth.setUsername
+  setUsername: auth.setUsername,
+  setAccountSet: auth.setAccountSet
 });
 </script>

@@ -27,19 +27,35 @@ public class SystemShellController {
 
     @GetMapping("/session")
     public Map<String, Object> session() {
+        var accountSet = currentSessionService.currentAccountSet();
+        var tenant = Map.of(
+            "id", accountSet.get("id"),
+            "code", accountSet.get("code"),
+            "name", accountSet.get("name"),
+            "environment", accountSet.get("environment"),
+            "databaseName", accountSet.get("databaseName"),
+            "schemaName", accountSet.get("schemaName"),
+            "attachmentPrefix", accountSet.get("attachmentPrefix"),
+            "redisKeyPrefix", accountSet.get("redisKeyPrefix"),
+            "initialized", accountSet.get("initialized")
+        );
+        var period = Map.of(
+            "accounting", accountSet.get("accountingPeriod"),
+            "business", accountSet.get("businessPeriod")
+        );
         if (!currentSessionService.isAuthenticated()) {
             return Map.of(
                 "authenticated", false,
-                "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
-                "period", Map.of("accounting", "2026-06", "business", "2026-06"),
+                "tenant", tenant,
+                "period", period,
                 "security", sessionSecurity()
             );
         }
         return Map.of(
             "authenticated", true,
             "user", currentSessionService.currentUser(),
-            "tenant", Map.of("name", "博莱德机械测试账套", "environment", "本地开发"),
-            "period", Map.of("accounting", "2026-06", "business", "2026-06"),
+            "tenant", tenant,
+            "period", period,
             "security", sessionSecurity()
         );
     }
@@ -69,9 +85,17 @@ public class SystemShellController {
         return Map.of("users", users);
     }
 
+    @GetMapping("/account-sets")
+    public Map<String, Object> accountSets() {
+        return Map.of(
+            "accountSets", currentSessionService.availableAccountSets(),
+            "current", currentSessionService.currentAccountSet()
+        );
+    }
+
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody LoginRequest request) {
-        currentSessionService.login(request.username(), request.password());
+        currentSessionService.login(request.username(), request.password(), request.accountSetCode());
         return session();
     }
 
@@ -108,6 +132,6 @@ public class SystemShellController {
         );
     }
 
-    public record LoginRequest(String username, String password) {
+    public record LoginRequest(String username, String password, String accountSetCode) {
     }
 }

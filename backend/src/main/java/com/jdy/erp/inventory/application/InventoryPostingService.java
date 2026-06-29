@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.LookupService;
+import com.jdy.erp.system.security.CurrentSessionService;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,25 +16,28 @@ import org.springframework.web.server.ResponseStatusException;
 public class InventoryPostingService {
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
+    private final CurrentSessionService currentSessionService;
 
-    public InventoryPostingService(JdbcTemplate jdbcTemplate, LookupService lookupService) {
+    public InventoryPostingService(JdbcTemplate jdbcTemplate, LookupService lookupService, CurrentSessionService currentSessionService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
+        this.currentSessionService = currentSessionService;
     }
 
     @Transactional
     public Map<String, Object> post(String productCode, String warehouseCode, BigDecimal qtyDelta, String txnType, String sourceBillType) {
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
+        var accountSetId = currentSessionService.currentAccountSetId();
         if (qtyDelta == null || BigDecimal.ZERO.compareTo(qtyDelta) == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "数量不能为 0");
         }
 
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_balance (product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved)
-            VALUES (?::uuid, ?::uuid, 0, 0, 0)
-            ON CONFLICT (product_id, warehouse_id) DO NOTHING
-            """, productId, warehouseId);
+            INSERT INTO inv_stock_balance (account_set_id, product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved)
+            VALUES (?::uuid, ?::uuid, ?::uuid, 0, 0, 0)
+            ON CONFLICT (account_set_id, product_id, warehouse_id) DO NOTHING
+            """, accountSetId, productId, warehouseId);
 
         Map<String, Object> updated;
         try {
@@ -45,20 +49,22 @@ public class InventoryPostingService {
                     version = version + 1
                 WHERE product_id = ?::uuid
                   AND warehouse_id = ?::uuid
+                  AND account_set_id = ?::uuid
                   AND qty_on_hand + ? >= 0
                   AND qty_available + ? >= 0
                 RETURNING id::text AS id,
                           trim(to_char(qty_on_hand, 'FM9999999990.####')) AS "onHand",
                           trim(to_char(qty_available, 'FM9999999990.####')) AS available
-                """, qtyDelta, qtyDelta, productId, warehouseId, qtyDelta, qtyDelta);
+                """, qtyDelta, qtyDelta, productId, warehouseId, accountSetId, qtyDelta, qtyDelta);
         } catch (EmptyResultDataAccessException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "库存不足，不能调整为负数");
         }
 
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_txn (txn_type, product_id, warehouse_id, qty_delta, source_bill_type, source_bill_id, amount)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, gen_random_uuid(), 0)
+            INSERT INTO inv_stock_txn (account_set_id, txn_type, product_id, warehouse_id, qty_delta, source_bill_type, source_bill_id, amount)
+            VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, gen_random_uuid(), 0)
             """,
+            accountSetId,
             txnType == null || txnType.isBlank() ? "ADJUST" : txnType,
             productId,
             warehouseId,
@@ -91,7 +97,8 @@ public class InventoryPostingService {
         }
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        ensureBalance(productId, warehouseId);
+        var accountSetId = currentSessionService.currentAccountSetId();
+        ensureBalance(accountSetId, productId, warehouseId);
         Map<String, Object> updated;
         try {
             updated = jdbcTemplate.queryForMap("""
@@ -103,6 +110,7 @@ public class InventoryPostingService {
                     version = version + 1
                 WHERE product_id = ?::uuid
                   AND warehouse_id = ?::uuid
+                  AND account_set_id = ?::uuid
                   AND qty_on_hand >= ?
                   AND qty_reserved >= ?
                   AND qty_on_hand - qty_reserved >= 0
@@ -110,7 +118,7 @@ public class InventoryPostingService {
                           trim(to_char(qty_on_hand, 'FM9999999990.####')) AS "onHand",
                           trim(to_char(qty_reserved, 'FM9999999990.####')) AS reserved,
                           trim(to_char(qty_available, 'FM9999999990.####')) AS available
-                """, qty, qty, productId, warehouseId, qty, qty);
+                """, qty, qty, productId, warehouseId, accountSetId, qty, qty);
         } catch (EmptyResultDataAccessException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "预留库存不足，不能销售出库");
         }
@@ -125,7 +133,8 @@ public class InventoryPostingService {
         }
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        ensureBalance(productId, warehouseId);
+        var accountSetId = currentSessionService.currentAccountSetId();
+        ensureBalance(accountSetId, productId, warehouseId);
         Map<String, Object> updated;
         try {
             updated = jdbcTemplate.queryForMap("""
@@ -137,12 +146,13 @@ public class InventoryPostingService {
                     version = version + 1
                 WHERE product_id = ?::uuid
                   AND warehouse_id = ?::uuid
+                  AND account_set_id = ?::uuid
                   AND qty_on_hand - qty_reserved >= 0
                 RETURNING id::text AS id,
                           trim(to_char(qty_on_hand, 'FM9999999990.####')) AS "onHand",
                           trim(to_char(qty_reserved, 'FM9999999990.####')) AS reserved,
                           trim(to_char(qty_available, 'FM9999999990.####')) AS available
-                """, qty, qty, productId, warehouseId);
+                """, qty, qty, productId, warehouseId, accountSetId);
         } catch (EmptyResultDataAccessException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "库存回滚失败，三量约束不满足");
         }
@@ -153,7 +163,8 @@ public class InventoryPostingService {
     private Map<String, Object> changeReservation(String productCode, String warehouseCode, BigDecimal qtyDelta, String txnType, String sourceBillType) {
         var productId = lookupService.lookupEnabledId("md_product", productCode, "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
-        ensureBalance(productId, warehouseId);
+        var accountSetId = currentSessionService.currentAccountSetId();
+        ensureBalance(accountSetId, productId, warehouseId);
         Map<String, Object> updated;
         try {
             updated = jdbcTemplate.queryForMap("""
@@ -164,13 +175,14 @@ public class InventoryPostingService {
                     version = version + 1
                 WHERE product_id = ?::uuid
                   AND warehouse_id = ?::uuid
+                  AND account_set_id = ?::uuid
                   AND qty_reserved + ? >= 0
                   AND qty_on_hand - (qty_reserved + ?) >= 0
                 RETURNING id::text AS id,
                           trim(to_char(qty_on_hand, 'FM9999999990.####')) AS "onHand",
                           trim(to_char(qty_reserved, 'FM9999999990.####')) AS reserved,
                           trim(to_char(qty_available, 'FM9999999990.####')) AS available
-                """, qtyDelta, qtyDelta, productId, warehouseId, qtyDelta, qtyDelta);
+                """, qtyDelta, qtyDelta, productId, warehouseId, accountSetId, qtyDelta, qtyDelta);
         } catch (EmptyResultDataAccessException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "可用库存不足，不能预留或释放");
         }
@@ -178,19 +190,21 @@ public class InventoryPostingService {
         return updated;
     }
 
-    private void ensureBalance(String productId, String warehouseId) {
+    private void ensureBalance(String accountSetId, String productId, String warehouseId) {
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_balance (product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved)
-            VALUES (?::uuid, ?::uuid, 0, 0, 0)
-            ON CONFLICT (product_id, warehouse_id) DO NOTHING
-            """, productId, warehouseId);
+            INSERT INTO inv_stock_balance (account_set_id, product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved)
+            VALUES (?::uuid, ?::uuid, ?::uuid, 0, 0, 0)
+            ON CONFLICT (account_set_id, product_id, warehouse_id) DO NOTHING
+            """, accountSetId, productId, warehouseId);
     }
 
     private void insertTxn(String productId, String warehouseId, BigDecimal qtyDelta, String txnType, String sourceBillType) {
+        var accountSetId = currentSessionService.currentAccountSetId();
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_txn (txn_type, product_id, warehouse_id, qty_delta, source_bill_type, source_bill_id, amount)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, gen_random_uuid(), 0)
+            INSERT INTO inv_stock_txn (account_set_id, txn_type, product_id, warehouse_id, qty_delta, source_bill_type, source_bill_id, amount)
+            VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, gen_random_uuid(), 0)
             """,
+            accountSetId,
             txnType == null || txnType.isBlank() ? "ADJUST" : txnType,
             productId,
             warehouseId,

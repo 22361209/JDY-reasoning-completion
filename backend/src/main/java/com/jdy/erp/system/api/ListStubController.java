@@ -8,6 +8,7 @@ import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdy.erp.system.security.CurrentSessionService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
@@ -25,10 +26,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class ListStubController {
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
+    private final CurrentSessionService currentSessionService;
 
-    public ListStubController(ObjectMapper objectMapper, JdbcTemplate jdbcTemplate) {
+    public ListStubController(ObjectMapper objectMapper, JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
         this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
+        this.currentSessionService = currentSessionService;
     }
 
     @GetMapping("/{listKey}")
@@ -928,8 +931,9 @@ public class ListStubController {
             FROM inv_stock_balance b
             JOIN md_product p ON p.id = b.product_id
             JOIN md_warehouse w ON w.id = b.warehouse_id
+            WHERE b.account_set_id = ?::uuid
             ORDER BY p.code, w.code
-            """));
+            """, currentSessionService.currentAccountSetId()));
     }
 
     private List<Map<String, ?>> stockAlertRows() {
@@ -959,7 +963,7 @@ public class ListStubController {
                        ELSE '0'
                    END AS "diffQty"
             FROM inv_safety_stock_setting s
-            JOIN inv_stock_balance b ON b.product_id = s.product_id AND b.warehouse_id = s.warehouse_id
+            JOIN inv_stock_balance b ON b.product_id = s.product_id AND b.warehouse_id = s.warehouse_id AND b.account_set_id = ?::uuid
             JOIN md_product p ON p.id = s.product_id
             JOIN md_warehouse w ON w.id = s.warehouse_id
             WHERE b.qty_available < s.safety_qty
@@ -968,7 +972,7 @@ public class ListStubController {
                 CASE WHEN b.qty_available < s.safety_qty THEN 0 ELSE 1 END,
                 p.code,
                 w.code
-            """));
+            """, currentSessionService.currentAccountSetId()));
     }
 
     private List<Map<String, ?>> salesRows() {
@@ -1616,11 +1620,12 @@ public class ListStubController {
             LEFT JOIN (
                 SELECT product_id, SUM(qty_available) AS qty_available
                 FROM inv_stock_balance
+                WHERE account_set_id = ?::uuid
                 GROUP BY product_id
             ) stock ON stock.product_id = s.material_id
             WHERE pl.status = 'AUDITED'
             ORDER BY pl.updated_at DESC, s.line_no
-            """));
+            """, currentSessionService.currentAccountSetId()));
     }
 
     private List<Map<String, ?>> materialIssueRows() {

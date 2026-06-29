@@ -4,6 +4,7 @@ import {
   loginSystemUser,
   requestPasswordReset,
   type PasswordPolicySettings,
+  type SystemAccountSet,
   type SystemSession,
   type SystemUser
 } from "../../../services/systemApi";
@@ -26,9 +27,12 @@ export function passwordPolicyRules(policy: PasswordPolicySettings, password: st
 }
 
 export function useLoginPage() {
+  const cachedLogin = readCachedLogin();
   const loginForm = reactive({
-    username: "admin",
-    password: ""
+    username: cachedLogin.username || "admin",
+    password: cachedLogin.password || "",
+    accountSetCode: cachedLogin.accountSetCode || "BLD-TEST",
+    rememberCredentials: cachedLogin.rememberCredentials
   });
   const loginMessage = ref("");
   const passwordResetRequestDialogOpen = ref(false);
@@ -40,13 +44,18 @@ export function useLoginPage() {
 
   async function loginCurrentUser(): Promise<SystemSession | null> {
     loginMessage.value = "";
-    const loginResult = await loginSystemUser(loginForm.username, loginForm.password);
+    const loginResult = await loginSystemUser(loginForm.username, loginForm.password, loginForm.accountSetCode);
     const remoteSession = loginResult.session;
     if (!loginResult.ok || !remoteSession?.authenticated || !remoteSession.user) {
       loginMessage.value = loginResult.message || "账号或密码不正确";
       return null;
     }
-    loginForm.password = "";
+    if (loginForm.rememberCredentials) {
+      cacheLogin(loginForm.username, loginForm.password, loginForm.accountSetCode, loginForm.rememberCredentials);
+    } else {
+      forgetCachedLogin();
+      loginForm.password = "";
+    }
     return remoteSession;
   }
 
@@ -84,6 +93,10 @@ export function useLoginPage() {
     loginForm.username = username || loginForm.username;
   }
 
+  function setAccountSet(accountSetCode: string) {
+    loginForm.accountSetCode = accountSetCode || loginForm.accountSetCode;
+  }
+
   return {
     loginForm,
     loginMessage,
@@ -95,7 +108,8 @@ export function useLoginPage() {
     closePasswordResetRequestDialog,
     submitPasswordResetRequest,
     clearPassword,
-    setUsername
+    setUsername,
+    setAccountSet
   };
 }
 
@@ -165,3 +179,40 @@ export function usePasswordChangeDialog(options: {
 }
 
 export type LoginPageUser = SystemUser;
+export type LoginPageAccountSet = SystemAccountSet;
+
+const CACHED_LOGIN_KEY = "jdy:cached-login";
+
+function readCachedLogin() {
+  try {
+    const raw = localStorage.getItem(CACHED_LOGIN_KEY);
+    if (!raw) {
+      return { username: "admin", password: "", accountSetCode: "BLD-TEST", rememberCredentials: true };
+    }
+    const payload = JSON.parse(raw) as Partial<{ username: string; password: string; accountSetCode: string; rememberCredentials: boolean }>;
+    return {
+      username: payload.username || "admin",
+      password: payload.password || "",
+      accountSetCode: payload.accountSetCode || "BLD-TEST",
+      rememberCredentials: payload.rememberCredentials !== false
+    };
+  } catch {
+    return { username: "admin", password: "", accountSetCode: "BLD-TEST", rememberCredentials: true };
+  }
+}
+
+function cacheLogin(username: string, password: string, accountSetCode: string, rememberCredentials: boolean) {
+  try {
+    localStorage.setItem(CACHED_LOGIN_KEY, JSON.stringify({ username, password, accountSetCode, rememberCredentials }));
+  } catch {
+    // Login should not fail just because localStorage is unavailable.
+  }
+}
+
+function forgetCachedLogin() {
+  try {
+    localStorage.removeItem(CACHED_LOGIN_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
