@@ -35,6 +35,14 @@ export async function fetchSelectablePurchaseOrderLines(supplierCode: string): P
   return { ok: true, message: "", data: (result.data as { lines: SelectablePurchaseOrderLine[] }).lines };
 }
 
+export async function fetchSelectablePurchaseRequisitionLines(supplierCode: string): Promise<{ ok: boolean; message: string; data: SelectablePurchaseOrderLine[] }> {
+  const result = await callPurchaseOrder(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent(supplierCode)}`, "GET");
+  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
+    return { ok: false, message: result.message || "采购申请选单列表加载失败。", data: [] };
+  }
+  return { ok: true, message: "", data: (result.data as { lines: SelectablePurchaseOrderLine[] }).lines };
+}
+
 async function callPurchaseOrder(url: string, method: string): Promise<{ ok: boolean; message: string; data?: unknown }> {
   try {
     const response = await fetch(url, { method });

@@ -37,6 +37,11 @@ public class PurchaseOrderController {
         return appService.selectableLines(supplierCode);
     }
 
+    @GetMapping("/selectable-requisition-lines")
+    public Map<String, Object> selectableRequisitionLines(@RequestParam String supplierCode) {
+        return appService.selectableRequisitionLines(supplierCode);
+    }
+
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody PurchaseOrderDraftRequest request) {

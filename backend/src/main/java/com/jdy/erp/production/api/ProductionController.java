@@ -70,6 +70,19 @@ public class ProductionController {
         return taskAppService.createPlan(request);
     }
 
+    @PostMapping("/plans/next-number")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> nextPlanNumber() {
+        return taskAppService.nextPlanNumber();
+    }
+
+    @PostMapping("/plans/{billNo}/push-down")
+    @RequirePermission("production.task.audit")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> pushDownPlan(@PathVariable String billNo) {
+        return taskAppService.pushDownPlan(billNo);
+    }
+
     @PostMapping("/plans/{billNo}/tasks")
     @RequirePermission("production.task.audit")
     @ResponseStatus(HttpStatus.CREATED)

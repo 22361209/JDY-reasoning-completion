@@ -87,6 +87,8 @@ public class PurchaseOrderAppService {
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
+                   COALESCE(l.source_requisition_no, '') AS "sourceOrderNo",
+                   l.source_requisition_line_no AS "sourceLineNo",
                    l.unit_price AS "unitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
@@ -197,6 +199,49 @@ public class PurchaseOrderAppService {
         return Map.of("supplierCode", supplierCode == null ? "" : supplierCode.trim(), "lines", rows);
     }
 
+    public Map<String, Object> selectableRequisitionLines(String supplierCode) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT pr.bill_no AS "billNo",
+                   COALESCE(pr.supplier_code_snapshot, s.code) AS "supplierCode",
+                   COALESCE(pr.supplier_name_snapshot, s.name) AS supplier,
+                   to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   pr.department,
+                   pr.owner_name AS "ownerName",
+                   FALSE AS "isTaxInclusive",
+                   l.line_no AS "lineNo",
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                   COALESCE(w.code, '') AS "warehouseCode",
+                   l.qty AS "sourceQty",
+                   COALESCE(l.ordered_qty, 0) AS "receivedQty",
+                   GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0)) AS "remainingQty",
+                   COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
+                   COALESCE(p.purchase_price, 0) AS "unitPrice",
+                   COALESCE(p.tax_rate, 13) AS "taxRate",
+                   0 AS "taxAmount",
+                   0 AS "priceTaxTotal",
+                   '' AS "lineRemark",
+                   to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
+            FROM purchase_requisition pr
+            JOIN purchase_requisition_line l ON l.requisition_id = pr.id
+            JOIN md_supplier s ON s.id = pr.supplier_id
+            JOIN md_product p ON p.id = l.product_id
+            LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
+            WHERE s.code = ?
+              AND pr.status = ?
+              AND l.line_close_status = 'OPEN'
+              AND l.line_frozen_status = 'NORMAL'
+              AND GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0)) > 0
+            ORDER BY pr.bill_date DESC, pr.bill_no DESC, l.line_no
+            """, supplierCode == null ? "" : supplierCode.trim(), BillStatus.AUDITED.name());
+        return Map.of("supplierCode", supplierCode == null ? "" : supplierCode.trim(), "lines", rows);
+    }
+
     @Transactional
     public Map<String, Object> saveDraft(PurchaseOrderDraftRequest request) {
         var billNo = numberingService.assignBillNo("purchaseOrder", request.billNo());
@@ -239,6 +284,7 @@ public class PurchaseOrderAppService {
             request.ownerName()
         );
         var orderId = order.get("id");
+        releasePurchaseRequisitionUsage(String.valueOf(orderId));
         jdbcTemplate.update("DELETE FROM purchase_order_line WHERE order_id = ?::uuid", orderId);
         var lineNo = 1;
         for (var line : request.lines()) {
@@ -246,8 +292,8 @@ public class PurchaseOrderAppService {
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
             jdbcTemplate.update("""
-                INSERT INTO purchase_order_line (order_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, supplier_material_code, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_order_line (order_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, supplier_material_code, source_requisition_no, source_requisition_line_no, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -257,6 +303,8 @@ public class PurchaseOrderAppService {
                 product.spec(),
                 warehouseId,
                 optionalTextOrEmpty(line.supplierMaterialCode()),
+                validationService.optionalText(line.sourceOrderNo()),
+                line.sourceLineNo(),
                 line.qty(),
                 line.unitPrice(),
                 amounts.amount(),
@@ -266,6 +314,7 @@ public class PurchaseOrderAppService {
                 validationService.optionalText(line.lineRemark()),
                 parseOptionalDate(line.planDeliveryDate())
             );
+            markPurchaseRequisitionOrdered(line.sourceOrderNo(), line.sourceLineNo(), line.qty());
             lineNo += 1;
         }
         return order;
@@ -309,8 +358,45 @@ public class PurchaseOrderAppService {
         BigDecimal taxRate,
         String lineRemark,
         String supplierMaterialCode,
+        String sourceOrderNo,
+        Integer sourceLineNo,
         String planDeliveryDate
     ) {
+    }
+
+    private void markPurchaseRequisitionOrdered(String sourceOrderNo, Integer sourceLineNo, BigDecimal qty) {
+        var billNo = validationService.optionalText(sourceOrderNo);
+        if (billNo == null || sourceLineNo == null || qty == null) {
+            return;
+        }
+        jdbcTemplate.update("""
+            UPDATE purchase_requisition_line line
+            SET ordered_qty = LEAST(line.qty, COALESCE(line.ordered_qty, 0) + ?)
+            FROM purchase_requisition req
+            WHERE req.id = line.requisition_id
+              AND req.bill_no = ?
+              AND line.line_no = ?
+            """, qty, billNo, sourceLineNo);
+    }
+
+    private void releasePurchaseRequisitionUsage(String orderId) {
+        jdbcTemplate.update("""
+            UPDATE purchase_requisition_line line
+            SET ordered_qty = GREATEST(0, COALESCE(line.ordered_qty, 0) - usage.qty)
+            FROM (
+                SELECT source_requisition_no,
+                       source_requisition_line_no,
+                       SUM(qty) AS qty
+                FROM purchase_order_line
+                WHERE order_id = ?::uuid
+                  AND source_requisition_no IS NOT NULL
+                  AND source_requisition_line_no IS NOT NULL
+                GROUP BY source_requisition_no, source_requisition_line_no
+            ) usage
+            JOIN purchase_requisition req ON req.bill_no = usage.source_requisition_no
+            WHERE req.id = line.requisition_id
+              AND line.line_no = usage.source_requisition_line_no
+            """, orderId);
     }
 
     private LocalDate parseOptionalDate(String value) {

@@ -608,6 +608,27 @@ const definitions: Record<string, ListDefinition> = {
       { field: "owner", title: "经办人", width: 120, visible: true }
     ]
   },
+  "purchase-requisition-list": {
+    title: "采购申请单列表",
+    subtitle: "采购申请由生产计划下推生成，按供应商汇总待转采购订单数量。",
+    keywordPlaceholder: "申请单号、生产计划、供应商、物料",
+    statuses: ["已审核", "已关闭"],
+    columns: [
+      { field: "billNo", title: "申请单号", width: 150, fixed: "left", visible: true },
+      { field: "sourcePlanNo", title: "来源计划", width: 160, visible: true },
+      { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
+      { field: "supplier", title: "供应商名称", width: 220, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "productCode", title: "物料编码", width: 140, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "qty", title: "申请数量", width: 110, align: "right", visible: true },
+      { field: "orderedQty", title: "已转订单数量", width: 130, align: "right", visible: true },
+      { field: "remainingQty", title: "未转订单数量", width: 130, align: "right", visible: true },
+      { field: "planDeliveryDate", title: "交期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
   "purchase-return-form-list": {
     title: "采购退货单",
     subtitle: "采购退货单从已审核采购入库单选源，审核后扣减库存。",
@@ -814,6 +835,7 @@ const definitions: Record<string, ListDefinition> = {
     columns: [
       { field: "billNo", title: "计划单号", width: 160, fixed: "left", visible: true },
       { field: "bomCode", title: "BOM", width: 120, visible: true },
+      { field: "bomVersionNo", title: "BOM版本", width: 90, visible: true },
       { field: "productCode", title: "物料编码", width: 140, visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },
       { field: "unit", title: "单位", width: 80, visible: true },
@@ -822,6 +844,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "warehouse", title: "完工仓库", width: 130, visible: true },
       { field: "departmentCode", title: "生产部门", width: 120, visible: true },
       { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
+      { field: "planDeliveryDate", title: "交期", width: 120, visible: true },
+      { field: "inProgressQty", title: "在制未完工", width: 120, align: "right", visible: true },
       { field: "assignedQty", title: "已分解数", width: 110, align: "right", visible: true },
       { field: "remainingQty", title: "未分解数", width: 110, align: "right", visible: true },
       { field: "sourceType", title: "计划来源", width: 110, visible: true },
@@ -1219,6 +1243,7 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
   "delivery-notice-form-list": "sales.out.audit",
   "sales-out-list": "sales.out.audit",
   "sales-out-form-list": "sales.out.audit",
+  "purchase-requisition-list": "purchase.order.audit",
   "purchase-order-form-list": "purchase.order.audit",
   "purchase-in-list": "purchase.in.audit",
   "purchase-in-form-list": "purchase.in.audit",

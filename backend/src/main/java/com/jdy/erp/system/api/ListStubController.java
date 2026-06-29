@@ -281,6 +281,7 @@ public class ListStubController {
             case "warehouse-master-list" -> realWarehouseRows();
             case "production-department-list" -> realProductionDepartmentRows();
             case "sales-quote-form-list" -> salesQuoteRows();
+            case "purchase-requisition-list" -> purchaseRequisitionRows();
             case "purchase-order-form-list" -> purchaseOrderRows();
             case "delivery-notice-form-list" -> deliveryNoticeRows();
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
@@ -1050,6 +1051,34 @@ public class ListStubController {
         return realRows;
     }
 
+    private List<Map<String, ?>> purchaseRequisitionRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT concat(pr.id::text, '-', line.line_no) AS id,
+                   pr.bill_no AS "billNo",
+                   COALESCE(pr.source_plan_no, '') AS "sourcePlanNo",
+                   COALESCE(pr.supplier_code_snapshot, supplier.code) AS "supplierCode",
+                   COALESCE(pr.supplier_name_snapshot, supplier.name) AS supplier,
+                   to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(line.product_code_snapshot, product.code) AS "productCode",
+                   COALESCE(line.product_name_snapshot, product.name) AS "productName",
+                   COALESCE(line.product_unit_snapshot, product.unit, '') AS unit,
+                   trim(to_char(line.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(COALESCE(line.ordered_qty, 0), 'FM9999999990.####')) AS "orderedQty",
+                   trim(to_char(GREATEST(0, line.qty - COALESCE(line.ordered_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
+                   COALESCE(to_char(line.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
+                   CASE
+                       WHEN line.line_close_status = 'CLOSED' THEN '已关闭'
+                       WHEN pr.status = 'DRAFT' THEN '草稿'
+                       ELSE '已审核'
+                   END AS status
+            FROM purchase_requisition pr
+            JOIN purchase_requisition_line line ON line.requisition_id = pr.id
+            JOIN md_supplier supplier ON supplier.id = pr.supplier_id
+            JOIN md_product product ON product.id = line.product_id
+            ORDER BY pr.updated_at DESC, line.line_no
+            """));
+    }
+
     private List<Map<String, ?>> purchaseOrderRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT po.id::text AS id,
@@ -1500,7 +1529,8 @@ public class ListStubController {
             SELECT t.id::text AS id,
                    t.bill_no AS "billNo",
                    COALESCE(pl.bill_no, '') AS "planNo",
-                   b.code AS "bomCode",
+                   COALESCE(pl.bom_code_snapshot, b.code) AS "bomCode",
+                   COALESCE(pl.bom_version_no, b.version_no) AS "bomVersionNo",
                    COALESCE(t.product_code_snapshot, p.code) AS "productCode",
                    COALESCE(t.product_name_snapshot, p.name) AS "productName",
                    COALESCE(t.product_unit_snapshot, p.unit, '') AS unit,
@@ -1538,6 +1568,8 @@ public class ListStubController {
                    COALESCE(pl.department_code, '') AS "departmentCode",
                    w.name AS warehouse,
                    trim(to_char(pl.planned_qty, 'FM9999999990.####')) AS qty,
+                   COALESCE(to_char(pl.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
+                   trim(to_char(COALESCE(pl.in_progress_qty, 0), 'FM9999999990.####')) AS "inProgressQty",
                    trim(to_char(COALESCE(task_qty.assigned_qty, 0), 'FM9999999990.####')) AS "assignedQty",
                    trim(to_char(GREATEST(pl.planned_qty - COALESCE(task_qty.assigned_qty, 0), 0), 'FM9999999990.####')) AS "remainingQty",
                    CASE

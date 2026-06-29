@@ -15,6 +15,7 @@ public class NumberingService {
         Map.entry("deliveryNotice", new NumberingRule("FHTZD", "delivery_notice")),
         Map.entry("salesOut", new NumberingRule("XSCKD", "sales_out")),
         Map.entry("purchaseOrder", new NumberingRule("CGDD", "purchase_order")),
+        Map.entry("purchaseRequisition", new NumberingRule("CGSQ", "purchase_requisition")),
         Map.entry("purchaseIn", new NumberingRule("CGRK", "purchase_in")),
         Map.entry("purchaseReturn", new NumberingRule("CGTH", "purchase_return")),
         Map.entry("materialIssue", new NumberingRule("SOUT", "production_material_issue")),

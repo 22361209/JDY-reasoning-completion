@@ -17,11 +17,13 @@ export interface BomPayload {
 
 export interface ProductionPlanPayload {
   billNo?: string;
-  bomCode: string;
-  warehouseCode: string;
+  productCode?: string;
+  bomCode?: string;
+  warehouseCode?: string;
   qty: number;
   sourceType?: string;
   departmentCode?: string;
+  planDeliveryDate?: string;
 }
 
 export interface ProductionTaskPayload {
@@ -88,6 +90,14 @@ export function saveBom(payload: BomPayload) {
 
 export function createProductionPlan(payload: ProductionPlanPayload) {
   return postJson("/api/production/plans", compactPayload(payload as unknown as Record<string, unknown>));
+}
+
+export function nextProductionPlanNumber() {
+  return postJson("/api/production/plans/next-number", {});
+}
+
+export function pushDownProductionPlan(billNo: string) {
+  return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/push-down`, {});
 }
 
 export function createProductionTask(payload: ProductionTaskPayload) {
