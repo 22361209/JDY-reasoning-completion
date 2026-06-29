@@ -10,11 +10,11 @@
     :message="message"
     :can-save="canSave"
     :can-audit="Boolean(form.billNo) && statusLabel === '草稿'"
-    :can-reverse="false"
+    :can-reverse="Boolean(form.billNo) && statusLabel === '已审核'"
     :can-void="false"
     :can-delete="false"
     :can-output="false"
-    :show-reverse="false"
+    :show-reverse="true"
     :show-red-reverse="false"
     :show-void="false"
     :show-close="false"
@@ -24,6 +24,10 @@
     :show-delete="false"
     :show-export="false"
     :show-print="false"
+    :show-source-select="kind !== 'workOrder'"
+    :can-source-select="statusLabel === '草稿' && !form.billNo"
+    source-select-label="选源单"
+    :source-select-test-id="`${testPrefix}-source-select`"
     :show-push-down="showPrimaryPush"
     :can-push-down="canPrimaryPush"
     :push-down-label="primaryPushLabel"
@@ -36,6 +40,8 @@
     @create="startNew"
     @save="save"
     @audit="audit"
+    @reverse="reverse"
+    @source-select="openSourcePicker"
     @push-down="primaryPush"
     @extra-action="secondaryPush"
   >
@@ -66,7 +72,7 @@
       <EntryTable
         :lines="lines"
         :test-prefix="testPrefix"
-        :is-draft="kind === 'workOrder' && statusLabel === '草稿'"
+        :is-draft="statusLabel === '草稿' && (kind === 'workOrder' || !form.billNo)"
         batch-warehouse-code=""
         :active-selector="activeSelector"
         :selector-options="selectorOptions"
@@ -111,6 +117,66 @@
         @add-line="addLine"
         @refresh-stock="noop"
       />
+
+      <section v-if="kind === 'workOrder' && componentLines.length" class="component-demand-panel" data-testid="outsourcing-component-demand">
+        <div class="component-demand-title">
+          <strong>子件需求明细</strong>
+          <span>按当前已审核 BOM 固化，后续 BOM 修改不影响本单快照。</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>子件物料编码</th>
+              <th>子件物料名称</th>
+              <th>规格型号</th>
+              <th>发料仓库</th>
+              <th>单位</th>
+              <th>单位用量</th>
+              <th>需求数量</th>
+              <th>已发料数量</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="component in componentLines" :key="component.lineNo">
+              <td>{{ component.lineNo }}</td>
+              <td>{{ component.productCode }}</td>
+              <td>{{ component.productName }}</td>
+              <td>{{ component.spec }}</td>
+              <td>{{ component.warehouseCode }}</td>
+              <td>{{ component.unit }}</td>
+              <td class="numeric-cell">{{ component.unitQty }}</td>
+              <td class="numeric-cell">{{ component.qty }}</td>
+              <td class="numeric-cell">{{ component.issuedQty }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div v-if="sourcePickerOpen" class="modal-mask" :data-testid="`${testPrefix}-source-dialog`">
+        <div class="dialog outsourcing-source-dialog">
+          <h3>选择源单</h3>
+          <p>仅显示已审核且有剩余可下推数量的单据。</p>
+          <div class="source-option-list">
+            <button
+              v-for="source in sourceOptions"
+              :key="source.billNo"
+              type="button"
+              :data-testid="`${testPrefix}-source-option-${source.billNo}`"
+              @click="selectSource(source)"
+            >
+              <span>{{ source.billNo }}</span>
+              <span>{{ source.supplierName }}</span>
+              <span>{{ source.productCode }} {{ source.productName }}</span>
+              <strong>剩余 {{ source.remainingQty }} {{ source.unit }}</strong>
+            </button>
+            <div v-if="!sourceOptions.length" class="source-empty">暂无可选源单</div>
+          </div>
+          <div class="dialog-actions">
+            <button type="button" @click="sourcePickerOpen = false">关闭</button>
+          </div>
+        </div>
+      </div>
     </div>
   </StandardDocument>
 </template>
@@ -127,14 +193,51 @@ import {
   auditOutsourcingReturn,
   auditOutsourcingScrap,
   auditOutsourcingWorkOrder,
+  fetchOutsourcingIssue,
+  fetchOutsourcingReceipt,
+  fetchOutsourcingReceiptSources,
+  fetchOutsourcingReturn,
+  fetchOutsourcingScrap,
+  fetchOutsourcingWorkOrder,
+  fetchOutsourcingWorkOrderSources,
   pushOutsourcingIssue,
   pushOutsourcingReceipt,
   pushOutsourcingReturn,
   pushOutsourcingScrap,
+  reverseOutsourcingIssue,
+  reverseOutsourcingReceipt,
+  reverseOutsourcingReturn,
+  reverseOutsourcingScrap,
+  reverseOutsourcingWorkOrder,
   saveOutsourcingWorkOrder
 } from "../../services/outsourcingApi";
 
 type OutsourcingKind = "workOrder" | "issue" | "receipt" | "return" | "scrap";
+interface ComponentDemandLine {
+  lineNo: number;
+  productCode: string;
+  productName: string;
+  spec: string;
+  unit: string;
+  warehouseCode: string;
+  unitQty: string;
+  qty: string;
+  issuedQty: string;
+}
+
+interface SourceOption {
+  billNo: string;
+  sourceBillNo?: string;
+  sourceLineNo?: number;
+  supplierCode: string;
+  supplierName: string;
+  productCode: string;
+  productName: string;
+  spec: string;
+  unit: string;
+  warehouseCode: string;
+  remainingQty: string;
+}
 
 const props = defineProps<{
   title: string;
@@ -161,9 +264,12 @@ const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
 const knownProductOptions = ref<MasterOption[]>([]);
+const componentLines = reactive<ComponentDemandLine[]>([]);
+const sourcePickerOpen = ref(false);
+const sourceOptions = ref<SourceOption[]>([]);
 
 const testPrefix = computed(() => `outsourcing-${props.kind}`);
-const canSave = computed(() => props.kind === "workOrder" || Boolean(form.sourceBillNo.trim()));
+const canSave = computed(() => statusLabel.value === "草稿" && (props.kind === "workOrder" || (!form.billNo && Boolean(form.sourceBillNo.trim()))));
 const showPrimaryPush = computed(() => props.kind === "workOrder" || props.kind === "receipt");
 const canPrimaryPush = computed(() => statusLabel.value === "已审核" && Boolean(form.billNo.trim()));
 const showSecondaryPush = computed(() => props.kind === "workOrder" || props.kind === "receipt");
@@ -187,9 +293,38 @@ function startNew() {
   form.billDate = todayText();
   form.remark = "";
   lines.splice(0, lines.length, emptyLine());
+  componentLines.splice(0, componentLines.length);
   statusLabel.value = "草稿";
   message.value = "";
+  sourcePickerOpen.value = false;
   emit("markDirty");
+}
+
+async function loadDocument(billNo: string) {
+  const result = await fetchDetailByKind(billNo);
+  if (!result.ok || !result.data) {
+    message.value = result.message || "委外单据详情加载失败。";
+    return;
+  }
+  applyDetail(result.data);
+  message.value = `已打开${props.title} ${billNo}`;
+  emit("clearDirty");
+}
+
+function applyDetail(data: Record<string, unknown>) {
+  form.billNo = textValue(data.billNo);
+  form.sourceBillNo = textValue(data.sourceBillNo);
+  form.supplierCode = textValue(data.supplierCode);
+  form.billDate = textValue(data.billDate) || todayText();
+  form.remark = textValue(data.remark);
+  statusLabel.value = backendStatusLabel(textValue(data.status) || "DRAFT");
+  const detailLines = Array.isArray(data.lines) ? data.lines : [];
+  lines.splice(0, lines.length, ...detailLines.map(lineFromDetail));
+  if (!lines.length) {
+    lines.push(emptyLine());
+  }
+  const detailComponents = Array.isArray(data.components) ? data.components : [];
+  componentLines.splice(0, componentLines.length, ...detailComponents.map(componentFromDetail));
 }
 
 async function save() {
@@ -209,6 +344,9 @@ async function save() {
   }
   form.billNo = String(result.data?.billNo ?? form.billNo);
   statusLabel.value = backendStatusLabel(String(result.data?.status ?? "DRAFT"));
+  if (result.data) {
+    applyDetail({ ...result.data, billNo: form.billNo, status: result.data.status ?? "DRAFT" });
+  }
   message.value = `${props.title}已${props.kind === "workOrder" ? "保存" : "生成"}：${form.billNo}`;
   emit("clearDirty");
 }
@@ -228,6 +366,60 @@ async function audit() {
   statusLabel.value = "已审核";
   message.value = `${props.title}已审核：${form.billNo}`;
   emit("clearDirty");
+}
+
+async function reverse() {
+  if (!form.billNo) {
+    return;
+  }
+  const result = await reverseByKind();
+  if (!result.ok) {
+    message.value = result.message;
+    return;
+  }
+  statusLabel.value = backendStatusLabel(String(result.data?.status ?? "REVERSED"));
+  message.value = `${props.title}已反审核：${form.billNo}`;
+  emit("clearDirty");
+}
+
+async function openSourcePicker() {
+  const result = await fetchSourceOptions();
+  if (!result.ok || !Array.isArray(result.data)) {
+    message.value = result.message || "可选源单加载失败。";
+    return;
+  }
+  sourceOptions.value = result.data.map(sourceFromRow);
+  sourcePickerOpen.value = true;
+}
+
+async function selectSource(source: SourceOption) {
+  form.sourceBillNo = source.billNo;
+  form.supplierCode = source.supplierCode;
+  if (props.kind === "issue") {
+    const detail = await fetchOutsourcingWorkOrder(source.billNo);
+    const components = detail.ok && detail.data && Array.isArray(detail.data.components)
+      ? detail.data.components
+      : [];
+    if (components.length) {
+      lines.splice(0, lines.length, ...components.map((component) => lineFromComponentSource(source.billNo, component)));
+      sourcePickerOpen.value = false;
+      markDirty();
+      return;
+    }
+  }
+  lines.splice(0, lines.length, {
+    ...emptyLine(),
+    productCode: source.productCode,
+    productName: source.productName,
+    spec: source.spec,
+    unit: source.unit,
+    warehouseCode: source.warehouseCode,
+    sourceOrderNo: source.billNo,
+    sourceLineNo: source.sourceLineNo,
+    qty: Number(source.remainingQty || 0)
+  });
+  sourcePickerOpen.value = false;
+  markDirty();
 }
 
 async function primaryPush() {
@@ -281,6 +473,51 @@ async function auditByKind() {
     return auditOutsourcingReturn(form.billNo);
   }
   return auditOutsourcingScrap(form.billNo);
+}
+
+async function reverseByKind() {
+  if (props.kind === "workOrder") {
+    return reverseOutsourcingWorkOrder(form.billNo);
+  }
+  if (props.kind === "issue") {
+    return reverseOutsourcingIssue(form.billNo);
+  }
+  if (props.kind === "receipt") {
+    return reverseOutsourcingReceipt(form.billNo);
+  }
+  if (props.kind === "return") {
+    return reverseOutsourcingReturn(form.billNo);
+  }
+  return reverseOutsourcingScrap(form.billNo);
+}
+
+async function fetchDetailByKind(billNo: string) {
+  if (props.kind === "workOrder") {
+    return fetchOutsourcingWorkOrder(billNo);
+  }
+  if (props.kind === "issue") {
+    return fetchOutsourcingIssue(billNo);
+  }
+  if (props.kind === "receipt") {
+    return fetchOutsourcingReceipt(billNo);
+  }
+  if (props.kind === "return") {
+    return fetchOutsourcingReturn(billNo);
+  }
+  return fetchOutsourcingScrap(billNo);
+}
+
+async function fetchSourceOptions() {
+  if (props.kind === "issue") {
+    return fetchOutsourcingWorkOrderSources("issue");
+  }
+  if (props.kind === "receipt") {
+    return fetchOutsourcingWorkOrderSources("receipt");
+  }
+  if (props.kind === "return") {
+    return fetchOutsourcingReceiptSources("return");
+  }
+  return fetchOutsourcingReceiptSources("scrap");
 }
 
 function handlePushResult(result: { ok: boolean; message: string; data?: Record<string, unknown> }, prefix: string) {
@@ -415,18 +652,98 @@ function emptyLine(): EntryLine {
   };
 }
 
+function lineFromDetail(raw: unknown): EntryLine {
+  const row = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return {
+    ...emptyLine(),
+    lineNo: numberValue(row.lineNo) || undefined,
+    productCode: textValue(row.productCode),
+    productName: textValue(row.productName),
+    spec: textValue(row.spec),
+    unit: textValue(row.unit),
+    warehouseCode: textValue(row.warehouseCode),
+    qty: numberValue(row.qty),
+    planDeliveryDate: textValue(row.planDeliveryDate) || todayText()
+  };
+}
+
+function componentFromDetail(raw: unknown): ComponentDemandLine {
+  const row = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return {
+    lineNo: numberValue(row.lineNo),
+    productCode: textValue(row.productCode),
+    productName: textValue(row.productName),
+    spec: textValue(row.spec),
+    unit: textValue(row.unit),
+    warehouseCode: textValue(row.warehouseCode),
+    unitQty: textValue(row.unitQty),
+    qty: textValue(row.qty),
+    issuedQty: textValue(row.issuedQty)
+  };
+}
+
+function lineFromComponentSource(sourceBillNo: string, raw: unknown): EntryLine {
+  const row = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const requiredQty = numberValue(row.qty);
+  const issuedQty = numberValue(row.issuedQty);
+  return {
+    ...emptyLine(),
+    lineNo: numberValue(row.lineNo) || undefined,
+    productCode: textValue(row.productCode),
+    productName: textValue(row.productName),
+    spec: textValue(row.spec),
+    unit: textValue(row.unit),
+    warehouseCode: textValue(row.warehouseCode),
+    sourceOrderNo: sourceBillNo,
+    sourceLineNo: numberValue(row.lineNo) || undefined,
+    qty: Math.max(0, requiredQty - issuedQty)
+  };
+}
+
+function sourceFromRow(raw: unknown): SourceOption {
+  const row = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return {
+    billNo: textValue(row.billNo),
+    sourceBillNo: textValue(row.sourceBillNo),
+    sourceLineNo: numberValue(row.sourceLineNo) || undefined,
+    supplierCode: textValue(row.supplierCode),
+    supplierName: textValue(row.supplierName),
+    productCode: textValue(row.productCode),
+    productName: textValue(row.productName),
+    spec: textValue(row.spec),
+    unit: textValue(row.unit),
+    warehouseCode: textValue(row.warehouseCode),
+    remainingQty: textValue(row.remainingQty)
+  };
+}
+
+function textValue(value: unknown) {
+  return value == null ? "" : String(value);
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function todayText() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function backendStatusLabel(status: string) {
-  return status === "AUDITED" ? "已审核" : "草稿";
+  if (status === "AUDITED") {
+    return "已审核";
+  }
+  if (status === "REVERSED") {
+    return "已反审核";
+  }
+  return "草稿";
 }
 
 function noop() {}
 
-defineExpose({ startNew });
+defineExpose({ startNew, loadDocument });
 </script>
 
 <style scoped>
@@ -436,5 +753,88 @@ defineExpose({ startNew });
 
 .outsourcing-head-fields {
   grid-template-columns: repeat(4, minmax(160px, 1fr));
+}
+
+.component-demand-panel {
+  border-top: 1px solid #d9e3ec;
+  background: #fff;
+}
+
+.component-demand-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid #d9e3ec;
+  color: #1f3347;
+  font-size: 13px;
+}
+
+.component-demand-title span {
+  color: #718196;
+  font-size: 12px;
+}
+
+.component-demand-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+.component-demand-panel th,
+.component-demand-panel td {
+  height: 28px;
+  padding: 0 8px;
+  border-right: 1px solid #e2eaf2;
+  border-bottom: 1px solid #e2eaf2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.component-demand-panel th {
+  background: #f4f7fa;
+  color: #304459;
+  font-weight: 600;
+  text-align: left;
+}
+
+.numeric-cell {
+  text-align: right;
+}
+
+.outsourcing-source-dialog {
+  width: 760px;
+}
+
+.source-option-list {
+  display: grid;
+  gap: 6px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.source-option-list button {
+  display: grid;
+  grid-template-columns: 150px 150px 1fr 120px;
+  gap: 10px;
+  align-items: center;
+  height: 34px;
+  border: 1px solid #d7e2ec;
+  background: #fff;
+  color: #20364d;
+  text-align: left;
+}
+
+.source-option-list button:hover {
+  background: #edf6ff;
+}
+
+.source-empty {
+  padding: 24px;
+  color: #718196;
+  text-align: center;
 }
 </style>

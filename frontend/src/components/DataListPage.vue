@@ -206,7 +206,7 @@
         <div v-else class="vxe-cell">
           <span v-if="column.key === 'status'" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
           <button
-            v-else-if="isOpenableDocumentList && column.key === 'billNo'"
+            v-else-if="isOpenableListRecord && column.key === 'billNo'"
             class="list-cell-link"
             type="button"
             :data-testid="`open-document-${cellValue(row, listColumnByKey(column.key))}`"
@@ -1422,6 +1422,7 @@ const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> =
 };
 const openableDocumentType = computed(() => documentOpenTypeByListKey[props.listKey] ?? null);
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));
+const isOpenableListRecord = computed(() => isOpenableDocumentList.value || canOpenListRecord(props.listKey));
 const supportsDetailView = computed(() => isOpenableDocumentList.value);
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
 const isLifecycleDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]) && !isDetailView.value);
@@ -2108,6 +2109,10 @@ function pushDownPurchaseIn() {
 function openDocument(row: Record<string, unknown>) {
   if (openableDocumentType.value) {
     emit("openDocument", { type: openableDocumentType.value, row });
+    return;
+  }
+  if (canOpenListRecord(props.listKey)) {
+    emit("createListRecord", { listKey: props.listKey, row });
   }
 }
 
@@ -2150,6 +2155,16 @@ function canCreateListRecord(listKey: string) {
     "outsourcing-return-list",
     "outsourcing-scrap-list",
     "outsourcing-surface-list"
+  ].includes(listKey);
+}
+
+function canOpenListRecord(listKey: string) {
+  return [
+    "outsourcing-work-order-list",
+    "outsourcing-issue-list",
+    "outsourcing-receipt-list",
+    "outsourcing-return-list",
+    "outsourcing-scrap-list"
   ].includes(listKey);
 }
 

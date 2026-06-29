@@ -1733,7 +1733,12 @@ public class ListStubController {
                    trim(to_char(l.issued_qty, 'FM9999999990.####')) AS "issuedQty",
                    trim(to_char(l.received_qty, 'FM9999999990.####')) AS "receivedQty",
                    COALESCE(to_char(l.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
-                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+                   CASE
+                       WHEN h.status = 'AUDITED' THEN '已审核'
+                       WHEN h.status = 'REVERSED' THEN '已反审核'
+                       WHEN h.status = 'VOID' THEN '已作废'
+                       ELSE '草稿'
+                   END AS status
             FROM outsourcing_work_order h
             JOIN outsourcing_work_order_line l ON l.work_order_id = h.id
             ORDER BY h.updated_at DESC
@@ -1751,7 +1756,12 @@ public class ListStubController {
                    COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
                    COALESCE(l.product_unit_snapshot, '') AS unit,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
-                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+                   CASE
+                       WHEN h.status = 'AUDITED' THEN '已审核'
+                       WHEN h.status = 'REVERSED' THEN '已反审核'
+                       WHEN h.status = 'VOID' THEN '已作废'
+                       ELSE '草稿'
+                   END AS status
             FROM outsourcing_material_issue h
             JOIN outsourcing_material_issue_line l ON l.issue_id = h.id
             ORDER BY h.updated_at DESC, l.line_no
@@ -1769,7 +1779,12 @@ public class ListStubController {
                    COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
                    COALESCE(l.product_unit_snapshot, '') AS unit,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
-                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+                   CASE
+                       WHEN h.status = 'AUDITED' THEN '已审核'
+                       WHEN h.status = 'REVERSED' THEN '已反审核'
+                       WHEN h.status = 'VOID' THEN '已作废'
+                       ELSE '草稿'
+                   END AS status
             FROM outsourcing_receipt h
             JOIN outsourcing_receipt_line l ON l.receipt_id = h.id
             ORDER BY h.updated_at DESC, l.line_no
@@ -1787,7 +1802,12 @@ public class ListStubController {
                    COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
                    COALESCE(l.product_unit_snapshot, '') AS unit,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
-                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+                   CASE
+                       WHEN h.status = 'AUDITED' THEN '已审核'
+                       WHEN h.status = 'REVERSED' THEN '已反审核'
+                       WHEN h.status = 'VOID' THEN '已作废'
+                       ELSE '草稿'
+                   END AS status
             FROM outsourcing_return h
             JOIN outsourcing_return_line l ON l.return_id = h.id
             ORDER BY h.updated_at DESC, l.line_no
@@ -1805,7 +1825,12 @@ public class ListStubController {
                    COALESCE(l.warehouse_code_snapshot, '') AS warehouse,
                    COALESCE(l.product_unit_snapshot, '') AS unit,
                    trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
-                   CASE WHEN h.status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS status
+                   CASE
+                       WHEN h.status = 'AUDITED' THEN '已审核'
+                       WHEN h.status = 'REVERSED' THEN '已反审核'
+                       WHEN h.status = 'VOID' THEN '已作废'
+                       ELSE '草稿'
+                   END AS status
             FROM outsourcing_scrap h
             JOIN outsourcing_scrap_line l ON l.scrap_id = h.id
             ORDER BY h.updated_at DESC, l.line_no

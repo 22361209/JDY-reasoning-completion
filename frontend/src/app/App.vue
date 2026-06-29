@@ -1194,7 +1194,7 @@ function createListRecordTarget(listKey: string) {
       tabId: outsourcingWorkOrderTabId,
       title: "委外加工单",
       module: "委外管理",
-      open: () => outsourcingWorkOrderFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => openOutsourcingForm(row, outsourcingWorkOrderFormRef.value)
     };
   }
   if (listKey === "outsourcing-issue-list") {
@@ -1202,7 +1202,7 @@ function createListRecordTarget(listKey: string) {
       tabId: outsourcingIssueTabId,
       title: "委外发料单",
       module: "委外管理",
-      open: () => outsourcingIssueFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => openOutsourcingForm(row, outsourcingIssueFormRef.value)
     };
   }
   if (listKey === "outsourcing-receipt-list") {
@@ -1210,7 +1210,7 @@ function createListRecordTarget(listKey: string) {
       tabId: outsourcingReceiptTabId,
       title: "委外产品入库单",
       module: "委外管理",
-      open: () => outsourcingReceiptFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => openOutsourcingForm(row, outsourcingReceiptFormRef.value)
     };
   }
   if (listKey === "outsourcing-return-list") {
@@ -1218,7 +1218,7 @@ function createListRecordTarget(listKey: string) {
       tabId: outsourcingReturnTabId,
       title: "委外产品退货单",
       module: "委外管理",
-      open: () => outsourcingReturnFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => openOutsourcingForm(row, outsourcingReturnFormRef.value)
     };
   }
   if (listKey === "outsourcing-scrap-list") {
@@ -1226,10 +1226,19 @@ function createListRecordTarget(listKey: string) {
       tabId: outsourcingScrapTabId,
       title: "委外产品报废单",
       module: "委外管理",
-      open: () => outsourcingScrapFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => openOutsourcingForm(row, outsourcingScrapFormRef.value)
     };
   }
   return null;
+}
+
+function openOutsourcingForm(row: Record<string, unknown> | undefined, refValue: InstanceType<typeof OutsourcingDocumentForm> | null) {
+  const billNo = row?.billNo == null ? "" : String(row.billNo);
+  if (billNo) {
+    void refValue?.loadDocument(billNo);
+    return;
+  }
+  refValue?.startNew();
 }
 
 function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
