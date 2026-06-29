@@ -252,8 +252,8 @@ assertContains(
 );
 assertContains(
   masterDataRegistry,
-  /"product-master-list"[\s\S]*?title:\s*"物料资料"[\s\S]*?field:\s*"systemNo",\s*title:\s*"系统编号"[\s\S]*?field:\s*"code",\s*title:\s*"物料编码"[\s\S]*?field:\s*"category",\s*title:\s*"物料类别"[\s\S]*?field:\s*"defaultSupplierCode",\s*title:\s*"默认供应商"[\s\S]*?field:\s*"oeNo",\s*title:\s*"OE NO."[\s\S]*?field:\s*"minStockQty",\s*title:\s*"最低库存数量"[\s\S]*?field:\s*"isProduce",\s*title:\s*"可自制"[\s\S]*?field:\s*"surfaceTreatment",\s*title:\s*"表面处理"[\s\S]*?field:\s*"purchasePrice",\s*title:\s*"采购价"[\s\S]*?field:\s*"defaultSalePrice",\s*title:\s*"批发价"/,
-  "物料资料必须按云星辰物料列表骨架包含系统编号、物料类别、默认供应商、OE/位置/表面处理、库存预警、商品特性和价格列"
+  /"product-master-list"[\s\S]*?title:\s*"物料资料"[\s\S]*?field:\s*"systemNo",\s*title:\s*"系统编号"[\s\S]*?field:\s*"code",\s*title:\s*"物料编码"[\s\S]*?field:\s*"category",\s*title:\s*"物料类别"[\s\S]*?field:\s*"defaultSupplierCode",\s*title:\s*"默认供应商"[\s\S]*?field:\s*"minStockQty",\s*title:\s*"最低库存数量"[\s\S]*?field:\s*"isProduce",\s*title:\s*"可自制"[\s\S]*?field:\s*"surfaceTreatment",\s*title:\s*"表面处理"[\s\S]*?field:\s*"purchasePrice",\s*title:\s*"采购价"[\s\S]*?field:\s*"costPrice",\s*title:\s*"参考成本"[\s\S]*?field:\s*"minSalePrice",\s*title:\s*"最低销售价"[\s\S]*?field:\s*"drawingFileName",\s*title:\s*"图纸"[\s\S]*?field:\s*"imageFileNames",\s*title:\s*"图片"/,
+  "物料资料必须按最新收敛口径包含系统编号、物料类别、默认供应商、库存预警、商品特性、关键价格和附件列"
 );
 assertContains(
   masterDataRegistry,
@@ -262,8 +262,13 @@ assertContains(
 );
 assertContains(
   productMasterFields,
-  /name:\s*"systemNo"[\s\S]*?label:\s*"系统编号"[\s\S]*?readonly:\s*true[\s\S]*?label:\s*"物料编码"[\s\S]*?label:\s*"物料类别"[\s\S]*?label:\s*"商品类型"[\s\S]*?label:\s*"计量单位"[\s\S]*?label:\s*"OE NO."[\s\S]*?label:\s*"表面处理"/,
-  "物料建档页基本信息必须包含只读系统编号、物料编码、物料类别、商品类型、计量单位、OE 和表面处理"
+  /name:\s*"systemNo"[\s\S]*?label:\s*"系统编号"[\s\S]*?readonly:\s*true[\s\S]*?label:\s*"物料编码"[\s\S]*?label:\s*"物料类别"[\s\S]*?label:\s*"计量单位"[\s\S]*?label:\s*"净重"[\s\S]*?label:\s*"毛重"[\s\S]*?label:\s*"表面处理"/,
+  "物料建档页基本信息必须包含只读系统编号、物料编码、物料类别、计量单位、净重、毛重和表面处理"
+);
+assertNotContains(
+  productMasterFields,
+  /label:\s*"商品类型"|label:\s*"OE NO\."|label:\s*"位置"|label:\s*"默认领料仓"|label:\s*"发料方式"|label:\s*"备注"/,
+  "物料建档页不得重新暴露商品类型、OE、位置、默认领料仓、发料方式和备注"
 );
 assertContains(
   productMasterFields,
@@ -317,7 +322,7 @@ assertContains(
 );
 assertContains(
   masterDataRecordPage,
-  /:disabled="field\.readonly \|\| \(editing && field\.readonlyWhenEditing\)"/,
+  /function isFieldDisabled\(field: MasterDataField\)[\s\S]*?props\.readOnly[\s\S]*?auditStatusText\.value === "已审核"[\s\S]*?field\.readonly[\s\S]*?field\.readonlyWhenEditing/,
   "主数据建档页必须让 readonly 字段全程不可编辑"
 );
 assertContains(
@@ -327,8 +332,8 @@ assertContains(
 );
 assertContains(
   masterDataRecordPage + masterDataFormDialog,
-  /<template v-else-if="field\.suggestions">[\s\S]*?<datalist[\s\S]*?sectionClasses\(section\)[\s\S]*?checkbox-field/,
-  "主数据建档页必须把 suggestions 包在同一分支内，并支持 checkbox 横向布局"
+  /isLookupField\(field\)[\s\S]*?master-lookup-menu[\s\S]*?sectionClasses\(section\)[\s\S]*?checkbox-field/,
+  "主数据建档页必须通过统一 lookup 分支承载主数据匹配选择，并支持 checkbox 横向布局"
 );
 assertNotContains(
   masterDataRecordPage + masterDataFormDialog,

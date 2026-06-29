@@ -107,10 +107,15 @@
     </section>
 
     <div class="list-toolbar">
-      <button v-if="!isStockAlertList" class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
+      <button v-if="supportsCreateCurrentList" class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
       <button v-if="isStockAlertList" type="button" :disabled="!canMaintainStockAlert" data-testid="stock-alert-settings" @click="openStockAlertSettings">安全库存设置</button>
       <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
-      <button v-if="!isStockAlertList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
+      <button v-if="canCopyMasterRecord" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-copy" @click="openCopyDialog">复制</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-audit" @click="submitMasterAudit(true)">审核</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-reverse-audit" @click="submitMasterAudit(false)">反审核</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
+      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
+      <button v-if="supportsAuditCurrentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
       <button v-if="isReverseableDocumentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow || !selectedRows.every(isAuditedRow)" data-testid="batch-reverse" @click="confirmAction('反审核')">反审核</button>
       <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">发货通知</button>
       <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
@@ -123,8 +128,6 @@
       <div class="list-more-actions">
         <button type="button" class="list-more-trigger" data-testid="list-more-actions">更多</button>
         <div class="list-more-menu">
-          <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
-          <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
           <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
           <button type="button">打印</button>
           <button class="danger-menu-action" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
@@ -208,6 +211,15 @@
             type="button"
             :data-testid="`open-document-${cellValue(row, listColumnByKey(column.key))}`"
             @click.stop="openDocument(row)"
+          >
+            {{ cellValue(row, listColumnByKey(column.key)) }}
+          </button>
+          <button
+            v-else-if="isOpenableMasterCodeColumn(column.key)"
+            class="list-cell-link"
+            type="button"
+            :data-testid="`open-master-${cellValue(row, listColumnByKey(column.key))}`"
+            @click.stop="openMasterRecord(row)"
           >
             {{ cellValue(row, listColumnByKey(column.key)) }}
           </button>
@@ -434,8 +446,11 @@ const emit = defineEmits<{
   pushDownPurchaseIn: [row: Record<string, unknown>];
   openDocument: [payload: { type: OpenableDocumentType; row: Record<string, unknown> }];
   createDocument: [payload: { type: OpenableDocumentType }];
+  createListRecord: [payload: { listKey: string }];
   createMasterData: [payload: { listKey: string }];
+  viewMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
   editMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
+  copyMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
 }>();
 
 const tableVersion = ref(0);
@@ -1070,6 +1085,25 @@ const definitions: Record<string, ListDefinition> = {
       { field: "status", title: "状态", width: 90, visible: true },
       { field: "reason", title: "失败原因", width: 180, visible: true }
     ]
+  },
+  "task-track-report": {
+    title: "生产任务跟踪表",
+    subtitle: "生产任务跟踪表只读展示任务来源、BOM、计划数、已领料数、完工数和状态。",
+    keywordPlaceholder: "任务单号、生产计划、BOM、物料",
+    statuses: ["已审核", "已领料", "已完工"],
+    columns: [
+      { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
+      { field: "planNo", title: "来源计划", width: 160, visible: true },
+      { field: "bomCode", title: "BOM", width: 120, visible: true },
+      { field: "productCode", title: "物料编码", width: 130, visible: true },
+      { field: "productName", title: "物料名称", width: 180, visible: true },
+      { field: "unit", title: "单位", width: 80, visible: true },
+      { field: "warehouse", title: "完工仓库", width: 130, visible: true },
+      { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
+      { field: "issuedQty", title: "已领料数", width: 110, align: "right", visible: true },
+      { field: "completedQty", title: "完工数", width: 100, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
   }
 };
 
@@ -1173,6 +1207,7 @@ function detailColumnsForList(): ListColumn[] {
 const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
+const canCopyMasterRecord = computed(() => props.listKey === "product-master-list");
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
@@ -1205,8 +1240,8 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "supplier-master-list": "master.data.manage",
   "warehouse-master-list": "master.data.manage",
   "production-department-list": "master.data.manage",
+  "bom-list": "master.data.manage",
   "production-plan-list": "production.task.audit",
-  "kit-analysis-list": "production.task.audit",
   "production-task-form-list": "production.task.audit",
   "outsourcing-surface-list": "production.document.audit",
   "sales-quote-form-list": "sales.order.audit",
@@ -1228,9 +1263,17 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "stock-count-loss-form-list": "inventory.stock_count_loss.audit",
   "stock-alert-list": "inventory.stock_alert.manage"
 };
-const canAuditCurrentList = computed(() => !isDetailView.value && session.hasPermission(auditPermissionByListKey[props.listKey]));
-const canMaintainCurrentList = computed(() => !isDetailView.value && session.hasPermission(maintainPermissionByListKey[props.listKey]));
+const canAuditCurrentList = computed(() => {
+  const permission = auditPermissionByListKey[props.listKey];
+  return !isDetailView.value && Boolean(permission) && session.hasPermission(permission);
+});
+const canMaintainCurrentList = computed(() => {
+  const permission = maintainPermissionByListKey[props.listKey];
+  return !isDetailView.value && Boolean(permission) && session.hasPermission(permission);
+});
 const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
+const supportsCreateCurrentList = computed(() => !isStockAlertList.value && (isMasterList.value || Boolean(openableDocumentType.value) || canCreateListRecord(props.listKey)));
+const supportsAuditCurrentList = computed(() => !isStockAlertList.value && Boolean(auditPermissionByListKey[props.listKey]));
 const documentOpenTypeByListKey: Partial<Record<string, OpenableDocumentType>> = {
   "sales-quote-form-list": "salesQuote",
   "sales-order-form-list": "salesOrder",
@@ -1941,9 +1984,23 @@ function openDocument(row: Record<string, unknown>) {
   }
 }
 
+function isOpenableMasterCodeColumn(columnKey: string) {
+  return isMasterList.value && columnKey === "code";
+}
+
+function openMasterRecord(row: Record<string, unknown>) {
+  if (isMasterList.value) {
+    emit("viewMasterData", { listKey: props.listKey, row });
+  }
+}
+
 function openCreateDialog() {
   if (isMasterList.value) {
     emit("createMasterData", { listKey: props.listKey });
+    return;
+  }
+  if (canCreateListRecord(props.listKey)) {
+    emit("createListRecord", { listKey: props.listKey });
     return;
   }
   if (openableDocumentType.value) {
@@ -1951,11 +2008,31 @@ function openCreateDialog() {
   }
 }
 
+function canCreateListRecord(listKey: string) {
+  return [
+    "bom-list",
+    "production-plan-list",
+    "production-task-form-list",
+    "outsourcing-surface-list"
+  ].includes(listKey);
+}
+
 function openEditDialog() {
   const row = selectedRows.value[0];
   if (isMasterList.value && row) {
     emit("editMasterData", { listKey: props.listKey, row });
   }
+}
+
+function openCopyDialog() {
+  const row = selectedRows.value[0];
+  if (canCopyMasterRecord.value && row) {
+    emit("copyMasterData", { listKey: props.listKey, row });
+  }
+}
+
+async function submitMasterAudit(audit: boolean) {
+  await masterMaintenance.submitAudit(audit);
 }
 
 async function submitMasterStatus(enabled: boolean) {

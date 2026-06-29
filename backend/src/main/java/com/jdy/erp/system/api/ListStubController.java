@@ -297,7 +297,7 @@ public class ListStubController {
             case "bom-list" -> bomRows();
             case "production-plan-list" -> productionPlanRows();
             case "kit-analysis-list" -> kitAnalysisRows();
-            case "production-task-list", "production-task-form-list" -> productionTaskRows();
+            case "production-task-list", "production-task-form-list", "task-track-report" -> productionTaskRows();
             case "material-issue-list", "material-issue-form-list" -> materialIssueRows();
             case "product-in-list", "product-in-form-list" -> productInRows();
             case "outsourcing-surface-list" -> outsourcingSurfaceRows();
@@ -787,6 +787,8 @@ public class ListStubController {
                    trim(to_char(safety_stock_qty, 'FM9999999990.####')) AS "safetyStockQty",
                    trim(to_char(max_stock_qty, 'FM9999999990.####')) AS "maxStockQty",
                    COALESCE(remark, '') AS remark,
+                   COALESCE(drawing_file_name, '') AS "drawingFileName",
+                   COALESCE(image_file_names, '') AS "imageFileNames",
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"

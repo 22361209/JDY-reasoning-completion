@@ -309,16 +309,21 @@
           @push-down-purchase-in="openPurchaseInFromPurchaseOrder"
           @open-document="openDocumentFromList"
           @create-document="openCreateDocumentFromList"
+          @create-list-record="openCreateListRecord"
           @create-master-data="openCreateMasterData"
+          @view-master-data="openViewMasterData"
           @edit-master-data="openEditMasterData"
+          @copy-master-data="openCopyMasterData"
         />
         <MasterDataRecordPage
           v-else-if="activeMasterRecord"
           :record-id="activeMasterRecord.id"
           :editing="activeMasterRecord.editing"
+          :read-only="activeMasterRecord.readOnly"
           :title="activeMasterRecord.title"
           :fields="activeMasterRecord.fields"
           :form="activeMasterRecord.form"
+          :original-form="activeMasterRecord.originalForm"
           :error="activeMasterRecord.error"
           @cancel="cancelActiveMasterRecord"
           @new-record="openNewActiveMasterRecord"
@@ -327,6 +332,7 @@
           @reverse-audit="reverseAuditActiveMasterRecord"
           @toggle-status="toggleActiveMasterStatus"
           @delete-record="deleteActiveMasterRecord"
+          @edit-record="editActiveMasterRecord"
           @update-field="updateActiveMasterField"
         />
         <SalesOrderForm
@@ -493,6 +499,41 @@
           @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
         />
+        <BomForm
+          v-else-if="tabs.activeTab.value.id === bomFormTabId"
+          ref="bomFormRef"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = 'bom-list'"
+        />
+        <ProductionPlanForm
+          v-else-if="tabs.activeTab.value.id === productionPlanTabId"
+          ref="productionPlanFormRef"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = 'production-plan-list'"
+        />
+        <ProductionTaskForm
+          v-else-if="tabs.activeTab.value.id === productionTaskTabId"
+          ref="productionTaskFormRef"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
+        <OutsourcingSurfaceForm
+          v-else-if="tabs.activeTab.value.id === outsourcingSurfaceTabId"
+          ref="outsourcingSurfaceFormRef"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = 'outsourcing-surface-list'"
+        />
         <OtherStockInForm
           v-else-if="tabs.activeTab.value.id === otherStockInTabId"
           ref="otherStockInFormRef"
@@ -648,7 +689,11 @@ import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOu
 import StockCountForm from "../modules/inventory/stock-count/StockCountForm.vue";
 import StockTransferForm from "../modules/inventory/stock-transfer/StockTransferForm.vue";
 import MaterialIssueForm from "../modules/production/material-issue/MaterialIssueForm.vue";
+import BomForm from "../modules/production/bom/BomForm.vue";
+import ProductionPlanForm from "../modules/production/production-plan/ProductionPlanForm.vue";
+import ProductionTaskForm from "../modules/production/production-task/ProductionTaskForm.vue";
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
+import OutsourcingSurfaceForm from "../modules/outsourcing/surface/OutsourcingSurfaceForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
 import PurchaseReturnForm from "../modules/purchase/purchase-return/PurchaseReturnForm.vue";
@@ -698,9 +743,11 @@ interface MasterRecordState {
   type: string;
   title: string;
   editing: boolean;
+  readOnly: boolean;
   originalCode: string;
   fields: MasterDataField[];
   form: Record<string, string>;
+  originalForm: Record<string, string>;
   error: string;
 }
 const session = useSessionStore();
@@ -715,6 +762,10 @@ const purchaseInTabId = "purchase-in-form";
 const purchaseReturnTabId = "purchase-return-form";
 const materialIssueTabId = "material-issue-form";
 const productInTabId = "product-in-form";
+const bomFormTabId = "bom-form";
+const productionPlanTabId = "production-plan-form";
+const productionTaskTabId = "production-task-form";
+const outsourcingSurfaceTabId = "outsourcing-surface-form";
 const otherStockInTabId = "other-in-form";
 const otherStockOutTabId = "other-out-form";
 const stockTransferTabId = "stock-transfer-form";
@@ -741,6 +792,10 @@ const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
 const purchaseReturnFormRef = ref<InstanceType<typeof PurchaseReturnForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
 const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
+const bomFormRef = ref<InstanceType<typeof BomForm> | null>(null);
+const productionPlanFormRef = ref<InstanceType<typeof ProductionPlanForm> | null>(null);
+const productionTaskFormRef = ref<InstanceType<typeof ProductionTaskForm> | null>(null);
+const outsourcingSurfaceFormRef = ref<InstanceType<typeof OutsourcingSurfaceForm> | null>(null);
 const otherStockInFormRef = ref<InstanceType<typeof OtherStockInForm> | null>(null);
 const otherStockOutFormRef = ref<InstanceType<typeof OtherStockOutForm> | null>(null);
 const stockTransferFormRef = ref<InstanceType<typeof StockTransferForm> | null>(null);
@@ -902,6 +957,10 @@ function startNewModuleDocument(entryId: string) {
     materialIssueFormRef.value?.startNew();
   } else if (entryId === productInTabId) {
     productInFormRef.value?.startNew();
+  } else if (entryId === productionTaskTabId) {
+    productionTaskFormRef.value?.startNew();
+  } else if (entryId === outsourcingSurfaceTabId) {
+    outsourcingSurfaceFormRef.value?.startNew();
   } else if (entryId === otherStockInTabId) {
     otherStockInFormRef.value?.startNew();
   } else if (entryId === otherStockOutTabId) {
@@ -940,6 +999,62 @@ async function openCreateDocumentFromList(payload: { type: OpenableDocumentType 
     target.ref.value?.startNew();
     markActiveDirty();
   }
+}
+
+async function openCreateListRecord(payload: { listKey: string }) {
+  const target = createListRecordTarget(payload.listKey);
+  if (!target) {
+    return;
+  }
+  const opened = tabs.openTab({
+    id: target.tabId,
+    title: target.title,
+    module: target.module,
+    kind: "form",
+    dirty: true
+  });
+  activeModuleName.value = target.module;
+  if (opened) {
+    await nextTick();
+    target.startNew();
+    markActiveDirty();
+  }
+}
+
+function createListRecordTarget(listKey: string) {
+  if (listKey === "bom-list") {
+    return {
+      tabId: bomFormTabId,
+      title: "BOM维护",
+      module: "生产管理",
+      startNew: () => bomFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "production-plan-list") {
+    return {
+      tabId: productionPlanTabId,
+      title: "生产计划",
+      module: "生产管理",
+      startNew: () => productionPlanFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "production-task-form-list") {
+    return {
+      tabId: productionTaskTabId,
+      title: "生产任务单",
+      module: "生产管理",
+      startNew: () => productionTaskFormRef.value?.startNew()
+    };
+  }
+  if (listKey === "outsourcing-surface-list") {
+    return {
+      tabId: outsourcingSurfaceTabId,
+      title: "委外表面处理",
+      module: "委外管理",
+      startNew: () => outsourcingSurfaceFormRef.value?.startNew()
+    };
+  }
+  return null;
 }
 
 function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
@@ -1562,7 +1677,7 @@ function masterTitle(listKey: string) {
 function masterModule(_listKey: string) {
   return "基础资料";
 }
-function newMasterForm(listKey: string, row: Record<string, unknown> | null) {
+function newMasterForm(listKey: string, row: Record<string, unknown> | null, options: { copy?: boolean } = {}) {
   const definition = masterDataDefinitions[listKey];
   const form: Record<string, string> = {};
   definition.fields.forEach((field) => {
@@ -1578,54 +1693,103 @@ function newMasterForm(listKey: string, row: Record<string, unknown> | null) {
   });
   form.status = String(row?.status ?? form.status ?? "启用");
   form.auditStatus = String(row?.auditStatus ?? form.auditStatus ?? "草稿");
+  if (options.copy) {
+    form.systemNo = "";
+    form.code = "";
+    form.auditStatus = "草稿";
+  }
   return form;
 }
-function openCreateMasterData(payload: { listKey: string }) {
+
+function openMasterRecord(
+  payload: { listKey: string; row: Record<string, unknown> | null },
+  options: { mode: "create" | "view" | "edit" | "copy"; tabId?: string } = { mode: "create" }
+) {
   const definition = masterDataDefinitions[payload.listKey];
   if (!definition) {
     return;
   }
   const title = masterTitle(payload.listKey);
-  const tabId = `${payload.listKey}:create`;
+  const code = String(payload.row?.code ?? "");
+  if ((options.mode === "view" || options.mode === "edit") && !code) {
+    return;
+  }
+  const persisted = options.mode === "view" || options.mode === "edit";
+  const tabId = options.tabId ?? (
+    persisted
+      ? masterRecordTabId(payload.listKey, code)
+      : options.mode === "copy"
+        ? `${payload.listKey}:copy:${Date.now()}`
+        : `${payload.listKey}:create`
+  );
+  const existingRecord = masterRecords[tabId];
+  if (existingRecord) {
+    tabs.activeTabId.value = tabId;
+    if (options.mode === "edit") {
+      existingRecord.editing = true;
+      existingRecord.readOnly = false;
+      updateMasterTabTitle(tabId, `编辑${existingRecord.title}`);
+    }
+    return;
+  }
+  const editing = options.mode === "edit";
+  const readOnly = options.mode === "view";
+  const form = newMasterForm(payload.listKey, payload.row, { copy: options.mode === "copy" });
   masterRecords[tabId] = {
     id: tabId,
     listKey: payload.listKey,
     type: definition.type,
     title,
-    editing: false,
-    originalCode: "",
+    editing,
+    readOnly,
+    originalCode: persisted ? code : "",
     fields: definition.fields,
-    form: newMasterForm(payload.listKey, null),
+    form,
+    originalForm: { ...form },
     error: ""
   };
-  tabs.openTab({ id: tabId, title: `新增${title}`, module: masterModule(payload.listKey), kind: "form", dirty: true });
+  const actionTitle = options.mode === "view" ? title : options.mode === "edit" ? `编辑${title}` : `新增${title}`;
+  tabs.openTab({ id: tabId, title: actionTitle, module: masterModule(payload.listKey), kind: "form", dirty: options.mode !== "view" });
 }
+
+function masterRecordTabId(listKey: string, code: string) {
+  return `${listKey}:record:${code}`;
+}
+
+function updateMasterTabTitle(tabId: string, title: string) {
+  const targetTab = tabs.tabs.value.find((tab) => tab.id === tabId);
+  if (targetTab) {
+    targetTab.title = title;
+  }
+}
+
+function openCreateMasterData(payload: { listKey: string }) {
+  openMasterRecord({ listKey: payload.listKey, row: null }, { mode: "create" });
+}
+
+function openViewMasterData(payload: { listKey: string; row: Record<string, unknown> }) {
+  openMasterRecord(payload, { mode: "view" });
+}
+
 function openEditMasterData(payload: { listKey: string; row: Record<string, unknown> }) {
-  const definition = masterDataDefinitions[payload.listKey];
-  if (!definition) {
+  openMasterRecord(payload, { mode: "edit" });
+}
+
+function openCopyMasterData(payload: { listKey: string; row: Record<string, unknown> }) {
+  openMasterRecord(payload, { mode: "copy" });
+}
+
+function editActiveMasterRecord() {
+  const record = activeMasterRecord.value;
+  if (!record) {
     return;
   }
-  const code = String(payload.row.code ?? "");
-  if (!code) {
-    return;
-  }
-  const title = masterTitle(payload.listKey);
-  const tabId = `${payload.listKey}:edit:${code}`;
-  masterRecords[tabId] = {
-    id: tabId,
-    listKey: payload.listKey,
-    type: definition.type,
-    title,
-    editing: true,
-    originalCode: code,
-    fields: definition.fields,
-    form: newMasterForm(payload.listKey, payload.row),
-    error: ""
-  };
-  tabs.openTab({ id: tabId, title: `编辑${title}`, module: masterModule(payload.listKey), kind: "form", dirty: true });
+  record.editing = true;
+  record.readOnly = false;
+  updateMasterTabTitle(record.id, `编辑${record.title}`);
 }
 function updateActiveMasterField(name: string, value: string) {
-  if (!activeMasterRecord.value) {
+  if (!activeMasterRecord.value || activeMasterRecord.value.readOnly) {
     return;
   }
   activeMasterRecord.value.form[name] = value;
@@ -1653,7 +1817,7 @@ function cancelActiveMasterRecord() {
 }
 async function saveActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record) {
+  if (!record || record.readOnly) {
     return;
   }
   const missingField = record.fields.find((field) => field.required && !record.form[field.name]?.trim());
@@ -1668,15 +1832,41 @@ async function saveActiveMasterRecord() {
     record.error = result.message;
     return;
   }
+  const savedRow = result.data?.rows[0] ?? {};
+  const savedCode = String(savedRow.code ?? record.form.code ?? record.originalCode).trim();
+  if (!savedCode) {
+    record.error = "保存成功但未返回资料编码，请刷新列表确认。";
+    return;
+  }
+  Object.entries(savedRow).forEach(([key, value]) => {
+    record.form[key] = String(value ?? "");
+  });
+  record.form.status = String(record.form.status || "启用");
+  record.form.auditStatus = String(record.form.auditStatus || "草稿");
+  record.originalCode = savedCode;
+  record.editing = true;
+  record.readOnly = false;
+  record.originalForm = { ...record.form };
+  record.error = "";
+  const nextTabId = masterRecordTabId(record.listKey, savedCode);
+  if (record.id !== nextTabId) {
+    const currentTab = tabs.tabs.value.find((tab) => tab.id === record.id);
+    if (currentTab) {
+      currentTab.id = nextTabId;
+      currentTab.title = `编辑${record.title}`;
+      tabs.activeTabId.value = nextTabId;
+    }
+    delete masterRecords[record.id];
+    record.id = nextTabId;
+    masterRecords[nextTabId] = record;
+  } else {
+    updateMasterTabTitle(record.id, `编辑${record.title}`);
+  }
   clearActiveDirty();
-  delete masterRecords[record.id];
-  const listKey = record.listKey;
-  tabs.closeNow(record.id);
-  tabs.activeTabId.value = listKey;
 }
 async function auditActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode) {
     return;
   }
   const result = await auditMasterData(record.type, record.originalCode);
@@ -1690,7 +1880,7 @@ async function auditActiveMasterRecord() {
 }
 async function reverseAuditActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode) {
     return;
   }
   const result = await reverseAuditMasterData(record.type, record.originalCode);
@@ -1704,7 +1894,7 @@ async function reverseAuditActiveMasterRecord() {
 }
 async function toggleActiveMasterStatus() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode) {
     return;
   }
   const nextEnabled = (record.form.status || "启用") === "禁用";
@@ -1718,7 +1908,7 @@ async function toggleActiveMasterStatus() {
 }
 async function deleteActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode) {
     return;
   }
   if (!window.confirm(`确定删除当前${record.title}吗？`)) {

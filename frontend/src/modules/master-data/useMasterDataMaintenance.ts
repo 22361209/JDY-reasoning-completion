@@ -1,7 +1,9 @@
 import { computed, reactive, ref, type Ref } from "vue";
 import {
+  auditMasterData,
   createMasterData,
   deleteMasterData,
+  reverseAuditMasterData,
   setMasterDataStatus,
   updateMasterData
 } from "../../services/listApi";
@@ -114,6 +116,19 @@ export function useMasterDataMaintenance(
     return true;
   }
 
+  async function submitAudit(audit: boolean) {
+    const masterDefinition = definition.value;
+    if (!masterDefinition) {
+      return false;
+    }
+    const submit = audit ? auditMasterData : reverseAuditMasterData;
+    for (const row of actionRows()) {
+      await submit(masterDefinition.type, String(row.code));
+    }
+    await reload();
+    return true;
+  }
+
   async function submitDelete() {
     const masterDefinition = definition.value;
     if (!masterDefinition) {
@@ -163,6 +178,7 @@ export function useMasterDataMaintenance(
     closeDialog,
     updateField,
     submitForm,
+    submitAudit,
     submitStatus,
     submitDelete
   };

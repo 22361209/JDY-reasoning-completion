@@ -92,6 +92,9 @@ public class MasterDataController {
     @DeleteMapping("/{type}/{code}")
     @RequirePermission("master.data.manage")
     public Map<String, Object> delete(@PathVariable String type, @PathVariable String code) {
+        if ("product".equals(type)) {
+            return deleteProduct(code);
+        }
         return setEnabled(type, code, false);
     }
 
@@ -104,9 +107,9 @@ public class MasterDataController {
                 is_purchase, is_sale, is_inventory, is_produce, is_subcontract,
                 default_warehouse_code, default_workshop, sale_unit, purchase_unit, bom_unit, default_supplier_code, issue_warehouse_code, issue_method,
                 tax_rate, default_sale_price, cost_price, min_sale_price, purchase_price, max_purchase_price, subcontract_price, wholesale_price, retail_price,
-                min_stock_qty, safety_stock_qty, max_stock_qty, remark, enabled
+                min_stock_qty, safety_stock_qty, max_stock_qty, remark, drawing_file_name, drawing_file_data, image_file_names, image_file_data, enabled
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, system_no::text AS "systemNo", code, name
             """,
             code,
@@ -149,6 +152,10 @@ public class MasterDataController {
             optionalDecimal(payload, "safetyStockQty", "安全库存数量"),
             optionalDecimal(payload, "maxStockQty", "最高库存数量"),
             optional(payload, "remark"),
+            optional(payload, "drawingFileName"),
+            optional(payload, "drawingFileData"),
+            optional(payload, "imageFileNames"),
+            optional(payload, "imageFileData"),
             enabled
         );
     }
@@ -233,6 +240,8 @@ public class MasterDataController {
                 default_warehouse_code = ?, default_workshop = ?, sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, issue_warehouse_code = ?, issue_method = ?,
                 tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, purchase_price = ?, max_purchase_price = ?, subcontract_price = ?,
                 wholesale_price = ?, retail_price = ?, min_stock_qty = ?, safety_stock_qty = ?, max_stock_qty = ?, remark = ?,
+                drawing_file_name = ?, drawing_file_data = COALESCE(NULLIF(?, ''), drawing_file_data),
+                image_file_names = ?, image_file_data = COALESCE(NULLIF(?, ''), image_file_data),
                 enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
             WHERE code = ?
             RETURNING id::text AS id, system_no::text AS "systemNo", code, name
@@ -276,6 +285,10 @@ public class MasterDataController {
             optionalDecimal(payload, "safetyStockQty", "安全库存数量"),
             optionalDecimal(payload, "maxStockQty", "最高库存数量"),
             optional(payload, "remark"),
+            optional(payload, "drawingFileName"),
+            optional(payload, "drawingFileData"),
+            optional(payload, "imageFileNames"),
+            optional(payload, "imageFileData"),
             enabled,
             code
         );
@@ -474,6 +487,58 @@ public class MasterDataController {
             auditStatus,
             code
         );
+    }
+
+    private Map<String, Object> deleteProduct(String code) {
+        var rows = jdbcTemplate.queryForList("SELECT id::text AS id, audit_status FROM md_product WHERE code = ?", code);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "master data not found");
+        }
+        var row = rows.get(0);
+        if ("AUDITED".equals(row.get("audit_status"))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "已审核物料不能删除，请先反审核；已有业务往来的物料只能禁用。");
+        }
+        var productId = String.valueOf(row.get("id"));
+        if (productReferenceCount(productId) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该物料已有业务引用，不能删除；请改为禁用。");
+        }
+        return updateAndReturn("DELETE FROM md_product WHERE code = ? RETURNING " + returningFor("product"), code);
+    }
+
+    private long productReferenceCount(String productId) {
+        var references = jdbcTemplate.queryForList("""
+            SELECT kcu.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_schema = kcu.constraint_schema
+             AND tc.constraint_name = kcu.constraint_name
+            JOIN information_schema.constraint_column_usage ccu
+              ON ccu.constraint_schema = tc.constraint_schema
+             AND ccu.constraint_name = tc.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = 'public'
+              AND ccu.table_schema = 'public'
+              AND ccu.table_name = 'md_product'
+              AND ccu.column_name = 'id'
+            """);
+        long count = 0;
+        for (var reference : references) {
+            var table = safeIdentifier(String.valueOf(reference.get("table_name")));
+            var column = safeIdentifier(String.valueOf(reference.get("column_name")));
+            var value = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + column + " = ?::uuid", Long.class, productId);
+            count += value == null ? 0 : value;
+            if (count > 0) {
+                return count;
+            }
+        }
+        return count;
+    }
+
+    private String safeIdentifier(String value) {
+        if (!value.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "invalid database identifier");
+        }
+        return value;
     }
 
     private String returningFor(String type) {

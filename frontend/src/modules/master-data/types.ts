@@ -7,8 +7,21 @@ export interface MasterDataField {
   placeholder?: string;
   options?: string[];
   suggestions?: string[];
+  strictSuggestions?: boolean;
+  lookup?: {
+    listKey: string;
+    valueField?: string;
+    displayFields?: string[];
+    searchFields?: string[];
+    strict?: boolean;
+    pageSize?: number;
+  };
   section?: string;
-  type?: "text" | "number" | "textarea" | "checkbox";
+  type?: "text" | "number" | "textarea" | "checkbox" | "file";
+  accept?: string;
+  multiple?: boolean;
+  maxFiles?: number;
+  fileDataName?: string;
   span?: 1 | 2;
   required?: boolean;
   readonly?: boolean;

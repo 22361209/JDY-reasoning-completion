@@ -2261,6 +2261,13 @@ input:disabled {
   font-weight: 600;
 }
 
+.master-record-toolbar button:disabled,
+.master-record-foot button:disabled {
+  border-color: #c7d2df;
+  background: #edf1f5;
+  color: #9ba8b5;
+}
+
 .master-record-body {
   display: grid;
   gap: 10px;
@@ -2297,6 +2304,7 @@ input:disabled {
   gap: 4px;
   color: #5b6b7a;
   font-size: 12px;
+  position: relative;
 }
 
 .master-record-section.section-checkboxes .master-record-fields {
@@ -2349,9 +2357,152 @@ input:disabled {
 }
 
 .master-record-fields input:disabled,
-.master-record-fields select:disabled {
+.master-record-fields select:disabled,
+.master-record-fields textarea:disabled {
   background: #f3f6fa;
   color: #64748b;
+}
+
+.master-record-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid #d8e1ec;
+  background: #fbfdff;
+}
+
+.master-record-page--product .master-record-body {
+  gap: 8px;
+  padding: 8px;
+}
+
+.master-record-page--product .master-record-fields {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px 10px;
+  padding: 9px 10px;
+}
+
+.master-record-page--product .master-record-fields .field-wide {
+  grid-column: span 4;
+}
+
+.master-record-page--product .master-record-section.section-checkboxes .master-record-fields {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 30px;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.master-record-page--product .master-record-fields label.checkbox-field {
+  min-width: auto;
+}
+
+.master-lookup-control {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.master-lookup-control input {
+  width: 100%;
+}
+
+.master-lookup-loading {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  color: #7c8da1;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.master-file-control {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.master-record-fields .master-file-control input[type="file"] {
+  height: 30px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.master-file-control small {
+  min-width: 0;
+  color: #6b7d90;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-lookup-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 100%;
+  max-width: 360px;
+  max-height: 230px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid #b9c9da;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(31, 52, 72, 0.16);
+}
+
+.master-lookup-menu button {
+  width: 100%;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #24364a;
+  text-align: left;
+}
+
+.master-lookup-menu button.active,
+.master-lookup-menu button:hover {
+  background: #e7f1ff;
+}
+
+.master-lookup-menu button strong {
+  color: #154f84;
+  font-weight: 600;
+}
+
+.master-lookup-menu button span,
+.master-lookup-menu button small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-lookup-menu button small {
+  grid-column: 2;
+  color: #7a8ba0;
+  font-size: 11px;
+}
+
+.master-lookup-menu em {
+  display: block;
+  padding: 7px 8px;
+  color: #7a8ba0;
+  font-style: normal;
 }
 
 .form-error {
