@@ -18,6 +18,7 @@
 - 规则口径：`docs/guides/business-rules.md`、`docs/guides/action-button-rules.md`
 - 单据/主数据字段与动作元数据路线：`docs/guides/bill-metadata-roadmap.md`
 - 多账套/初始化边界：`docs/guides/account-set-architecture.md`
+- A119 完整多账套迁移计划与 A119-0 清单：`docs/guides/a119-multi-account-migration-plan.md`、`docs/guides/a119-0-architecture-inventory.md`
 - 新项目孵化/迁移决策：`docs/guides/new-project-migration-blueprint.md`
 - 回归动作：`scripts/helpers/`
 - 前端产品范式：`frontend/src/components/`、对应 `frontend/src/modules/**/use*.ts`
@@ -91,6 +92,8 @@
 | 动作按钮规则 | `docs/guides/action-button-rules.md` |
 | 单据/主数据元数据路线 | `docs/guides/bill-metadata-roadmap.md` |
 | 多账套与初始化 | `docs/guides/account-set-architecture.md` |
+| A119 多账套迁移计划 | `docs/guides/a119-multi-account-migration-plan.md` |
+| A119-0 架构清单 | `docs/guides/a119-0-architecture-inventory.md` |
 | 新项目迁移蓝图 | `docs/guides/new-project-migration-blueprint.md` |
 
 ## 常用命令
