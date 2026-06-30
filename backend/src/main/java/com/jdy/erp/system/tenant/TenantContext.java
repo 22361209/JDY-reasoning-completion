@@ -17,6 +17,7 @@ public final class TenantContext {
         CURRENT.set(Snapshot.tenant(
             stringValue(accountSet.get("id")),
             stringValue(accountSet.get("code")),
+            stringValue(accountSet.get("name")),
             stringValue(accountSet.get("databaseName")),
             stringValue(accountSet.get("schemaName")),
             stringValue(accountSet.get("redisKeyPrefix")),
@@ -53,28 +54,32 @@ public final class TenantContext {
         Scope scope,
         String accountSetId,
         String accountSetCode,
+        String accountSetName,
         String databaseName,
         String schemaName,
         String redisKeyPrefix,
         String attachmentPrefix
     ) {
         static Snapshot platform() {
-            return new Snapshot(Scope.PLATFORM, "", "platform", "", "", "platform", "platform");
+            return new Snapshot(Scope.PLATFORM, "", "platform", "平台", "", "", "platform", "platform");
         }
 
         static Snapshot tenant(
             String accountSetId,
             String accountSetCode,
+            String accountSetName,
             String databaseName,
             String schemaName,
             String redisKeyPrefix,
             String attachmentPrefix
         ) {
             var normalizedCode = accountSetCode == null || accountSetCode.isBlank() ? "tenant" : accountSetCode;
+            var normalizedName = accountSetName == null || accountSetName.isBlank() ? normalizedCode : accountSetName;
             return new Snapshot(
                 Scope.TENANT,
                 accountSetId,
                 normalizedCode,
+                normalizedName,
                 databaseName == null ? "" : databaseName,
                 schemaName == null ? "" : schemaName,
                 redisKeyPrefix == null || redisKeyPrefix.isBlank() ? normalizedCode : redisKeyPrefix,

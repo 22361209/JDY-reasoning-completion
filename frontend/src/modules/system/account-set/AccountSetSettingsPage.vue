@@ -6,7 +6,7 @@
         <p>当前采用共用应用容器，切换账套会刷新业务页签并绑定新的账套上下文；正式多库隔离会在后续迁移。</p>
       </div>
       <div class="role-permission-head__actions">
-        <button type="button" :disabled="!canManage || !selectedCode || selectedCode === currentAccountSetCode" data-testid="account-set-switch" @click="switchSelected">切换账套</button>
+        <button type="button" :disabled="!canManage || !selectedCode || selectedCode === currentAccountSetCode || selectedAccountSet?.enabled === false" data-testid="account-set-switch" @click="switchSelected">切换账套</button>
         <button class="primary-action" type="button" :disabled="!canManage" data-testid="account-set-initialize" @click="initializeCurrent">初始化本账套</button>
       </div>
     </header>
@@ -14,15 +14,56 @@
       <section class="settings-card">
         <h3>账套列表</h3>
         <div class="account-set-list">
-          <label v-for="accountSet in accountSets" :key="accountSet.code" class="account-set-row" :class="{ active: accountSet.code === currentAccountSetCode }">
+          <label v-for="accountSet in visibleAccountSets" :key="accountSet.code" class="account-set-row" :class="{ active: accountSet.code === currentAccountSetCode, disabled: accountSet.enabled === false }">
             <input v-model="selectedCode" type="radio" :value="accountSet.code" />
             <span>
               <strong>{{ accountSet.name }}</strong>
-              <em>{{ accountSet.code }} / {{ accountSet.environment }}</em>
+              <em>{{ accountSet.code }} / {{ accountSet.environment }} / {{ accountSet.schemaName || "public" }}</em>
             </span>
-            <b>{{ accountSet.initialized ? "已初始化" : "未初始化" }}</b>
+            <b>{{ accountSet.enabled === false ? "已禁用" : accountSet.initialized ? "已初始化" : "未初始化" }}</b>
           </label>
         </div>
+      </section>
+      <section class="settings-card">
+        <h3>状态与资源</h3>
+        <p>共用应用容器，数据按账套 schema 隔离；附件和 Redis 使用账套前缀。</p>
+        <dl v-if="selectedAccountSet" class="account-set-status">
+          <dt>账套</dt>
+          <dd>{{ selectedAccountSet.name }}（{{ selectedAccountSet.code }}）</dd>
+          <dt>状态</dt>
+          <dd>{{ selectedAccountSet.enabled === false ? "禁用" : "启用" }} / {{ selectedAccountSet.initialized ? "已初始化" : "未初始化" }}</dd>
+          <dt>数据 schema</dt>
+          <dd>{{ selectedAccountSet.schemaName || "public" }}</dd>
+          <dt>附件目录</dt>
+          <dd>{{ selectedAccountSet.attachmentPrefix || "account-sets/" + selectedAccountSet.code }}</dd>
+          <dt>Redis 前缀</dt>
+          <dd>{{ selectedAccountSet.redisKeyPrefix || selectedAccountSet.code }}</dd>
+        </dl>
+        <div class="settings-inline-actions">
+          <button type="button" :disabled="!canManage || !selectedAccountSet || selectedAccountSet.enabled === true" data-testid="account-set-enable" @click="updateSelectedEnabled(true)">启用</button>
+          <button type="button" :disabled="!canManage || !selectedAccountSet || selectedAccountSet.enabled === false || selectedCode === currentAccountSetCode" data-testid="account-set-disable" @click="updateSelectedEnabled(false)">禁用</button>
+        </div>
+        <input v-model.trim="statusReason" :disabled="!canManage" data-testid="account-set-status-reason" placeholder="状态变更原因，可空" />
+      </section>
+      <section class="settings-card">
+        <h3>备份与恢复</h3>
+        <p>当前第一版按账套 schema 建立备份，仅允许恢复当前账套自己的备份。</p>
+        <div class="settings-inline-actions">
+          <button type="button" :disabled="!canManage || backingUp" data-testid="account-set-backup" @click="backupCurrent">备份当前账套</button>
+          <button type="button" :disabled="!canManage || !selectedBackupName || restoring" data-testid="account-set-restore" @click="restoreSelectedBackup">恢复所选备份</button>
+        </div>
+        <select v-model="selectedBackupName" :disabled="backups.length === 0" data-testid="account-set-backup-select">
+          <option value="">选择备份</option>
+          <option v-for="backup in backups" :key="backup.id" :value="backup.backupName">
+            {{ backup.backupName }} / {{ backup.tableCount }} 表 / {{ backup.rowCount }} 行
+          </option>
+        </select>
+        <ul class="account-set-backup-list">
+          <li v-for="backup in backups.slice(0, 5)" :key="backup.id">
+            <strong>{{ backup.backupName }}</strong>
+            <span>{{ backup.createdAt }} / {{ backup.backupSchemaName }}</span>
+          </li>
+        </ul>
       </section>
       <section class="settings-card">
         <h3>新建账套</h3>
@@ -66,8 +107,18 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
-import { createAccountSet, initializeCurrentAccountSet, type SystemAccountSet } from "../../../services/systemApi";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import {
+  backupCurrentAccountSet,
+  createAccountSet,
+  fetchCurrentAccountSetBackups,
+  fetchManagedAccountSets,
+  initializeCurrentAccountSet,
+  restoreCurrentAccountSetBackup,
+  setAccountSetEnabled,
+  type AccountSetBackup,
+  type SystemAccountSet
+} from "../../../services/systemApi";
 
 const props = defineProps<{
   accountSets: SystemAccountSet[];
@@ -84,6 +135,12 @@ const selectedCode = ref(props.currentAccountSetCode);
 const clearBusinessData = ref(true);
 const confirmText = ref("");
 const message = ref("");
+const managedAccountSets = ref<SystemAccountSet[]>([]);
+const backups = ref<AccountSetBackup[]>([]);
+const selectedBackupName = ref("");
+const statusReason = ref("");
+const backingUp = ref(false);
+const restoring = ref(false);
 const createForm = reactive({
   code: "",
   name: "",
@@ -92,8 +149,17 @@ const createForm = reactive({
   businessPeriod: "2026-06"
 });
 
+const visibleAccountSets = computed(() => managedAccountSets.value.length > 0 ? managedAccountSets.value : props.accountSets);
+const selectedAccountSet = computed(() => visibleAccountSets.value.find((accountSet) => accountSet.code === selectedCode.value) ?? null);
+
 watch(() => props.currentAccountSetCode, (code) => {
   selectedCode.value = code;
+  void loadBackups();
+});
+
+onMounted(async () => {
+  await loadManagedAccountSets();
+  await loadBackups();
 });
 
 async function switchSelected() {
@@ -102,6 +168,78 @@ async function switchSelected() {
     return;
   }
   emit("accountSetSwitchRequested", selectedCode.value);
+}
+
+async function loadManagedAccountSets() {
+  if (!props.canManage) {
+    managedAccountSets.value = props.accountSets;
+    return;
+  }
+  const result = await fetchManagedAccountSets();
+  managedAccountSets.value = result.accountSets.length > 0 ? result.accountSets : props.accountSets;
+  if (result.accountSets.length > 0) {
+    emit("accountSetsChanged", result.accountSets.filter((accountSet) => accountSet.enabled !== false));
+  }
+}
+
+async function loadBackups() {
+  if (!props.canManage) {
+    backups.value = [];
+    return;
+  }
+  const result = await fetchCurrentAccountSetBackups();
+  backups.value = result.backups;
+  if (!backups.value.some((backup) => backup.backupName === selectedBackupName.value)) {
+    selectedBackupName.value = backups.value[0]?.backupName ?? "";
+  }
+}
+
+async function updateSelectedEnabled(enabled: boolean) {
+  message.value = "";
+  if (!selectedCode.value) {
+    return;
+  }
+  const action = enabled ? "启用" : "禁用";
+  if (!window.confirm(`确定${action}账套「${selectedAccountSet.value?.name || selectedCode.value}」吗？`)) {
+    return;
+  }
+  const result = await setAccountSetEnabled(selectedCode.value, enabled, statusReason.value);
+  message.value = result.message;
+  if (result.ok) {
+    managedAccountSets.value = result.accountSets;
+    emit("accountSetsChanged", result.accountSets.filter((accountSet) => accountSet.enabled !== false));
+    statusReason.value = "";
+  }
+}
+
+async function backupCurrent() {
+  message.value = "";
+  backingUp.value = true;
+  const result = await backupCurrentAccountSet();
+  backingUp.value = false;
+  message.value = result.message;
+  if (result.ok) {
+    backups.value = result.backups;
+    selectedBackupName.value = result.backup?.backupName ?? backups.value[0]?.backupName ?? "";
+  }
+}
+
+async function restoreSelectedBackup() {
+  message.value = "";
+  if (!selectedBackupName.value) {
+    message.value = "请选择备份。";
+    return;
+  }
+  if (!window.confirm(`确定将当前账套恢复到备份「${selectedBackupName.value}」吗？当前账套数据会被覆盖。`)) {
+    return;
+  }
+  restoring.value = true;
+  const result = await restoreCurrentAccountSetBackup(selectedBackupName.value);
+  restoring.value = false;
+  message.value = result.message;
+  if (result.ok) {
+    backups.value = result.backups;
+  }
 }
 
 async function initializeCurrent() {
@@ -133,10 +271,12 @@ async function createNewAccountSet() {
   }
   selectedCode.value = result.accountSet?.code || createForm.code.toUpperCase();
   if (result.accountSets.length > 0) {
-    emit("accountSetsChanged", result.accountSets);
+    managedAccountSets.value = result.accountSets;
+    emit("accountSetsChanged", result.accountSets.filter((accountSet) => accountSet.enabled !== false));
   }
   createForm.code = "";
   createForm.name = "";
+  await loadManagedAccountSets();
   emit("accountSetSwitchRequested", selectedCode.value);
 }
 </script>

@@ -83,6 +83,65 @@ public class AccountSetManagementService {
         return currentSessionService.availableAccountSets();
     }
 
+    public List<Map<String, Object>> managedAccountSets() {
+        return platformJdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   environment,
+                   COALESCE(database_name, '') AS "databaseName",
+                   COALESCE(schema_name, '') AS "schemaName",
+                   COALESCE(attachment_prefix, '') AS "attachmentPrefix",
+                   COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                   accounting_period AS "accountingPeriod",
+                   business_period AS "businessPeriod",
+                   enabled,
+                   initialized,
+                   COALESCE(disabled_reason, '') AS "disabledReason"
+            FROM sys_account_set
+            ORDER BY created_at, code
+            """);
+    }
+
+    @Transactional(transactionManager = "platformTransactionManager")
+    public Map<String, Object> setEnabled(String accountSetCode, boolean enabled, String reason) {
+        var normalizedCode = normalizeCode(required(accountSetCode, "账套编码"));
+        if (!enabled && normalizedCode.equalsIgnoreCase(currentSessionService.currentAccountSetCode())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能禁用当前正在使用的账套，请先切换到其他账套。");
+        }
+        var rows = platformJdbcTemplate.queryForList("""
+            SELECT id::text AS id, code, name
+            FROM sys_account_set
+            WHERE code = ?
+            LIMIT 1
+            """, normalizedCode);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "账套不存在");
+        }
+        var accountSet = rows.get(0);
+        platformJdbcTemplate.update("""
+            UPDATE sys_account_set
+            SET enabled = ?,
+                disabled_at = CASE WHEN ? = FALSE THEN now() ELSE NULL END,
+                disabled_reason = CASE WHEN ? = FALSE THEN ? ELSE '' END,
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, enabled, enabled, enabled, optionalText(reason, ""), accountSet.get("id"));
+        logAccountSetOperation(
+            enabled ? "ENABLE_ACCOUNT_SET" : "DISABLE_ACCOUNT_SET",
+            String.valueOf(accountSet.get("id")),
+            String.valueOf(accountSet.get("code")),
+            String.valueOf(accountSet.get("name")),
+            optionalText(reason, enabled ? "enabled=true" : "enabled=false")
+        );
+        return Map.of(
+            "ok", true,
+            "accountSets", managedAccountSets(),
+            "message", enabled ? "账套已启用。" : "账套已禁用。"
+        );
+    }
+
     private void grantCurrentUserAndAdmins(String accountSetId) {
         var currentUsername = currentSessionService.currentUsername();
         platformJdbcTemplate.update("""
@@ -124,12 +183,19 @@ public class AccountSetManagementService {
     }
 
     private void logCreate(String accountSetId, String code) {
+        logAccountSetOperation("CREATE_ACCOUNT_SET", accountSetId, code, code, "account_set=" + code);
+    }
+
+    void logAccountSetOperation(String action, String accountSetId, String accountSetCode, String accountSetName, String reason) {
         platformJdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
-            SELECT 'SYSTEM', 'CREATE_ACCOUNT_SET', 'sys_account_set', ?::uuid, TRUE, ?, id
+            INSERT INTO sys_operation_log (
+                module_code, action_code, target_type, target_id, success, failure_reason, operated_by,
+                account_set_id, account_set_code, account_set_name
+            )
+            SELECT 'SYSTEM', ?, 'sys_account_set', ?::uuid, TRUE, ?, id, ?::uuid, ?, ?
             FROM sys_user
             WHERE username = ?
-            """, accountSetId, "account_set=" + code, currentSessionService.currentUsername());
+            """, action, accountSetId, reason, accountSetId, accountSetCode, accountSetName, currentSessionService.currentUsername());
     }
 
     private String currentDatabaseName() {

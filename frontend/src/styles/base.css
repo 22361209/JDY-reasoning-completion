@@ -1029,6 +1029,11 @@ input:disabled {
   background: #eef7ff;
 }
 
+.account-set-row.disabled {
+  color: #7c8792;
+  background: #f4f7fa;
+}
+
 .account-set-row span {
   min-width: 0;
   display: grid;
@@ -1043,6 +1048,53 @@ input:disabled {
 
 .account-set-row b {
   color: #28734d;
+  font-size: 12px;
+}
+
+.account-set-status {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.account-set-status dt {
+  color: #6d7d8d;
+}
+
+.account-set-status dd {
+  min-width: 0;
+  margin: 0;
+  color: #203247;
+  word-break: break-all;
+}
+
+.settings-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-set-backup-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account-set-backup-list li {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid #d8e1ec;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.account-set-backup-list span {
+  color: #6d7d8d;
   font-size: 12px;
 }
 

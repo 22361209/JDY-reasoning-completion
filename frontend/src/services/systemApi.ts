@@ -19,6 +19,20 @@ export interface SystemAccountSet {
   businessPeriod?: string;
   enabled?: boolean;
   initialized?: boolean;
+  disabledReason?: string;
+}
+
+export interface AccountSetBackup {
+  id: string;
+  backupName: string;
+  backupSchemaName: string;
+  accountSetCode: string;
+  accountSetName: string;
+  attachmentPrefix: string;
+  tableCount: number;
+  rowCount: number;
+  createdAt: string;
+  restoredAt?: string;
 }
 
 export interface AccountSetPayload {
@@ -294,6 +308,40 @@ export async function createAccountSet(payload: {
   }
 }
 
+export async function fetchManagedAccountSets(): Promise<AccountSetPayload> {
+  try {
+    const response = await fetch("/api/system/account-sets/manage");
+    if (!response.ok) {
+      return { accountSets: [], current: defaultAccountSet() };
+    }
+    const payload = await response.json() as Partial<AccountSetPayload>;
+    return {
+      accountSets: payload.accountSets ?? [],
+      current: payload.current ?? defaultAccountSet()
+    };
+  } catch {
+    return { accountSets: [], current: defaultAccountSet() };
+  }
+}
+
+export async function setAccountSetEnabled(accountSetCode: string, enabled: boolean, reason = ""): Promise<{ ok: boolean; status: number; message: string; accountSets: SystemAccountSet[] }> {
+  try {
+    const response = await fetch(`/api/system/account-sets/${encodeURIComponent(accountSetCode)}/enabled`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled, reason })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "账套状态更新失败。", accountSets: [] };
+    }
+    const result = await response.json() as { message?: string; accountSets?: SystemAccountSet[] };
+    return { ok: true, status: response.status, message: result.message || "账套状态已更新。", accountSets: result.accountSets ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "账套状态更新失败。", accountSets: [] };
+  }
+}
+
 export async function initializeCurrentAccountSet(payload: { clearBusinessData: boolean }): Promise<{ ok: boolean; status: number; message: string; accountSet: SystemAccountSet | null }> {
   try {
     const response = await fetch("/api/system/account-sets/current/initialize", {
@@ -309,6 +357,48 @@ export async function initializeCurrentAccountSet(payload: { clearBusinessData: 
     return { ok: true, status: response.status, message: result.message || "本账套已初始化。", accountSet: result.accountSet ?? null };
   } catch {
     return { ok: false, status: 0, message: "本账套初始化失败。", accountSet: null };
+  }
+}
+
+export async function fetchCurrentAccountSetBackups(): Promise<{ ok: boolean; status: number; message: string; backups: AccountSetBackup[] }> {
+  try {
+    const response = await fetch("/api/system/account-sets/current/backups");
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "账套备份加载失败。", backups: [] };
+    }
+    const result = await response.json() as { backups?: AccountSetBackup[] };
+    return { ok: true, status: response.status, message: "", backups: result.backups ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "账套备份加载失败。", backups: [] };
+  }
+}
+
+export async function backupCurrentAccountSet(): Promise<{ ok: boolean; status: number; message: string; backup: AccountSetBackup | null; backups: AccountSetBackup[] }> {
+  try {
+    const response = await fetch("/api/system/account-sets/current/backups", { method: "POST" });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "账套备份失败。", backup: null, backups: [] };
+    }
+    const result = await response.json() as { message?: string; backup?: AccountSetBackup; backups?: AccountSetBackup[] };
+    return { ok: true, status: response.status, message: result.message || "当前账套已备份。", backup: result.backup ?? null, backups: result.backups ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "账套备份失败。", backup: null, backups: [] };
+  }
+}
+
+export async function restoreCurrentAccountSetBackup(backupName: string): Promise<{ ok: boolean; status: number; message: string; backup: AccountSetBackup | null; backups: AccountSetBackup[] }> {
+  try {
+    const response = await fetch(`/api/system/account-sets/current/backups/${encodeURIComponent(backupName)}/restore`, { method: "POST" });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "账套恢复失败。", backup: null, backups: [] };
+    }
+    const result = await response.json() as { message?: string; backup?: AccountSetBackup; backups?: AccountSetBackup[] };
+    return { ok: true, status: response.status, message: result.message || "当前账套已恢复。", backup: result.backup ?? null, backups: result.backups ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "账套恢复失败。", backup: null, backups: [] };
   }
 }
 

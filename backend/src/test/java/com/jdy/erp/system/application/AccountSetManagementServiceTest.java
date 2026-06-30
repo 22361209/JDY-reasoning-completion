@@ -29,6 +29,9 @@ class AccountSetManagementServiceTest {
     private AccountSetInitializationService initializationService;
 
     @Autowired
+    private AccountSetMaintenanceService maintenanceService;
+
+    @Autowired
     private CurrentSessionService currentSessionService;
 
     @Autowired
@@ -40,6 +43,7 @@ class AccountSetManagementServiceTest {
 
     private final List<String> createdCodes = new ArrayList<>();
     private final List<String> createdSchemas = new ArrayList<>();
+    private final List<String> createdBackupSchemas = new ArrayList<>();
 
     @BeforeEach
     void bindRequest() {
@@ -52,6 +56,9 @@ class AccountSetManagementServiceTest {
         TenantContext.clear();
         RequestContextHolder.resetRequestAttributes();
         tenantDataSourceRegistry.close();
+        for (var schema : createdBackupSchemas) {
+            platformJdbcTemplate.execute("DROP SCHEMA IF EXISTS " + quoteIdentifier(schema) + " CASCADE");
+        }
         for (var schema : createdSchemas) {
             platformJdbcTemplate.execute("DROP SCHEMA IF EXISTS " + quoteIdentifier(schema) + " CASCADE");
         }
@@ -140,6 +147,47 @@ class AccountSetManagementServiceTest {
         assertThat(initialized).isTrue();
     }
 
+    @Test
+    void backupAndRestoreCurrentAccountSetKeepsTenantDataAndLogsAccountSet() {
+        var code = createManagedAccountSet("A119OPS");
+        var schema = schemaFor(code);
+        bindRequest();
+        currentSessionService.login("admin", "admin123", code);
+        TenantContext.setTenant(currentSessionService.currentAccountSet());
+
+        platformJdbcTemplate.update("""
+            INSERT INTO %s.md_product_category (code, name, sort_no, enabled, audit_status)
+            VALUES ('OPS', '运维恢复测试', 99, TRUE, 'AUDITED')
+            ON CONFLICT (code) DO UPDATE
+            SET name = EXCLUDED.name,
+                enabled = TRUE,
+                audit_status = 'AUDITED'
+            """.formatted(quoteIdentifier(schema)));
+
+        var backupResult = maintenanceService.backupCurrentAccountSet();
+        @SuppressWarnings("unchecked")
+        var backup = (java.util.Map<String, Object>) backupResult.get("backup");
+        createdBackupSchemas.add(String.valueOf(backup.get("backupSchemaName")));
+
+        platformJdbcTemplate.update("DELETE FROM %s.md_product_category WHERE code = 'OPS'".formatted(quoteIdentifier(schema)));
+        assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isZero();
+
+        maintenanceService.restoreCurrentAccountSet(String.valueOf(backup.get("backupName")));
+
+        assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isEqualTo(1);
+        var logRows = platformJdbcTemplate.queryForList("""
+            SELECT account_set_code AS "accountSetCode",
+                   account_set_name AS "accountSetName"
+            FROM %s.sys_operation_log
+            WHERE action_code = 'RESTORE_ACCOUNT_SET'
+            ORDER BY operated_at DESC
+            LIMIT 1
+            """.formatted(quoteIdentifier(schema)));
+        assertThat(logRows).hasSize(1);
+        assertThat(logRows.get(0).get("accountSetCode")).isEqualTo(code);
+        assertThat(logRows.get(0).get("accountSetName")).isEqualTo(code + " 账套");
+    }
+
     private String createManagedAccountSet(String prefix) {
         var code = nextCode(prefix);
         var result = accountSetManagementService.createAccountSet(new AccountSetManagementService.AccountSetCreateRequest(
@@ -184,6 +232,13 @@ class AccountSetManagementServiceTest {
     private int countRows(String schema, String tableName) {
         return platformJdbcTemplate.queryForObject(
             "SELECT count(*)::int FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(tableName),
+            Integer.class
+        );
+    }
+
+    private int countRowsWhere(String schema, String tableName, String whereClause) {
+        return platformJdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(tableName) + " WHERE " + whereClause,
             Integer.class
         );
     }

@@ -1198,6 +1198,8 @@ const definitions: Record<string, ListDefinition> = {
       { field: "operatedAt", title: "操作时间", width: 170, visible: true },
       { field: "module", title: "模块", width: 120, visible: true },
       { field: "action", title: "动作", width: 160, visible: true },
+      { field: "accountSetCode", title: "账套编码", width: 120, visible: true },
+      { field: "accountSetName", title: "账套名称", width: 150, visible: true },
       { field: "targetType", title: "对象类型", width: 160, visible: true },
       { field: "targetNo", title: "业务单号", width: 210, visible: true },
       { field: "operator", title: "操作人", width: 120, visible: true },

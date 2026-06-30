@@ -1891,6 +1891,8 @@ public class ListStubController {
                    l.target_type AS "targetType",
                    COALESCE(so.bill_no, pi.bill_no, osi.bill_no, sor.bill_no, po.bill_no, pt.bill_no, pmi.bill_no, pc.bill_no, ar.bill_no, ap.bill_no, b.code, tu.username, '') AS "targetNo",
                    COALESCE(l.target_id::text, '') AS "targetId",
+                   COALESCE(l.account_set_code, '') AS "accountSetCode",
+                   COALESCE(l.account_set_name, '') AS "accountSetName",
                    COALESCE(u.display_name, '本地管理员') AS operator,
                    CASE WHEN l.success THEN '成功' ELSE '失败' END AS status,
                    COALESCE(l.failure_reason, '') AS reason,

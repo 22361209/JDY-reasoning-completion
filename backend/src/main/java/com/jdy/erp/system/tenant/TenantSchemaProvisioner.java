@@ -106,6 +106,10 @@ public class TenantSchemaProvisioner {
         seedTenantDefaults(schema);
     }
 
+    public List<String> tenantTableNames() {
+        return List.copyOf(TENANT_TABLES);
+    }
+
     public String defaultSchemaName(String accountSetCode) {
         var normalized = accountSetCode == null ? "" : accountSetCode.trim().toLowerCase();
         normalized = normalized.replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
