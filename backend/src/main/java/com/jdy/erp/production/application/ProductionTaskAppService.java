@@ -13,6 +13,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -26,13 +27,15 @@ public class ProductionTaskAppService {
     private final ValidationService validationService;
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
+    private final TenantDataScopeService tenantDataScopeService;
 
-    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService) {
+    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService, TenantDataScopeService tenantDataScopeService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     @Transactional
@@ -471,11 +474,12 @@ public class ProductionTaskAppService {
             LEFT JOIN (
                 SELECT product_id, SUM(qty_available) AS qty_available
                 FROM inv_stock_balance
+                WHERE account_set_id = ?::uuid
                 GROUP BY product_id
             ) stock ON stock.product_id = s.material_id
             WHERE pl.bill_no = ?
             ORDER BY s.line_no
-            """, validationService.required(planNo, "生产计划单号"));
+            """, inventoryScopeId(), validationService.required(planNo, "生产计划单号"));
     }
 
     private Map<String, Object> resolveTaskSource(TaskRequest request) {
@@ -890,5 +894,9 @@ public class ProductionTaskAppService {
     }
 
     public record TaskRequest(String billNo, String planNo, String bomCode, String warehouseCode, BigDecimal qty) {
+    }
+
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
     }
 }
