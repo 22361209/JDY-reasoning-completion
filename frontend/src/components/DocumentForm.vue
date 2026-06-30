@@ -65,58 +65,27 @@
           <button v-if="form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="emit('openRedReverseBill')">红字单 {{ form.redReverseBillNo }}</button>
           <button v-if="form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="emit('openRedSourceBill')">来源原单 {{ form.redSourceBillNo }}</button>
         </div>
-        <label>
-          {{ partyLabel }}编码
-          <span class="master-selector">
-            <input
-              v-model="form.partyCode"
-              :disabled="locked"
-              :data-testid="`${testPrefix}-party-code`"
-              @focus="emit('searchMasterOptions', partyType, form.partyCode, `${testPrefix}-party`)"
-              @input="emit('handleMasterInput', partyType, form.partyCode, `${testPrefix}-party`)"
-              @keydown="emit('handleSelectorKeydown', $event, `${testPrefix}-party`)"
-            />
-            <button
-              class="master-selector__open"
-              type="button"
-              :data-testid="`${testPrefix}-party-open-selector`"
-              :disabled="locked"
-              title="整列表选择"
-              aria-label="整列表选择"
-              @mousedown.prevent
-              @click="emit('openMasterSelectorDialog', partyType, `${testPrefix}-party`, form.partyCode)"
-            >...</button>
-            <span v-if="activeSelector === `${testPrefix}-party`" class="master-selector__menu">
-              <button
-                v-for="(option, optionIndex) in selectorOptions"
-                :key="option.code"
-                type="button"
-                :class="{ selected: selectorCursorIndex === optionIndex }"
-                @mousedown.prevent="emit('selectPartyOption', option)"
-              >
-                <strong>{{ option.code }}</strong>
-                <span>{{ option.name }}</span>
-              </button>
-            </span>
-          </span>
-        </label>
-        <label>
-          {{ partyLabel }}名称
-          <input :value="form.partyName || ''" :data-testid="`${testPrefix}-party-name`" readonly />
-        </label>
-        <label>业务日期<input v-model="form.billDate" :disabled="locked" :data-testid="`${testPrefix}-bill-date`" @input="emit('markDirty')" /></label>
-        <label v-if="showValidUntil">报价有效期<input v-model="form.validUntil" :disabled="locked" :data-testid="`${testPrefix}-valid-until`" @input="emit('markDirty')" /></label>
-        <label>单据编号<input v-model="form.billNo" :disabled="locked" :data-testid="`${testPrefix}-bill-no`" @input="emit('markDirty')" /></label>
-        <label>部门<input v-model="form.department" :disabled="locked" :data-testid="`${testPrefix}-department`" @input="emit('markDirty')" /></label>
-        <label>录入人<input :value="form.ownerName" :data-testid="`${testPrefix}-owner-name`" readonly /></label>
-        <label v-if="showTaxMode" class="tax-mode-field">
-          价格口径
-          <select :value="isTaxInclusive ? 'tax' : 'net'" :disabled="locked" :data-testid="`${testPrefix}-tax-mode`" @change="emit('update:isTaxInclusive', ($event.target as HTMLSelectElement).value === 'tax')">
-            <option value="net">不含税</option>
-            <option value="tax">含税</option>
-          </select>
-        </label>
-        <label class="form-head-field-wide">单据备注<textarea v-model="form.remark" :disabled="locked" :data-testid="`${testPrefix}-remark`" @input="emit('markDirty')" /></label>
+        <FieldRenderer
+          v-for="field in documentHeadFields"
+          :key="field.name"
+          :field="field"
+          :value="documentHeadFieldValue(field.name)"
+          :disabled="locked"
+          variant="document"
+          lookup-keyboard-mode="native"
+          id-prefix="document-head"
+          :lookup-open="field.name === 'partyCode' && activeSelector === partySelectorId"
+          :lookup-options="partyLookupOptions"
+          :lookup-highlight-index="selectorCursorIndex"
+          :show-lookup-button="field.name === 'partyCode'"
+          :lookup-button-test-id="field.name === 'partyCode' ? `${testPrefix}-party-open-selector` : ''"
+          @update-value="updateDocumentHeadField"
+          @lookup-open="openDocumentHeadLookup"
+          @lookup-input="inputDocumentHeadLookup"
+          @lookup-keydown="keydownDocumentHeadLookup"
+          @lookup-button-click="openDocumentHeadLookupDialog"
+          @lookup-select="selectDocumentHeadLookupOption"
+        />
       </section>
 
       <EntryTable
@@ -198,7 +167,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import EntryTable, { type EntryLine, type MasterOption } from "./EntryTable.vue";
+import FieldRenderer from "./fields/FieldRenderer.vue";
+import type { FieldDefinition, FieldLookupOption } from "./fields/types";
 import MasterSelectorDialog from "./MasterSelectorDialog.vue";
 import StandardDocument from "./StandardDocument.vue";
 
@@ -218,7 +190,7 @@ interface DocumentFormState {
   lines: EntryLine[];
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   title: string;
   subtitle: string;
   statusLabel: string;
@@ -383,4 +355,155 @@ const emit = defineEmits<{
   addLine: [];
   refreshStock: [];
 }>();
+
+const partySelectorId = computed(() => `${props.testPrefix}-party`);
+
+const partyLookupOptions = computed<FieldLookupOption[]>(() => props.selectorOptions.map((option) => ({
+  value: option.code,
+  label: option.name,
+  secondary: option.spec ?? option.unit ?? "",
+  searchText: `${option.code} ${option.name} ${option.spec ?? ""} ${option.unit ?? ""}`.toLowerCase()
+})));
+
+const documentHeadFields = computed<FieldDefinition[]>(() => {
+  const fields: FieldDefinition[] = [
+    {
+      name: "partyCode",
+      label: `${props.partyLabel}编码`,
+      testId: `${props.testPrefix}-party-code`,
+      lookup: { listKey: props.partyType }
+    },
+    {
+      name: "partyName",
+      label: `${props.partyLabel}名称`,
+      testId: `${props.testPrefix}-party-name`,
+      readonly: true
+    },
+    {
+      name: "billDate",
+      label: "业务日期",
+      testId: `${props.testPrefix}-bill-date`
+    }
+  ];
+  if (props.showValidUntil) {
+    fields.push({
+      name: "validUntil",
+      label: "报价有效期",
+      testId: `${props.testPrefix}-valid-until`
+    });
+  }
+  fields.push(
+    {
+      name: "billNo",
+      label: "单据编号",
+      testId: `${props.testPrefix}-bill-no`
+    },
+    {
+      name: "department",
+      label: "部门",
+      testId: `${props.testPrefix}-department`
+    },
+    {
+      name: "ownerName",
+      label: "录入人",
+      testId: `${props.testPrefix}-owner-name`,
+      readonly: true
+    }
+  );
+  if (props.showTaxMode) {
+    fields.push({
+      name: "taxMode",
+      label: "价格口径",
+      testId: `${props.testPrefix}-tax-mode`,
+      options: [
+        { value: "net", label: "不含税" },
+        { value: "tax", label: "含税" }
+      ]
+    });
+  }
+  fields.push({
+    name: "remark",
+    label: "单据备注",
+    type: "textarea",
+    testId: `${props.testPrefix}-remark`,
+    span: 3
+  });
+  return fields;
+});
+
+function documentHeadFieldValue(name: string) {
+  const values: Record<string, string> = {
+    partyCode: props.form.partyCode ?? "",
+    partyName: props.form.partyName ?? "",
+    billDate: props.form.billDate ?? "",
+    validUntil: props.form.validUntil ?? "",
+    billNo: props.form.billNo ?? "",
+    department: props.form.department ?? "",
+    ownerName: props.form.ownerName ?? "",
+    taxMode: props.isTaxInclusive ? "tax" : "net",
+    remark: props.form.remark ?? ""
+  };
+  return values[name] ?? "";
+}
+
+function updateDocumentHeadField(name: string, value: string) {
+  if (name === "taxMode") {
+    emit("update:isTaxInclusive", value === "tax");
+    return;
+  }
+  if (name === "billDate") {
+    props.form.billDate = value;
+  } else if (name === "validUntil") {
+    props.form.validUntil = value;
+  } else if (name === "billNo") {
+    props.form.billNo = value;
+  } else if (name === "department") {
+    props.form.department = value;
+  } else if (name === "remark") {
+    props.form.remark = value;
+  } else {
+    return;
+  }
+  emit("markDirty");
+}
+
+function openDocumentHeadLookup(field: FieldDefinition) {
+  if (field.name !== "partyCode") {
+    return;
+  }
+  emit("searchMasterOptions", props.partyType, props.form.partyCode, partySelectorId.value);
+}
+
+function inputDocumentHeadLookup(field: FieldDefinition, value: string) {
+  if (field.name !== "partyCode") {
+    return;
+  }
+  props.form.partyCode = value;
+  emit("handleMasterInput", props.partyType, value, partySelectorId.value);
+}
+
+function keydownDocumentHeadLookup(field: FieldDefinition, event: KeyboardEvent) {
+  if (field.name !== "partyCode") {
+    return;
+  }
+  emit("handleSelectorKeydown", event, partySelectorId.value);
+}
+
+function openDocumentHeadLookupDialog(field: FieldDefinition) {
+  if (field.name !== "partyCode") {
+    return;
+  }
+  emit("openMasterSelectorDialog", props.partyType, partySelectorId.value, props.form.partyCode);
+}
+
+function selectDocumentHeadLookupOption(field: FieldDefinition, option: FieldLookupOption) {
+  if (field.name !== "partyCode") {
+    return;
+  }
+  const selected = props.selectorOptions.find((item) => item.code === option.value) ?? {
+    code: option.value,
+    name: option.label
+  };
+  emit("selectPartyOption", selected);
+}
 </script>

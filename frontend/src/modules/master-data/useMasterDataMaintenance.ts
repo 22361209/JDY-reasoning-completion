@@ -7,6 +7,7 @@ import {
   setMasterDataStatus,
   updateMasterData
 } from "../../services/listApi";
+import { fieldOptionValue } from "../../components/fields/fieldOptions";
 import { masterDataDefinitions } from "./registry";
 
 export function useMasterDataMaintenance(
@@ -34,7 +35,7 @@ export function useMasterDataMaintenance(
     createError.value = "";
     resetForm();
     masterDefinition.fields.forEach((field) => {
-      form[field.name] = field.defaultValue ?? field.options?.[0] ?? "";
+      form[field.name] = field.defaultValue ?? fieldOptionValue(field.options?.[0]);
     });
     editDialogOpen.value = false;
     createDialogOpen.value = true;

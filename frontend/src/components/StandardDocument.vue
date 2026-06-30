@@ -38,7 +38,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ActionBar from "./ActionBar.vue";
-import { defineAction, type ActionBarItem } from "./actions/actionRegistry";
+import { buildDocumentActions } from "./actions/documentActionRules";
 import DocumentCommandHeader from "./DocumentCommandHeader.vue";
 
 const props = withDefaults(defineProps<{
@@ -146,24 +146,7 @@ const emit = defineEmits<{
 }>();
 
 const pendingCreateConfirm = ref(false);
-const documentActions = computed<ActionBarItem[]>(() => [
-  defineAction("create", { visible: props.showCreate !== false, enabled: !props.locked, testId: "new-document" }),
-  defineAction("save", { visible: props.showSave !== false, enabled: !props.locked && props.canSave, testId: "save-sales-order" }),
-  defineAction("audit", { visible: props.showAudit !== false, enabled: !props.locked && props.canAudit, testId: "audit-sales-order" }),
-  defineAction("reverse", { visible: props.showReverse !== false, enabled: !props.locked && props.canReverse }),
-  defineAction("redReverse", { visible: props.showRedReverse !== false, enabled: !props.locked && (props.canRedReverse ?? props.canReverse) }),
-  defineAction("close", { visible: props.showClose !== false, enabled: !props.locked && props.canClose }),
-  defineAction("unclose", { visible: props.showUnclose !== false, enabled: !props.locked && props.canUnclose }),
-  defineAction("freeze", { visible: props.showFreeze !== false, enabled: !props.locked && props.canFreeze }),
-  defineAction("unfreeze", { visible: props.showUnfreeze !== false, enabled: !props.locked && props.canUnfreeze }),
-  defineAction("void", { visible: props.showVoid !== false, enabled: !props.locked && props.canVoid }),
-  defineAction("sourceSelect", { visible: props.showSourceSelect, enabled: !props.locked && props.canSourceSelect, label: props.sourceSelectLabel, testId: props.sourceSelectTestId }),
-  defineAction("pushDown", { visible: props.showPushDown, enabled: !props.locked && props.canPushDown, label: props.pushDownLabel, testId: props.pushDownTestId }),
-  defineAction("extra", { visible: props.showExtraAction, enabled: !props.locked && props.canExtraAction, label: props.extraActionLabel, testId: props.extraActionTestId }),
-  defineAction("delete", { visible: props.showDelete !== false, enabled: !props.locked && props.canDelete, testId: "delete-sales-order" }),
-  defineAction("export", { visible: props.showExport !== false, enabled: props.canOutput, testId: "export-sales-order" }),
-  defineAction("print", { visible: props.showPrint !== false, enabled: props.canOutput, testId: "print-sales-order" })
-]);
+const documentActions = computed(() => buildDocumentActions(props));
 
 function handleAction(key: string) {
   const handlers: Record<string, () => void> = {

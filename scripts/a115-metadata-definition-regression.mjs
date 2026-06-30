@@ -20,6 +20,9 @@ const documentModule = readFileSync("frontend/src/modules/documents/useDocumentM
 const masterDataRegistry = readFileSync("frontend/src/modules/master-data/registry.ts", "utf8");
 const fieldTypes = readFileSync("frontend/src/components/fields/types.ts", "utf8");
 const fieldRenderer = readFileSync("frontend/src/components/fields/FieldRenderer.vue", "utf8");
+const documentForm = readFileSync("frontend/src/components/DocumentForm.vue", "utf8");
+const standardDocument = readFileSync("frontend/src/components/StandardDocument.vue", "utf8");
+const documentActionRules = readFileSync("frontend/src/components/actions/documentActionRules.ts", "utf8");
 const masterDataTypes = readFileSync("frontend/src/modules/master-data/types.ts", "utf8");
 const masterDataRecordPage = readFileSync("frontend/src/modules/master-data/MasterDataRecordPage.vue", "utf8");
 const masterDataFormDialog = readFileSync("frontend/src/modules/master-data/MasterDataFormDialog.vue", "utf8");
@@ -385,6 +388,26 @@ assertContains(
   fieldRenderer,
   /usesLookupMenu[\s\S]*?master-lookup-menu/,
   "主数据建档页必须通过统一 FieldRenderer lookup 分支承载主数据匹配选择"
+);
+assertContains(
+  fieldTypes + fieldRenderer,
+  /testId\?:\s*string[\s\S]*?variant\?:\s*"master" \| "document"[\s\S]*?lookupKeyboardMode\?:\s*"field" \| "native"[\s\S]*?lookupButtonClick/,
+  "统一 FieldRenderer 必须支持单据表头变体、原生键盘转发、test id 和整列表选择按钮"
+);
+assertContains(
+  documentForm,
+  /<FieldRenderer[\s\S]*?v-for="field in documentHeadFields"[\s\S]*?variant="document"[\s\S]*?lookup-keyboard-mode="native"[\s\S]*?@lookup-button-click="openDocumentHeadLookupDialog"[\s\S]*?const documentHeadFields = computed<FieldDefinition\[\]>/,
+  "DocumentForm 表头字段必须由 FieldRenderer + 字段定义渲染，不能退回散写 label/input"
+);
+assertContains(
+  documentForm,
+  /name:\s*"partyCode"[\s\S]*?testId:\s*`\$\{props\.testPrefix\}-party-code`[\s\S]*?name:\s*"billDate"[\s\S]*?name:\s*"billNo"[\s\S]*?name:\s*"department"[\s\S]*?name:\s*"ownerName"[\s\S]*?name:\s*"taxMode"[\s\S]*?name:\s*"remark"/,
+  "DocumentForm 字段协议必须覆盖客户/供应商、业务日期、单据编号、部门、录入人、价格口径和备注"
+);
+assertContains(
+  standardDocument + documentActionRules,
+  /buildDocumentActions\(props\)[\s\S]*?documentLifecycleActionKeys[\s\S]*?"create"[\s\S]*?"save"[\s\S]*?"audit"[\s\S]*?"reverse"[\s\S]*?"redReverse"[\s\S]*?"close"[\s\S]*?"unclose"[\s\S]*?"freeze"[\s\S]*?"unfreeze"[\s\S]*?"void"[\s\S]*?"sourceSelect"[\s\S]*?"pushDown"[\s\S]*?"delete"[\s\S]*?"export"[\s\S]*?"print"/,
+  "StandardDocument 必须通过 documentActionRules 统一生成单据生命周期动作"
 );
 assertContains(
   masterDataRecordPage + masterDataFormDialog,

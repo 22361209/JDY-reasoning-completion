@@ -771,6 +771,7 @@ import {
 } from "./documentModel";
 import { excludedModules, moduleCatalog } from "../modules/catalog";
 import DataListPage from "../components/DataListPage.vue";
+import { fieldOptionValue } from "../components/fields/fieldOptions";
 import OtherStockInForm from "../modules/inventory/other-stock-in/OtherStockInForm.vue";
 import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOutForm.vue";
 import StockCountForm from "../modules/inventory/stock-count/StockCountForm.vue";
@@ -1947,7 +1948,7 @@ function newMasterForm(listKey: string, row: Record<string, unknown> | null, opt
       form[field.name] = value;
       return;
     }
-    form[field.name] = field.defaultValue ?? field.options?.[0] ?? "";
+    form[field.name] = field.defaultValue ?? fieldOptionValue(field.options?.[0]);
   });
   form.status = String(row?.status ?? form.status ?? "启用");
   form.auditStatus = String(row?.auditStatus ?? form.auditStatus ?? "草稿");

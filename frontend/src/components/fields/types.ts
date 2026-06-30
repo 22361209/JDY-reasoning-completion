@@ -7,11 +7,19 @@ export interface FieldLookupDefinition {
   pageSize?: number;
 }
 
+export interface FieldOptionDefinition {
+  value: string;
+  label: string;
+}
+
+export type FieldOption = string | FieldOptionDefinition;
+
 export interface FieldDefinition {
   name: string;
   label: string;
   placeholder?: string;
-  options?: string[];
+  testId?: string;
+  options?: FieldOption[];
   suggestions?: string[];
   strictSuggestions?: boolean;
   lookup?: FieldLookupDefinition;
@@ -21,7 +29,7 @@ export interface FieldDefinition {
   multiple?: boolean;
   maxFiles?: number;
   fileDataName?: string;
-  span?: 1 | 2;
+  span?: 1 | 2 | 3;
   required?: boolean;
   readonly?: boolean;
   readonlyWhenEditing?: boolean;
