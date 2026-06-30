@@ -1,15 +1,16 @@
 <template>
   <div class="role-permission-page">
-    <section class="role-permission-head">
-      <div>
-        <h2>权限矩阵</h2>
-        <p>按角色维护系统权限，保存后写入后端 RBAC 表。</p>
-      </div>
-      <div class="role-permission-head__actions">
-        <button type="button" data-testid="role-permission-refresh" @click="page.loadRolePermissions">刷新</button>
-        <button class="primary-action" type="button" :disabled="!canManage" data-testid="role-permission-save" @click="page.saveSelectedRolePermissions">保存</button>
-      </div>
-    </section>
+    <DocumentCommandHeader
+      title="权限矩阵"
+      subtitle="按角色维护系统权限，保存后写入后端 RBAC 表。"
+      show-subtitle
+      status-label="设置"
+      status-class="draft"
+    >
+      <template #actions>
+        <ActionBar :actions="permissionActions" @action="handleAction" />
+      </template>
+    </DocumentCommandHeader>
     <section class="role-permission-body">
       <aside class="role-permission-list" aria-label="角色">
         <button
@@ -52,6 +53,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import { usePermissionMatrixPage } from "./usePermissionMatrixPage";
 
 const props = defineProps<{
@@ -61,4 +66,17 @@ const props = defineProps<{
 const page = usePermissionMatrixPage({
   canManage: () => props.canManage
 });
+
+const permissionActions = computed<ActionBarItem[]>(() => [
+  defineAction("refresh", { enabled: true, testId: "role-permission-refresh" }),
+  defineAction("save", { enabled: props.canManage, testId: "role-permission-save" })
+]);
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    refresh: () => { void page.loadRolePermissions(); },
+    save: () => { void page.saveSelectedRolePermissions(); }
+  };
+  handlers[key]?.();
+}
 </script>

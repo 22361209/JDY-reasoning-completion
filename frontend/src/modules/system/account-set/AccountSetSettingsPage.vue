@@ -1,15 +1,14 @@
 <template>
   <section class="role-permission-page account-set-page" data-testid="account-set-settings-page">
-    <header class="role-permission-head">
-      <div>
-        <h2>账套管理</h2>
-        <p>当前采用共用应用容器，切换账套会刷新业务页签并绑定新的账套上下文；正式多库隔离会在后续迁移。</p>
-      </div>
-      <div class="role-permission-head__actions">
-        <button type="button" :disabled="!canManage || !selectedCode || selectedCode === currentAccountSetCode || selectedAccountSet?.enabled === false" data-testid="account-set-switch" @click="switchSelected">切换账套</button>
-        <button class="primary-action" type="button" :disabled="!canManage" data-testid="account-set-initialize" @click="initializeCurrent">初始化本账套</button>
-      </div>
-    </header>
+    <DocumentCommandHeader
+      title="账套管理"
+      subtitle="当前采用共用应用容器，切换账套会刷新业务页签并绑定新的账套上下文；正式多库隔离会在后续迁移。"
+      show-subtitle
+    >
+      <template #actions>
+        <ActionBar :actions="accountSetActions" @action="handleAction" />
+      </template>
+    </DocumentCommandHeader>
     <div class="settings-grid">
       <section class="settings-card">
         <h3>账套列表</h3>
@@ -39,19 +38,13 @@
           <dt>Redis 前缀</dt>
           <dd>{{ selectedAccountSet.redisKeyPrefix || selectedAccountSet.code }}</dd>
         </dl>
-        <div class="settings-inline-actions">
-          <button type="button" :disabled="!canManage || !selectedAccountSet || selectedAccountSet.enabled === true" data-testid="account-set-enable" @click="updateSelectedEnabled(true)">启用</button>
-          <button type="button" :disabled="!canManage || !selectedAccountSet || selectedAccountSet.enabled === false || selectedCode === currentAccountSetCode" data-testid="account-set-disable" @click="updateSelectedEnabled(false)">禁用</button>
-        </div>
+        <ActionBar bar-class="settings-inline-actions" :actions="statusActions" @action="handleAction" />
         <input v-model.trim="statusReason" :disabled="!canManage" data-testid="account-set-status-reason" placeholder="状态变更原因，可空" />
       </section>
       <section class="settings-card">
         <h3>备份与恢复</h3>
         <p>当前第一版按账套 schema 建立备份，仅允许恢复当前账套自己的备份。</p>
-        <div class="settings-inline-actions">
-          <button type="button" :disabled="!canManage || backingUp" data-testid="account-set-backup" @click="backupCurrent">备份当前账套</button>
-          <button type="button" :disabled="!canManage || !selectedBackupName || restoring" data-testid="account-set-restore" @click="restoreSelectedBackup">恢复所选备份</button>
-        </div>
+        <ActionBar bar-class="settings-inline-actions" :actions="backupActions" @action="handleAction" />
         <select v-model="selectedBackupName" :disabled="backups.length === 0" data-testid="account-set-backup-select">
           <option value="">选择备份</option>
           <option v-for="backup in backups" :key="backup.id" :value="backup.backupName">
@@ -90,7 +83,7 @@
             <input v-model.trim="createForm.businessPeriod" :disabled="!canManage" data-testid="account-set-create-business-period" />
           </label>
         </div>
-        <button type="button" :disabled="!canManage" data-testid="account-set-create" @click="createNewAccountSet">新建账套</button>
+        <ActionBar :actions="createActions" @action="handleAction" />
       </section>
       <section class="settings-card">
         <h3>本账套初始化</h3>
@@ -108,6 +101,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import {
   backupCurrentAccountSet,
   createAccountSet,
@@ -151,6 +147,52 @@ const createForm = reactive({
 
 const visibleAccountSets = computed(() => managedAccountSets.value.length > 0 ? managedAccountSets.value : props.accountSets);
 const selectedAccountSet = computed(() => visibleAccountSets.value.find((accountSet) => accountSet.code === selectedCode.value) ?? null);
+const accountSetActions = computed<ActionBarItem[]>(() => [
+  defineAction("switchAccountSet", {
+    label: "切换账套",
+    order: 35,
+    enabled: props.canManage && Boolean(selectedCode.value) && selectedCode.value !== props.currentAccountSetCode && selectedAccountSet.value?.enabled !== false,
+    testId: "account-set-switch"
+  }),
+  defineAction("initializeAccountSet", {
+    label: "初始化本账套",
+    order: 55,
+    variant: "primary",
+    enabled: props.canManage,
+    testId: "account-set-initialize"
+  })
+]);
+const statusActions = computed<ActionBarItem[]>(() => [
+  defineAction("enable", {
+    enabled: props.canManage && Boolean(selectedAccountSet.value) && selectedAccountSet.value?.enabled !== true,
+    testId: "account-set-enable"
+  }),
+  defineAction("disable", {
+    enabled: props.canManage && Boolean(selectedAccountSet.value) && selectedAccountSet.value?.enabled !== false && selectedCode.value !== props.currentAccountSetCode,
+    testId: "account-set-disable"
+  })
+]);
+const backupActions = computed<ActionBarItem[]>(() => [
+  defineAction("backupAccountSet", {
+    label: "备份当前账套",
+    order: 40,
+    enabled: props.canManage && !backingUp.value,
+    testId: "account-set-backup"
+  }),
+  defineAction("restoreAccountSet", {
+    label: "恢复所选备份",
+    order: 45,
+    enabled: props.canManage && Boolean(selectedBackupName.value) && !restoring.value,
+    testId: "account-set-restore"
+  })
+]);
+const createActions = computed<ActionBarItem[]>(() => [
+  defineAction("create", {
+    label: "新建账套",
+    enabled: props.canManage,
+    testId: "account-set-create"
+  })
+]);
 
 watch(() => props.currentAccountSetCode, (code) => {
   selectedCode.value = code;
@@ -168,6 +210,36 @@ async function switchSelected() {
     return;
   }
   emit("accountSetSwitchRequested", selectedCode.value);
+}
+
+function handleAction(actionKey: string) {
+  if (actionKey === "switchAccountSet") {
+    void switchSelected();
+    return;
+  }
+  if (actionKey === "initializeAccountSet") {
+    void initializeCurrent();
+    return;
+  }
+  if (actionKey === "enable") {
+    void updateSelectedEnabled(true);
+    return;
+  }
+  if (actionKey === "disable") {
+    void updateSelectedEnabled(false);
+    return;
+  }
+  if (actionKey === "backupAccountSet") {
+    void backupCurrent();
+    return;
+  }
+  if (actionKey === "restoreAccountSet") {
+    void restoreSelectedBackup();
+    return;
+  }
+  if (actionKey === "create") {
+    void createNewAccountSet();
+  }
 }
 
 async function loadManagedAccountSets() {

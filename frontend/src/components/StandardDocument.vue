@@ -8,24 +8,10 @@
       :status-class="statusClass"
     >
       <template #actions>
-        <button v-if="showCreate !== false" class="primary-action" type="button" :disabled="locked" data-testid="new-document" @click="requestCreate">新增</button>
-        <button v-if="showSave !== false" type="button" :disabled="locked || !canSave" data-testid="save-sales-order" @click="$emit('save')">保存</button>
-        <button v-if="showAudit !== false" type="button" :disabled="locked || !canAudit" data-testid="audit-sales-order" @click="$emit('audit')">审核</button>
-        <button v-if="showReverse !== false" type="button" :disabled="locked || !canReverse" data-testid="reverse-document" @click="$emit('reverse')">反审核</button>
-        <button v-if="showRedReverse !== false" type="button" :disabled="locked || !(canRedReverse ?? canReverse)" data-testid="red-reverse-document" @click="$emit('redReverse')">红冲</button>
-        <button v-if="showClose !== false" type="button" :disabled="locked || !canClose" data-testid="close-document" @click="$emit('closeDocument')">关闭</button>
-        <button v-if="showUnclose !== false" type="button" :disabled="locked || !canUnclose" data-testid="unclose-document" @click="$emit('uncloseDocument')">反关闭</button>
-        <button v-if="showFreeze !== false" type="button" :disabled="locked || !canFreeze" data-testid="freeze-document" @click="$emit('freezeDocument')">冻结</button>
-        <button v-if="showUnfreeze !== false" type="button" :disabled="locked || !canUnfreeze" data-testid="unfreeze-document" @click="$emit('unfreezeDocument')">解冻</button>
-        <button v-if="showVoid !== false" class="danger-action" type="button" :disabled="locked || !canVoid" data-testid="void-document" @click="$emit('voidDocument')">作废</button>
-        <button v-if="showSourceSelect" type="button" :disabled="locked || !canSourceSelect" :data-testid="sourceSelectTestId" @click="$emit('sourceSelect')">{{ sourceSelectLabel }}</button>
-        <button v-if="showPushDown" type="button" :disabled="locked || !canPushDown" :data-testid="pushDownTestId" @click="$emit('pushDown')">{{ pushDownLabel }}</button>
-        <button v-if="showExtraAction" type="button" :disabled="locked || !canExtraAction" :data-testid="extraActionTestId" @click="$emit('extraAction')">{{ extraActionLabel }}</button>
-        <button v-if="showDelete !== false" type="button" :disabled="locked || !canDelete" data-testid="delete-sales-order" @click="$emit('deleteDocument')">删除</button>
-        <button v-if="showExport !== false" type="button" :disabled="!canOutput" data-testid="export-sales-order" @click="$emit('exportDocument')">引出</button>
-        <button v-if="showPrint !== false" type="button" :disabled="!canOutput" data-testid="print-sales-order" @click="$emit('printDocument')">打印</button>
-        <span v-if="dirty" class="dirty-tip">有未保存改动</span>
-        <span v-if="message" class="form-message" data-testid="form-message">{{ message }}</span>
+        <ActionBar :actions="documentActions" @action="handleAction">
+          <span v-if="dirty" class="dirty-tip">有未保存改动</span>
+          <span v-if="message" class="form-message" data-testid="form-message">{{ message }}</span>
+        </ActionBar>
       </template>
     </DocumentCommandHeader>
 
@@ -50,7 +36,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import ActionBar from "./ActionBar.vue";
+import { defineAction, type ActionBarItem } from "./actions/actionRegistry";
 import DocumentCommandHeader from "./DocumentCommandHeader.vue";
 
 const props = withDefaults(defineProps<{
@@ -158,6 +146,46 @@ const emit = defineEmits<{
 }>();
 
 const pendingCreateConfirm = ref(false);
+const documentActions = computed<ActionBarItem[]>(() => [
+  defineAction("create", { visible: props.showCreate !== false, enabled: !props.locked, testId: "new-document" }),
+  defineAction("save", { visible: props.showSave !== false, enabled: !props.locked && props.canSave, testId: "save-sales-order" }),
+  defineAction("audit", { visible: props.showAudit !== false, enabled: !props.locked && props.canAudit, testId: "audit-sales-order" }),
+  defineAction("reverse", { visible: props.showReverse !== false, enabled: !props.locked && props.canReverse }),
+  defineAction("redReverse", { visible: props.showRedReverse !== false, enabled: !props.locked && (props.canRedReverse ?? props.canReverse) }),
+  defineAction("close", { visible: props.showClose !== false, enabled: !props.locked && props.canClose }),
+  defineAction("unclose", { visible: props.showUnclose !== false, enabled: !props.locked && props.canUnclose }),
+  defineAction("freeze", { visible: props.showFreeze !== false, enabled: !props.locked && props.canFreeze }),
+  defineAction("unfreeze", { visible: props.showUnfreeze !== false, enabled: !props.locked && props.canUnfreeze }),
+  defineAction("void", { visible: props.showVoid !== false, enabled: !props.locked && props.canVoid }),
+  defineAction("sourceSelect", { visible: props.showSourceSelect, enabled: !props.locked && props.canSourceSelect, label: props.sourceSelectLabel, testId: props.sourceSelectTestId }),
+  defineAction("pushDown", { visible: props.showPushDown, enabled: !props.locked && props.canPushDown, label: props.pushDownLabel, testId: props.pushDownTestId }),
+  defineAction("extra", { visible: props.showExtraAction, enabled: !props.locked && props.canExtraAction, label: props.extraActionLabel, testId: props.extraActionTestId }),
+  defineAction("delete", { visible: props.showDelete !== false, enabled: !props.locked && props.canDelete, testId: "delete-sales-order" }),
+  defineAction("export", { visible: props.showExport !== false, enabled: props.canOutput, testId: "export-sales-order" }),
+  defineAction("print", { visible: props.showPrint !== false, enabled: props.canOutput, testId: "print-sales-order" })
+]);
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    create: requestCreate,
+    save: () => emit("save"),
+    audit: () => emit("audit"),
+    reverse: () => emit("reverse"),
+    redReverse: () => emit("redReverse"),
+    close: () => emit("closeDocument"),
+    unclose: () => emit("uncloseDocument"),
+    freeze: () => emit("freezeDocument"),
+    unfreeze: () => emit("unfreezeDocument"),
+    void: () => emit("voidDocument"),
+    sourceSelect: () => emit("sourceSelect"),
+    pushDown: () => emit("pushDown"),
+    extra: () => emit("extraAction"),
+    delete: () => emit("deleteDocument"),
+    export: () => emit("exportDocument"),
+    print: () => emit("printDocument")
+  };
+  handlers[key]?.();
+}
 
 function requestCreate() {
   if (props.dirty) {

@@ -15,35 +15,37 @@
         <strong :data-testid="`${testPrefix}-source-selector-count`">{{ countLabel }}</strong>
       </div>
       <div class="source-selector-table">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="column in visibleColumns" :key="column.key" :style="columnStyle(column)">{{ column.title }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="loading">
-              <td :colspan="visibleColumns.length">加载中...</td>
-            </tr>
-            <tr v-else-if="rows.length === 0">
-              <td :colspan="visibleColumns.length">{{ emptyText }}</td>
-            </tr>
-            <template v-else>
-              <tr v-for="row in rows" :key="rowKey(row)">
-                <td v-for="column in visibleColumns" :key="column.key" :class="{ 'source-selector-cell--number': column.align === 'right' }">
-                  <input
-                    v-if="column.key === selectionKey"
-                    type="checkbox"
-                    :checked="Boolean(selected[rowKey(row)])"
-                    :data-testid="`${testPrefix}-source-line-${rowKey(row)}`"
-                    @change="emit('toggle', row, ($event.target as HTMLInputElement).checked)"
-                  />
-                  <span v-else>{{ formatCell(row, column.key) }}</span>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+        <TableCore
+          kind="list"
+          :test-id="`${testPrefix}-source-selector-table-core`"
+          frame-class="vxe-wrap source-selector-table-core"
+          inner-class="table-core-vxe-inner"
+          table-class="vxe-table data-list-native-table"
+          header-wrapper-class="vxe-table--header-wrapper body--wrapper"
+          body-wrapper-class="vxe-table--body-wrapper body--wrapper"
+          header-row-class="vxe-header--row"
+          row-class="vxe-body--row"
+          :columns="tableColumns"
+          :rows="rows"
+          :min-width="sourceSelectorMinWidth"
+          :row-key="rowKey"
+          :cell-title="sourceSelectorCellTitle"
+        >
+          <template #cell="{ row, column }">
+            <input
+              v-if="column.key === selectionKey"
+              type="checkbox"
+              :checked="Boolean(selected[rowKey(row)])"
+              :data-testid="`${testPrefix}-source-line-${rowKey(row)}`"
+              @change="emit('toggle', row, ($event.target as HTMLInputElement).checked)"
+            />
+            <span v-else>{{ formatCell(row, column.key) }}</span>
+          </template>
+          <template #overlay>
+            <div v-if="loading" class="list-state-panel">加载中...</div>
+            <div v-else-if="rows.length === 0" class="list-state-panel">{{ emptyText }}</div>
+          </template>
+        </TableCore>
       </div>
       <p v-if="message" class="form-error" :data-testid="`${testPrefix}-source-selector-message`">{{ message }}</p>
       <div class="dialog-actions">
@@ -68,6 +70,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
+import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 
 export interface SourceSelectorColumn {
   key: string;
@@ -115,8 +118,23 @@ const emit = defineEmits<{
 
 const columnDialogOpen = ref(false);
 const visibleColumns = computed(() => props.columns.filter((column) => column.visible !== false));
+const tableColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.map((column) => ({
+  key: column.key,
+  title: column.title,
+  width: column.width,
+  minWidth: column.key === props.selectionKey ? 48 : 84,
+  align: column.align,
+  filterable: false,
+  resizable: false,
+  headerClass: column.align === "right" ? "entry-number-cell" : undefined,
+  cellClass: column.align === "right" ? "entry-number-cell" : undefined
+})));
+const sourceSelectorMinWidth = computed(() => Math.max(1320, tableColumns.value.reduce((sum, column) => sum + Number(column.width ?? column.minWidth ?? 100), 0)));
 
-function columnStyle(column: SourceSelectorColumn) {
-  return column.width ? { width: `${column.width}px` } : {};
+function sourceSelectorCellTitle(row: unknown, column: TableCoreColumn) {
+  if (column.key === props.selectionKey) {
+    return undefined;
+  }
+  return String(props.formatCell(row, column.key));
 }
 </script>

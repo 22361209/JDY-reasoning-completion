@@ -1,15 +1,16 @@
 <template>
   <div class="role-permission-page">
-    <section class="role-permission-head">
-      <div>
-        <h2>安全设置</h2>
-        <p>维护登录安全策略，影响同账号在多个浏览器或设备上的在线方式。</p>
-      </div>
-      <div class="role-permission-head__actions">
-        <button type="button" data-testid="security-settings-refresh" @click="page.loadSecuritySettings">刷新</button>
-        <button class="primary-action" type="button" :disabled="!canManage" data-testid="security-settings-save" @click="page.saveSecuritySettingsAction">保存</button>
-      </div>
-    </section>
+    <DocumentCommandHeader
+      title="安全设置"
+      subtitle="维护登录安全策略，影响同账号在多个浏览器或设备上的在线方式。"
+      show-subtitle
+      status-label="设置"
+      status-class="draft"
+    >
+      <template #actions>
+        <ActionBar :actions="securityActions" @action="handleAction" />
+      </template>
+    </DocumentCommandHeader>
     <section class="role-permission-body">
       <aside class="role-permission-list" aria-label="安全策略">
         <button
@@ -122,6 +123,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import type { PasswordPolicySettings } from "../../../services/systemApi";
 import { passwordPolicySummary, securityPolicyLabel, useSecuritySettingsPage } from "./useSecuritySettingsPage";
 
@@ -137,4 +142,17 @@ const page = useSecuritySettingsPage({
   canManage: () => props.canManage,
   onPasswordPolicyUpdated: (policy) => emit("passwordPolicyUpdated", policy)
 });
+
+const securityActions = computed<ActionBarItem[]>(() => [
+  defineAction("refresh", { enabled: true, testId: "security-settings-refresh" }),
+  defineAction("save", { enabled: props.canManage, testId: "security-settings-save" })
+]);
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    refresh: () => { void page.loadSecuritySettings(); },
+    save: () => { void page.saveSecuritySettingsAction(); }
+  };
+  handlers[key]?.();
+}
 </script>

@@ -245,6 +245,26 @@ BOM、生产计划这类表体可以保留专用组件，但必须接入共享�
 - 保存、审核、反审核、删除、下推规则散落在页面模板里。
 - 为了某一页先绕开共享组件，事后不回收。
 
+## 当前落地状态（2026-06-30）
+
+本轮已把协议第一层落到代码：
+
+- 新增 `frontend/src/components/actions/actionRegistry.ts`，统一维护动作 key、默认文案、顺序、危险态和 test id。
+- 新增 `frontend/src/components/ActionBar.vue`，统一渲染按钮外观、顺序、禁用态和事件分发。
+- `StandardDocument` 已改为通过 ActionBar 渲染单据动作条，保留旧 test id 兼容现有回归脚本。
+- `DataListPage` 的列表动作条和“更多”菜单已改为 ActionBar，避免列表按钮继续散写。
+- 主数据、库存期初、编号规则、用户、权限、安全、通知、账套、生产任务、委外表面处理等页面动作条已接入 ActionBar。
+- `SourceSelectorDialog`、`MasterSelectorDialog`、`OpeningStockPage`、`NumberingRuleSettingsPage`、委外子件需求明细已接入 `TableCore`。
+- `SourceSelectorDialog` 已去掉旧 raw table 的局部 `th/td` 覆盖，外层只负责弹窗滚动，内部表格遵守共享表格合同。
+
+当前允许保留的例外：
+
+- `DocumentDialogs.vue` 内的零值确认表和下游影响表属于二级确认/提示，不是正式业务列表或分录表体。
+- `DataListPage` 内库存预警设置弹窗仍有一张轻量配置表，属于次级设置面板，后续若高频使用再迁入 `TableCore`。
+- `App.vue` 内打印/追溯 HTML 字符串中的 `<table>` 是输出模板，不是应用内交互表格。
+
+后续新增页面或改造页面，默认不得再新增正式业务 raw table；如果必须例外，需要在验收报告中说明原因和后续回收条件。
+
 ## 验收门禁
 
 新增或改造页面时，至少检查：

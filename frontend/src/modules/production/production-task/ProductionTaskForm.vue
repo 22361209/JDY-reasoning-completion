@@ -1,17 +1,18 @@
 <template>
   <section class="master-record-page production-lite-form" data-testid="production-task-form">
-    <header class="master-record-head">
-      <div class="master-record-title-row">
-        <h2>{{ title }}</h2>
-        <span class="master-record-status">已审核</span>
-      </div>
-      <div class="master-record-toolbar">
-        <button type="button" data-testid="production-task-new" @click="startNew">新增</button>
-        <button class="primary-action" type="button" data-testid="production-task-save" @click="save">保存</button>
-        <span v-if="dirty" class="production-message warn">有未保存改动</span>
-        <span v-if="message" class="production-message" :class="{ error: hasError }" data-testid="production-task-message">{{ message }}</span>
-      </div>
-    </header>
+    <DocumentCommandHeader
+      :title="title"
+      :show-subtitle="false"
+      status-label="已审核"
+      status-class="audited"
+    >
+      <template #actions>
+        <ActionBar :actions="taskActions" @action="handleAction">
+          <span v-if="dirty" class="production-message warn">有未保存改动</span>
+          <span v-if="message" class="production-message" :class="{ error: hasError }" data-testid="production-task-message">{{ message }}</span>
+        </ActionBar>
+      </template>
+    </DocumentCommandHeader>
 
     <div class="master-record-body">
       <section class="master-record-section">
@@ -44,7 +45,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import { createProductionTask } from "../../../services/productionApi";
 
 const props = defineProps<{
@@ -59,6 +63,10 @@ const emit = defineEmits<{
 
 const message = ref("");
 const hasError = ref(false);
+const taskActions = computed<ActionBarItem[]>(() => [
+  defineAction("create", { enabled: true, testId: "production-task-new" }),
+  defineAction("save", { enabled: true, testId: "production-task-save" })
+]);
 const form = reactive({
   billNo: "",
   planNo: "",
@@ -101,6 +109,14 @@ async function save() {
   message.value = `生产任务已保存：${String(result.data?.billNo ?? "")}`;
   form.billNo = String(result.data?.billNo ?? form.billNo);
   emit("clearDirty");
+}
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    create: startNew,
+    save: () => { void save(); }
+  };
+  handlers[key]?.();
 }
 
 defineExpose({ startNew });

@@ -107,30 +107,11 @@
     </section>
 
     <div class="list-toolbar">
-      <button v-if="supportsCreateCurrentList" class="primary-action" type="button" :disabled="!canMaintainCurrentList" data-testid="list-create" @click="openCreateDialog">新增</button>
-      <button v-if="isStockAlertList" type="button" :disabled="!canMaintainStockAlert" data-testid="stock-alert-settings" @click="openStockAlertSettings">安全库存设置</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-edit" @click="openEditDialog">编辑</button>
-      <button v-if="canCopyMasterRecord" type="button" :disabled="!canMaintainCurrentList || selectedRows.length !== 1" data-testid="master-copy" @click="openCopyDialog">复制</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-audit" @click="submitMasterAudit(true)">审核</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-reverse-audit" @click="submitMasterAudit(false)">反审核</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-enable" @click="submitMasterStatus(true)">启用</button>
-      <button v-if="isMasterList" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0" data-testid="master-disable" @click="submitMasterStatus(false)">禁用</button>
-      <button v-if="supportsAuditCurrentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-audit" @click="confirmAction('审核')">审核</button>
-      <button v-if="isReverseableDocumentList" type="button" :disabled="!canAuditCurrentList || selectedRows.length === 0 || selectedContainsLockedRow || !selectedRows.every(isAuditedRow)" data-testid="batch-reverse" @click="confirmAction('反审核')">反审核</button>
-      <button v-if="isSalesOrderList" type="button" :disabled="!canPushDownSalesOut" data-testid="push-sales-out" @click="pushDownSalesOut">发货通知</button>
-      <button v-if="isPurchaseOrderList" type="button" :disabled="!canPushDownPurchaseIn" data-testid="push-purchase-in" @click="pushDownPurchaseIn">采购入库</button>
-      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchClose" data-testid="batch-close" @click="confirmAction('关闭')">关闭</button>
-      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchUnclose" data-testid="batch-unclose" @click="confirmAction('反关闭')">反关闭</button>
-      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchFreeze" data-testid="batch-freeze" @click="confirmAction('冻结')">冻结</button>
-      <button v-if="isLifecycleDocumentList" type="button" :disabled="!canBatchUnfreeze" data-testid="batch-unfreeze" @click="confirmAction('解冻')">解冻</button>
-      <button v-if="isLifecycleDocumentList" class="danger-action" type="button" :disabled="!canBatchVoid" data-testid="batch-void" @click="confirmAction('作废')">作废</button>
-      <button type="button" data-testid="list-refresh" @click="reload">刷新</button>
+      <ActionBar bar-class="list-toolbar-actions" :actions="listToolbarActions" @action="handleListAction" />
       <div class="list-more-actions">
         <button type="button" class="list-more-trigger" data-testid="list-more-actions">更多</button>
         <div class="list-more-menu">
-          <button type="button" data-testid="list-export" @click="exportCurrentList">引出</button>
-          <button type="button">打印</button>
-          <button class="danger-menu-action" type="button" :disabled="!canMaintainCurrentList || selectedRows.length === 0 || selectedContainsLockedRow" data-testid="batch-delete" @click="isMasterList ? submitMasterDelete() : confirmAction('删除')">删除</button>
+          <ActionBar bar-class="list-more-menu-actions" :actions="listMoreActions" @action="handleListAction" />
         </div>
       </div>
       <span class="selected-count">已选中 {{ selectedRows.length }} 条</span>
@@ -388,6 +369,8 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
+import ActionBar from "./ActionBar.vue";
+import { defineAction, type ActionBarItem } from "./actions/actionRegistry";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
 import { tableFilterOperators, type TableColumnFilter } from "./table/useColumnFilters";
@@ -1493,6 +1476,123 @@ const listSummaryRowTestId = computed(() => isSalesOrderList.value ? "sales-orde
 const allDisplayedRowsSelected = computed(() => displayedRows.value.length > 0 && displayedRows.value.every((row) => isRowSelected(row)));
 const selectedPreset = computed(() => operationLogPresets.value.find((preset) => preset.id === selectedPresetId.value));
 const selectedContainsLockedRow = computed(() => false);
+const listToolbarActions = computed<ActionBarItem[]>(() => [
+  defineAction("create", {
+    visible: supportsCreateCurrentList.value,
+    enabled: canMaintainCurrentList.value,
+    testId: "list-create"
+  }),
+  defineAction("stockAlertSettings", {
+    label: "安全库存设置",
+    order: 20,
+    visible: isStockAlertList.value,
+    enabled: canMaintainStockAlert.value,
+    testId: "stock-alert-settings"
+  }),
+  defineAction("edit", {
+    visible: isMasterList.value,
+    enabled: canMaintainCurrentList.value && selectedRows.value.length === 1,
+    testId: "master-edit"
+  }),
+  defineAction("copy", {
+    label: "复制",
+    order: 24,
+    visible: canCopyMasterRecord.value,
+    enabled: canMaintainCurrentList.value && selectedRows.value.length === 1,
+    testId: "master-copy"
+  }),
+  defineAction("audit", {
+    visible: isMasterList.value,
+    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
+    testId: "master-audit"
+  }),
+  defineAction("reverse", {
+    visible: isMasterList.value,
+    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
+    testId: "master-reverse-audit"
+  }),
+  defineAction("enable", {
+    visible: isMasterList.value,
+    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
+    testId: "master-enable"
+  }),
+  defineAction("disable", {
+    visible: isMasterList.value,
+    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
+    testId: "master-disable"
+  }),
+  defineAction("audit", {
+    key: "batchAudit",
+    visible: supportsAuditCurrentList.value,
+    enabled: canAuditCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value,
+    testId: "batch-audit"
+  }),
+  defineAction("reverse", {
+    key: "batchReverse",
+    visible: isReverseableDocumentList.value,
+    enabled: canAuditCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value && selectedRows.value.every(isAuditedRow),
+    testId: "batch-reverse"
+  }),
+  defineAction("pushDown", {
+    key: "pushSalesOut",
+    label: "发货通知",
+    visible: isSalesOrderList.value,
+    enabled: canPushDownSalesOut.value,
+    testId: "push-sales-out"
+  }),
+  defineAction("pushDown", {
+    key: "pushPurchaseIn",
+    label: "采购入库",
+    visible: isPurchaseOrderList.value,
+    enabled: canPushDownPurchaseIn.value,
+    testId: "push-purchase-in"
+  }),
+  defineAction("close", {
+    key: "batchClose",
+    visible: isLifecycleDocumentList.value,
+    enabled: canBatchClose.value,
+    testId: "batch-close"
+  }),
+  defineAction("unclose", {
+    key: "batchUnclose",
+    visible: isLifecycleDocumentList.value,
+    enabled: canBatchUnclose.value,
+    testId: "batch-unclose"
+  }),
+  defineAction("freeze", {
+    key: "batchFreeze",
+    visible: isLifecycleDocumentList.value,
+    enabled: canBatchFreeze.value,
+    testId: "batch-freeze"
+  }),
+  defineAction("unfreeze", {
+    key: "batchUnfreeze",
+    visible: isLifecycleDocumentList.value,
+    enabled: canBatchUnfreeze.value,
+    testId: "batch-unfreeze"
+  }),
+  defineAction("void", {
+    key: "batchVoid",
+    visible: isLifecycleDocumentList.value,
+    enabled: canBatchVoid.value,
+    testId: "batch-void"
+  }),
+  defineAction("refresh", {
+    enabled: true,
+    testId: "list-refresh"
+  })
+]);
+const listMoreActions = computed<ActionBarItem[]>(() => [
+  defineAction("export", {
+    enabled: true,
+    testId: "list-export"
+  }),
+  defineAction("delete", {
+    key: "batchDelete",
+    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value,
+    testId: "batch-delete"
+  })
+]);
 const columnReorder = useColumnReorder<ListColumn>({
   getColumns: () => columns.value,
   setColumns: (nextColumns) => {
@@ -1966,6 +2066,92 @@ function toggleRowSelection(row: Record<string, unknown>, checked: boolean) {
 
 function toggleAllDisplayedRows(checked: boolean) {
   selectedRows.value = checked ? [...displayedRows.value] : [];
+}
+
+function handleListAction(actionKey: string) {
+  if (actionKey === "create") {
+    openCreateDialog();
+    return;
+  }
+  if (actionKey === "stockAlertSettings") {
+    void openStockAlertSettings();
+    return;
+  }
+  if (actionKey === "edit") {
+    openEditDialog();
+    return;
+  }
+  if (actionKey === "copy") {
+    openCopyDialog();
+    return;
+  }
+  if (actionKey === "audit") {
+    void submitMasterAudit(true);
+    return;
+  }
+  if (actionKey === "reverse") {
+    void submitMasterAudit(false);
+    return;
+  }
+  if (actionKey === "enable") {
+    void submitMasterStatus(true);
+    return;
+  }
+  if (actionKey === "disable") {
+    void submitMasterStatus(false);
+    return;
+  }
+  if (actionKey === "batchAudit") {
+    confirmAction("审核");
+    return;
+  }
+  if (actionKey === "batchReverse") {
+    confirmAction("反审核");
+    return;
+  }
+  if (actionKey === "pushSalesOut") {
+    pushDownSalesOut();
+    return;
+  }
+  if (actionKey === "pushPurchaseIn") {
+    pushDownPurchaseIn();
+    return;
+  }
+  if (actionKey === "batchClose") {
+    confirmAction("关闭");
+    return;
+  }
+  if (actionKey === "batchUnclose") {
+    confirmAction("反关闭");
+    return;
+  }
+  if (actionKey === "batchFreeze") {
+    confirmAction("冻结");
+    return;
+  }
+  if (actionKey === "batchUnfreeze") {
+    confirmAction("解冻");
+    return;
+  }
+  if (actionKey === "batchVoid") {
+    confirmAction("作废");
+    return;
+  }
+  if (actionKey === "refresh") {
+    void reload();
+    return;
+  }
+  if (actionKey === "export") {
+    void exportCurrentList();
+    return;
+  }
+  if (actionKey === "batchDelete") {
+    if (isMasterList.value) {
+      void submitMasterDelete();
+      return;
+    }
+    confirmAction("删除");
+  }
 }
 
 function statusClass(value: unknown) {

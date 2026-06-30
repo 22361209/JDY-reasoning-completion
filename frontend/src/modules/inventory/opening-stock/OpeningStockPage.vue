@@ -1,75 +1,110 @@
 <template>
   <section class="role-permission-page settings-page opening-stock-page" data-testid="opening-stock-page">
-    <header class="role-permission-head">
-      <div>
-        <h2>库存期初数</h2>
-        <p>按当前账套录入期初库存。保存后同步库存余额，并记录一条期初库存流水。</p>
-      </div>
-      <div class="role-permission-head__actions">
-        <button type="button" data-testid="opening-stock-add-row" @click="addRow">新增行</button>
-        <button type="button" data-testid="opening-stock-refresh" @click="loadRows">刷新</button>
-        <button class="primary-action" type="button" data-testid="opening-stock-save" @click="saveRows">保存</button>
-      </div>
-    </header>
+    <DocumentCommandHeader title="库存期初数" subtitle="按当前账套录入期初库存。保存后同步库存余额，并记录一条期初库存流水。" show-subtitle>
+      <template #actions>
+        <ActionBar :actions="openingStockActions" @action="handleAction" />
+      </template>
+    </DocumentCommandHeader>
     <div class="settings-table opening-stock-table">
-      <table>
-        <thead>
-          <tr>
-            <th>物料编码</th>
-            <th>物料名称</th>
-            <th>规格型号</th>
-            <th>单位</th>
-            <th>仓库编码</th>
-            <th>仓库名称</th>
-            <th>期初数量</th>
-            <th>单位成本</th>
-            <th>期初金额</th>
-            <th>备注</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, index) in rows" :key="row.id || index">
-            <td>
-              <input v-model.trim="row.productCode" :data-testid="`opening-product-code-${index + 1}`" />
-            </td>
-            <td>{{ row.productName }}</td>
-            <td>{{ row.spec }}</td>
-            <td>{{ row.unit }}</td>
-            <td>
-              <input v-model.trim="row.warehouseCode" :data-testid="`opening-warehouse-code-${index + 1}`" />
-            </td>
-            <td>{{ row.warehouseName }}</td>
-            <td>
-              <input v-model="row.qty" type="number" min="0" step="0.0001" :data-testid="`opening-qty-${index + 1}`" @input="updateAmount(row)" />
-            </td>
-            <td>
-              <input v-model="row.unitCost" type="number" min="0" step="0.000001" :data-testid="`opening-unit-cost-${index + 1}`" @input="updateAmount(row)" />
-            </td>
-            <td class="number-cell">{{ row.amount }}</td>
-            <td>
-              <input v-model.trim="row.remark" :data-testid="`opening-remark-${index + 1}`" />
-            </td>
-            <td>
-              <button type="button" :data-testid="`opening-remove-${index + 1}`" @click="removeRow(index)">删除</button>
-            </td>
-          </tr>
-          <tr v-if="!rows.length">
-            <td colspan="11" class="empty-row">暂无期初库存。点击“新增行”录入物料和仓库。</td>
-          </tr>
-        </tbody>
-      </table>
+      <TableCore
+        kind="entry"
+        test-id="opening-stock-table-core"
+        frame-class="entry-table opening-stock-entry-table"
+        table-class="entry-native-table"
+        :columns="openingStockColumns"
+        :rows="rows"
+        :min-width="1280"
+        :row-key="openingStockRowKey"
+        :cell-title="openingStockCellTitle"
+        @column-resize="resizeOpeningStockColumn"
+      >
+        <template #cell="{ row, column, rowIndex }">
+          <input
+            v-if="column.key === 'productCode'"
+            v-model.trim="row.productCode"
+            :data-testid="`opening-product-code-${rowIndex + 1}`"
+          />
+          <input
+            v-else-if="column.key === 'warehouseCode'"
+            v-model.trim="row.warehouseCode"
+            :data-testid="`opening-warehouse-code-${rowIndex + 1}`"
+          />
+          <input
+            v-else-if="column.key === 'qty'"
+            v-model="row.qty"
+            type="number"
+            min="0"
+            step="0.0001"
+            :data-testid="`opening-qty-${rowIndex + 1}`"
+            @input="updateAmount(row)"
+          />
+          <input
+            v-else-if="column.key === 'unitCost'"
+            v-model="row.unitCost"
+            type="number"
+            min="0"
+            step="0.000001"
+            :data-testid="`opening-unit-cost-${rowIndex + 1}`"
+            @input="updateAmount(row)"
+          />
+          <input
+            v-else-if="column.key === 'remark'"
+            v-model.trim="row.remark"
+            :data-testid="`opening-remark-${rowIndex + 1}`"
+          />
+          <button
+            v-else-if="column.key === 'operation'"
+            type="button"
+            :data-testid="`opening-remove-${rowIndex + 1}`"
+            @click="removeRow(rowIndex)"
+          >删除</button>
+          <span v-else class="entry-cell-value" :class="{ 'entry-cell-value--number': openingStockNumberColumns.has(column.key) }">
+            {{ openingStockCellValue(row, column.key) }}
+          </span>
+        </template>
+        <template #overlay>
+          <div v-if="!rows.length" class="list-state-panel" data-testid="opening-stock-empty">暂无期初库存。点击“新增行”录入物料和仓库。</div>
+        </template>
+      </TableCore>
     </div>
     <p v-if="message" class="form-message settings-message" data-testid="opening-stock-message">{{ message }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
+import TableCore, { type TableCoreColumn } from "../../../components/table/TableCore.vue";
 import { fetchOpeningStockRows, saveOpeningStockRows, type OpeningStockRow } from "../../../services/openingStockApi";
 
 const rows = ref<OpeningStockRow[]>([]);
 const message = ref("");
+const openingStockNumberColumns = new Set(["qty", "unitCost", "amount"]);
+const openingStockColumns = ref<TableCoreColumn[]>([
+  { key: "productCode", title: "物料编码", width: 150, minWidth: 96, filterable: false },
+  { key: "productName", title: "物料名称", width: 150, minWidth: 96, filterable: false },
+  { key: "spec", title: "规格型号", width: 130, minWidth: 96, filterable: false },
+  { key: "unit", title: "单位", width: 72, minWidth: 64, filterable: false },
+  { key: "warehouseCode", title: "仓库编码", width: 120, minWidth: 96, filterable: false },
+  { key: "warehouseName", title: "仓库名称", width: 130, minWidth: 96, filterable: false },
+  { key: "qty", title: "期初数量", width: 112, minWidth: 90, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "unitCost", title: "单位成本", width: 112, minWidth: 90, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "amount", title: "期初金额", width: 112, minWidth: 90, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "remark", title: "备注", width: 180, minWidth: 120, filterable: false },
+  { key: "operation", title: "操作", width: 80, minWidth: 72, align: "center", fixed: "right", filterable: false, resizable: false }
+]);
+const openingStockActions = computed<ActionBarItem[]>(() => [
+  defineAction("addOpeningStockRow", {
+    label: "新增行",
+    order: 15,
+    enabled: true,
+    testId: "opening-stock-add-row"
+  }),
+  defineAction("refresh", { enabled: true, testId: "opening-stock-refresh" }),
+  defineAction("save", { enabled: true, testId: "opening-stock-save" })
+]);
 
 onMounted(() => {
   void loadRows();
@@ -79,6 +114,37 @@ async function loadRows() {
   const result = await fetchOpeningStockRows();
   rows.value = result.rows;
   message.value = result.message;
+}
+
+function handleAction(actionKey: string) {
+  if (actionKey === "addOpeningStockRow") {
+    addRow();
+    return;
+  }
+  if (actionKey === "refresh") {
+    void loadRows();
+    return;
+  }
+  if (actionKey === "save") {
+    void saveRows();
+  }
+}
+
+function resizeOpeningStockColumn(payload: { column: TableCoreColumn; width: number }) {
+  payload.column.width = payload.width;
+}
+
+function openingStockRowKey(row: OpeningStockRow, index: number) {
+  return row.id || `${row.productCode}-${row.warehouseCode}-${index}`;
+}
+
+function openingStockCellTitle(row: OpeningStockRow, column: TableCoreColumn) {
+  return openingStockCellValue(row, column.key);
+}
+
+function openingStockCellValue(row: OpeningStockRow, key: string) {
+  const value = row[key as keyof OpeningStockRow];
+  return value == null ? "" : String(value);
 }
 
 function addRow() {

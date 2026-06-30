@@ -1,16 +1,10 @@
 <template>
   <div class="role-permission-page">
-    <section class="role-permission-head">
-      <div>
-        <h2>用户角色</h2>
-        <p>维护员工账号、启停状态和角色归属，角色权限细项在权限矩阵中维护。</p>
-      </div>
-      <div class="role-permission-head__actions">
-        <button type="button" data-testid="user-management-refresh" @click="page.loadManagedUsers">刷新</button>
-        <button class="primary-action" type="button" :disabled="!canManage" data-testid="user-management-new" @click="page.startCreateManagedUser">新增</button>
-        <button class="primary-action" type="button" :disabled="!canManage" data-testid="user-management-save" @click="page.saveManagedUser">保存</button>
-      </div>
-    </section>
+    <DocumentCommandHeader title="用户角色" subtitle="维护员工账号、启停状态和角色归属，角色权限细项在权限矩阵中维护。" show-subtitle>
+      <template #actions>
+        <ActionBar :actions="userActions" @action="handleAction" />
+      </template>
+    </DocumentCommandHeader>
     <section class="role-permission-body">
       <aside class="role-permission-list" aria-label="用户">
         <button
@@ -82,10 +76,7 @@
             <span>处理备注</span>
             <input v-model="page.passwordResetHandleNote.value" data-testid="password-reset-handle-note" placeholder="如：已电话核验身份" />
           </label>
-          <div class="role-permission-head__actions">
-            <button type="button" data-testid="password-reset-select-user" @click="page.selectManagedUser(page.selectedPasswordResetRequest.value.username)">选中该用户</button>
-            <button type="button" data-testid="password-reset-reject" @click="page.rejectPasswordResetRequestAction">驳回申请</button>
-          </div>
+          <ActionBar bar-class="settings-inline-actions" :actions="passwordResetActions" @action="handleAction" />
         </section>
         <NotificationOutboxPanel ref="notificationOutboxPanelRef" :can-manage="canManage" :set-message="page.setUserManagementMessage" />
         <label>
@@ -138,10 +129,7 @@
           <span>{{ page.userManagementMode.value === "create" ? "初始密码" : "重置密码" }}</span>
           <input v-model="page.managedUserPassword.value" type="password" data-testid="managed-user-password" />
         </label>
-        <div class="role-permission-head__actions">
-          <button type="button" :disabled="page.userManagementMode.value === 'create' || !canManage" data-testid="managed-user-reset-password" @click="page.resetManagedUserPasswordAction">重置密码</button>
-          <button type="button" :disabled="page.userManagementMode.value === 'create' || !page.selectedManagedUser.value?.locked || !canManage" data-testid="managed-user-unlock" @click="page.unlockManagedUserAction">解除锁定</button>
-        </div>
+        <ActionBar bar-class="settings-inline-actions" :actions="managedUserActions" @action="handleAction" />
         <p v-if="page.userManagementMessage.value" class="form-message" data-testid="user-management-message">{{ page.userManagementMessage.value }}</p>
       </div>
     </section>
@@ -149,6 +137,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import type { SystemUser } from "../../../services/systemApi";
 import NotificationOutboxPanel from "../notification/NotificationOutboxPanel.vue";
 import { ref } from "vue";
@@ -169,4 +161,68 @@ const page = useUserManagementPage({
   onUsersChanged: (users) => emit("usersChanged", users),
   onNotificationsChanged: () => notificationOutboxPanelRef.value?.reload()
 });
+
+const userActions = computed<ActionBarItem[]>(() => [
+  defineAction("refresh", { enabled: true, testId: "user-management-refresh" }),
+  defineAction("create", { enabled: props.canManage, testId: "user-management-new" }),
+  defineAction("save", { enabled: props.canManage, testId: "user-management-save" })
+]);
+const passwordResetActions = computed<ActionBarItem[]>(() => [
+  defineAction("selectPasswordResetUser", {
+    label: "选中该用户",
+    order: 40,
+    enabled: Boolean(page.selectedPasswordResetRequest.value),
+    testId: "password-reset-select-user"
+  }),
+  defineAction("rejectPasswordReset", {
+    label: "驳回申请",
+    order: 45,
+    enabled: Boolean(page.selectedPasswordResetRequest.value),
+    testId: "password-reset-reject"
+  })
+]);
+const managedUserActions = computed<ActionBarItem[]>(() => [
+  defineAction("resetPassword", {
+    label: "重置密码",
+    order: 40,
+    enabled: page.userManagementMode.value !== "create" && props.canManage,
+    testId: "managed-user-reset-password"
+  }),
+  defineAction("unlockUser", {
+    label: "解除锁定",
+    order: 45,
+    enabled: page.userManagementMode.value !== "create" && Boolean(page.selectedManagedUser.value?.locked) && props.canManage,
+    testId: "managed-user-unlock"
+  })
+]);
+
+function handleAction(actionKey: string) {
+  if (actionKey === "refresh") {
+    void page.loadManagedUsers();
+    return;
+  }
+  if (actionKey === "create") {
+    page.startCreateManagedUser();
+    return;
+  }
+  if (actionKey === "save") {
+    void page.saveManagedUser();
+    return;
+  }
+  if (actionKey === "selectPasswordResetUser" && page.selectedPasswordResetRequest.value) {
+    page.selectManagedUser(page.selectedPasswordResetRequest.value.username);
+    return;
+  }
+  if (actionKey === "rejectPasswordReset") {
+    void page.rejectPasswordResetRequestAction();
+    return;
+  }
+  if (actionKey === "resetPassword") {
+    void page.resetManagedUserPasswordAction();
+    return;
+  }
+  if (actionKey === "unlockUser") {
+    void page.unlockManagedUserAction();
+  }
+}
 </script>

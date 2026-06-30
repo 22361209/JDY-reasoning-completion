@@ -5,9 +5,9 @@
         <h2>{{ title }}</h2>
         <p v-if="showSubtitle && subtitle">{{ subtitle }}</p>
       </div>
-      <div class="status-stamp" :class="statusClass" data-testid="document-status">{{ statusLabel }}</div>
+      <div v-if="statusLabel" class="status-stamp" :class="statusClass" data-testid="document-status">{{ statusLabel }}</div>
     </div>
-    <div class="action-bar">
+    <div v-if="$slots.actions" class="document-command-actions">
       <slot name="actions" />
     </div>
   </div>
@@ -18,10 +18,12 @@ withDefaults(defineProps<{
   title: string;
   subtitle?: string;
   showSubtitle?: boolean;
-  statusLabel: string;
-  statusClass: string;
+  statusLabel?: string;
+  statusClass?: string;
 }>(), {
   subtitle: "",
-  showSubtitle: false
+  showSubtitle: false,
+  statusLabel: "",
+  statusClass: ""
 });
 </script>

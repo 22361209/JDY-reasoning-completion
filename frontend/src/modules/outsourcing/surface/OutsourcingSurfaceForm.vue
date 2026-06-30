@@ -1,20 +1,18 @@
 <template>
   <section class="master-record-page production-lite-form" data-testid="outsourcing-surface-form">
-    <header class="master-record-head">
-      <div class="master-record-title-row">
-        <h2>{{ title }}</h2>
-        <span class="master-record-status">{{ statusLabel }}</span>
-      </div>
-      <div class="master-record-toolbar">
-        <button type="button" data-testid="outsourcing-surface-new" @click="startNew">新增</button>
-        <button class="primary-action" type="button" data-testid="outsourcing-surface-save" @click="save">保存</button>
-        <button type="button" :disabled="!form.billNo" data-testid="outsourcing-surface-audit" @click="audit">审核</button>
-        <button type="button" :disabled="statusLabel !== '已发出'" data-testid="outsourcing-surface-complete" @click="complete">完成</button>
-        <button type="button" data-testid="outsourcing-surface-back-list" @click="emit('showExisting')">列表</button>
-        <span v-if="dirty" class="production-message warn">有未保存改动</span>
-        <span v-if="message" class="production-message" :class="{ error: hasError }" data-testid="outsourcing-surface-message">{{ message }}</span>
-      </div>
-    </header>
+    <DocumentCommandHeader
+      :title="title"
+      :show-subtitle="false"
+      :status-label="statusLabel"
+      :status-class="statusClass"
+    >
+      <template #actions>
+        <ActionBar :actions="surfaceActions" @action="handleAction">
+          <span v-if="dirty" class="production-message warn">有未保存改动</span>
+          <span v-if="message" class="production-message" :class="{ error: hasError }" data-testid="outsourcing-surface-message">{{ message }}</span>
+        </ActionBar>
+      </template>
+    </DocumentCommandHeader>
 
     <div class="master-record-body">
       <section class="master-record-section">
@@ -55,7 +53,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import { auditOutsourcingSurface, completeOutsourcingSurface, saveOutsourcingSurface } from "../../../services/outsourcingApi";
 
 const props = defineProps<{
@@ -70,8 +71,16 @@ const emit = defineEmits<{
 }>();
 
 const statusLabel = ref("草稿");
+const statusClass = computed(() => statusLabel.value === "草稿" ? "draft" : "audited");
 const message = ref("");
 const hasError = ref(false);
+const surfaceActions = computed<ActionBarItem[]>(() => [
+  defineAction("create", { enabled: true, testId: "outsourcing-surface-new" }),
+  defineAction("save", { enabled: true, testId: "outsourcing-surface-save" }),
+  defineAction("audit", { enabled: Boolean(form.billNo), testId: "outsourcing-surface-audit" }),
+  defineAction("complete", { enabled: statusLabel.value === "已发出", testId: "outsourcing-surface-complete" }),
+  defineAction("showList", { enabled: true, testId: "outsourcing-surface-back-list" })
+]);
 const form = reactive({
   billNo: "",
   sourceBillNo: "",
@@ -155,6 +164,17 @@ async function complete() {
   hasError.value = false;
   message.value = `委外表面处理单已完成：${form.billNo}`;
   emit("clearDirty");
+}
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    create: startNew,
+    save: () => { void save(); },
+    audit: () => { void audit(); },
+    complete: () => { void complete(); },
+    showList: () => emit("showExisting")
+  };
+  handlers[key]?.();
 }
 
 defineExpose({ startNew });

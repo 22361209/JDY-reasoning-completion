@@ -1,15 +1,16 @@
 <template>
   <div class="role-permission-page">
-    <section class="role-permission-head">
-      <div>
-        <h2>通知供应商</h2>
-        <p>维护通知 outbox 的供应商参数，影响找回密码通知的发送标记、重发和自动重试。</p>
-      </div>
-      <div class="role-permission-head__actions">
-        <button type="button" data-testid="notification-provider-refresh" @click="page.loadNotificationProviderSettings">刷新</button>
-        <button class="primary-action" type="button" :disabled="!canManage" data-testid="notification-provider-save" @click="page.saveNotificationProviderSettingsAction">保存</button>
-      </div>
-    </section>
+    <DocumentCommandHeader
+      title="通知供应商"
+      subtitle="维护通知 outbox 的供应商参数，影响找回密码通知的发送标记、重发和自动重试。"
+      show-subtitle
+      status-label="设置"
+      status-class="draft"
+    >
+      <template #actions>
+        <ActionBar :actions="notificationActions" @action="handleAction" />
+      </template>
+    </DocumentCommandHeader>
     <section class="role-permission-body">
       <aside class="role-permission-list" aria-label="通知供应商">
         <button
@@ -106,6 +107,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
+import ActionBar from "../../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
+import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import { notificationProviderLabel, useNotificationProviderSettingsPage } from "./useNotificationProviderSettingsPage";
 
 const props = defineProps<{
@@ -115,4 +120,17 @@ const props = defineProps<{
 const page = useNotificationProviderSettingsPage({
   canManage: () => props.canManage
 });
+
+const notificationActions = computed<ActionBarItem[]>(() => [
+  defineAction("refresh", { enabled: true, testId: "notification-provider-refresh" }),
+  defineAction("save", { enabled: props.canManage, testId: "notification-provider-save" })
+]);
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    refresh: () => { void page.loadNotificationProviderSettings(); },
+    save: () => { void page.saveNotificationProviderSettingsAction(); }
+  };
+  handlers[key]?.();
+}
 </script>

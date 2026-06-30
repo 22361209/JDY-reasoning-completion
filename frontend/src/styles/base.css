@@ -1817,6 +1817,13 @@ input:disabled {
   color: #9ba8b5;
 }
 
+.list-toolbar-actions.action-bar {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .list-more-actions {
   position: relative;
   display: inline-flex;
@@ -1847,6 +1854,15 @@ input:disabled {
   border: 0;
   background: transparent;
   text-align: left;
+}
+
+.list-more-menu-actions.action-bar {
+  min-height: 0;
+  display: grid;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  gap: 2px;
 }
 
 .list-more-menu button:hover:not(:disabled) {
@@ -4103,11 +4119,6 @@ th {
   border: 1px solid #d6e0ea;
 }
 
-.source-selector-table table {
-  width: max-content;
-  min-width: 100%;
-}
-
 .downstream-trace-dialog {
   width: min(1040px, calc(100vw - 48px));
   max-height: calc(100vh - 80px);
@@ -4372,30 +4383,11 @@ th {
   margin-bottom: 8px;
 }
 
-.source-selector-table table {
+.source-selector-table > .table-core-frame {
   width: max-content;
   min-width: 100%;
-  border-collapse: collapse;
-}
-
-.source-selector-table th,
-.source-selector-table td {
-  height: 22px;
-  border-bottom: 1px solid #e5ebf2;
-  padding: 2px 6px;
-  font-size: 12px;
-  line-height: 17px;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.source-selector-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #f5f8fb;
-  color: #4c5c6d;
-  font-weight: 600;
+  max-width: none;
+  overflow-x: visible;
 }
 
 .source-selector-table input[type="checkbox"] {

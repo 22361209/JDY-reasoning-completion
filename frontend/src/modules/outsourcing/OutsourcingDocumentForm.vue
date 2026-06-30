@@ -123,34 +123,24 @@
           <strong>子件需求明细</strong>
           <span>按当前已审核 BOM 固化，后续 BOM 修改不影响本单快照。</span>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>序号</th>
-              <th>子件物料编码</th>
-              <th>子件物料名称</th>
-              <th>规格型号</th>
-              <th>发料仓库</th>
-              <th>单位</th>
-              <th>单位用量</th>
-              <th>需求数量</th>
-              <th>已发料数量</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="component in componentLines" :key="component.lineNo">
-              <td>{{ component.lineNo }}</td>
-              <td>{{ component.productCode }}</td>
-              <td>{{ component.productName }}</td>
-              <td>{{ component.spec }}</td>
-              <td>{{ component.warehouseCode }}</td>
-              <td>{{ component.unit }}</td>
-              <td class="numeric-cell">{{ component.unitQty }}</td>
-              <td class="numeric-cell">{{ component.qty }}</td>
-              <td class="numeric-cell">{{ component.issuedQty }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <TableCore
+          kind="entry"
+          test-id="outsourcing-component-demand-table"
+          frame-class="entry-table component-demand-table"
+          table-class="entry-native-table"
+          :columns="componentDemandColumns"
+          :rows="componentLines"
+          :min-width="960"
+          :row-visible="() => true"
+          :cell-title="componentDemandCellTitle"
+          @column-resize="resizeComponentDemandColumn"
+        >
+          <template #cell="{ row: component, column }">
+            <span class="entry-cell-value" :class="{ 'entry-cell-value--number': isComponentDemandNumberColumn(column.key) }">
+              {{ componentDemandValue(component, column.key) }}
+            </span>
+          </template>
+        </TableCore>
       </section>
 
       <SourceSelectorDialog
@@ -184,6 +174,7 @@ import type { EntryLine, MasterOption } from "../../components/EntryTable.vue";
 import EntryTable from "../../components/EntryTable.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn } from "../../components/SourceSelectorDialog.vue";
 import StandardDocument from "../../components/StandardDocument.vue";
+import TableCore, { type TableCoreColumn } from "../../components/table/TableCore.vue";
 import { fetchListRows } from "../../services/listApi";
 import {
   auditOutsourcingIssue,
@@ -290,6 +281,17 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "remainingQty", title: "剩余数量", width: 100, visible: true, align: "right" },
   { key: "unit", title: "单位", width: 70, visible: true }
 ];
+const componentDemandColumns = ref<TableCoreColumn[]>([
+  { key: "lineNo", title: "序号", width: 48, minWidth: 48, align: "center", resizable: false, filterable: false, headerClass: "entry-row-no-cell entry-frozen-cell", cellClass: "entry-row-no-cell entry-frozen-cell" },
+  { key: "productCode", title: "子件物料编码", width: 150, minWidth: 96, filterable: false },
+  { key: "productName", title: "子件物料名称", width: 160, minWidth: 96, filterable: false },
+  { key: "spec", title: "规格型号", width: 140, minWidth: 96, filterable: false },
+  { key: "warehouseCode", title: "发料仓库", width: 112, minWidth: 84, filterable: false },
+  { key: "unit", title: "单位", width: 72, minWidth: 64, filterable: false },
+  { key: "unitQty", title: "单位用量", width: 104, minWidth: 84, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "qty", title: "需求数量", width: 104, minWidth: 84, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "issuedQty", title: "已发料数量", width: 112, minWidth: 84, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" }
+]);
 const filteredSourceOptions = computed(() => {
   const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
   if (!keyword) {
@@ -305,6 +307,22 @@ const filteredSourceOptions = computed(() => {
   ].some((value) => value.toLowerCase().includes(keyword)));
 });
 const selectedSourceCountLabel = computed(() => `已选中 ${Object.values(selectedSourceMap).filter(Boolean).length} 条`);
+
+function resizeComponentDemandColumn(payload: { column: TableCoreColumn; width: number }) {
+  payload.column.width = payload.width;
+}
+
+function componentDemandCellTitle(component: ComponentDemandLine, column: TableCoreColumn) {
+  return componentDemandValue(component, column.key);
+}
+
+function componentDemandValue(component: ComponentDemandLine, key: string) {
+  return String(component[key as keyof ComponentDemandLine] ?? "");
+}
+
+function isComponentDemandNumberColumn(key: string) {
+  return ["unitQty", "qty", "issuedQty"].includes(key);
+}
 
 function markDirty() {
   message.value = "";
@@ -846,35 +864,6 @@ defineExpose({ startNew, loadDocument });
 .component-demand-title span {
   color: #718196;
   font-size: 12px;
-}
-
-.component-demand-panel table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 12px;
-}
-
-.component-demand-panel th,
-.component-demand-panel td {
-  height: 28px;
-  padding: 0 8px;
-  border-right: 1px solid #e2eaf2;
-  border-bottom: 1px solid #e2eaf2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.component-demand-panel th {
-  background: #f4f7fa;
-  color: #304459;
-  font-weight: 600;
-  text-align: left;
-}
-
-.numeric-cell {
-  text-align: right;
 }
 
 </style>

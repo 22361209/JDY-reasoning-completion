@@ -7,14 +7,7 @@
       :status-class="statusClass"
     >
       <template #actions>
-        <button class="primary-action" type="button" @click="emit('newRecord')">新增</button>
-        <button v-if="readOnly" type="button" data-testid="master-record-edit" @click="emit('editRecord')">编辑</button>
-        <button type="button" data-testid="master-record-save" :disabled="!canSave" @click="requestSave">保存</button>
-        <button type="button" :disabled="readOnly || !editing || auditStatusText === '已审核'" @click="emit('audit')">审核</button>
-        <button type="button" :disabled="readOnly || !editing || auditStatusText !== '已审核'" @click="emit('reverseAudit')">反审核</button>
-        <button type="button" :disabled="!canEditSavedDraft" @click="emit('toggleStatus')">{{ statusActionLabel }}</button>
-        <button type="button" :disabled="!canEditSavedDraft" @click="emit('deleteRecord')">删除</button>
-        <button type="button" @click="emit('cancel')">取消</button>
+        <ActionBar :actions="recordActions" @action="handleAction" />
       </template>
     </DocumentCommandHeader>
 
@@ -122,6 +115,8 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import ActionBar from "../../components/ActionBar.vue";
+import { defineAction, type ActionBarItem } from "../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../components/DocumentCommandHeader.vue";
 import { fetchListRows } from "../../services/listApi";
 import type { MasterDataField } from "./types";
@@ -174,6 +169,16 @@ const displayError = computed(() => localError.value || props.error);
 const pageClasses = computed(() => ({
   "master-record-page--product": props.recordId.startsWith("product-master-list")
 }));
+const recordActions = computed<ActionBarItem[]>(() => [
+  defineAction("create", { enabled: true, testId: "master-record-new" }),
+  defineAction("edit", { visible: props.readOnly, enabled: true, testId: "master-record-edit" }),
+  defineAction("save", { enabled: canSave.value, testId: "master-record-save" }),
+  defineAction("audit", { enabled: !props.readOnly && props.editing && auditStatusText.value !== "已审核", testId: "master-record-audit" }),
+  defineAction("reverse", { enabled: !props.readOnly && props.editing && auditStatusText.value === "已审核", testId: "master-record-reverse-audit" }),
+  defineAction(statusText.value === "禁用" ? "enable" : "disable", { enabled: canEditSavedDraft.value, label: statusActionLabel.value, testId: "master-record-toggle-status" }),
+  defineAction("delete", { enabled: canEditSavedDraft.value, testId: "master-record-delete" }),
+  defineAction("cancel", { enabled: true, testId: "master-record-cancel" })
+]);
 
 const fieldSections = computed(() => {
   const groups: { title: string; fields: MasterDataField[] }[] = [];
@@ -210,6 +215,21 @@ function sectionClasses(section: { title: string; fields: MasterDataField[] }) {
   return {
     "section-checkboxes": section.fields.length > 0 && section.fields.every((field) => field.type === "checkbox")
   };
+}
+
+function handleAction(key: string) {
+  const handlers: Record<string, () => void> = {
+    create: () => emit("newRecord"),
+    edit: () => emit("editRecord"),
+    save: requestSave,
+    audit: () => emit("audit"),
+    reverse: () => emit("reverseAudit"),
+    enable: () => emit("toggleStatus"),
+    disable: () => emit("toggleStatus"),
+    delete: () => emit("deleteRecord"),
+    cancel: () => emit("cancel")
+  };
+  handlers[key]?.();
 }
 
 function isLookupField(field: MasterDataField) {
