@@ -3,7 +3,7 @@
     <header class="role-permission-head">
       <div>
         <h2>账套管理</h2>
-        <p>当前采用共用应用容器，切换账套只切换 session 的账套上下文；正式多库隔离会在后续迁移。</p>
+        <p>当前采用共用应用容器，切换账套会刷新业务页签并绑定新的账套上下文；正式多库隔离会在后续迁移。</p>
       </div>
       <div class="role-permission-head__actions">
         <button type="button" :disabled="!canManage || !selectedCode || selectedCode === currentAccountSetCode" data-testid="account-set-switch" @click="switchSelected">切换账套</button>
@@ -67,7 +67,7 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
-import { createAccountSet, initializeCurrentAccountSet, switchCurrentAccountSet, type SystemAccountSet } from "../../../services/systemApi";
+import { createAccountSet, initializeCurrentAccountSet, type SystemAccountSet } from "../../../services/systemApi";
 
 const props = defineProps<{
   accountSets: SystemAccountSet[];
@@ -76,7 +76,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  accountSetSwitched: [];
+  accountSetsChanged: [accountSets: SystemAccountSet[]];
+  accountSetSwitchRequested: [accountSetCode: string];
 }>();
 
 const selectedCode = ref(props.currentAccountSetCode);
@@ -97,12 +98,10 @@ watch(() => props.currentAccountSetCode, (code) => {
 
 async function switchSelected() {
   message.value = "";
-  const result = await switchCurrentAccountSet(selectedCode.value);
-  if (!result.ok) {
-    message.value = result.message || "账套切换失败。";
+  if (!selectedCode.value || selectedCode.value === props.currentAccountSetCode) {
     return;
   }
-  emit("accountSetSwitched");
+  emit("accountSetSwitchRequested", selectedCode.value);
 }
 
 async function initializeCurrent() {
@@ -115,6 +114,9 @@ async function initializeCurrent() {
   message.value = result.message || (result.ok ? "本账套已初始化。" : "本账套初始化失败。");
   if (result.ok) {
     confirmText.value = "";
+    if (result.accountSet) {
+      emit("accountSetsChanged", props.accountSets.map((accountSet) => accountSet.code === result.accountSet?.code ? result.accountSet : accountSet));
+    }
   }
 }
 
@@ -130,13 +132,11 @@ async function createNewAccountSet() {
     return;
   }
   selectedCode.value = result.accountSet?.code || createForm.code.toUpperCase();
-  const switchResult = await switchCurrentAccountSet(selectedCode.value);
-  if (!switchResult.ok) {
-    message.value = switchResult.message || "账套已创建，但切换账套失败。";
-    return;
+  if (result.accountSets.length > 0) {
+    emit("accountSetsChanged", result.accountSets);
   }
   createForm.code = "";
   createForm.name = "";
-  emit("accountSetSwitched");
+  emit("accountSetSwitchRequested", selectedCode.value);
 }
 </script>

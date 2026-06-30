@@ -494,10 +494,44 @@ input:disabled {
 .tenant-menu {
   left: 0;
   right: auto;
-  width: 250px;
+  width: 286px;
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+}
+
+.tenant-menu em {
+  color: #607286;
+  font-style: normal;
+  font-size: 12px;
+}
+
+.tenant-menu__list {
   display: grid;
   gap: 4px;
-  padding: 10px 12px;
+  max-height: 210px;
+  overflow: auto;
+}
+
+.tenant-menu__row {
+  min-height: 42px;
+  display: grid;
+  gap: 2px;
+  padding: 6px 7px;
+  border-radius: 4px;
+}
+
+.tenant-menu__row.active {
+  background: #e8f4ff;
+}
+
+.tenant-menu__row strong {
+  font-size: 12px;
+  color: #203247;
+}
+
+.tenant-menu__row span {
+  color: #708294;
 }
 
 .account-menu {
@@ -526,6 +560,11 @@ input:disabled {
   background: #fff;
   color: #203247;
   padding: 0 7px;
+}
+
+.account-menu__section small {
+  color: #9a3412;
+  font-size: 12px;
 }
 
 .global-menu button {

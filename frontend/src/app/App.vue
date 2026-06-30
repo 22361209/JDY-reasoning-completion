@@ -74,8 +74,25 @@
             <span>{{ session.periodLabel.value }}</span>
           </summary>
           <div class="global-menu tenant-menu" data-testid="tenant-switch-menu">
-            <strong>{{ session.tenantName.value }}</strong>
-            <span>当前仅配置一个账套，后续在这里切换。</span>
+            <strong>当前账套</strong>
+            <span>{{ currentAccountSet?.name || session.tenantName.value }}</span>
+            <em>{{ session.accountSetCode.value }} / {{ currentAccountSetStatus }}</em>
+            <div class="tenant-menu__list" data-testid="tenant-switch-list">
+              <button
+                v-for="accountSet in accountSets"
+                :key="accountSet.code"
+                type="button"
+                class="tenant-menu__row"
+                :class="{ active: accountSet.code === session.accountSetCode.value }"
+                :disabled="accountSet.code === session.accountSetCode.value || accountSetSwitching"
+                :data-testid="`tenant-switch-${accountSet.code}`"
+                @click="requestAccountSetSwitch(accountSet.code)"
+              >
+                <strong>{{ accountSet.name }}</strong>
+                <span>{{ accountSet.code }} / {{ accountSet.initialized ? "已初始化" : "未初始化" }}</span>
+              </button>
+            </div>
+            <button v-if="isAdminUser" type="button" data-testid="tenant-menu-open-account-set" @click="openAccountSetSettings">账套管理/初始化</button>
           </div>
         </details>
         <label class="global-search">
@@ -96,6 +113,7 @@
                 </select>
                 <button type="button" data-testid="account-menu-switch-account-set" @click="switchAccountSetFromMenu">切换账套</button>
                 <button type="button" data-testid="account-menu-open-account-set" @click="openAccountSetSettings">账套管理/初始化</button>
+                <small v-if="accountSetSwitchMessage" data-testid="account-set-switch-message">{{ accountSetSwitchMessage }}</small>
               </div>
               <button type="button" data-testid="session-password-change" @click="passwordChangeDialogRef?.openPasswordDialog()">修改密码</button>
               <button type="button" data-testid="session-logout" @click="logoutCurrentUser">退出登录</button>
@@ -134,6 +152,7 @@
           <section class="home-head">
             <div>
               <h2>首页工作台</h2>
+              <p data-testid="home-account-set-summary">当前账套：{{ session.tenantName.value }}（{{ session.accountSetCode.value }} / {{ currentAccountSetStatus }}）</p>
             </div>
           </section>
           <div class="quick-grid">
@@ -170,7 +189,8 @@
           :account-sets="accountSets"
           :current-account-set-code="session.accountSetCode.value"
           :can-manage="isAdminUser"
-          @account-set-switched="reloadAfterAccountSetSwitch"
+          @account-sets-changed="replaceAccountSets"
+          @account-set-switch-requested="requestAccountSetSwitch"
         />
         <OpeningStockPage
           v-else-if="tabs.activeTab.value.id === 'opening-stock-settings'"
@@ -786,7 +806,7 @@ import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { acquireDocumentLock, fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { auditMasterData, createMasterData, deleteMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
-import { switchCurrentAccountSet } from "../services/systemApi";
+import { switchCurrentAccountSet, type SystemAccountSet } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
 import { type WorkTabKind, useTabStore } from "../stores/tabs";
@@ -897,6 +917,8 @@ const logoutCurrentUser = shellSession.logoutCurrentUser;
 const handlePasswordChanged = shellSession.handlePasswordChanged;
 const keyword = ref("");
 const selectedAccountSetCode = ref(session.accountSetCode.value);
+const accountSetSwitching = ref(false);
+const accountSetSwitchMessage = ref("");
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
@@ -959,6 +981,13 @@ const canManageSecuritySettings = computed(() => session.hasPermission("system.s
 const canManageNotificationProviderSettings = computed(() => session.hasPermission("system.notification_provider.manage"));
 const canManageNumberingRules = computed(() => session.hasPermission("system.numbering_rule.manage"));
 const isAdminUser = computed(() => session.userRoleCode.value === "ADMIN" || session.hasPermission("system.account_set.manage"));
+const currentAccountSet = computed(() => accountSets.value.find((accountSet) => accountSet.code === session.accountSetCode.value) ?? null);
+const currentAccountSetStatus = computed(() => {
+  const accountSet = currentAccountSet.value;
+  const environment = accountSet?.environment || session.accountSetEnvironment.value || "未标记环境";
+  const initialized = accountSet?.initialized ?? session.accountSetInitialized.value;
+  return `${environment} / ${initialized ? "已初始化" : "未初始化"}`;
+});
 const activeLockReadOnly = computed(() => Boolean(tabs.activeTab.value.lockReadOnly));
 const activeLockMessage = computed(() => tabs.activeTab.value.lockMessage ?? "");
 const activeLockCanOverride = computed(() => Boolean(tabs.activeTab.value.lockCanOverride));
@@ -1038,19 +1067,64 @@ function openAccountSetSettings() {
   });
 }
 
-async function switchAccountSetFromMenu() {
-  if (!selectedAccountSetCode.value || selectedAccountSetCode.value === session.accountSetCode.value) {
+function switchAccountSetFromMenu() {
+  void requestAccountSetSwitch(selectedAccountSetCode.value);
+}
+
+function replaceAccountSets(nextAccountSets: SystemAccountSet[]) {
+  accountSets.value = nextAccountSets;
+  const current = nextAccountSets.find((accountSet) => accountSet.code === session.accountSetCode.value);
+  if (current) {
+    applyAccountSetSummary(current);
+  }
+}
+
+async function requestAccountSetSwitch(accountSetCode: string) {
+  if (!accountSetCode || accountSetCode === session.accountSetCode.value || accountSetSwitching.value) {
     return;
   }
-  const result = await switchCurrentAccountSet(selectedAccountSetCode.value);
+  const target = accountSets.value.find((accountSet) => accountSet.code === accountSetCode);
+  const targetName = target?.name || accountSetCode;
+  const dirtyTabs = tabs.tabs.value.filter((tab) => tab.id !== "home" && tab.dirty);
+  const dirtySummary = dirtyTabs.slice(0, 5).map((tab) => tab.title).join("、");
+  const dirtySuffix = dirtyTabs.length > 5 ? `等 ${dirtyTabs.length} 个页签` : dirtySummary;
+  const confirmMessage = dirtyTabs.length > 0
+    ? `当前有未保存页签：${dirtySuffix}。切换账套会关闭并刷新业务页签，未保存内容不会保留。确定切换到「${targetName}」吗？`
+    : `确定切换到「${targetName}」吗？切换后当前业务页签会刷新。`;
+  if (!window.confirm(confirmMessage)) {
+    selectedAccountSetCode.value = session.accountSetCode.value;
+    accountSetSwitchMessage.value = "已取消账套切换。";
+    return;
+  }
+  accountSetSwitching.value = true;
+  accountSetSwitchMessage.value = "";
+  const result = await switchCurrentAccountSet(accountSetCode);
   if (result.ok) {
+    if (result.current) {
+      applyAccountSetSummary(result.current);
+    }
     reloadAfterAccountSetSwitch();
     return;
   }
-  formMessage.value = result.message || "账套切换失败。";
+  selectedAccountSetCode.value = session.accountSetCode.value;
+  accountSetSwitching.value = false;
+  accountSetSwitchMessage.value = result.message || "账套切换失败。";
+  formMessage.value = accountSetSwitchMessage.value;
+}
+
+function applyAccountSetSummary(accountSet: SystemAccountSet) {
+  session.tenantName.value = accountSet.name;
+  session.accountSetCode.value = accountSet.code;
+  session.accountSetId.value = accountSet.id || "";
+  session.accountSetEnvironment.value = accountSet.environment || "";
+  session.accountSetInitialized.value = Boolean(accountSet.initialized);
+  session.accountingPeriod.value = accountSet.accountingPeriod || session.accountingPeriod.value;
+  session.businessPeriod.value = accountSet.businessPeriod || session.businessPeriod.value;
 }
 
 function reloadAfterAccountSetSwitch() {
+  tabs.closeBusinessTabsForAccountSwitch();
+  tabs.activeTabId.value = "home";
   window.location.reload();
 }
 

@@ -66,6 +66,14 @@ export function useTabStore() {
     pendingCloseTab.value = null;
   }
 
+  function closeBusinessTabsForAccountSwitch() {
+    const closableTabIds = tabs.value.filter((tab) => tab.id !== "home").map((tab) => tab.id);
+    closableTabIds.forEach((tabId) => closeNow(tabId));
+    activeTabId.value = "home";
+    pendingCloseTab.value = null;
+    overflowMessage.value = "";
+  }
+
   function onBeforeClose(handler: (tab: WorkTab) => void) {
     beforeCloseHandlers.push(handler);
   }
@@ -88,6 +96,7 @@ export function useTabStore() {
     openTab,
     requestClose,
     closeNow,
+    closeBusinessTabsForAccountSwitch,
     onBeforeClose,
     cancelClose,
     clearOverflow
