@@ -468,7 +468,6 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { taxAmounts } from "../app/taxAmounts";
 import { fetchSalesUnitPriceSources, type SalesUnitPriceSource, type SalesUnitPriceSourcesByProduct } from "../services/documentApi";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
@@ -476,63 +475,36 @@ import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
 import { tableFilterOperators, useColumnFilters } from "./table/useColumnFilters";
 import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
+import {
+  buildDefaultEntryColumns,
+  bulkPriceSourceOptions,
+  entryColumnClass as columnClass,
+  isColumnAvailable as isEntryColumnAvailable,
+  isFrozenEntryColumn,
+  loadEntryColumnPreferences,
+  normalizeEntryColumns,
+  numericColumns,
+  saveEntryColumnPreferences
+} from "./entry-table/useEntryTableColumns";
+import type { EditableLineCell, EntryColumn, EntryColumnKey, EntryLine, MasterOption } from "./entry-table/types";
+import {
+  entryLineAmount,
+  entryLineExecutedQty,
+  entryLineNo,
+  entryLinePriceTaxTotal,
+  entryLineRemainingQty,
+  entryLineTaxAmount,
+  entryLineTaxInclusiveUnitPrice,
+  entryProductInfo,
+  entrySourceLineNo,
+  formatEntryPrice,
+  formatEntryQty,
+  formatOptionalWeight,
+  taxForEntryLine
+} from "./entry-table/useEntryTableCalculations";
+import { createEntryTableTestIds } from "./entry-table/useEntryTableTestIds";
 
-export interface EntryLine {
-  lineNo?: number;
-  productId?: string;
-  customerMaterialCode?: string;
-  supplierMaterialCode?: string;
-  customerOrderNo?: string;
-  productCode: string;
-  productName?: string;
-  spec?: string;
-  unit?: string;
-  netWeight?: number | string;
-  grossWeight?: number | string;
-  warehouseCode: string;
-  targetWarehouseCode?: string;
-  sourceOrderNo?: string;
-  sourceLineNo?: number;
-  qty: number;
-  executedQty?: number;
-  remainingQty?: number;
-  lineCloseStatus?: string;
-  lineFrozenStatus?: string;
-  unitPrice: number;
-  taxRate?: number;
-  taxAmount?: number | string;
-  priceTaxTotal?: number | string;
-  lineRemark?: string;
-  planDeliveryDate?: string;
-  downstreamDocs?: any[];
-  stockOnHand?: number | string;
-  stockReserved?: number | string;
-  stockAvailable?: number | string;
-  stockInTransit?: number | string;
-}
-
-export interface MasterOption {
-  code: string;
-  name: string;
-  spec?: string;
-  unit?: string;
-  netWeight?: string;
-  grossWeight?: string;
-}
-
-type EntryColumnKey = "rowNo" | "partyCode" | "customerMaterialCode" | "supplierMaterialCode" | "customerOrderNo" | "productCode" | "productName" | "spec" | "unit" | "netWeight" | "grossWeight" | "warehouse" | "targetWarehouse" | "sourceOrderNo" | "sourceLineNo" | "qty" | "executedQty" | "remainingQty" | "stockOnHand" | "stockReserved" | "stockAvailable" | "stockInTransit" | "unitPrice" | "taxInclusiveUnitPrice" | "taxRate" | "amount" | "taxAmount" | "priceTaxTotal" | "planDeliveryDate" | "remark";
-interface EntryColumn {
-  key: EntryColumnKey;
-  title: string;
-  width: number;
-  visible: boolean;
-  fixed?: "" | "left" | "right";
-  locked?: boolean;
-  reorderable?: boolean;
-  configurable?: boolean;
-  numeric?: boolean;
-  bulkFillable?: boolean;
-}
+export type { EntryLine, MasterOption } from "./entry-table/types";
 
 const props = defineProps<{
   lines: EntryLine[];
@@ -598,6 +570,34 @@ const emit = defineEmits<{
   refreshStock: [];
 }>();
 
+const {
+  selectorIdForLine,
+  lineProductTestId,
+  lineWarehouseTestId,
+  lineTargetWarehouseTestId,
+  lineQtyTestId,
+  lineSourceLineNoTestId,
+  lineSourceOrderNoTestId,
+  lineSourceTraceTestId,
+  lineDownstreamTraceTestId,
+  lineExecutedQtyTestId,
+  lineRemainingQtyTestId,
+  linePriceTestId,
+  lineTaxInclusiveUnitPriceTestId,
+  lineTaxRateTestId,
+  lineAmountTestId,
+  lineTaxAmountTestId,
+  linePriceTaxTotalTestId,
+  lineRemarkTestId,
+  lineCustomerMaterialCodeTestId,
+  lineSupplierMaterialCodeTestId,
+  lineCustomerOrderNoTestId,
+  linePlanDeliveryDateTestId,
+  lineDeleteTestId,
+  lineInsertTestId,
+  columnCellTestId
+} = createEntryTableTestIds(() => props.testPrefix);
+
 const columnDialogOpen = ref(false);
 const columns = ref<EntryColumn[]>([]);
 const bulkFillColumnKey = ref<EntryColumnKey | "">("");
@@ -617,16 +617,6 @@ const datePickerTop = ref(0);
 const datePickerYear = ref(new Date().getFullYear());
 const datePickerMonth = ref(new Date().getMonth());
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
-const numericColumns = new Set<EntryColumnKey>(["rowNo", "netWeight", "grossWeight", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
-const bulkPriceSourceOptions = [
-  { key: "defaultPrice", label: "默认价格" },
-  { key: "quotePrice", label: "最新有效报价" },
-  { key: "recentPrice", label: "最近成交价" },
-  { key: "historyMaxPrice", label: "历史最高价" },
-  { key: "historyMinPrice", label: "历史最低价" },
-  { key: "historyAvgPrice", label: "平均价" },
-  { key: "costPrice", label: "成本价" }
-] as const;
 
 const columnReorder = useColumnReorder<EntryColumn>({
   getColumns: () => columns.value,
@@ -652,38 +642,7 @@ const {
   isFilterActive
 } = useColumnFilters<EntryColumn>(entryColumnValue);
 
-const defaultColumns = computed<EntryColumn[]>(() => [
-  { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", locked: true, configurable: false, numeric: true },
-  { key: "partyCode", title: props.partyCodeLabel || "客户编码", width: 118, visible: props.showPartyCodeColumn !== false },
-  { key: "customerMaterialCode", title: "客户物料编码", width: 150, visible: Boolean(props.showCustomerMaterialCodeColumn) },
-  { key: "supplierMaterialCode", title: "供应商物料编码", width: 150, visible: Boolean(props.showSupplierMaterialCodeColumn) },
-  { key: "customerOrderNo", title: "客户订单号", width: 150, visible: Boolean(props.showCustomerOrderNoColumn) },
-  { key: "productCode", title: "物料编码", width: 140, visible: true },
-  { key: "productName", title: "物料名称", width: 170, visible: true },
-  { key: "spec", title: "规格型号", width: 150, visible: true },
-  { key: "unit", title: "单位", width: 76, visible: true },
-  { key: "netWeight", title: "净重", width: 88, visible: true, numeric: true },
-  { key: "grossWeight", title: "毛重", width: 88, visible: true, numeric: true },
-  { key: "warehouse", title: "仓库", width: 130, visible: true, bulkFillable: true },
-  { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(props.showTargetWarehouseColumn) },
-  { key: "sourceOrderNo", title: "源单号", width: 142, visible: props.showSourceLineColumn },
-  { key: "sourceLineNo", title: "源单行号", width: 86, visible: props.showSourceLineColumn },
-  { key: "qty", title: "数量", width: 104, visible: true, numeric: true, bulkFillable: true },
-  { key: "executedQty", title: props.executionQtyLabel || "已执行", width: 104, visible: props.showExecutionColumns, numeric: true },
-  { key: "remainingQty", title: props.remainingQtyLabel || "剩余", width: 104, visible: props.showExecutionColumns, numeric: true },
-  { key: "stockOnHand", title: "即时库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
-  { key: "stockReserved", title: "锁定库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
-  { key: "stockAvailable", title: "可用库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
-  { key: "stockInTransit", title: "在途库存", width: 104, visible: Boolean(props.showStockColumns), numeric: true },
-  { key: "unitPrice", title: "单价", width: 112, visible: true, numeric: true, bulkFillable: Boolean(props.enableSalesPriceBulk) },
-  { key: "taxInclusiveUnitPrice", title: "含税单价", width: 112, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "taxRate", title: "税率%", width: 88, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
-  { key: "taxAmount", title: "税额", width: 104, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "priceTaxTotal", title: "含税金额", width: 124, visible: Boolean(props.showTaxColumns), numeric: true },
-  { key: "planDeliveryDate", title: "预计交期", width: 142, visible: Boolean(props.showPlanDeliveryDateColumn), bulkFillable: true },
-  { key: "remark", title: "行备注", width: 210, visible: true }
-]);
+const defaultColumns = computed<EntryColumn[]>(() => buildDefaultEntryColumns(props));
 
 const visibleColumns = computed(() => columns.value.filter((column) => isColumnAvailable(column) && column.visible));
 const configurableColumns = computed(() => columns.value.filter((column) => column.configurable !== false && isColumnAvailable(column)));
@@ -787,43 +746,7 @@ function resetColumns() {
 }
 
 function isColumnAvailable(column: EntryColumn) {
-  if (column.key === "partyCode") {
-    return Boolean(props.showPartyCodeColumn !== false && props.partyCodeLabel);
-  }
-  if (column.key === "targetWarehouse") {
-    return Boolean(props.showTargetWarehouseColumn);
-  }
-  if (column.key === "rowNo") {
-    return true;
-  }
-  if (column.key === "customerMaterialCode") {
-    return Boolean(props.showCustomerMaterialCodeColumn);
-  }
-  if (column.key === "supplierMaterialCode") {
-    return Boolean(props.showSupplierMaterialCodeColumn);
-  }
-  if (column.key === "customerOrderNo") {
-    return Boolean(props.showCustomerOrderNoColumn);
-  }
-  if (column.key === "planDeliveryDate") {
-    return Boolean(props.showPlanDeliveryDateColumn);
-  }
-  if (column.key === "taxInclusiveUnitPrice" || column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal") {
-    return Boolean(props.showTaxColumns);
-  }
-  if (column.key === "sourceLineNo") {
-    return props.showSourceLineColumn;
-  }
-  if (column.key === "sourceOrderNo") {
-    return props.showSourceLineColumn;
-  }
-  if (column.key === "executedQty" || column.key === "remainingQty") {
-    return props.showExecutionColumns;
-  }
-  if (["stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"].includes(column.key)) {
-    return Boolean(props.showStockColumns);
-  }
-  return true;
+  return isEntryColumnAvailable(column, props);
 }
 
 function closeColumnSettings() {
@@ -852,37 +775,15 @@ function moveColumn(key: EntryColumnKey, direction: -1 | 1) {
 }
 
 function loadColumnPreferences(): EntryColumn[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(columnPreferenceKey()) || "[]") as EntryColumn[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return loadEntryColumnPreferences(columnPreferenceKey());
 }
 
 function persistColumnPreferences() {
-  localStorage.setItem(columnPreferenceKey(), JSON.stringify(columns.value.map((column) => ({
-    key: column.key,
-    width: isFrozenEntryColumn(column.key) ? column.width : Math.max(64, Number(column.width) || 64),
-    visible: isFrozenEntryColumn(column.key) ? true : column.visible,
-    fixed: isFrozenEntryColumn(column.key) ? "left" : ""
-  }))));
+  saveEntryColumnPreferences(columnPreferenceKey(), columns.value);
 }
 
 function columnPreferenceKey() {
   return `jdy:entry-columns:${props.testPrefix}`;
-}
-
-function columnClass(column: EntryColumn) {
-  return {
-    "entry-number-cell": numericColumns.has(column.key),
-    "readonly-qty": ["sourceLineNo", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"].includes(column.key),
-    "amount-cell": column.key === "amount" || column.key === "taxAmount" || column.key === "priceTaxTotal",
-    "tax-cell": column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal",
-    "remark-cell": column.key === "remark",
-    "entry-row-no-cell": column.key === "rowNo",
-    "entry-frozen-cell": isFrozenEntryColumn(column.key)
-  };
 }
 
 function entryColumnValue(row: unknown, index: number, key: string) {
@@ -1280,52 +1181,40 @@ function formatDateValue(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function selectorIdForLine(lineIndex: number, field: "product" | "warehouse" | "target-warehouse") {
-  return `${props.testPrefix}-line-${lineIndex}-${field}`;
-}
-
 function lineAmount(line: EntryLine) {
-  return taxForLine(line).amount.toFixed(2);
+  return entryLineAmount(line, Boolean(props.isTaxInclusive));
 }
 
 function lineTaxAmount(line: EntryLine) {
-  return taxForLine(line).taxAmount.toFixed(2);
+  return entryLineTaxAmount(line, Boolean(props.isTaxInclusive));
 }
 
 function linePriceTaxTotal(line: EntryLine) {
-  return taxForLine(line).priceTaxTotal.toFixed(2);
+  return entryLinePriceTaxTotal(line, Boolean(props.isTaxInclusive));
 }
 
 function lineTaxInclusiveUnitPrice(line: EntryLine) {
-  const qty = Number(line.qty || 0);
-  const priceTaxTotal = taxForLine(line).priceTaxTotal;
-  if (!qty || !Number.isFinite(qty)) {
-    const unitPrice = Number(line.unitPrice || 0);
-    const taxRate = Number(line.taxRate ?? 0);
-    const grossUnitPrice = props.isTaxInclusive ? unitPrice : unitPrice * (1 + taxRate / 100);
-    return formatPrice(grossUnitPrice);
-  }
-  return formatPrice(priceTaxTotal / qty);
+  return entryLineTaxInclusiveUnitPrice(line, Boolean(props.isTaxInclusive));
 }
 
 function taxForLine(line: EntryLine) {
-  return taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(props.isTaxInclusive));
+  return taxForEntryLine(line, Boolean(props.isTaxInclusive));
 }
 
 function lineExecutedQty(line: EntryLine) {
-  return formatQty(line.executedQty ?? 0);
+  return entryLineExecutedQty(line);
 }
 
 function lineRemainingQty(line: EntryLine) {
-  return formatQty(line.remainingQty ?? Math.max(0, Number(line.qty || 0) - Number(line.executedQty || 0)));
+  return entryLineRemainingQty(line);
 }
 
 function lineSourceLineNo(line: EntryLine) {
-  return line.sourceLineNo ? `#${line.sourceLineNo}` : "-";
+  return entrySourceLineNo(line);
 }
 
 function lineLineNo(line: EntryLine, index: number) {
-  return line.lineNo ?? index + 1;
+  return entryLineNo(line, index);
 }
 
 function isHighlightedSourceLine(line: EntryLine, index: number) {
@@ -1337,203 +1226,16 @@ function isHighlightedSourceLine(line: EntryLine, index: number) {
 }
 
 function formatQty(value: number | string | undefined) {
-  const qty = Number(value ?? 0);
-  if (!Number.isFinite(qty)) {
-    return "0";
-  }
-  return Number.isInteger(qty) ? String(qty) : qty.toFixed(2);
+  return formatEntryQty(value);
 }
 
 function formatPrice(value: number | string | undefined) {
-  const price = Number(value ?? 0);
-  if (!Number.isFinite(price)) {
-    return "0.00";
-  }
-  return price.toFixed(2);
-}
-
-function formatOptionalWeight(value: number | string | undefined) {
-  if (value === undefined || value === null || String(value).trim() === "") {
-    return "";
-  }
-  const weight = Number(value);
-  if (!Number.isFinite(weight)) {
-    return "";
-  }
-  return weight.toFixed(2);
+  return formatEntryPrice(value);
 }
 
 function productInfo(line: EntryLine) {
-  if (line.productName || line.spec || line.unit || line.netWeight || line.grossWeight) {
-    return {
-      name: line.productName ?? "",
-      spec: line.spec ?? "",
-      unit: line.unit ?? "",
-      netWeight: line.netWeight,
-      grossWeight: line.grossWeight
-    };
-  }
-  const product = props.selectorOptions.find((option) => option.code === line.productCode)
-    ?? props.knownProductOptions.find((option) => option.code === line.productCode);
-  return product
-    ? { name: product.name, spec: product.spec ?? "", unit: product.unit ?? "", netWeight: product.netWeight ?? "", grossWeight: product.grossWeight ?? "" }
-    : { name: "", spec: "", unit: "", netWeight: "", grossWeight: "" };
+  return entryProductInfo(line, props.selectorOptions, props.knownProductOptions);
 }
-
-function lineProductTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-product` : `${props.testPrefix}-line-product-${index + 1}`;
-}
-
-function lineWarehouseTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-warehouse` : `${props.testPrefix}-line-warehouse-${index + 1}`;
-}
-
-function lineTargetWarehouseTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-target-warehouse` : `${props.testPrefix}-line-target-warehouse-${index + 1}`;
-}
-
-function lineQtyTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-qty` : `${props.testPrefix}-line-qty-${index + 1}`;
-}
-
-function lineSourceLineNoTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-source-line-no` : `${props.testPrefix}-line-source-line-no-${index + 1}`;
-}
-
-function lineSourceOrderNoTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-source-order-no` : `${props.testPrefix}-line-source-order-no-${index + 1}`;
-}
-
-function lineSourceTraceTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-source-trace` : `${props.testPrefix}-line-source-trace-${index + 1}`;
-}
-
-function lineDownstreamTraceTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-downstream-trace` : `${props.testPrefix}-line-downstream-trace-${index + 1}`;
-}
-
-function lineExecutedQtyTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-executed-qty` : `${props.testPrefix}-line-executed-qty-${index + 1}`;
-}
-
-function lineRemainingQtyTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-remaining-qty` : `${props.testPrefix}-line-remaining-qty-${index + 1}`;
-}
-
-function linePriceTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-price` : `${props.testPrefix}-line-price-${index + 1}`;
-}
-
-function lineTaxInclusiveUnitPriceTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-tax-inclusive-price` : `${props.testPrefix}-line-tax-inclusive-price-${index + 1}`;
-}
-
-function lineTaxRateTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-tax-rate` : `${props.testPrefix}-line-tax-rate-${index + 1}`;
-}
-
-function lineAmountTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-amount` : `${props.testPrefix}-line-amount-${index + 1}`;
-}
-
-function lineTaxAmountTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-tax-amount` : `${props.testPrefix}-line-tax-amount-${index + 1}`;
-}
-
-function linePriceTaxTotalTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-price-tax-total` : `${props.testPrefix}-line-price-tax-total-${index + 1}`;
-}
-
-function lineRemarkTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-remark` : `${props.testPrefix}-line-remark-${index + 1}`;
-}
-
-function lineCustomerMaterialCodeTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-customer-material-code` : `${props.testPrefix}-line-customer-material-code-${index + 1}`;
-}
-
-function lineSupplierMaterialCodeTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-supplier-material-code` : `${props.testPrefix}-line-supplier-material-code-${index + 1}`;
-}
-
-function lineCustomerOrderNoTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-customer-order-no` : `${props.testPrefix}-line-customer-order-no-${index + 1}`;
-}
-
-function linePlanDeliveryDateTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-plan-delivery-date` : `${props.testPrefix}-line-plan-delivery-date-${index + 1}`;
-}
-
-function lineDeleteTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-delete` : `${props.testPrefix}-line-delete-${index + 1}`;
-}
-
-function lineInsertTestId(index: number) {
-  return index === 0 ? `${props.testPrefix}-line-insert` : `${props.testPrefix}-line-insert-${index + 1}`;
-}
-
-function columnCellTestId(key: EntryColumnKey, index: number) {
-  const suffix = index === 0 ? "" : `-${index + 1}`;
-  if (key === "rowNo") {
-    return `${props.testPrefix}-line-row-no${suffix}`;
-  }
-  if (key === "partyCode") {
-    return `${props.testPrefix}-line-party-code${suffix}`;
-  }
-  if (key === "customerMaterialCode") {
-    return lineCustomerMaterialCodeTestId(index);
-  }
-  if (key === "supplierMaterialCode") {
-    return lineSupplierMaterialCodeTestId(index);
-  }
-  if (key === "customerOrderNo") {
-    return lineCustomerOrderNoTestId(index);
-  }
-  if (key === "productName") {
-    return `${props.testPrefix}-line-product-name${suffix}`;
-  }
-  if (key === "spec") {
-    return `${props.testPrefix}-line-spec${suffix}`;
-  }
-  if (key === "unit" || key === "netWeight" || key === "grossWeight") {
-    return `${props.testPrefix}-line-${key}${suffix}`;
-  }
-  if (key === "sourceLineNo") {
-    return lineSourceLineNoTestId(index);
-  }
-  if (key === "sourceOrderNo") {
-    return lineSourceOrderNoTestId(index);
-  }
-  if (key === "executedQty") {
-    return lineExecutedQtyTestId(index);
-  }
-  if (key === "remainingQty") {
-    return lineRemainingQtyTestId(index);
-  }
-  if (key === "stockOnHand" || key === "stockReserved" || key === "stockAvailable" || key === "stockInTransit") {
-    return `${props.testPrefix}-line-${key}${suffix}`;
-  }
-  if (key === "taxInclusiveUnitPrice") {
-    return lineTaxInclusiveUnitPriceTestId(index);
-  }
-  return undefined;
-}
-
-function isFrozenEntryColumn(key: EntryColumnKey) {
-  return key === "rowNo";
-}
-
-function normalizeEntryColumns(nextColumns: EntryColumn[]) {
-  const frozen = nextColumns
-    .filter((column) => isFrozenEntryColumn(column.key))
-    .map((column) => ({ ...column, fixed: "left" as const, visible: true, configurable: false }));
-  const regular = nextColumns
-    .filter((column) => !isFrozenEntryColumn(column.key))
-    .map((column) => ({ ...column, fixed: "" as const }));
-  return [...frozen, ...regular];
-}
-
-type EditableLineCell = "product" | "warehouse" | "target-warehouse" | "qty" | "price" | "taxRate" | "planDeliveryDate" | "customerMaterialCode" | "supplierMaterialCode" | "customerOrderNo" | "remark";
 
 function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: EditableLineCell, selectorId = "") {
   const selectorWasOpen = Boolean(selectorId && props.activeSelector === selectorId && props.selectorOptions.length > 0);
