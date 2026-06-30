@@ -1,5 +1,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw } from "vue";
 import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "../../app/entryPaste";
+import {
+  documentLifecycleStatusLabel,
+  lifecyclePolicyFor
+} from "../../app/documentLifecyclePolicy";
 import { taxAmounts } from "../../app/taxAmounts";
 import {
   knownProductOptions,
@@ -165,13 +169,16 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   let priceRequestSeq = 0;
 
   const isDraft = computed(() => form.status === "DRAFT");
+  const lifecyclePolicy = computed(() => lifecyclePolicyFor(config.saveType ?? null));
+  const showCloseFreezeActions = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed));
   const canAudit = computed(() => Boolean(config.saveType) && isDraft.value && runtime.hasPermission(config.auditPermission));
   const canReverse = computed(() => Boolean(config.reversible && config.saveType && form.status === "AUDITED"));
-  const canVoid = computed(() => Boolean(config.saveType && config.reversible && form.status === "DRAFT"));
-  const canClose = computed(() => Boolean(config.saveType && form.status === "AUDITED" && form.closeStatus !== "CLOSED"));
-  const canUnclose = computed(() => Boolean(config.saveType && form.closeStatus === "CLOSED"));
-  const canFreeze = computed(() => Boolean(config.saveType && form.status === "AUDITED" && form.frozenStatus !== "FROZEN"));
-  const canUnfreeze = computed(() => Boolean(config.saveType && form.frozenStatus === "FROZEN"));
+  const canRedReverse = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED"));
+  const canVoid = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.voidAllowed && form.status === "DRAFT"));
+  const canClose = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN"));
+  const canUnclose = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus === "CLOSED"));
+  const canFreeze = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.frozenStatus !== "FROZEN" && form.closeStatus !== "CLOSED"));
+  const canUnfreeze = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.frozenStatus === "FROZEN"));
   const showDelete = computed(() => Boolean(config.allowDraftDelete));
   const canDelete = computed(() => Boolean(
     config.allowDraftDelete &&
@@ -193,16 +200,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
-  const statusLabel = computed(() => {
-    const labels: Record<OrderForm["status"], string> = {
-      DRAFT: "草稿",
-      AUDITED: "已审核",
-      REVERSED: "已反审核",
-      VOIDED: "已作废",
-      RED_REVERSED: "已红冲"
-    };
-    return labels[form.status];
-  });
+  const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus));
   const redReverseBillNo = computed(() => `HC-${form.billNo}`);
   const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
   const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
@@ -473,7 +471,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function openRiskyAction(action: RiskyDocumentAction) {
-    if (canReverse.value) {
+    if ((action === "redReverse" && canRedReverse.value) || (action === "reverse" && canReverse.value)) {
       pendingRiskyDocumentAction.value = action;
     }
   }
@@ -1288,11 +1286,13 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     isDraft,
     canAudit,
     canReverse,
+    canRedReverse,
     canVoid,
     canClose,
     canUnclose,
     canFreeze,
     canUnfreeze,
+    showCloseFreezeActions,
     showDelete,
     canDelete,
     canTraceSourceOrder,

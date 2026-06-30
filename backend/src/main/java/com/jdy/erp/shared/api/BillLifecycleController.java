@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 @RequestMapping("/api/document-lifecycle")
 public class BillLifecycleController {
     private static final Map<String, BillLifecycleTarget> TARGETS = Map.ofEntries(
+        Map.entry("salesQuote", new BillLifecycleTarget("sales_quote", "sales_quote_line", "quote_id", "SALES", "sales_quote")),
         Map.entry("salesOrder", new BillLifecycleTarget("sales_order", "sales_order_line", "order_id", "SALES", "sales_order")),
         Map.entry("deliveryNotice", new BillLifecycleTarget("delivery_notice", "delivery_notice_line", "bill_id", "SALES", "delivery_notice")),
         Map.entry("purchaseOrder", new BillLifecycleTarget("purchase_order", "purchase_order_line", "order_id", "PURCHASE", "purchase_order")),

@@ -389,6 +389,11 @@ import {
   type ListFilterPreset
 } from "../services/listApi";
 import { lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
+import {
+  isAuditedBillStatus,
+  isDraftBillStatus,
+  lifecyclePolicyFor
+} from "../app/documentLifecyclePolicy";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
 import { useSessionStore } from "../stores/session";
 import { useDataListDefinition, type ListColumn, type OpenableDocumentType } from "./list/useDataListDefinition";
@@ -619,15 +624,17 @@ const openableDocumentType = computed(() => documentOpenTypeByListKey[props.list
 const isOpenableDocumentList = computed(() => Boolean(openableDocumentType.value));
 const isOpenableListRecord = computed(() => isOpenableDocumentList.value || canOpenListRecord(props.listKey));
 const supportsDetailView = computed(() => isOpenableDocumentList.value);
+const currentLifecyclePolicy = computed(() => lifecyclePolicyFor(documentActionTypeByListKey[props.listKey] ?? null));
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
-const isLifecycleDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]) && !isDetailView.value);
+const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value) && !isDetailView.value);
+const supportsBatchCloseFreeze = computed(() => Boolean(isLifecycleDocumentList.value && currentLifecyclePolicy.value?.closeFreezeAllowed));
 const selectedBillRows = computed(() => selectedRows.value.filter((row) => String(row.billNo ?? "").trim()));
 const canOperateLifecycle = computed(() => canMaintainCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value);
-const canBatchClose = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus !== "CLOSED" && row.frozenStatus !== "FROZEN"));
-const canBatchUnclose = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => row.closeStatus === "CLOSED"));
-const canBatchFreeze = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
-const canBatchUnfreeze = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => row.frozenStatus === "FROZEN"));
-const canBatchVoid = computed(() => canOperateLifecycle.value && selectedBillRows.value.every((row) => row.status === "草稿"));
+const canBatchClose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus !== "CLOSED" && row.frozenStatus !== "FROZEN"));
+const canBatchUnclose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus === "CLOSED"));
+const canBatchFreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
+const canBatchUnfreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus === "FROZEN"));
+const canBatchVoid = computed(() => Boolean(currentLifecyclePolicy.value?.voidAllowed) && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
 const pendingActionRequiresReason = computed(() => ["关闭", "冻结", "作废"].includes(pendingAction.value));
 const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
@@ -635,7 +642,8 @@ const canPushDownSalesOut = computed(() => {
     isSalesOrderList.value &&
     session.hasPermission("sales.out.audit") &&
     selectedRows.value.length === 1 &&
-    row?.status === "已审核" &&
+    row &&
+    isAuditedBillStatus(row) &&
     row?.closeStatus !== "CLOSED" &&
     row?.frozenStatus !== "FROZEN" &&
     row?.outStatus !== "全部出库"
@@ -647,7 +655,8 @@ const canPushDownPurchaseIn = computed(() => {
     isPurchaseOrderList.value &&
     session.hasPermission("purchase.in.audit") &&
     selectedRows.value.length === 1 &&
-    row?.status === "已审核" &&
+    row &&
+    isAuditedBillStatus(row) &&
     row?.closeStatus !== "CLOSED" &&
     row?.frozenStatus !== "FROZEN" &&
     row?.inStatus !== "全部入库"
@@ -737,25 +746,25 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("close", {
     key: "batchClose",
-    visible: isLifecycleDocumentList.value,
+    visible: supportsBatchCloseFreeze.value,
     enabled: canBatchClose.value,
     testId: "batch-close"
   }),
   defineAction("unclose", {
     key: "batchUnclose",
-    visible: isLifecycleDocumentList.value,
+    visible: supportsBatchCloseFreeze.value,
     enabled: canBatchUnclose.value,
     testId: "batch-unclose"
   }),
   defineAction("freeze", {
     key: "batchFreeze",
-    visible: isLifecycleDocumentList.value,
+    visible: supportsBatchCloseFreeze.value,
     enabled: canBatchFreeze.value,
     testId: "batch-freeze"
   }),
   defineAction("unfreeze", {
     key: "batchUnfreeze",
-    visible: isLifecycleDocumentList.value,
+    visible: supportsBatchCloseFreeze.value,
     enabled: canBatchUnfreeze.value,
     testId: "batch-unfreeze"
   }),
@@ -1412,7 +1421,7 @@ async function submitBatchVoid(reason: string, username: string, password: strin
 }
 
 function isAuditedRow(row: Record<string, unknown>) {
-  return row.status === "已审核";
+  return isAuditedBillStatus(row);
 }
 
 function pushDownSalesOut() {

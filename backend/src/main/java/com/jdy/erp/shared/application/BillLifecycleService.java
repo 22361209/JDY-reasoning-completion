@@ -138,6 +138,7 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> closeBill(BillLifecycleTarget target, String billNo, String reason) {
         guardTarget(target);
+        BillLifecyclePolicy.requireCloseFreezeAllowed(target, "关闭");
         var rows = jdbcTemplate.queryForList("""
             UPDATE %s
             SET close_status = 'CLOSED',
@@ -147,12 +148,13 @@ public class BillLifecycleService {
                 updated_at = now(),
                 version = version + 1
             WHERE bill_no = ?
-              AND status <> 'VOID'
+              AND status = 'AUDITED'
+              AND frozen_status = 'NORMAL'
               AND close_status <> 'CLOSED'
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), requiredReason(reason, "关闭原因"), currentSessionService.currentUserId(), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在、已作废或已关闭");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核、未冻结且未关闭的单据可以关闭");
         }
         jdbcTemplate.update("""
             UPDATE %s
@@ -168,6 +170,7 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> reopenBill(BillLifecycleTarget target, String billNo, String reason) {
         guardTarget(target);
+        BillLifecyclePolicy.requireCloseFreezeAllowed(target, "反关闭");
         var rows = jdbcTemplate.queryForList("""
             UPDATE %s
             SET close_status = 'OPEN',
@@ -177,12 +180,12 @@ public class BillLifecycleService {
                 updated_at = now(),
                 version = version + 1
             WHERE bill_no = ?
-              AND status <> 'VOID'
+              AND status = 'AUDITED'
               AND close_status = 'CLOSED'
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), optionalReason(reason), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在、已作废或未关闭");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核且已关闭的单据可以反关闭");
         }
         jdbcTemplate.update("""
             UPDATE %s
@@ -197,6 +200,7 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> freezeBill(BillLifecycleTarget target, String billNo, String reason) {
         guardTarget(target);
+        BillLifecyclePolicy.requireCloseFreezeAllowed(target, "冻结");
         var rows = jdbcTemplate.queryForList("""
             UPDATE %s
             SET frozen_status = 'FROZEN',
@@ -206,12 +210,13 @@ public class BillLifecycleService {
                 updated_at = now(),
                 version = version + 1
             WHERE bill_no = ?
-              AND status <> 'VOID'
+              AND status = 'AUDITED'
+              AND close_status = 'OPEN'
               AND frozen_status <> 'FROZEN'
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), requiredReason(reason, "冻结原因"), currentSessionService.currentUserId(), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在、已作废或已冻结");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核、未关闭且未冻结的单据可以冻结");
         }
         jdbcTemplate.update("""
             UPDATE %s
@@ -227,6 +232,7 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> unfreezeBill(BillLifecycleTarget target, String billNo, String reason) {
         guardTarget(target);
+        BillLifecyclePolicy.requireCloseFreezeAllowed(target, "解冻");
         var rows = jdbcTemplate.queryForList("""
             UPDATE %s
             SET frozen_status = 'NORMAL',
@@ -236,12 +242,12 @@ public class BillLifecycleService {
                 updated_at = now(),
                 version = version + 1
             WHERE bill_no = ?
-              AND status <> 'VOID'
+              AND status = 'AUDITED'
               AND frozen_status = 'FROZEN'
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), optionalReason(reason), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在、已作废或未冻结");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核且已冻结的单据可以解冻");
         }
         jdbcTemplate.update("""
             UPDATE %s
@@ -256,7 +262,9 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> setLineClosed(BillLifecycleTarget target, String billNo, int lineNo, boolean closed, String reason) {
         guardTarget(target);
+        BillLifecyclePolicy.requireLineCloseFreezeAllowed(target, closed ? "关闭" : "反关闭");
         var header = header(target, billNo);
+        requireAuditedExecutableHeader(header, closed ? "行关闭" : "行反关闭");
         var updated = jdbcTemplate.update("""
             UPDATE %s
             SET line_close_status = ?,
@@ -280,7 +288,9 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> setLineFrozen(BillLifecycleTarget target, String billNo, int lineNo, boolean frozen, String reason) {
         guardTarget(target);
+        BillLifecyclePolicy.requireLineCloseFreezeAllowed(target, frozen ? "冻结" : "解冻");
         var header = header(target, billNo);
+        requireAuditedExecutableHeader(header, frozen ? "行冻结" : "行解冻");
         var updated = jdbcTemplate.update("""
             UPDATE %s
             SET line_frozen_status = ?,
@@ -343,13 +353,14 @@ public class BillLifecycleService {
             JOIN %s l ON l.%s = h.id
             WHERE h.id = ?::uuid
               AND l.%s = ?
+              AND h.status = 'AUDITED'
               AND h.close_status = 'OPEN'
               AND h.frozen_status = 'NORMAL'
               AND l.line_close_status = 'OPEN'
               AND l.line_frozen_status = 'NORMAL'
             """.formatted(spec.headerTable(), spec.lineTable(), spec.lineOwnerColumn(), spec.lineNoColumn()), sourceId, sourceLineNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "源单或源单行已关闭/冻结，不能继续下推或执行");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "源单或源单行已关闭/冻结，或源单未审核，不能继续下推或执行");
         }
     }
 
@@ -393,6 +404,18 @@ public class BillLifecycleService {
                 WHERE id = ?::uuid
                   AND close_status = 'CLOSED'
                 """.formatted(target.headerTable()), header.get("id"));
+        }
+    }
+
+    private void requireAuditedExecutableHeader(Map<String, Object> header, String actionLabel) {
+        if (!"AUDITED".equals(String.valueOf(header.get("status")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核单据可以" + actionLabel);
+        }
+        if (!"OPEN".equals(String.valueOf(header.get("closeStatus")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据已关闭，不能" + actionLabel);
+        }
+        if (!"NORMAL".equals(String.valueOf(header.get("frozenStatus")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据已冻结，不能" + actionLabel);
         }
     }
 

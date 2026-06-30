@@ -17,6 +17,10 @@ import {
   type RiskyDocumentAction,
   type ZeroEntryWarning
 } from "../../../app/documentModel";
+import {
+  documentLifecycleStatusLabel,
+  lifecyclePolicyFor
+} from "../../../app/documentLifecyclePolicy";
 import { taxAmounts } from "../../../app/taxAmounts";
 import { fetchListRows } from "../../../services/listApi";
 import {
@@ -136,26 +140,20 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   let priceRequestSeq = 0;
 
   const isDraft = computed(() => form.status === "DRAFT");
+  const lifecyclePolicy = computed(() => lifecyclePolicyFor("salesOut"));
+  const showCloseFreezeActions = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed));
   const canAudit = computed(() => isDraft.value && options.hasPermission("sales.out.audit"));
   const canReverse = computed(() => form.status === "AUDITED");
-  const canVoid = computed(() => form.status === "DRAFT");
-  const canClose = computed(() => form.status === "AUDITED" && form.closeStatus !== "CLOSED");
-  const canUnclose = computed(() => form.closeStatus === "CLOSED");
-  const canFreeze = computed(() => form.status === "AUDITED" && form.frozenStatus !== "FROZEN");
-  const canUnfreeze = computed(() => form.frozenStatus === "FROZEN");
+  const canRedReverse = computed(() => Boolean(lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED"));
+  const canVoid = computed(() => Boolean(lifecyclePolicy.value?.voidAllowed && form.status === "DRAFT"));
+  const canClose = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN"));
+  const canUnclose = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus === "CLOSED"));
+  const canFreeze = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.frozenStatus !== "FROZEN" && form.closeStatus !== "CLOSED"));
+  const canUnfreeze = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.frozenStatus === "FROZEN"));
   const showDelete = computed(() => true);
   const canDelete = computed(() => Boolean(options.hasPermission("sales.out.audit") && form.status === "DRAFT" && hasPersistedDraft.value && form.billNo));
   const canTraceSourceOrder = computed(() => Boolean(form.lines.some((line) => line.sourceOrderNo?.trim())));
-  const statusLabel = computed(() => {
-    const labels: Record<OrderForm["status"], string> = {
-      DRAFT: "草稿",
-      AUDITED: "已审核",
-      REVERSED: "已反审核",
-      VOIDED: "已作废",
-      RED_REVERSED: "已红冲"
-    };
-    return labels[form.status];
-  });
+  const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus));
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
@@ -552,7 +550,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function openRiskyAction(action: RiskyDocumentAction) {
-    if (!canReverse.value) {
+    if ((action === "redReverse" && !canRedReverse.value) || (action === "reverse" && !canReverse.value)) {
       return;
     }
     pendingRiskyDocumentAction.value = action;
@@ -1218,11 +1216,13 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     isDraft,
     canAudit,
     canReverse,
+    canRedReverse,
     canVoid,
     canClose,
     canUnclose,
     canFreeze,
     canUnfreeze,
+    showCloseFreezeActions,
     showDelete,
     canDelete,
     canTraceSourceOrder,

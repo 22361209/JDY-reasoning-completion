@@ -67,7 +67,7 @@ export function buildDocumentActions(state: DocumentActionRuleState): ActionBarI
     defineAction("save", { visible: state.showSave !== false, enabled: !state.locked && state.canSave, testId: "save-sales-order" }),
     defineAction("audit", { visible: state.showAudit !== false, enabled: !state.locked && state.canAudit, testId: "audit-sales-order" }),
     defineAction("reverse", { visible: state.showReverse !== false, enabled: !state.locked && state.canReverse }),
-    defineAction("redReverse", { visible: state.showRedReverse !== false, enabled: !state.locked && (state.canRedReverse ?? state.canReverse) }),
+    defineAction("redReverse", { visible: state.showRedReverse !== false && state.canRedReverse === true, enabled: !state.locked && state.canRedReverse === true }),
     defineAction("close", { visible: state.showClose !== false, enabled: !state.locked && state.canClose }),
     defineAction("unclose", { visible: state.showUnclose !== false, enabled: !state.locked && state.canUnclose }),
     defineAction("freeze", { visible: state.showFreeze !== false, enabled: !state.locked && state.canFreeze }),

@@ -33,6 +33,8 @@ import org.springframework.web.server.ResponseStatusException;
 class CoreBusinessFastIntegrationTest {
     private static final BillLifecycleTarget SALES_ORDER_TARGET =
         new BillLifecycleTarget("sales_order", "sales_order_line", "order_id", "SALES", "sales_order");
+    private static final BillLifecycleTarget SALES_OUT_TARGET =
+        new BillLifecycleTarget("sales_out", "sales_out_line", "bill_id", "SALES", "sales_out");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -94,6 +96,37 @@ class CoreBusinessFastIntegrationTest {
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("源单或源单行已关闭/冻结");
         assertThatThrownBy(() -> lifecycleService.guardExecutableSourceLine(sourceSpec(), idOf("sales_order", frozenBillNo), 1))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("源单或源单行已关闭/冻结");
+    }
+
+    @Test
+    void billLifecycleCloseFreezeOnlyAppliesToAuditedContinuousDocuments() {
+        var draftBillNo = billNo("XSDD-A124-DRAFT-CLOSE");
+        var factBillNo = billNo("XSCK-A124-FACT-CLOSE");
+        insertSalesOrder(draftBillNo, "DRAFT");
+        insertSalesOut(factBillNo, "AUDITED");
+
+        assertThatThrownBy(() -> lifecycleService.closeBill(SALES_ORDER_TARGET, draftBillNo, "A124 close draft"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("只有已审核");
+        assertThatThrownBy(() -> lifecycleService.freezeBill(SALES_ORDER_TARGET, draftBillNo, "A124 freeze draft"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("只有已审核");
+        assertThatThrownBy(() -> lifecycleService.closeBill(SALES_OUT_TARGET, factBillNo, "A124 close fact"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("不支持关闭");
+        assertThatThrownBy(() -> lifecycleService.setLineClosed(SALES_OUT_TARGET, factBillNo, 1, true, "A124 line close fact"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("不支持行关闭");
+    }
+
+    @Test
+    void billLifecycleSourceExecutionRequiresAuditedOpenNormalSource() {
+        var draftBillNo = billNo("XSDD-A124-SOURCE-DRAFT");
+        insertSalesOrder(draftBillNo, "DRAFT");
+
+        assertThatThrownBy(() -> lifecycleService.guardExecutableSourceLine(sourceSpec(), idOf("sales_order", draftBillNo), 1))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("源单或源单行已关闭/冻结");
     }
@@ -264,6 +297,18 @@ class CoreBusinessFastIntegrationTest {
             INSERT INTO delivery_notice_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount, tax_amount, price_tax_total)
             VALUES (?::uuid, 1, ?::uuid, ?::uuid, 1, 100, 100, 13, 113)
             """, noticeId, productId(productCode), warehouseId(warehouseCode));
+    }
+
+    private void insertSalesOut(String billNo, String status) {
+        var billId = jdbcTemplate.queryForObject("""
+            INSERT INTO sales_out (bill_no, customer_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, DATE '2026-06-26', 'A124', ?, 100, 'A124')
+            RETURNING id::text
+            """, String.class, billNo, customerId("KH-001"), status);
+        jdbcTemplate.update("""
+            INSERT INTO sales_out_line (bill_id, line_no, product_id, warehouse_id, qty, unit_price, amount)
+            VALUES (?::uuid, 1, ?::uuid, ?::uuid, 1, 100, 100)
+            """, billId, productId("CP-001"), warehouseId("CK-001"));
     }
 
     private void insertPurchaseOrderLine(String billNoPrefix, String status, String productCode, String warehouseCode, String qty, String receivedQty) {
