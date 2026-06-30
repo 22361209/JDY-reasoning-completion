@@ -17,90 +17,30 @@
         :key="section.title"
         class="master-record-section"
         :class="sectionClasses(section)"
-      >
-        <h3>{{ section.title }}</h3>
-        <div class="master-record-fields">
-          <label
-            v-for="field in section.fields"
-            :key="field.name"
-            :class="{ 'field-wide': field.span === 2, required: field.required, 'checkbox-field': field.type === 'checkbox', 'lookup-field': isLookupField(field) }"
-          >
-            <span>{{ field.label }}</span>
-            <select
-              v-if="field.options"
+        >
+          <h3>{{ section.title }}</h3>
+          <div class="master-record-fields">
+            <FieldRenderer
+              v-for="field in section.fields"
+              :key="field.name"
+              :field="field"
               :value="form[field.name]"
               :disabled="isFieldDisabled(field)"
-              @change="emit('updateField', field.name, ($event.target as HTMLSelectElement).value)"
-            >
-              <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
-            </select>
-            <template v-else-if="isLookupField(field)">
-              <span class="master-lookup-control">
-                <input
-                  :value="form[field.name]"
-                  :placeholder="field.placeholder"
-                  :disabled="isFieldDisabled(field)"
-                  autocomplete="off"
-                  @focus="openLookup(field)"
-                  @input="handleLookupInput(field, ($event.target as HTMLInputElement).value)"
-                  @blur="closeLookupLater(field)"
-                  @keydown.down.prevent="moveLookupHighlight(field, 1)"
-                  @keydown.up.prevent="moveLookupHighlight(field, -1)"
-                  @keydown.enter.prevent="confirmLookupHighlight(field)"
-                />
-                <span v-if="lookupLoading[field.name]" class="master-lookup-loading">加载中</span>
-                <span v-if="isLookupOpen(field)" class="master-lookup-menu">
-                  <button
-                    v-for="(option, optionIndex) in filteredLookupOptions(field)"
-                    :key="`${field.name}-${option.value}-${option.label}`"
-                    type="button"
-                    :class="{ active: optionIndex === lookupHighlightIndex }"
-                    @mousedown.prevent="selectLookupOption(field, option)"
-                  >
-                    <strong>{{ option.value }}</strong>
-                    <span v-if="option.label">{{ option.label }}</span>
-                    <small v-if="option.secondary">{{ option.secondary }}</small>
-                  </button>
-                  <em v-if="filteredLookupOptions(field).length === 0">没有匹配资料</em>
-                </span>
-              </span>
-            </template>
-            <span v-else-if="field.type === 'file'" class="master-file-control">
-              <input
-                type="file"
-                :accept="field.accept"
-                :multiple="field.multiple || (field.maxFiles ?? 1) > 1"
-                :disabled="isFieldDisabled(field)"
-                @change="handleFileInput(field, $event)"
-              />
-              <small>{{ fileFieldText(field) }}</small>
-            </span>
-            <textarea
-              v-else-if="field.type === 'textarea'"
-              :value="form[field.name]"
-              :placeholder="field.placeholder"
-              rows="3"
-              :disabled="isFieldDisabled(field)"
-              @input="emit('updateField', field.name, ($event.target as HTMLTextAreaElement).value)"
+              :lookup-open="isLookupOpen(field)"
+              :lookup-loading="Boolean(lookupLoading[field.name])"
+              :lookup-options="filteredLookupOptions(field)"
+              :lookup-highlight-index="lookupHighlightIndex"
+              :file-text="fileFieldText(field)"
+              id-prefix="master-record"
+              @update-value="(name, value) => emit('updateField', name, value)"
+              @lookup-open="openLookup"
+              @lookup-input="handleLookupInput"
+              @lookup-blur="closeLookupLater"
+              @lookup-move="moveLookupHighlight"
+              @lookup-confirm="confirmLookupHighlight"
+              @lookup-select="selectLookupOption"
+              @file-input="handleFileInput"
             />
-            <span v-else-if="field.type === 'checkbox'" class="master-checkbox-field">
-              <input
-                type="checkbox"
-                :checked="form[field.name] === 'true'"
-                :disabled="isFieldDisabled(field)"
-                @change="emit('updateField', field.name, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-              />
-            </span>
-            <input
-              v-else
-              :value="form[field.name]"
-              :type="field.type === 'number' ? 'number' : 'text'"
-              :step="field.type === 'number' ? '0.01' : undefined"
-              :placeholder="field.placeholder"
-              :disabled="isFieldDisabled(field)"
-              @input="emit('updateField', field.name, ($event.target as HTMLInputElement).value)"
-            />
-          </label>
         </div>
       </section>
     </div>
@@ -118,6 +58,7 @@ import { computed, reactive, ref, watch } from "vue";
 import ActionBar from "../../components/ActionBar.vue";
 import { defineAction, type ActionBarItem } from "../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../components/DocumentCommandHeader.vue";
+import FieldRenderer from "../../components/fields/FieldRenderer.vue";
 import { fetchListRows } from "../../services/listApi";
 import type { MasterDataField } from "./types";
 

@@ -221,7 +221,7 @@ BOM、生产计划这类表体可以保留专用组件，但必须接入共享�
 
 ## 字段渲染协议
 
-后续应建立 FieldRenderer，让字段类型决定渲染方式：
+A123 已建立 FieldRenderer 第一阶段，让主数据建档/编辑类字段先由字段类型决定渲染方式：
 
 | 字段类型 | 统一表现 |
 | --- | --- |
@@ -247,12 +247,16 @@ BOM、生产计划这类表体可以保留专用组件，但必须接入共享�
 
 ## 当前落地状态（2026-06-30）
 
-本轮已把协议第一层落到代码：
+本轮已把协议第一层落到代码，并完成 A121-A123 的内部收口：
 
 - 新增 `frontend/src/components/actions/actionRegistry.ts`，统一维护动作 key、默认文案、顺序、危险态和 test id。
 - 新增 `frontend/src/components/ActionBar.vue`，统一渲染按钮外观、顺序、禁用态和事件分发。
 - `StandardDocument` 已改为通过 ActionBar 渲染单据动作条，保留旧 test id 兼容现有回归脚本。
 - `DataListPage` 的列表动作条和“更多”菜单已改为 ActionBar，避免列表按钮继续散写。
+- A121 已把 `DataListPage` 内部定义、列偏好、选择状态、合计逻辑拆到 `frontend/src/components/list/*`，外部列表协议保持不变。
+- A122 已把 `EntryTable` 内部列定义、计算、测试 ID 拆到 `frontend/src/components/entry-table/*`，外部 props/events/test id 保持不变。
+- A123 已新增 `frontend/src/components/fields/FieldRenderer.vue` 和字段协议类型，主数据详情页与旧建档弹窗已统一使用该组件渲染 select、lookup、file、textarea、checkbox 和普通输入框。
+- A121-A123 最终已通过前端构建、后端 35/35、全量回归 99/99，结果见 `verification/regression-tier-full-continue-latest.json`。
 - 主数据、库存期初、编号规则、用户、权限、安全、通知、账套、生产任务、委外表面处理等页面动作条已接入 ActionBar。
 - `SourceSelectorDialog`、`MasterSelectorDialog`、`OpeningStockPage`、`NumberingRuleSettingsPage`、委外子件需求明细已接入 `TableCore`。
 - `SourceSelectorDialog` 已去掉旧 raw table 的局部 `th/td` 覆盖，外层只负责弹窗滚动，内部表格遵守共享表格合同。
@@ -262,6 +266,7 @@ BOM、生产计划这类表体可以保留专用组件，但必须接入共享�
 - `DocumentDialogs.vue` 内的零值确认表和下游影响表属于二级确认/提示，不是正式业务列表或分录表体。
 - `DataListPage` 内库存预警设置弹窗仍有一张轻量配置表，属于次级设置面板，后续若高频使用再迁入 `TableCore`。
 - `App.vue` 内打印/追溯 HTML 字符串中的 `<table>` 是输出模板，不是应用内交互表格。
+- FieldRenderer 当前只覆盖主数据/表单字段第一阶段，尚未替换 `DocumentForm` 和 `EntryTable` 的单据表头/分录单元格渲染。
 
 后续新增页面或改造页面，默认不得再新增正式业务 raw table；如果必须例外，需要在验收报告中说明原因和后续回收条件。
 

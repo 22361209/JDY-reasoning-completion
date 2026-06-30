@@ -16,58 +16,16 @@
         >
           <h4>{{ section.title }}</h4>
           <div class="master-create-fields">
-            <label
+            <FieldRenderer
               v-for="field in section.fields"
               :key="field.name"
-              :class="{ 'field-wide': field.span === 2, required: field.required, 'checkbox-field': field.type === 'checkbox' }"
-            >
-              <span>{{ field.label }}</span>
-              <select
-                v-if="field.options"
-                :value="form[field.name]"
-                :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
-                @change="emit('updateField', field.name, ($event.target as HTMLSelectElement).value)"
-              >
-                <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
-              </select>
-              <template v-else-if="field.suggestions">
-                <input
-                  :value="form[field.name]"
-                  :list="`master-dialog-${field.name}-options`"
-                  :placeholder="field.placeholder"
-                  :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
-                  @input="emit('updateField', field.name, ($event.target as HTMLInputElement).value)"
-                />
-                <datalist :id="`master-dialog-${field.name}-options`">
-                  <option v-for="suggestion in field.suggestions" :key="suggestion" :value="suggestion" />
-                </datalist>
-              </template>
-              <textarea
-                v-else-if="field.type === 'textarea'"
-                :value="form[field.name]"
-                :placeholder="field.placeholder"
-                rows="3"
-                :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
-                @input="emit('updateField', field.name, ($event.target as HTMLTextAreaElement).value)"
-              />
-              <span v-else-if="field.type === 'checkbox'" class="master-checkbox-field">
-                <input
-                  type="checkbox"
-                  :checked="form[field.name] === 'true'"
-                  :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
-                  @change="emit('updateField', field.name, ($event.target as HTMLInputElement).checked ? 'true' : 'false')"
-                />
-              </span>
-              <input
-                v-else
-                :value="form[field.name]"
-                :type="field.type === 'number' ? 'number' : 'text'"
-                :step="field.type === 'number' ? '0.01' : undefined"
-                :placeholder="field.placeholder"
-                :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
-                @input="emit('updateField', field.name, ($event.target as HTMLInputElement).value)"
-              />
-            </label>
+              :field="field"
+              :value="form[field.name]"
+              :disabled="field.readonly || (editing && field.readonlyWhenEditing)"
+              lookup-mode="datalist"
+              id-prefix="master-dialog"
+              @update-value="(name, value) => emit('updateField', name, value)"
+            />
           </div>
         </section>
       </div>
@@ -82,6 +40,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import FieldRenderer from "../../components/fields/FieldRenderer.vue";
 import type { MasterDataField } from "./types";
 
 const props = defineProps<{

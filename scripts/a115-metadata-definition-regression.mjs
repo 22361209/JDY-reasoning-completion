@@ -2,10 +2,24 @@ import { readFileSync } from "node:fs";
 
 const source = readFileSync("frontend/src/modules/metadata/bills/sales.ts", "utf8");
 const fragments = readFileSync("frontend/src/modules/metadata/fragments.ts", "utf8");
-const entryTable = readFileSync("frontend/src/components/EntryTable.vue", "utf8");
-const dataListPage = readFileSync("frontend/src/components/DataListPage.vue", "utf8");
+const entryTable = [
+  "frontend/src/components/EntryTable.vue",
+  "frontend/src/components/entry-table/types.ts",
+  "frontend/src/components/entry-table/useEntryTableColumns.ts",
+  "frontend/src/components/entry-table/useEntryTableCalculations.ts",
+  "frontend/src/components/entry-table/useEntryTableTestIds.ts"
+].map((path) => readFileSync(path, "utf8")).join("\n");
+const dataListPage = [
+  "frontend/src/components/DataListPage.vue",
+  "frontend/src/components/list/useDataListDefinition.ts",
+  "frontend/src/components/list/useDataListColumnPreferences.ts",
+  "frontend/src/components/list/useDataListSelection.ts",
+  "frontend/src/components/list/useDataListSummary.ts"
+].map((path) => readFileSync(path, "utf8")).join("\n");
 const documentModule = readFileSync("frontend/src/modules/documents/useDocumentModule.ts", "utf8");
 const masterDataRegistry = readFileSync("frontend/src/modules/master-data/registry.ts", "utf8");
+const fieldTypes = readFileSync("frontend/src/components/fields/types.ts", "utf8");
+const fieldRenderer = readFileSync("frontend/src/components/fields/FieldRenderer.vue", "utf8");
 const masterDataTypes = readFileSync("frontend/src/modules/master-data/types.ts", "utf8");
 const masterDataRecordPage = readFileSync("frontend/src/modules/master-data/MasterDataRecordPage.vue", "utf8");
 const masterDataFormDialog = readFileSync("frontend/src/modules/master-data/MasterDataFormDialog.vue", "utf8");
@@ -129,8 +143,23 @@ assertContains(
 );
 assertContains(
   entryTable,
-  /EntryColumnKey[\s\S]*?"unit"[\s\S]*?"netWeight"[\s\S]*?"grossWeight"[\s\S]*?title:\s*"单位"[\s\S]*?title:\s*"净重"[\s\S]*?title:\s*"毛重"[\s\S]*?formatOptionalWeight[\s\S]*?productInfo/,
-  "共享分录表必须统一承载单位、净重、毛重，并把重量格式化到小数点后两位"
+  /EntryColumnKey[\s\S]*?"unit"[\s\S]*?"netWeight"[\s\S]*?"grossWeight"/,
+  "共享分录表列类型必须统一承载单位、净重、毛重"
+);
+assertContains(
+  entryTable,
+  /title:\s*"单位"[\s\S]*?title:\s*"净重"[\s\S]*?title:\s*"毛重"/,
+  "共享分录表列定义必须统一显示单位、净重、毛重"
+);
+assertContains(
+  entryTable,
+  /column\.key === 'unit'[\s\S]*?productInfo\(line\)\.unit[\s\S]*?column\.key === 'netWeight'[\s\S]*?formatOptionalWeight\(productInfo\(line\)\.netWeight\)[\s\S]*?column\.key === 'grossWeight'[\s\S]*?formatOptionalWeight\(productInfo\(line\)\.grossWeight\)/,
+  "共享分录表渲染必须从物料快照读取单位、净重、毛重"
+);
+assertContains(
+  entryTable,
+  /function formatOptionalWeight[\s\S]*?toFixed\(2\)/,
+  "共享分录表必须把重量格式化到小数点后两位"
 );
 assertContains(
   entryTable,
@@ -243,9 +272,14 @@ assertContains(
   "整单/明细视图切换、列设置、更新库存必须集中在列表右侧工具区"
 );
 assertContains(
+  fieldTypes,
+  /interface FieldDefinition[\s\S]*?readonly\?:\s*boolean/,
+  "字段渲染协议必须支持全程只读字段"
+);
+assertContains(
   masterDataTypes,
-  /interface MasterDataField[\s\S]*?readonly\?:\s*boolean[\s\S]*?interface MasterDataDefinition[\s\S]*?listColumns:\s*ListColumnDefinition\[\][\s\S]*?selectorColumns:\s*ListColumnDefinition\[\]/,
-  "主数据定义必须集中维护列表列和选择器列，并支持全程只读字段"
+  /interface MasterDataDefinition[\s\S]*?listColumns:\s*ListColumnDefinition\[\][\s\S]*?selectorColumns:\s*ListColumnDefinition\[\]/,
+  "主数据定义必须集中维护列表列和选择器列"
 );
 assertContains(
   dataListPage,
@@ -344,13 +378,23 @@ assertContains(
 );
 assertContains(
   masterDataRecordPage,
-  /class="master-record-toolbar"[\s\S]*?emit\('newRecord'\)[\s\S]*?data-testid="master-record-save"[\s\S]*?emit\('audit'\)[\s\S]*?emit\('reverseAudit'\)[\s\S]*?emit\('toggleStatus'\)[\s\S]*?emit\('deleteRecord'\)/,
+  /defineAction\("create"[\s\S]*?testId:\s*"master-record-new"[\s\S]*?defineAction\("save"[\s\S]*?testId:\s*"master-record-save"[\s\S]*?defineAction\("audit"[\s\S]*?defineAction\("reverse"[\s\S]*?defineAction\(statusText\.value === "禁用" \? "enable" : "disable"[\s\S]*?defineAction\("delete"[\s\S]*?function handleAction[\s\S]*?emit\("newRecord"\)[\s\S]*?emit\("audit"\)[\s\S]*?emit\("reverseAudit"\)[\s\S]*?emit\("toggleStatus"\)[\s\S]*?emit\("deleteRecord"\)/,
   "主数据建档页必须保留新增/保存/审核/反审核/启禁用/删除动作条"
 );
 assertContains(
+  fieldRenderer,
+  /usesLookupMenu[\s\S]*?master-lookup-menu/,
+  "主数据建档页必须通过统一 FieldRenderer lookup 分支承载主数据匹配选择"
+);
+assertContains(
   masterDataRecordPage + masterDataFormDialog,
-  /isLookupField\(field\)[\s\S]*?master-lookup-menu[\s\S]*?sectionClasses\(section\)[\s\S]*?checkbox-field/,
-  "主数据建档页必须通过统一 lookup 分支承载主数据匹配选择，并支持 checkbox 横向布局"
+  /sectionClasses\(section\)[\s\S]*?section-checkboxes[\s\S]*?field\.type === "checkbox"/,
+  "主数据建档页必须支持 checkbox 横向布局"
+);
+assertContains(
+  fieldRenderer,
+  /"checkbox-field": props\.field\.type === "checkbox"/,
+  "统一 FieldRenderer 必须给 checkbox 字段保留横向布局 class"
 );
 assertNotContains(
   masterDataRecordPage + masterDataFormDialog,
