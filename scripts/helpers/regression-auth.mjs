@@ -1,17 +1,17 @@
-export async function loginAsAdmin(page, password = "admin123") {
+export async function loginAsAdmin(page, password = "admin123", accountSetCode = "BLD-TEST", username = "admin") {
   let loginPage = page.getByTestId("login-page");
   let visible = await loginPage.isVisible({ timeout: 1500 }).catch(() => false);
   if (!visible) {
-    const active = await page.evaluate(async () => {
+    const active = await page.evaluate(async (expectedAccountSetCode) => {
       try {
         const response = await fetch("/api/system/session");
         if (!response.ok) return false;
         const session = await response.json();
-        return Boolean(session?.authenticated);
+        return Boolean(session?.authenticated && (!expectedAccountSetCode || session?.tenant?.code === expectedAccountSetCode));
       } catch {
         return false;
       }
-    }).catch(() => false);
+    }, accountSetCode).catch(() => false);
     if (active) {
       return;
     }
@@ -27,16 +27,24 @@ export async function loginAsAdmin(page, password = "admin123") {
   if (!visible) {
     throw new Error("login page did not appear for stale session recovery");
   }
+  const usernameInput = page.getByTestId("login-username");
+  if (await usernameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await usernameInput.fill(username);
+  }
+  const accountSetSelect = page.getByTestId("login-account-set");
+  if (await accountSetSelect.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await accountSetSelect.selectOption(accountSetCode);
+  }
   await page.getByTestId("login-password").fill(password);
   await page.getByTestId("login-submit").click();
   await page.getByTestId("content-area").waitFor({ state: "visible", timeout: 10000 });
 }
 
-export async function loginApi(apiBase, username = "admin", password = "admin123") {
+export async function loginApi(apiBase, username = "admin", password = "admin123", accountSetCode = "BLD-TEST") {
   const response = await fetch(`${apiBase}/api/system/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({ username, password, accountSetCode })
   });
   if (!response.ok) {
     const text = await response.text();
@@ -50,8 +58,8 @@ export async function loginApi(apiBase, username = "admin", password = "admin123
   return sessionCookie;
 }
 
-export async function installApiSession(apiBase, username = "admin", password = "admin123") {
-  let sessionCookie = await loginApi(apiBase, username, password);
+export async function installApiSession(apiBase, username = "admin", password = "admin123", accountSetCode = "BLD-TEST") {
+  let sessionCookie = await loginApi(apiBase, username, password, accountSetCode);
   const originalFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === "string" ? input : input.url;
@@ -66,7 +74,7 @@ export async function installApiSession(apiBase, username = "admin", password = 
     if (response.status !== 401) {
       return response;
     }
-    sessionCookie = await loginApi(apiBase, username, password);
+    sessionCookie = await loginApi(apiBase, username, password, accountSetCode);
     const retryHeaders = new Headers(init.headers ?? (typeof input === "string" ? undefined : input.headers));
     retryHeaders.set("Cookie", sessionCookie);
     return originalFetch(input, { ...init, headers: retryHeaders });
