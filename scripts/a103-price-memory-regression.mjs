@@ -49,12 +49,15 @@ async function upsertProduct(payload) {
     body: JSON.stringify(payload)
   });
   if (create.status === 409) {
-    return api(`/api/master-data/product/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
+    const updated = await api(`/api/master-data/product/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
+    await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
+    return updated;
   }
   const text = await create.text();
   if (!create.ok) {
     throw new Error(`create product ${payload.code} failed ${create.status}: ${text}`);
   }
+  await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
   return text ? JSON.parse(text) : {};
 }
 
@@ -65,12 +68,15 @@ async function upsertCustomer(payload) {
     body: JSON.stringify(payload)
   });
   if (create.status === 409) {
-    return api(`/api/master-data/customer/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
+    const updated = await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
+    await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
+    return updated;
   }
   const text = await create.text();
   if (!create.ok) {
     throw new Error(`create customer ${payload.code} failed ${create.status}: ${text}`);
   }
+  await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
   return text ? JSON.parse(text) : {};
 }
 

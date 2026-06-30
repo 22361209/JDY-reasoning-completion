@@ -472,6 +472,7 @@ class TenantReportingIsolationTest {
             null,
             "2026-07-05"
         ));
+        productionTaskAppService.auditPlan(PLAN_NO);
     }
 
     private String pushDownPlan() {

@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -37,11 +38,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAsAdmin(page) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -85,8 +82,7 @@ try {
   });
   assert(createUser.status === 200, `admin should create A77 user, got ${createUser.status}: ${createUser.text}`);
 
-  await page.getByTestId("session-logout").click();
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("login-username").fill(username);
   await page.getByTestId("forgot-password-open").click();

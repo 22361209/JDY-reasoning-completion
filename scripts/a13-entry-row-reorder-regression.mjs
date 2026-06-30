@@ -74,8 +74,8 @@ try {
   assertArray("keyboard insert products", afterKeyboardInsert, ["CP-001", "CP-T413874", "PJ-014"]);
 
   await dragRow(page, 2, 0);
-  const afterDrag = await readProducts(page, 3);
-  assertArray("drag products", afterDrag, ["PJ-014", "CP-001", "CP-T413874"]);
+  const afterBlockedDrag = await readProducts(page, 3);
+  assertArray("blocked drag products", afterBlockedDrag, ["CP-001", "CP-T413874", "PJ-014"]);
 
   const screenshot = `a13-entry-row-reorder-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
@@ -85,7 +85,8 @@ try {
     generatedAt: new Date().toISOString(),
     afterButtonInsert,
     afterKeyboardInsert,
-    afterDrag,
+    afterBlockedDrag,
+    rowDragPolicy: "disabled",
     screenshot: `verification/playwright/${screenshot}`
   };
   await writeFile(resultPath, JSON.stringify(result, null, 2));

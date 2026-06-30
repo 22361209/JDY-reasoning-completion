@@ -385,6 +385,17 @@ public class ProductionTaskAppService {
     }
 
     @Transactional
+    public Map<String, Object> auditPlan(String planNo) {
+        return transitionPlan(planNo, BillStatus.DRAFT, BillStatus.AUDITED, "AUDIT_PLAN", "只有草稿生产计划可以审核");
+    }
+
+    @Transactional
+    public Map<String, Object> reversePlan(String planNo) {
+        guardPlanHasNoDownstream(planNo);
+        return transitionPlan(planNo, BillStatus.AUDITED, BillStatus.DRAFT, "REVERSE_PLAN", "只有已审核且未下推的生产计划可以反审核");
+    }
+
+    @Transactional
     public Map<String, Object> nextPlanNumber() {
         return Map.of("billNo", numberingService.nextBillNo("productionPlan"));
     }
@@ -640,10 +651,44 @@ public class ProductionTaskAppService {
             positive(request.qty(), "计划数量"),
             deliveryDate,
             validationService.optionalText(request.sourceType()) == null ? "SELF" : validationService.optionalText(request.sourceType()),
-            BillStatus.AUDITED.name()
+            BillStatus.DRAFT.name()
         );
         operationLogService.log("PRODUCTION", "CREATE_PLAN", "production_plan", String.valueOf(rows.get(0).get("id")), true, null);
         return rows.get(0);
+    }
+
+    private Map<String, Object> transitionPlan(String planNo, BillStatus from, BillStatus to, String action, String conflictMessage) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE production_plan
+            SET status = ?, updated_at = now()
+            WHERE bill_no = ? AND status = ?
+            RETURNING id::text AS id, bill_no AS "billNo", status
+            """, to.name(), validationService.required(planNo, "生产计划单号"), from.name());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflictMessage);
+        }
+        operationLogService.log("PRODUCTION", action, "production_plan", String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
+    }
+
+    private void guardPlanHasNoDownstream(String planNo) {
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM (
+                SELECT 1
+                FROM production_task task
+                JOIN production_plan plan ON plan.id = task.plan_id
+                WHERE plan.bill_no = ?
+                UNION ALL
+                SELECT 1
+                FROM purchase_requisition requisition
+                JOIN production_plan plan ON plan.id = requisition.source_plan_id
+                WHERE plan.bill_no = ?
+            ) refs
+            """, Integer.class, planNo, planNo);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产计划已下推，不能反审核");
+        }
     }
 
     private Map<String, Object> resolveCurrentBomForPlan(String productCode, String bomCode) {

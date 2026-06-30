@@ -1,4 +1,4 @@
-export async function loginAsAdmin(page, password = "admin123", accountSetCode = "BLD-TEST", username = "admin") {
+export async function loginAs(page, username = "admin", password = "admin123", expectedRole = "", accountSetCode = "BLD-TEST") {
   let loginPage = page.getByTestId("login-page");
   let visible = await loginPage.isVisible({ timeout: 1500 }).catch(() => false);
   if (!visible) {
@@ -38,6 +38,47 @@ export async function loginAsAdmin(page, password = "admin123", accountSetCode =
   await page.getByTestId("login-password").fill(password);
   await page.getByTestId("login-submit").click();
   await page.getByTestId("content-area").waitFor({ state: "visible", timeout: 10000 });
+  if (expectedRole) {
+    await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible", timeout: 10000 });
+  }
+}
+
+export async function loginAsAdmin(page, password = "admin123", accountSetCode = "BLD-TEST", username = "admin") {
+  await loginAs(page, username, password, "系统管理员", accountSetCode);
+}
+
+export async function openAccountMenu(page) {
+  const accountMenu = page.getByTestId("session-account-menu");
+  if (await accountMenu.isVisible({ timeout: 1000 }).catch(() => false)) {
+    const expanded = await accountMenu.evaluate((node) => node.parentElement?.hasAttribute("open") ?? false).catch(() => false);
+    if (!expanded) {
+      await accountMenu.click();
+    }
+    return;
+  }
+  const userName = page.getByTestId("session-user-name");
+  if (await userName.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await userName.click();
+    return;
+  }
+  throw new Error("account menu trigger not visible");
+}
+
+export async function logout(page) {
+  const logoutButton = page.getByTestId("session-logout");
+  if (!(await logoutButton.isVisible({ timeout: 500 }).catch(() => false))) {
+    await openAccountMenu(page);
+  }
+  await page.getByTestId("session-logout").click();
+  await page.getByTestId("login-page").waitFor({ state: "visible", timeout: 10000 });
+}
+
+export async function openPasswordChange(page) {
+  const passwordButton = page.getByTestId("session-password-change");
+  if (!(await passwordButton.isVisible({ timeout: 500 }).catch(() => false))) {
+    await openAccountMenu(page);
+  }
+  await page.getByTestId("session-password-change").click();
 }
 
 export async function loginApi(apiBase, username = "admin", password = "admin123", accountSetCode = "BLD-TEST") {

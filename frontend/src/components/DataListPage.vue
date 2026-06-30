@@ -281,7 +281,7 @@
 
     <ColumnFilterPopover
       :open="filterDialogOpen && Boolean(activeFilterColumn)"
-      :operators="filterOperators"
+      :operators="tableFilterOperators"
       :operator="activeFilterOperator"
       :value="activeFilterValue"
       :left="filterPopoverLeft"
@@ -390,6 +390,8 @@ import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
+import { tableFilterOperators, type TableColumnFilter } from "./table/useColumnFilters";
+import { useListColumnFilters } from "./table/useListColumnFilters";
 import { useColumnReorder } from "./table/useColumnReorder";
 import {
   deleteListPreset,
@@ -429,11 +431,6 @@ interface ListDefinition {
   columns: ListColumn[];
 }
 
-interface ColumnFilter {
-  operator: string;
-  value: string;
-}
-
 type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
 const props = defineProps<{
@@ -460,7 +457,6 @@ const stateMessage = ref("");
 let reloadSerial = 0;
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
-const filterDialogOpen = ref(false);
 const pendingAction = ref("");
 const pendingReason = ref("");
 const pendingVoidUsername = ref("");
@@ -484,13 +480,7 @@ const stockAlertSettingForm = reactive({
   safetyQty: "",
   maxQty: ""
 });
-const activeFilterColumn = ref<ListColumn | null>(null);
-const activeFilterOperator = ref("包含");
-const activeFilterValue = ref("");
-const columnFilters = reactive<Record<string, ColumnFilter>>({});
-const columnFilterSnapshots = reactive<Record<string, Record<string, ColumnFilter>>>({});
-const filterPopoverLeft = ref(0);
-const filterPopoverTop = ref(0);
+const columnFilterSnapshots = reactive<Record<string, Record<string, TableColumnFilter>>>({});
 const columnPreferenceVersion = "v3";
 const query = reactive({
   keyword: "",
@@ -504,7 +494,24 @@ const query = reactive({
   dateFrom: "",
   dateTo: ""
 });
-const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
+const {
+  columnFilters,
+  activeFilterColumn,
+  filterDialogOpen,
+  activeFilterOperator,
+  activeFilterValue,
+  filterPopoverLeft,
+  filterPopoverTop,
+  openColumnFilter,
+  applyColumnFilter,
+  clearColumnFilter,
+  snapshotColumnFilters,
+  replaceColumnFilters,
+  isFilterActive
+} = useListColumnFilters<ListColumn>(() => {
+  query.page = 1;
+  reload();
+});
 const operationLogModules = ["SALES", "PURCHASE", "INVENTORY", "PRODUCTION", "FINANCE", "MASTER", "SYSTEM"];
 const operationLogActions = [
   "AUDIT",
@@ -1526,7 +1533,7 @@ const listCoreColumns = computed<TableCoreColumn[]>(() => [
     align: column.align,
     filterable: true,
     resizable: true,
-    filterActive: Boolean(columnFilters[column.field]?.value),
+    filterActive: isFilterActive(column.field),
     dragging: columnReorder.draggingKey.value === column.field,
     dragOver: columnReorder.dragOverKey.value === column.field,
     dragTestId: `column-drag-${column.field}`,
@@ -1820,10 +1827,6 @@ function snapshotOperationLogQuery(): Record<string, string> {
   };
 }
 
-function snapshotColumnFilters() {
-  return Object.fromEntries(Object.entries(columnFilters).map(([field, filter]) => [field, { ...filter }]));
-}
-
 function presetScopeLabel(preset: ListFilterPreset) {
   if (preset.userName) {
     return `本人:${preset.userName}`;
@@ -1832,13 +1835,6 @@ function presetScopeLabel(preset: ListFilterPreset) {
     return preset.roleCode;
   }
   return "通用";
-}
-
-function replaceColumnFilters(nextFilters: Record<string, ColumnFilter>) {
-  Object.keys(columnFilters).forEach((field) => delete columnFilters[field]);
-  Object.entries(nextFilters).forEach(([field, filter]) => {
-    columnFilters[field] = { ...filter };
-  });
 }
 
 function columnFilterSnapshotKey() {
@@ -2196,16 +2192,6 @@ async function submitMasterDelete() {
   await masterMaintenance.submitDelete();
 }
 
-function openColumnFilter(column: ListColumn, event: MouseEvent) {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  activeFilterColumn.value = column;
-  activeFilterOperator.value = columnFilters[column.field]?.operator ?? "包含";
-  activeFilterValue.value = columnFilters[column.field]?.value ?? "";
-  filterPopoverLeft.value = Math.min(rect.right - 136, window.innerWidth - 150);
-  filterPopoverTop.value = Math.min(rect.bottom + 4, window.innerHeight - 260);
-  filterDialogOpen.value = true;
-}
-
 function listColumnByKey(key: string) {
   return columns.value.find((column) => column.field === key) ?? {
     field: key,
@@ -2234,34 +2220,6 @@ function openListColumnFilter(column: TableCoreColumn, event: MouseEvent) {
   if (listColumn) {
     openColumnFilter(listColumn, event);
   }
-}
-
-function applyColumnFilter() {
-  if (!activeFilterColumn.value) {
-    return;
-  }
-  const value = activeFilterValue.value.trim();
-  if (value || ["为空", "不为空"].includes(activeFilterOperator.value)) {
-    columnFilters[activeFilterColumn.value.field] = {
-      operator: activeFilterOperator.value,
-      value
-    };
-  } else {
-    delete columnFilters[activeFilterColumn.value.field];
-  }
-  filterDialogOpen.value = false;
-  query.page = 1;
-  reload();
-}
-
-function clearColumnFilter() {
-  if (activeFilterColumn.value) {
-    delete columnFilters[activeFilterColumn.value.field];
-  }
-  activeFilterValue.value = "";
-  filterDialogOpen.value = false;
-  query.page = 1;
-  reload();
 }
 
 function resizeListColumn({ column, width }: { column: TableCoreColumn; width: number }) {

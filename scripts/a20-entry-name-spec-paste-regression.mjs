@@ -12,7 +12,7 @@ const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const pasteText = [
-  "商品名称\t规格型号\t仓库\t数量\t单价",
+  "物料名称\t规格型号\t仓库\t数量\t单价",
   "控制臂总成\t左前 / 黑色\t成品仓\t2\t86",
   "验收商品总成\t左前 / 蓝色\tCK-T413874\t3\t94",
   "衬套\t65mm / 加强\t原材料仓\t4\t12"
@@ -71,7 +71,7 @@ async function clickNewDocument(page) {
 
 async function readLines(page) {
   const rows = await page.getByTestId("sales-entry-row").count();
-  const productNameIndex = await entryColumnIndex(page, "商品名称");
+  const productNameIndex = await entryColumnIndex(page, "物料名称");
   const specIndex = await entryColumnIndex(page, "规格型号");
   const lines = [];
   for (let index = 0; index < rows; index += 1) {

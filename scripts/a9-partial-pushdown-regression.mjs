@@ -35,7 +35,7 @@ const purchaseFirstInLines = [
 
 await mkdir(screenshotDir, { recursive: true });
 await mkdir(path.dirname(resultPath), { recursive: true });
-const apiCookie = await loginApi(apiBase);
+let apiCookie = await loginApi(apiBase);
 
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
@@ -79,7 +79,6 @@ async function createData() {
   await seedStock();
   const salesOrderNo = `XSDD-A9-${batch}`;
   const firstDeliveryNoticeNo = `FHTZ-A9-PART-${batch}`;
-  const overDeliveryNoticeNo = `FHTZ-A9-OVER-${batch}`;
   const firstSalesOutNo = `XSCK-A9-PART-${batch}`;
   await requireApi("/api/sales-orders/draft", {
     body: {
@@ -107,37 +106,8 @@ async function createData() {
   await requireApi(`/api/delivery-notices/${encodeURIComponent(firstDeliveryNoticeNo)}/audit`);
   await requireApi("/api/sales-outs/draft", { body: firstSalesFlow.outPayload });
   await requireApi(`/api/sales-outs/${encodeURIComponent(firstSalesOutNo)}/audit`);
-  const overSalesFlow = salesOutPayloadViaDeliveryNotice({
-    billNo: `XSCK-A9-OVER-${batch}`,
-    sourceOrderNo: salesOrderNo,
-    customerCode: "KH-001",
-    billDate,
-    department: "销售部",
-    ownerName: "本地管理员",
-    lines: salesLines
-  }, overDeliveryNoticeNo);
-  await requireApi("/api/delivery-notices/draft", {
-    body: overSalesFlow.noticePayload
-  });
-  const salesOverAudit = await api(`/api/delivery-notices/${encodeURIComponent(overDeliveryNoticeNo)}/audit`);
-  if (salesOverAudit.ok || salesOverAudit.status !== 409) {
-    throw new Error(`sales over-push delivery notice audit should fail with 409, got ${salesOverAudit.status}`);
-  }
-  await api("/api/sales-outs/draft", {
-    body: {
-      billNo: `XSCK-A9-DIRECT-${batch}`,
-      sourceOrderNo: salesOrderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: salesLines
-    }
-  });
-
   const purchaseOrderNo = `CGDD-A9-${batch}`;
   const firstPurchaseInNo = `CGRK-A9-PART-${batch}`;
-  const overPurchaseInNo = `CGRK-A9-OVER-${batch}`;
   await requireApi("/api/purchase-orders/draft", {
     body: {
       billNo: purchaseOrderNo,
@@ -161,10 +131,39 @@ async function createData() {
     }
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(firstPurchaseInNo)}/audit`);
+  return {
+    salesOrderNo,
+    purchaseOrderNo,
+    expectedSalesRemaining: [6, 5, 4],
+    expectedPurchaseRemaining: [6, 5, 4]
+  };
+}
+
+async function createOverPushChecks(data) {
+  apiCookie = await loginApi(apiBase);
+  const overDeliveryNoticeNo = `FHTZ-A9-OVER-${batch}`;
+  const overSalesFlow = salesOutPayloadViaDeliveryNotice({
+    billNo: `XSCK-A9-OVER-${batch}`,
+    sourceOrderNo: data.salesOrderNo,
+    customerCode: "KH-001",
+    billDate,
+    department: "销售部",
+    ownerName: "本地管理员",
+    lines: salesLines
+  }, overDeliveryNoticeNo);
+  await requireApi("/api/delivery-notices/draft", {
+    body: overSalesFlow.noticePayload
+  });
+  const salesOverAudit = await api(`/api/delivery-notices/${encodeURIComponent(overDeliveryNoticeNo)}/audit`);
+  if (salesOverAudit.ok || salesOverAudit.status !== 409) {
+    throw new Error(`sales over-push delivery notice audit should fail with 409, got ${salesOverAudit.status}`);
+  }
+
+  const overPurchaseInNo = `CGRK-A9-OVER-${batch}`;
   await requireApi("/api/purchase-ins/draft", {
     body: {
       billNo: overPurchaseInNo,
-      sourceOrderNo: purchaseOrderNo,
+      sourceOrderNo: data.purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
@@ -177,16 +176,10 @@ async function createData() {
     throw new Error(`purchase over-push audit should fail with 409, got ${purchaseOverAudit.status}`);
   }
 
-  return {
-    salesOrderNo,
-    purchaseOrderNo,
-    expectedSalesRemaining: [6, 5, 4],
-    expectedPurchaseRemaining: [6, 5, 4],
-    overChecks: [
-      { document: overDeliveryNoticeNo, status: salesOverAudit.status },
-      { document: overPurchaseInNo, status: purchaseOverAudit.status }
-    ]
-  };
+  return [
+    { document: overDeliveryNoticeNo, status: salesOverAudit.status },
+    { document: overPurchaseInNo, status: purchaseOverAudit.status }
+  ];
 }
 
 async function openListAndPush(page, moduleName, entryId, listId, billNo, pushTestId) {
@@ -267,6 +260,7 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);
 
+  const overChecks = await createOverPushChecks(data);
   const result = {
     batch,
     generatedAt: new Date().toISOString(),
@@ -276,7 +270,7 @@ try {
     salesRemarks,
     salesPlanDates,
     purchaseRemainingQtys: purchaseQtys,
-    overChecks: data.overChecks,
+    overChecks,
     screenshots
   };
   await writeFile(resultPath, JSON.stringify(result, null, 2));

@@ -46,7 +46,7 @@ public class DocumentOutputController {
         csv.append("业务日期,").append(escapeCsv(String.valueOf(payload.header().get("billDate")))).append('\n');
         csv.append("状态,").append(escapeCsv(String.valueOf(payload.header().get("status")))).append('\n');
         csv.append('\n');
-        csv.append("行号,源单号,物料编码,物料名称,规格型号,仓库,数量,单价,金额,备注\n");
+        csv.append("行号,源单号,物料编码,物料名称,规格型号,仓库,数量,单价,金额,行备注\n");
         for (var line : payload.lines()) {
             csv.append(escapeCsv(String.valueOf(line.get("lineNo")))).append(',')
                 .append(escapeCsv(String.valueOf(line.getOrDefault("sourceOrderNo", "")))).append(',')
@@ -124,7 +124,7 @@ public class DocumentOutputController {
             .append("<div>边距：上").append(template.marginTopMm()).append(" / 右").append(template.marginRightMm()).append(" / 下").append(template.marginBottomMm()).append(" / 左").append(template.marginLeftMm()).append(" mm</div>")
             .append("<div>联次：").append(template.copyCount()).append("联</div>")
             .append("</section>");
-        html.append("<table><thead><tr><th>行号</th><th>源单号</th><th>物料编码</th><th>物料名称</th><th>规格型号</th><th>仓库</th><th>数量</th><th>单价</th><th>金额</th><th>备注</th></tr></thead><tbody>");
+        html.append("<table><thead><tr><th>行号</th><th>源单号</th><th>物料编码</th><th>物料名称</th><th>规格型号</th><th>仓库</th><th>数量</th><th>单价</th><th>金额</th><th>行备注</th></tr></thead><tbody>");
         for (var line : payload.lines()) {
             html.append("<tr>")
                 .append("<td>").append(escapeHtml(String.valueOf(line.get("lineNo")))).append("</td>")

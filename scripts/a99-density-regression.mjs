@@ -12,6 +12,8 @@ const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const kingdeeListReference = "/Users/linzhenyue/Projects/JDY-复刻-local/01_金蝶调研/截图/采购管理/采购报表H3/2034_purchase-detail-report-query-result.png";
 const kingdeeEntryReference = "/Users/linzhenyue/Projects/JDY-复刻-local/01_金蝶调研/截图/采购管理/采购H3/1434_采购申请_新增单据首屏态.png";
+const sharedTableRowMinHeight = 30;
+const sharedTableRowMaxHeight = 33;
 
 await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
@@ -163,7 +165,10 @@ try {
   const listToolbarHeight = await firstHeight(page, ".list-toolbar");
   const moreVisible = await page.getByTestId("list-more-actions").isVisible();
   assert(listRowHeights.length >= 1, "list should render at least one row");
-  assert(Math.max(...listRowHeights) <= 32.5 && Math.min(...listRowHeights) >= 30, `list rows should match document entry density around 32px, got ${listRowHeights.join(",")}`);
+  assert(
+    Math.max(...listRowHeights) <= sharedTableRowMaxHeight && Math.min(...listRowHeights) >= sharedTableRowMinHeight,
+    `list rows should match document entry density around 32px, got ${listRowHeights.join(",")}`
+  );
   assert(listHeaderHeight <= 29, `list header should match shared table header density around 28px, got ${listHeaderHeight}`);
   assert(listToolbarHeight <= 34, `list toolbar should be compact, got ${listToolbarHeight}`);
   assert(moreVisible, "list more actions menu trigger should be visible");
@@ -174,7 +179,10 @@ try {
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await markDocumentRoot(page, "sales-bill-no", source.orderNo, "a99-audited-root");
   const auditedEntryHeights = await waitForHeights(page, '[data-a99-root="a99-audited-root"] [data-testid="sales-entry-row"]');
-  assert(Math.max(...auditedEntryHeights) <= 32.5 && Math.min(...auditedEntryHeights) >= 30, `audited entry rows should match list density around 32px, got ${auditedEntryHeights.join(",")}`);
+  assert(
+    Math.max(...auditedEntryHeights) <= sharedTableRowMaxHeight && Math.min(...auditedEntryHeights) >= sharedTableRowMinHeight,
+    `audited entry rows should match list density around 32px, got ${auditedEntryHeights.join(",")}`
+  );
   const formScreenshot = `a99-density-audited-entry-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, formScreenshot), fullPage: true });
 

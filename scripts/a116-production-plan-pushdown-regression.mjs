@@ -118,6 +118,13 @@ const plan = await requireJson("/api/production/plans", {
 assert(plan.billNo === number.billNo, "saved plan should keep pre-generated bill number");
 assert(plan.bomCode === bomCode, "plan should resolve current BOM from product code");
 assert(String(plan.departmentCode ?? "") === "SCB", "plan should inherit default workshop code");
+assert(plan.status === "DRAFT", "saved production plan should stay draft before audit");
+
+const draftPushDown = await request(`/api/production/plans/${encodeURIComponent(plan.billNo)}/push-down`, { method: "POST" });
+assert(draftPushDown.response.status === 400, "draft production plan must not be pushed down");
+
+const auditedPlan = await requireJson(`/api/production/plans/${encodeURIComponent(plan.billNo)}/audit`, { method: "POST" });
+assert(auditedPlan.status === "AUDITED", "production plan should become audited before pushdown");
 
 const pushDown = await requireJson(`/api/production/plans/${encodeURIComponent(plan.billNo)}/push-down`, { method: "POST" });
 assert(Array.isArray(pushDown.productionTasks) && pushDown.productionTasks.length === 1, "pushdown should create one production task");
@@ -132,6 +139,8 @@ assert(requisitionRow.supplierCode === "GYS-001", "purchase requisition should g
 
 const duplicate = await request(`/api/production/plans/${encodeURIComponent(plan.billNo)}/push-down`, { method: "POST" });
 assert(duplicate.response.status === 409, "duplicate pushdown should be blocked after all plan qty is assigned");
+const reverseAfterPushdown = await request(`/api/production/plans/${encodeURIComponent(plan.billNo)}/reverse`, { method: "POST" });
+assert(reverseAfterPushdown.response.status === 409, "pushed-down production plan must not be reversed");
 
 const result = {
   ok: true,
@@ -143,10 +152,14 @@ const result = {
   purchaseRequisitionNo: requisitionNo,
   checks: {
     preGeneratedPlanNo: /^SCJH\d{6}$/.test(number.billNo),
+    draftBeforeAudit: plan.status === "DRAFT",
+    draftPushdownBlocked: draftPushDown.response.status === 400,
+    auditedBeforePushdown: auditedPlan.status === "AUDITED",
     planUsesCurrentBom: plan.bomCode === bomCode,
     defaultWorkshop: plan.departmentCode === "SCB",
     purchaseQty: Number(requisitionRow.qty),
-    duplicatePushdownBlocked: duplicate.response.status === 409
+    duplicatePushdownBlocked: duplicate.response.status === 409,
+    reverseAfterPushdownBlocked: reverseAfterPushdown.response.status === 409
   }
 };
 

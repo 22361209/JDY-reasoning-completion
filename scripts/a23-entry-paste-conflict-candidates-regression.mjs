@@ -30,7 +30,7 @@ const productB = {
   status: "启用"
 };
 const pasteText = [
-  "商品名称\t规格型号\t仓库\t数量\t单价",
+  "物料名称\t规格型号\t仓库\t数量\t单价",
   `${conflictName}\t\t成品仓\t2\t31`,
   `${conflictName}\t细牙 / 右\tCK-001\t3\t37`
 ].join("\n");
@@ -60,10 +60,13 @@ async function requireApi(pathname, options = {}) {
 async function upsertProduct(product) {
   const created = await api("/api/master-data/product", { method: "POST", body: product });
   if (created.ok) {
+    await requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}/audit`, { method: "POST" });
     return created.data;
   }
   if (created.status === 409) {
-    return requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}`, { method: "PUT", body: product });
+    const updated = await requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}`, { method: "PUT", body: product });
+    await requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}/audit`, { method: "POST" });
+    return updated;
   }
   throw new Error(`create product ${product.code} failed ${created.status}: ${JSON.stringify(created.data)}`);
 }
@@ -90,7 +93,7 @@ async function dispatchPaste(page, testId, text) {
 
 async function readLines(page) {
   const rows = await page.getByTestId("sales-entry-row").count();
-  const productNameIndex = await entryColumnIndex(page, "商品名称");
+  const productNameIndex = await entryColumnIndex(page, "物料名称");
   const specIndex = await entryColumnIndex(page, "规格型号");
   const lines = [];
   for (let index = 0; index < rows; index += 1) {

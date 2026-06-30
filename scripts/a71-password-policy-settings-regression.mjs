@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -38,11 +39,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill(usernameValue);
-  await page.getByTestId("login-password").fill(passwordValue);
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
 }
 
 async function openSecuritySettings(page) {
@@ -136,7 +133,7 @@ try {
   assert(weakBackend.status === 400, `weak password should be rejected by backend, got ${weakBackend.status}: ${weakBackend.text}`);
   assert(weakBackend.text.includes("至少 10 位"), `weak password response should mention min length, got ${weakBackend.text}`);
 
-  await employeePage.getByTestId("session-password-change").click();
+  await openPasswordChange(employeePage);
   await employeePage.getByTestId("password-change-dialog").waitFor({ state: "visible" });
   await employeePage.getByTestId("password-current").fill(oldPassword);
   await employeePage.getByTestId("password-new").fill(weakPassword);

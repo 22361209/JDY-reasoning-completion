@@ -46,10 +46,13 @@ async function requireApi(pathname, options = {}) {
 async function upsertProduct() {
   const created = await api("/api/master-data/product", { method: "POST", body: product });
   if (created.ok) {
+    await requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}/audit`, { method: "POST" });
     return created.data;
   }
   if (created.status === 409) {
-    return requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}`, { method: "PUT", body: product });
+    const updated = await requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}`, { method: "PUT", body: product });
+    await requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}/audit`, { method: "POST" });
+    return updated;
   }
   throw new Error(`create product ${product.code} failed ${created.status}: ${JSON.stringify(created.data)}`);
 }

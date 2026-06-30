@@ -126,6 +126,14 @@ export function createProductionPlan(payload: ProductionPlanPayload) {
   return postJson("/api/production/plans", compactPayload(payload as unknown as Record<string, unknown>));
 }
 
+export function auditProductionPlan(billNo: string) {
+  return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function reverseProductionPlan(billNo: string) {
+  return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/reverse`, {});
+}
+
 export function nextProductionPlanNumber() {
   return postJson("/api/production/plans/next-number", {});
 }

@@ -134,6 +134,7 @@ try {
 
   const entryHeaders = await page.locator(".entry-table thead th:visible").evaluateAll((nodes) => nodes.slice(0, 4).map((node) => ({
     text: node.textContent?.trim() ?? "",
+    className: node instanceof HTMLElement ? node.className : "",
     sticky: getComputedStyle(node).position,
     left: getComputedStyle(node).left,
     testId: node.getAttribute("data-testid")

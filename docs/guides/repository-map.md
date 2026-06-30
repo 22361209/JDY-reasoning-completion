@@ -16,6 +16,7 @@
 改功能、逻辑、规则、机制或动作前，先扫已有复用点：
 
 - 规则口径：`docs/guides/business-rules.md`、`docs/guides/action-button-rules.md`
+- BLD 页面统一协议、动作按钮注册表、表格/表体硬约束：`docs/guides/bld-page-unification-protocol.md`
 - 单据/主数据字段与动作元数据路线：`docs/guides/bill-metadata-roadmap.md`
 - 多账套/初始化边界：`docs/guides/account-set-architecture.md`
 - A119 完整多账套迁移计划、A119-0 清单、A119-2 路由、A119-3 初始化：`docs/guides/a119-multi-account-migration-plan.md`、`docs/guides/a119-0-architecture-inventory.md`、`docs/guides/a119-2-tenant-context-routing.md`、`docs/guides/a119-3-account-set-initialization.md`
@@ -37,8 +38,17 @@
 
 - `frontend/src/components/table/TableCore.vue`：列表/分录共同的原生表格框架、列宽计算、横滚、列宽拖曳热区。
 - `frontend/src/components/table/TableCoreHeaderCell.vue`：列头文字、筛选按钮、批量填充按钮、列头拖拽入口的统一渲染。
+- `frontend/src/components/table/useColumnFilters.ts`：列表/分录/专用表体共用的列筛选状态与匹配逻辑；新增表体需要列筛选时先接这里，不在页面里另写一套。
 - `frontend/src/components/table/useColumnReorder.ts`：列表/分录共同的列顺序拖拽机制。普通业务列默认可拖；`locked` 或 `reorderable: false` 的系统列/关键列不可拖。以后新增业务列不要额外写拖拽逻辑，只有确实需要锁定时才声明不可拖。
 - 业务模块页不要直接使用 `TableCore`。单据页外壳以 `StandardDocument` 为准，分录表以 `EntryTable` 或同层专用分录组件为准；`TableCore` 只作为这些共享组件内部实现细节。
+
+单据与动作复用点：
+
+- `frontend/src/components/StandardDocument.vue`：单据页统一外壳，负责标题、状态章、动作条、消息区和单据内容插槽。新增正式单据不得自己拼标题栏和动作条。
+- `frontend/src/components/DocumentCommandHeader.vue`：非标准单据页或主数据页需要复用动作条视觉时使用；按钮可见/可用仍按 `docs/guides/action-button-rules.md`。
+- `frontend/src/components/EntryTable.vue`：销售、采购、库存、生产执行、委外执行等分录表的默认组件，承载行加减、列设置、筛选、批量填充、列宽、键盘流和库存列。
+- `frontend/src/components/SourceSelectorDialog.vue`：所有“选源单/选择来源单”弹窗的统一外壳，负责搜索、勾选、列设置、空态和确认；销售、采购、生产、委外不得再各自复制弹窗结构，只允许在模块内保留源单加载、过滤和回填规则。
+- BOM、生产计划这类不是普通出入库分录的专用表体，可以保留 `BomEntryTable` / `ProductionPlanEntryTable`，但必须接入 `TableCoreHeaderCell`、`ColumnSettingsDialog`、`ColumnFilterPopover`、`useColumnFilters` 等共享表格合同，不能出现另一套列头、筛选、列宽或行操作视觉。
 
 ## 目录地图
 
@@ -90,6 +100,7 @@
 | 列表 API | `docs/13-列表API契约.md` |
 | 业务规则 | `docs/guides/business-rules.md` |
 | 动作按钮规则 | `docs/guides/action-button-rules.md` |
+| BLD 页面统一协议 | `docs/guides/bld-page-unification-protocol.md` |
 | 单据/主数据元数据路线 | `docs/guides/bill-metadata-roadmap.md` |
 | 多账套与初始化 | `docs/guides/account-set-architecture.md` |
 | A119 多账套迁移计划 | `docs/guides/a119-multi-account-migration-plan.md` |

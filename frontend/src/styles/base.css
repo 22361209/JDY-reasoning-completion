@@ -3557,6 +3557,12 @@ td input {
   background: #ffffff;
 }
 
+.table-core-header-wrapper th.entry-frozen-cell,
+.table-core-body-wrapper td.entry-frozen-cell,
+.table-core-footer-wrapper td.entry-frozen-cell {
+  position: sticky;
+}
+
 thead .entry-frozen-cell {
   z-index: 5;
   background: #f3f6f9;

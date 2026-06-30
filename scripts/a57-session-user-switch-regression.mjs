@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -34,16 +35,11 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAs(page, username, password, expectedRole) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill(username);
-  await page.getByTestId("login-password").fill(password);
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, username, password, expectedRole);
 }
 
 async function logout(page) {
-  await page.getByTestId("session-logout").click();
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(page);
 }
 
 const browser = await chromium.launch({ headless: true });

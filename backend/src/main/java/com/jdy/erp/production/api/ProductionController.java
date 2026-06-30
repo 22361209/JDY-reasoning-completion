@@ -107,6 +107,18 @@ public class ProductionController {
         return taskAppService.createPlan(request);
     }
 
+    @PostMapping("/plans/{billNo}/audit")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> auditPlan(@PathVariable String billNo) {
+        return taskAppService.auditPlan(billNo);
+    }
+
+    @PostMapping("/plans/{billNo}/reverse")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> reversePlan(@PathVariable String billNo) {
+        return taskAppService.reversePlan(billNo);
+    }
+
     @PostMapping("/plans/next-number")
     @RequirePermission("production.task.audit")
     public Map<String, Object> nextPlanNumber() {

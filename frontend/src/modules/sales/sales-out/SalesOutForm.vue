@@ -110,80 +110,27 @@
   >
   </DocumentForm>
 
-  <div v-if="document.sourceSelectorOpen.value" class="modal-mask" data-testid="sales-out-source-selector-dialog">
-    <div class="dialog source-selector-dialog">
-      <h3>选择发货通知单</h3>
-      <p>{{ document.form.partyCode || '未限定客户' }} {{ document.form.partyName || '' }} 已审核且有剩余可出数量的发货通知明细。</p>
-      <div class="source-selector-toolbar">
-        <input
-          v-model="sourceSelectorKeyword"
-          data-testid="sales-out-source-selector-search"
-          placeholder="客户/商品/订单号"
-        />
-        <button type="button" data-testid="sales-out-source-selector-select-all" @click="selectAllVisibleSourceLines">全选</button>
-        <button type="button" data-testid="sales-out-source-selector-column-settings" @click="sourceColumnDialogOpen = true">列设置</button>
-        <strong data-testid="sales-out-source-selector-count">{{ selectedSourceLineCount }}</strong>
-      </div>
-      <div class="source-selector-table">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="column in visibleSourceColumns" :key="column.key" :style="{ width: `${column.width}px` }">{{ column.title }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="document.sourceSelectorLoading.value">
-              <td :colspan="visibleSourceColumns.length">加载中...</td>
-            </tr>
-            <tr v-else-if="filteredSourceSelectorLines.length === 0">
-              <td :colspan="visibleSourceColumns.length">暂无可选明细</td>
-            </tr>
-            <template v-else>
-              <tr v-for="line in filteredSourceSelectorLines" :key="document.sourceSelectorLineKey(line)">
-                <td v-if="isSourceColumnVisible('selection')">
-                  <input
-                    type="checkbox"
-                    :checked="Boolean(document.sourceSelectorSelected.value[document.sourceSelectorLineKey(line)])"
-                    :data-testid="`sales-out-source-line-${document.sourceSelectorLineKey(line)}`"
-                    @change="document.toggleSourceSelectorLine(line, ($event.target as HTMLInputElement).checked)"
-                  />
-                </td>
-                <td v-if="isSourceColumnVisible('billNo')">{{ line.billNo }}</td>
-                <td v-if="isSourceColumnVisible('lineNo')">#{{ line.lineNo }}</td>
-                <td v-if="isSourceColumnVisible('customer')">{{ line.customerCode }} {{ line.customer || '' }}</td>
-                <td v-if="isSourceColumnVisible('billDate')">{{ line.billDate }}</td>
-                <td v-if="isSourceColumnVisible('productCode')">{{ line.productCode }}</td>
-                <td v-if="isSourceColumnVisible('productName')">{{ line.productName || line.spec || '-' }}</td>
-                <td v-if="isSourceColumnVisible('unit')">{{ line.unit || '-' }}</td>
-                <td v-if="isSourceColumnVisible('netWeight')">{{ formatOptionalAmount(line.netWeight) }}</td>
-                <td v-if="isSourceColumnVisible('grossWeight')">{{ formatOptionalAmount(line.grossWeight) }}</td>
-                <td v-if="isSourceColumnVisible('warehouseCode')">{{ line.warehouseCode }}</td>
-                <td v-if="isSourceColumnVisible('sourceQty')">{{ document.formatQty(line.sourceQty) }}</td>
-                <td v-if="isSourceColumnVisible('shippedQty')">{{ document.formatQty(line.shippedQty) }}</td>
-                <td v-if="isSourceColumnVisible('remainingQty')">{{ document.formatQty(line.remainingQty) }}</td>
-                <td v-if="isSourceColumnVisible('unitPrice')">{{ document.formatAmount(line.unitPrice) }}</td>
-                <td v-if="isSourceColumnVisible('planDeliveryDate')">{{ line.planDeliveryDate || '-' }}</td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="document.sourceSelectorMessage.value" class="form-error" data-testid="sales-out-source-selector-message">{{ document.sourceSelectorMessage.value }}</p>
-      <div class="dialog-actions">
-        <button type="button" data-testid="sales-out-source-selector-cancel" @click="document.closeCustomerSourceSelector">取消</button>
-        <button class="primary-action" type="button" data-testid="sales-out-source-selector-ok" @click="document.confirmCustomerSourceSelector">确定</button>
-      </div>
-    </div>
-  </div>
-
-  <ColumnSettingsDialog
-    :open="sourceColumnDialogOpen"
-    title="列设置"
+  <SourceSelectorDialog
+    :open="document.sourceSelectorOpen.value"
+    test-prefix="sales-out"
+    title="选择发货通知单"
+    :description="`${document.form.partyCode || '未限定客户'} ${document.form.partyName || ''} 已审核且有剩余可出数量的发货通知明细。`"
+    v-model:keyword="sourceSelectorKeyword"
+    search-placeholder="客户/商品/订单号"
+    :loading="document.sourceSelectorLoading.value"
+    :rows="filteredSourceSelectorLines"
     :columns="sourceSelectorColumns"
-    dialog-test-id="sales-out-source-selector-column-settings-dialog"
-    ok-test-id="sales-out-source-selector-column-settings-ok"
-    @reset="resetSourceColumns"
-    @confirm="sourceColumnDialogOpen = false"
+    :selected="document.sourceSelectorSelected.value"
+    :count-label="selectedSourceLineCount"
+    :message="document.sourceSelectorMessage.value"
+    :row-key="sourceSelectorRowKey"
+    :format-cell="formatSourceSelectorCell"
+    :show-column-settings="true"
+    @select-all="selectAllVisibleSourceLines"
+    @toggle="toggleSourceSelectorRow"
+    @close="document.closeCustomerSourceSelector"
+    @confirm="document.confirmCustomerSourceSelector"
+    @reset-columns="resetSourceColumns"
   />
 
   <DocumentDialogs
@@ -240,7 +187,7 @@
 <script setup lang="ts">
 import DocumentForm from "../../../components/DocumentForm.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
-import ColumnSettingsDialog from "../../../components/table/ColumnSettingsDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { SelectableDeliveryNoticeLine } from "../../../services/salesOrderApi";
@@ -277,8 +224,7 @@ const document = useSalesOutDocument({
 
 const selectedSourceLineCount = computed(() => `${Object.values(document.sourceSelectorSelected.value).filter(Boolean).length} 行已选`);
 const sourceSelectorKeyword = ref("");
-const sourceColumnDialogOpen = ref(false);
-const sourceSelectorColumns = ref([
+const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "发货通知单", width: 150, visible: true },
   { key: "lineNo", title: "行号", width: 70, visible: true },
@@ -296,7 +242,6 @@ const sourceSelectorColumns = ref([
   { key: "unitPrice", title: "单价", width: 112, visible: true },
   { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
 ]);
-const visibleSourceColumns = computed(() => sourceSelectorColumns.value.filter((column) => column.visible));
 const filteredSourceSelectorLines = computed(() => {
   const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
   if (!keyword) {
@@ -317,12 +262,38 @@ function sourceLineSearchText(line: SelectableDeliveryNoticeLine) {
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
-function formatOptionalAmount(value: unknown) {
-  return value === null || value === undefined || value === "" ? "-" : document.formatAmount(value as number | string | undefined);
+function sourceSelectorRowKey(row: unknown) {
+  return document.sourceSelectorLineKey(row as SelectableDeliveryNoticeLine);
 }
 
-function isSourceColumnVisible(key: string) {
-  return sourceSelectorColumns.value.some((column) => column.key === key && column.visible);
+function toggleSourceSelectorRow(row: unknown, checked: boolean) {
+  document.toggleSourceSelectorLine(row as SelectableDeliveryNoticeLine, checked);
+}
+
+function formatSourceSelectorCell(row: unknown, columnKey: string) {
+  const line = row as SelectableDeliveryNoticeLine;
+  const values: Record<string, string | number> = {
+    billNo: String(line.billNo ?? ""),
+    lineNo: `#${line.lineNo ?? ""}`,
+    customer: `${line.customerCode ?? ""} ${line.customer || ""}`.trim(),
+    billDate: String(line.billDate ?? ""),
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName || line.spec || "-"),
+    unit: String(line.unit || "-"),
+    netWeight: formatOptionalAmount(line.netWeight),
+    grossWeight: formatOptionalAmount(line.grossWeight),
+    warehouseCode: String(line.warehouseCode ?? ""),
+    sourceQty: document.formatQty(line.sourceQty),
+    shippedQty: document.formatQty(line.shippedQty),
+    remainingQty: document.formatQty(line.remainingQty),
+    unitPrice: document.formatAmount(line.unitPrice),
+    planDeliveryDate: String(line.planDeliveryDate || "-")
+  };
+  return values[columnKey] ?? "";
+}
+
+function formatOptionalAmount(value: unknown) {
+  return value === null || value === undefined || value === "" ? "-" : document.formatAmount(value as number | string | undefined);
 }
 
 function selectAllVisibleSourceLines() {

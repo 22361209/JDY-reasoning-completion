@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -32,11 +33,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill(usernameValue);
-  await page.getByTestId("login-password").fill(passwordValue);
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -58,8 +55,7 @@ try {
     }
   });
   assert(createUser.status === 200, `admin should create A62 user, got ${createUser.status}: ${createUser.text}`);
-  await page.getByTestId("session-logout").click();
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
 
   await page.getByTestId("login-username").fill(username);
@@ -85,11 +81,11 @@ try {
   unlockedScreenshot = `a62-user-unlocked-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, unlockedScreenshot), fullPage: true });
 
-  await page.getByTestId("session-logout").click();
+  await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
   await loginAs(page, username, password, "仓库员");
 
-  await page.getByTestId("session-logout").click();
+  await sharedLogout(page);
   await loginAs(page, "admin", "admin123", "系统管理员");
   const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent(username)}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);

@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -40,11 +41,29 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAsAdmin(page) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
+}
+
+async function openUserRolePanel(page) {
+  if (await page.getByTestId("notification-status-filter").isVisible({ timeout: 800 }).catch(() => false)) {
+    return;
+  }
+  if (await page.getByTestId("password-reset-admin-panel").isVisible({ timeout: 800 }).catch(() => false)) {
+    return;
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.getByTestId("module-系统设置").hover();
+    const entry = page.getByTestId("entry-user-role-list");
+    await entry.waitFor({ state: "visible", timeout: 5000 });
+    await entry.click();
+    if (await page.getByTestId("password-reset-admin-panel").isVisible({ timeout: 5000 }).catch(() => false)) {
+      return;
+    }
+    if (await page.getByTestId("notification-status-filter").isVisible({ timeout: 1000 }).catch(() => false)) {
+      return;
+    }
+  }
+  throw new Error("password reset admin panel did not open");
 }
 
 async function markNoticeFailedAndDue(notificationId) {
@@ -65,6 +84,11 @@ async function waitForAutoRetry(page, notificationId) {
   let lastNotice = null;
   while (Date.now() < deadline) {
     const response = await browserFetch(page, "/api/system/notification-outbox");
+    if (response.status === 401) {
+      await loginAsAdmin(page);
+      await page.waitForTimeout(500);
+      continue;
+    }
     assert(response.status === 200, `notification list should load, got ${response.status}: ${response.text}`);
     const payload = JSON.parse(response.text);
     lastNotice = (payload.notificationOutbox ?? []).find((item) => item.id === notificationId) ?? null;
@@ -95,8 +119,7 @@ try {
   });
   assert(createUser.status === 200, `admin should create A75 user, got ${createUser.status}: ${createUser.text}`);
 
-  await page.getByTestId("session-logout").click();
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("login-username").fill(username);
   await page.getByTestId("forgot-password-open").click();
@@ -107,9 +130,7 @@ try {
   await page.getByTestId("password-reset-cancel").click();
 
   await loginAsAdmin(page);
-  await page.getByTestId("module-系统设置").hover();
-  await page.getByTestId("entry-user-role-list").click();
-  await page.getByTestId("password-reset-admin-panel").waitFor({ state: "visible" });
+  await openUserRolePanel(page);
   await page.getByTestId(`password-reset-request-${username}`).click();
   await page.getByTestId("managed-user-password").fill(newPassword);
   await page.getByTestId("managed-user-reset-password").click();
@@ -124,6 +145,8 @@ try {
   await markNoticeFailedAndDue(notice.id);
   const autoRetriedNotice = await waitForAutoRetry(page, notice.id);
 
+  await loginAsAdmin(page);
+  await openUserRolePanel(page);
   await page.getByTestId("notification-status-filter").selectOption("SENT");
   await page.getByTestId(`password-reset-notice-${username}-PASSWORD_RESET_DONE`).waitFor({ state: "visible" });
   autoRetryScreenshot = `a75-notification-auto-retry-${batch}.png`;

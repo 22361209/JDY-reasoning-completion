@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -38,11 +39,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill(usernameValue);
-  await page.getByTestId("login-password").fill(passwordValue);
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
 }
 
 async function createUser(page, username, displayName) {
@@ -79,8 +76,7 @@ try {
   await createUser(page, resetUsername, "A73 通知重置员工");
   await createUser(page, rejectUsername, "A73 通知驳回员工");
 
-  await page.getByTestId("session-logout").click();
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
 
   await submitResetRequest(page, resetUsername, "A73 重置通知核验 13800000001");

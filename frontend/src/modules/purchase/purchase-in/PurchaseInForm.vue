@@ -99,92 +99,36 @@
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
   />
-  <div v-if="sourceSelectorOpen" class="modal-mask" data-testid="purchase-in-source-selector-dialog">
-    <div class="dialog source-selector-dialog">
-      <h3>选择采购订单</h3>
-      <p>{{ document.form.partyCode || '未限定供应商' }} {{ document.form.partyName || '' }} 已审核且有剩余可入数量的采购订单明细。</p>
-      <div class="source-selector-toolbar">
-        <input
-          v-model="sourceSelectorKeyword"
-          data-testid="purchase-in-source-selector-search"
-          placeholder="供应商/商品/订单号"
-        />
-        <button type="button" data-testid="purchase-in-source-selector-select-all" @click="selectAllVisibleSourceLines">全选</button>
-        <button type="button" data-testid="purchase-in-source-selector-column-settings" @click="sourceColumnDialogOpen = true">列设置</button>
-        <strong data-testid="purchase-in-source-selector-count">{{ selectedSourceLineCount }}</strong>
-      </div>
-      <div class="source-selector-table">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="column in visibleSourceColumns" :key="column.key" :style="{ width: `${column.width}px` }">{{ column.title }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="sourceSelectorLoading">
-              <td :colspan="visibleSourceColumns.length">加载中...</td>
-            </tr>
-            <tr v-else-if="filteredSourceSelectorLines.length === 0">
-              <td :colspan="visibleSourceColumns.length">暂无可选明细</td>
-            </tr>
-            <template v-else>
-              <tr v-for="line in filteredSourceSelectorLines" :key="sourceSelectorLineKey(line)">
-                <td v-if="isSourceColumnVisible('selection')">
-                  <input
-                    type="checkbox"
-                    :checked="Boolean(sourceSelectorSelected[sourceSelectorLineKey(line)])"
-                    :data-testid="`purchase-in-source-line-${sourceSelectorLineKey(line)}`"
-                    @change="toggleSourceSelectorLine(line, ($event.target as HTMLInputElement).checked)"
-                  />
-                </td>
-                <td v-if="isSourceColumnVisible('billNo')">{{ line.billNo }}</td>
-                <td v-if="isSourceColumnVisible('lineNo')">#{{ line.lineNo }}</td>
-                <td v-if="isSourceColumnVisible('supplier')">{{ line.supplierCode }} {{ line.supplier || '' }}</td>
-                <td v-if="isSourceColumnVisible('billDate')">{{ line.billDate }}</td>
-                <td v-if="isSourceColumnVisible('planDeliveryDate')">{{ line.planDeliveryDate || '-' }}</td>
-                <td v-if="isSourceColumnVisible('productCode')">{{ line.productCode }}</td>
-                <td v-if="isSourceColumnVisible('supplierMaterialCode')">{{ line.supplierMaterialCode || '-' }}</td>
-                <td v-if="isSourceColumnVisible('productName')">{{ line.productName || line.spec || '-' }}</td>
-                <td v-if="isSourceColumnVisible('unit')">{{ line.unit || '-' }}</td>
-                <td v-if="isSourceColumnVisible('netWeight')">{{ formatOptionalAmount(line.netWeight) }}</td>
-                <td v-if="isSourceColumnVisible('grossWeight')">{{ formatOptionalAmount(line.grossWeight) }}</td>
-                <td v-if="isSourceColumnVisible('warehouseCode')">{{ line.warehouseCode }}</td>
-                <td v-if="isSourceColumnVisible('sourceQty')">{{ formatQty(line.sourceQty) }}</td>
-                <td v-if="isSourceColumnVisible('receivedQty')">{{ formatQty(line.receivedQty) }}</td>
-                <td v-if="isSourceColumnVisible('remainingQty')">{{ formatQty(line.remainingQty) }}</td>
-                <td v-if="isSourceColumnVisible('unitPrice')">{{ formatAmount(line.unitPrice) }}</td>
-                <td v-if="isSourceColumnVisible('priceTaxTotal')">{{ formatAmount(line.priceTaxTotal) }}</td>
-                <td v-if="isSourceColumnVisible('lineRemark')">{{ line.lineRemark || '' }}</td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="sourceSelectorMessage" class="form-error" data-testid="purchase-in-source-selector-message">{{ sourceSelectorMessage }}</p>
-      <div class="dialog-actions">
-        <button type="button" data-testid="purchase-in-source-selector-cancel" @click="closeSourceSelector">取消</button>
-        <button class="primary-action" type="button" data-testid="purchase-in-source-selector-ok" @click="confirmSourceSelector">确定</button>
-      </div>
-    </div>
-  </div>
-
-  <ColumnSettingsDialog
-    :open="sourceColumnDialogOpen"
-    title="列设置"
+  <SourceSelectorDialog
+    :open="sourceSelectorOpen"
+    test-prefix="purchase-in"
+    title="选择采购订单"
+    :description="`${document.form.partyCode || '未限定供应商'} ${document.form.partyName || ''} 已审核且有剩余可入数量的采购订单明细。`"
+    v-model:keyword="sourceSelectorKeyword"
+    search-placeholder="供应商/商品/订单号"
+    :loading="sourceSelectorLoading"
+    :rows="filteredSourceSelectorLines"
     :columns="sourceSelectorColumns"
-    dialog-test-id="purchase-in-source-selector-column-settings-dialog"
-    ok-test-id="purchase-in-source-selector-column-settings-ok"
-    @reset="resetSourceColumns"
-    @confirm="sourceColumnDialogOpen = false"
+    :selected="sourceSelectorSelected"
+    :count-label="selectedSourceLineCount"
+    :message="sourceSelectorMessage"
+    :row-key="sourceSelectorRowKey"
+    :format-cell="formatSourceSelectorCell"
+    :show-column-settings="true"
+    @select-all="selectAllVisibleSourceLines"
+    @toggle="toggleSourceSelectorRow"
+    @close="closeSourceSelector"
+    @confirm="confirmSourceSelector"
+    @reset-columns="resetSourceColumns"
   />
   <DocumentDialogs v-bind="dialogBindings" v-on="dialogHandlers" />
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import ColumnSettingsDialog from "../../../components/table/ColumnSettingsDialog.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
 import { fetchSelectablePurchaseOrderLines, type SelectablePurchaseOrderLine } from "../../../services/purchaseOrderApi";
@@ -222,10 +166,9 @@ const sourceSelectorOpen = ref(false);
 const sourceSelectorLoading = ref(false);
 const sourceSelectorMessage = ref("");
 const sourceSelectorKeyword = ref("");
-const sourceColumnDialogOpen = ref(false);
 const sourceSelectorLines = ref<SelectablePurchaseOrderLine[]>([]);
 const sourceSelectorSelected = reactive<Record<string, boolean>>({});
-const sourceSelectorColumns = ref([
+const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "采购订单", width: 150, visible: true },
   { key: "lineNo", title: "行号", width: 70, visible: true },
@@ -246,7 +189,6 @@ const sourceSelectorColumns = ref([
   { key: "priceTaxTotal", title: "含税金额", width: 110, visible: true },
   { key: "lineRemark", title: "行备注", width: 160, visible: false }
 ]);
-const visibleSourceColumns = computed(() => sourceSelectorColumns.value.filter((column) => column.visible));
 const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
 const filteredSourceSelectorLines = computed(() => {
   const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
@@ -346,6 +288,10 @@ function toggleSourceSelectorLine(line: SelectablePurchaseOrderLine, checked: bo
   sourceSelectorSelected[sourceSelectorLineKey(line)] = checked;
 }
 
+function toggleSourceSelectorRow(row: unknown, checked: boolean) {
+  toggleSourceSelectorLine(row as SelectablePurchaseOrderLine, checked);
+}
+
 function selectAllVisibleSourceLines() {
   filteredSourceSelectorLines.value.forEach((line) => {
     sourceSelectorSelected[sourceSelectorLineKey(line)] = true;
@@ -405,6 +351,35 @@ function sourceSelectorLineKey(line: SelectablePurchaseOrderLine) {
   return `${line.billNo}:${line.lineNo}`;
 }
 
+function sourceSelectorRowKey(row: unknown) {
+  return sourceSelectorLineKey(row as SelectablePurchaseOrderLine);
+}
+
+function formatSourceSelectorCell(row: unknown, columnKey: string) {
+  const line = row as SelectablePurchaseOrderLine;
+  const values: Record<string, string | number> = {
+    billNo: String(line.billNo ?? ""),
+    lineNo: `#${line.lineNo ?? ""}`,
+    supplier: `${line.supplierCode ?? ""} ${line.supplier || ""}`.trim(),
+    billDate: String(line.billDate ?? ""),
+    planDeliveryDate: String(line.planDeliveryDate || "-"),
+    productCode: String(line.productCode ?? ""),
+    supplierMaterialCode: String(line.supplierMaterialCode || "-"),
+    productName: String(line.productName || line.spec || "-"),
+    unit: String(line.unit || "-"),
+    netWeight: formatOptionalAmount(line.netWeight),
+    grossWeight: formatOptionalAmount(line.grossWeight),
+    warehouseCode: String(line.warehouseCode ?? ""),
+    sourceQty: formatQty(line.sourceQty),
+    receivedQty: formatQty(line.receivedQty),
+    remainingQty: formatQty(line.remainingQty),
+    unitPrice: formatAmount(line.unitPrice),
+    priceTaxTotal: formatAmount(line.priceTaxTotal),
+    lineRemark: String(line.lineRemark || "")
+  };
+  return values[columnKey] ?? "";
+}
+
 function sourceLineSearchText(line: SelectablePurchaseOrderLine) {
   return [
     line.supplierCode,
@@ -420,10 +395,6 @@ function sourceLineSearchText(line: SelectablePurchaseOrderLine) {
 
 function formatOptionalAmount(value: unknown) {
   return value === null || value === undefined || value === "" ? "-" : formatAmount(value as number | string | undefined);
-}
-
-function isSourceColumnVisible(key: string) {
-  return sourceSelectorColumns.value.some((column) => column.key === key && column.visible);
 }
 
 function resetSourceColumns() {

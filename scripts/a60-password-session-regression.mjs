@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -36,11 +37,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill(usernameValue);
-  await page.getByTestId("login-password").fill(passwordValue);
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -68,11 +65,10 @@ try {
   });
   assert(weakReset.status === 400, `weak reset should be rejected with 400, got ${weakReset.status}`);
 
-  await page.getByTestId("session-logout").click();
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
   await loginAs(page, username, oldPassword, "仓库员");
-  await page.getByTestId("session-password-change").click();
+  await openPasswordChange(page);
   await page.getByTestId("password-change-dialog").waitFor({ state: "visible" });
   await page.getByTestId("password-current").fill(oldPassword);
   await page.getByTestId("password-new").fill("weak");

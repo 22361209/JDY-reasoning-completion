@@ -115,79 +115,26 @@
     @add-line="document.addLine"
     @refresh-stock="document.refreshStock"
   />
-  <div v-if="sourceSelectorOpen" class="modal-mask" data-testid="sales-order-source-selector-dialog">
-    <div class="dialog source-selector-dialog">
-      <h3>选择销售报价单</h3>
-      <p>{{ document.form.partyCode || '未限定客户' }} {{ document.form.partyName || '' }} 已审核、有效且未过期的销售报价明细。</p>
-      <div class="source-selector-toolbar">
-        <input
-          v-model="sourceSelectorKeyword"
-          data-testid="sales-order-source-selector-search"
-          placeholder="客户/商品/报价单号"
-        />
-        <button type="button" data-testid="sales-order-source-selector-select-all" @click="selectAllVisibleSourceLines">全选</button>
-        <strong data-testid="sales-order-source-selector-count">{{ selectedSourceLineCount }}</strong>
-      </div>
-      <div class="source-selector-table">
-        <table>
-          <thead>
-            <tr>
-              <th>选</th>
-              <th>报价单</th>
-              <th>行号</th>
-              <th>客户</th>
-              <th>日期</th>
-              <th>有效期</th>
-              <th>物料编码</th>
-              <th>物料名称</th>
-              <th>单位</th>
-              <th>净重</th>
-              <th>毛重</th>
-              <th>报价数量</th>
-              <th>单价</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="sourceSelectorLoading">
-              <td colspan="13">加载中...</td>
-            </tr>
-            <tr v-else-if="filteredSourceSelectorLines.length === 0">
-              <td colspan="13">暂无可选明细</td>
-            </tr>
-            <template v-else>
-              <tr v-for="line in filteredSourceSelectorLines" :key="sourceSelectorLineKey(line)">
-                <td>
-                  <input
-                    type="checkbox"
-                    :checked="Boolean(sourceSelectorSelected[sourceSelectorLineKey(line)])"
-                    :data-testid="`sales-order-source-line-${sourceSelectorLineKey(line)}`"
-                    @change="toggleSourceSelectorLine(line, ($event.target as HTMLInputElement).checked)"
-                  />
-                </td>
-                <td>{{ line.billNo }}</td>
-                <td>#{{ line.lineNo }}</td>
-                <td>{{ line.customerCode }} {{ line.customer || '' }}</td>
-                <td>{{ line.billDate }}</td>
-                <td>{{ line.validUntil || '-' }}</td>
-                <td>{{ line.productCode }}</td>
-                <td>{{ line.productName || line.spec || '-' }}</td>
-                <td>{{ line.unit || '-' }}</td>
-                <td>{{ formatOptionalAmount(line.netWeight) }}</td>
-                <td>{{ formatOptionalAmount(line.grossWeight) }}</td>
-                <td>{{ document.formatQty(line.sourceQty ?? 0) }}</td>
-                <td>{{ document.formatAmount(line.unitPrice) }}</td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="sourceSelectorMessage" class="form-error" data-testid="sales-order-source-selector-message">{{ sourceSelectorMessage }}</p>
-      <div class="dialog-actions">
-        <button type="button" data-testid="sales-order-source-selector-cancel" @click="closeSourceSelector">取消</button>
-        <button class="primary-action" type="button" data-testid="sales-order-source-selector-ok" @click="confirmSourceSelector">确定</button>
-      </div>
-    </div>
-  </div>
+  <SourceSelectorDialog
+    :open="sourceSelectorOpen"
+    test-prefix="sales-order"
+    title="选择销售报价单"
+    :description="`${document.form.partyCode || '未限定客户'} ${document.form.partyName || ''} 已审核、有效且未过期的销售报价明细。`"
+    v-model:keyword="sourceSelectorKeyword"
+    search-placeholder="客户/商品/报价单号"
+    :loading="sourceSelectorLoading"
+    :rows="filteredSourceSelectorLines"
+    :columns="sourceSelectorColumns"
+    :selected="sourceSelectorSelected"
+    :count-label="selectedSourceLineCount"
+    :message="sourceSelectorMessage"
+    :row-key="sourceSelectorRowKey"
+    :format-cell="formatSourceSelectorCell"
+    @select-all="selectAllVisibleSourceLines"
+    @toggle="toggleSourceSelectorRow"
+    @close="closeSourceSelector"
+    @confirm="confirmSourceSelector"
+  />
   <DocumentDialogs v-bind="dialogBindings" v-on="dialogHandlers" />
 </template>
 
@@ -195,6 +142,7 @@
 import { computed, reactive, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { OrderLineForm } from "../../../app/documentModel";
 import { getBillDefinition, pushDownAction, sourceSelectAction } from "../../metadata/registry";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
@@ -253,6 +201,21 @@ const sourceSelectorMessage = ref("");
 const sourceSelectorKeyword = ref("");
 const sourceSelectorLines = ref<SelectableSalesQuoteLine[]>([]);
 const sourceSelectorSelected = reactive<Record<string, boolean>>({});
+const sourceSelectorColumns: SourceSelectorColumn[] = [
+  { key: "selection", title: "选", width: 42, visible: true, configurable: false },
+  { key: "billNo", title: "报价单", width: 150, visible: true },
+  { key: "lineNo", title: "行号", width: 70, visible: true },
+  { key: "customer", title: "客户", width: 180, visible: true },
+  { key: "billDate", title: "日期", width: 120, visible: true },
+  { key: "validUntil", title: "有效期", width: 120, visible: true },
+  { key: "productCode", title: "物料编码", width: 130, visible: true },
+  { key: "productName", title: "物料名称", width: 180, visible: true },
+  { key: "unit", title: "单位", width: 80, visible: true },
+  { key: "netWeight", title: "净重", width: 90, visible: true, align: "right" },
+  { key: "grossWeight", title: "毛重", width: 90, visible: true, align: "right" },
+  { key: "sourceQty", title: "报价数量", width: 100, visible: true, align: "right" },
+  { key: "unitPrice", title: "单价", width: 100, visible: true, align: "right" }
+];
 const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
 const filteredSourceSelectorLines = computed(() => {
   const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
@@ -350,6 +313,10 @@ function toggleSourceSelectorLine(line: SelectableSalesQuoteLine, checked: boole
   sourceSelectorSelected[sourceSelectorLineKey(line)] = checked;
 }
 
+function toggleSourceSelectorRow(row: unknown, checked: boolean) {
+  toggleSourceSelectorLine(row as SelectableSalesQuoteLine, checked);
+}
+
 function selectAllVisibleSourceLines() {
   filteredSourceSelectorLines.value.forEach((line) => {
     sourceSelectorSelected[sourceSelectorLineKey(line)] = true;
@@ -409,6 +376,29 @@ function selectableLineToFormLine(line: SelectableSalesQuoteLine): OrderLineForm
 
 function sourceSelectorLineKey(line: SelectableSalesQuoteLine) {
   return `${line.billNo}:${line.lineNo}`;
+}
+
+function sourceSelectorRowKey(row: unknown) {
+  return sourceSelectorLineKey(row as SelectableSalesQuoteLine);
+}
+
+function formatSourceSelectorCell(row: unknown, columnKey: string) {
+  const line = row as SelectableSalesQuoteLine;
+  const values: Record<string, string | number> = {
+    billNo: String(line.billNo ?? ""),
+    lineNo: `#${line.lineNo ?? ""}`,
+    customer: `${line.customerCode ?? ""} ${line.customer || ""}`.trim(),
+    billDate: String(line.billDate ?? ""),
+    validUntil: String(line.validUntil || "-"),
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName || line.spec || "-"),
+    unit: String(line.unit || "-"),
+    netWeight: formatOptionalAmount(line.netWeight),
+    grossWeight: formatOptionalAmount(line.grossWeight),
+    sourceQty: document.formatQty(line.sourceQty ?? 0),
+    unitPrice: document.formatAmount(line.unitPrice)
+  };
+  return values[columnKey] ?? "";
 }
 
 function sourceLineSearchText(line: SelectableSalesQuoteLine) {

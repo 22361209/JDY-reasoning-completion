@@ -90,15 +90,22 @@ try {
   const focusAfterPriceEnter = await activeTestId(page);
   assertEqual("focus after price enter", focusAfterPriceEnter, "sales-line-tax-rate-2");
   await page.keyboard.press("Enter");
-  await page.getByTestId("sales-line-product-3").waitFor({ state: "visible" });
   const focusAfterTaxRateEnter = await activeTestId(page);
+  assertEqual("focus after tax rate enter", focusAfterTaxRateEnter, "sales-line-plan-delivery-date-2");
+  await page.keyboard.press("Enter");
+  const focusAfterPlanDateEnter = await activeTestId(page);
+  assertEqual("focus after plan delivery date enter", focusAfterPlanDateEnter, "sales-line-remark-2");
+  await page.getByTestId("sales-line-remark-2").fill("A28 行备注");
+  await page.keyboard.press("Enter");
+  await page.getByTestId("sales-line-product-3").waitFor({ state: "visible" });
+  const focusAfterRemarkEnter = await activeTestId(page);
   const newLineAfterEnter = {
     productCode: await page.getByTestId("sales-line-product-3").inputValue(),
     warehouseCode: await page.getByTestId("sales-line-warehouse-3").inputValue(),
     qty: await page.getByTestId("sales-line-qty-3").inputValue(),
     unitPrice: await page.getByTestId("sales-line-price-3").inputValue()
   };
-  assertEqual("focus after tax rate enter", focusAfterTaxRateEnter, "sales-line-product-3");
+  assertEqual("focus after remark enter", focusAfterRemarkEnter, "sales-line-product-3");
   assertDeepEqual("new line blank after enter", newLineAfterEnter, { productCode: "", warehouseCode: "", qty: "0", unitPrice: "0" });
 
   await page.getByTestId("sales-line-product-3").fill("CP-T413874");
@@ -140,6 +147,9 @@ try {
     billNo,
     newLineAfterAddButton,
     focusAfterPriceEnter,
+    focusAfterTaxRateEnter,
+    focusAfterPlanDateEnter,
+    focusAfterRemarkEnter,
     newLineAfterEnter,
     amounts,
     total,

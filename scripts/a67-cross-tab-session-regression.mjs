@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -33,11 +34,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAs(page, username, password, expectedRole) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill(username);
-  await page.getByTestId("login-password").fill(password);
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible" });
+  await sharedLoginAs(page, username, password, expectedRole);
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -60,8 +57,7 @@ try {
   beforeScreenshot = `a67-cross-tab-before-logout-${batch}.png`;
   await pageB.screenshot({ path: path.join(screenshotDir, beforeScreenshot), fullPage: true });
 
-  await pageA.getByTestId("session-logout").click();
-  await pageA.getByTestId("login-page").waitFor({ state: "visible" });
+  await sharedLogout(pageA);
   await pageB.getByTestId("login-page").waitFor({ state: "visible" });
   await pageB.getByTestId("login-message").filter({ hasText: "已退出登录" }).waitFor({ state: "visible" });
 

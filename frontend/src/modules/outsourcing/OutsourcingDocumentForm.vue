@@ -153,30 +153,27 @@
         </table>
       </section>
 
-      <div v-if="sourcePickerOpen" class="modal-mask" :data-testid="`${testPrefix}-source-dialog`">
-        <div class="dialog outsourcing-source-dialog">
-          <h3>选择源单</h3>
-          <p>仅显示已审核且有剩余可下推数量的单据。</p>
-          <div class="source-option-list">
-            <button
-              v-for="source in sourceOptions"
-              :key="source.billNo"
-              type="button"
-              :data-testid="`${testPrefix}-source-option-${source.billNo}`"
-              @click="selectSource(source)"
-            >
-              <span>{{ source.billNo }}</span>
-              <span>{{ source.supplierName }}</span>
-              <span>{{ source.productCode }} {{ source.productName }}</span>
-              <strong>剩余 {{ source.remainingQty }} {{ source.unit }}</strong>
-            </button>
-            <div v-if="!sourceOptions.length" class="source-empty">暂无可选源单</div>
-          </div>
-          <div class="dialog-actions">
-            <button type="button" @click="sourcePickerOpen = false">关闭</button>
-          </div>
-        </div>
-      </div>
+      <SourceSelectorDialog
+        :open="sourcePickerOpen"
+        :test-prefix="testPrefix"
+        title="选择源单"
+        description="仅显示已审核且有剩余可下推数量的单据。"
+        v-model:keyword="sourceSelectorKeyword"
+        search-placeholder="搜索单据编号、供应商、物料"
+        :loading="false"
+        :rows="filteredSourceOptions"
+        :columns="sourceSelectorColumns"
+        :selected="selectedSourceMap"
+        :count-label="selectedSourceCountLabel"
+        :message="sourceSelectorMessage"
+        :row-key="sourceSelectorRowKey"
+        :format-cell="formatSourceSelectorCell"
+        :show-select-all="false"
+        empty-text="暂无可选源单"
+        @toggle="toggleSourceSelectorRow"
+        @close="closeSourcePicker"
+        @confirm="confirmSourcePicker"
+      />
     </div>
   </StandardDocument>
 </template>
@@ -185,6 +182,7 @@
 import { computed, reactive, ref } from "vue";
 import type { EntryLine, MasterOption } from "../../components/EntryTable.vue";
 import EntryTable from "../../components/EntryTable.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../components/SourceSelectorDialog.vue";
 import StandardDocument from "../../components/StandardDocument.vue";
 import { fetchListRows } from "../../services/listApi";
 import {
@@ -267,6 +265,9 @@ const knownProductOptions = ref<MasterOption[]>([]);
 const componentLines = reactive<ComponentDemandLine[]>([]);
 const sourcePickerOpen = ref(false);
 const sourceOptions = ref<SourceOption[]>([]);
+const sourceSelectorKeyword = ref("");
+const selectedSourceMap = reactive<Record<string, boolean>>({});
+const sourceSelectorMessage = ref("");
 
 const testPrefix = computed(() => `outsourcing-${props.kind}`);
 const canSave = computed(() => statusLabel.value === "草稿" && (props.kind === "workOrder" || (!form.billNo && Boolean(form.sourceBillNo.trim()))));
@@ -280,6 +281,30 @@ const sourceLabel = computed(() => props.kind === "return" || props.kind === "sc
 const sourcePlaceholder = computed(() => props.kind === "return" || props.kind === "scrap" ? "如 WWRK000001" : "如 WWJG000001");
 const entryTableColspan = computed(() => props.kind === "workOrder" ? 8 : 9);
 const entryTotalColspan = computed(() => props.kind === "workOrder" ? 7 : 8);
+const sourceSelectorColumns: SourceSelectorColumn[] = [
+  { key: "selection", title: "", width: 48, visible: true, align: "center", configurable: false },
+  { key: "billNo", title: "源单编号", width: 150, visible: true },
+  { key: "supplierName", title: "供应商", width: 150, visible: true },
+  { key: "productCode", title: "物料编码", width: 140, visible: true },
+  { key: "productName", title: "物料名称", width: 160, visible: true },
+  { key: "remainingQty", title: "剩余数量", width: 100, visible: true, align: "right" },
+  { key: "unit", title: "单位", width: 70, visible: true }
+];
+const filteredSourceOptions = computed(() => {
+  const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
+  if (!keyword) {
+    return sourceOptions.value;
+  }
+  return sourceOptions.value.filter((source) => [
+    source.billNo,
+    source.supplierCode,
+    source.supplierName,
+    source.productCode,
+    source.productName,
+    source.spec
+  ].some((value) => value.toLowerCase().includes(keyword)));
+});
+const selectedSourceCountLabel = computed(() => `已选中 ${Object.values(selectedSourceMap).filter(Boolean).length} 条`);
 
 function markDirty() {
   message.value = "";
@@ -296,7 +321,7 @@ function startNew() {
   componentLines.splice(0, componentLines.length);
   statusLabel.value = "草稿";
   message.value = "";
-  sourcePickerOpen.value = false;
+  closeSourcePicker();
   emit("markDirty");
 }
 
@@ -389,7 +414,36 @@ async function openSourcePicker() {
     return;
   }
   sourceOptions.value = result.data.map(sourceFromRow);
+  sourceSelectorKeyword.value = "";
+  sourceSelectorMessage.value = "";
+  clearSelectedSourceMap();
   sourcePickerOpen.value = true;
+}
+
+function closeSourcePicker() {
+  sourcePickerOpen.value = false;
+  sourceSelectorMessage.value = "";
+}
+
+function toggleSourceSelectorRow(row: unknown, checked: boolean) {
+  clearSelectedSourceMap();
+  if (checked) {
+    selectedSourceMap[sourceSelectorRowKey(row)] = true;
+  }
+}
+
+async function confirmSourcePicker() {
+  const selectedKey = Object.entries(selectedSourceMap).find(([, selected]) => selected)?.[0];
+  const source = sourceOptions.value.find((item) => sourceSelectorRowKey(item) === selectedKey);
+  if (!source) {
+    sourceSelectorMessage.value = "请先选择一条源单。";
+    return;
+  }
+  await selectSource(source);
+}
+
+function clearSelectedSourceMap() {
+  Object.keys(selectedSourceMap).forEach((key) => delete selectedSourceMap[key]);
 }
 
 async function selectSource(source: SourceOption) {
@@ -402,7 +456,7 @@ async function selectSource(source: SourceOption) {
       : [];
     if (components.length) {
       lines.splice(0, lines.length, ...components.map((component) => lineFromComponentSource(source.billNo, component)));
-      sourcePickerOpen.value = false;
+      closeSourcePicker();
       markDirty();
       return;
     }
@@ -418,7 +472,7 @@ async function selectSource(source: SourceOption) {
     sourceLineNo: source.sourceLineNo,
     qty: Number(source.remainingQty || 0)
   });
-  sourcePickerOpen.value = false;
+  closeSourcePicker();
   markDirty();
 }
 
@@ -717,6 +771,24 @@ function sourceFromRow(raw: unknown): SourceOption {
   };
 }
 
+function sourceSelectorRowKey(row: unknown) {
+  const source = row as SourceOption;
+  return `${source.billNo}-${source.sourceLineNo ?? 0}-${source.productCode}`;
+}
+
+function formatSourceSelectorCell(row: unknown, columnKey: string) {
+  const source = row as SourceOption;
+  const values: Record<string, string> = {
+    billNo: source.billNo,
+    supplierName: source.supplierName,
+    productCode: source.productCode,
+    productName: source.productName,
+    remainingQty: source.remainingQty,
+    unit: source.unit
+  };
+  return values[columnKey] ?? "";
+}
+
 function textValue(value: unknown) {
   return value == null ? "" : String(value);
 }
@@ -805,36 +877,4 @@ defineExpose({ startNew, loadDocument });
   text-align: right;
 }
 
-.outsourcing-source-dialog {
-  width: 760px;
-}
-
-.source-option-list {
-  display: grid;
-  gap: 6px;
-  max-height: 360px;
-  overflow: auto;
-}
-
-.source-option-list button {
-  display: grid;
-  grid-template-columns: 150px 150px 1fr 120px;
-  gap: 10px;
-  align-items: center;
-  height: 34px;
-  border: 1px solid #d7e2ec;
-  background: #fff;
-  color: #20364d;
-  text-align: left;
-}
-
-.source-option-list button:hover {
-  background: #edf6ff;
-}
-
-.source-empty {
-  padding: 24px;
-  color: #718196;
-  text-align: center;
-}
 </style>

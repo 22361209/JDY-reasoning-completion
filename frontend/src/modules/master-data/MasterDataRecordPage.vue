@@ -1,11 +1,12 @@
 <template>
   <section class="master-record-page" :class="pageClasses" data-testid="master-record-page">
-    <header class="master-record-head">
-      <div class="master-record-title-row">
-        <h2>{{ pageModeTitle }}{{ title }}</h2>
-        <span class="master-record-status">{{ statusText }} / {{ auditStatusText }}</span>
-      </div>
-      <div class="master-record-toolbar" role="toolbar" aria-label="主数据动作">
+    <DocumentCommandHeader
+      :title="`${pageModeTitle}${title}`"
+      :show-subtitle="false"
+      :status-label="statusLabel"
+      :status-class="statusClass"
+    >
+      <template #actions>
         <button class="primary-action" type="button" @click="emit('newRecord')">新增</button>
         <button v-if="readOnly" type="button" data-testid="master-record-edit" @click="emit('editRecord')">编辑</button>
         <button type="button" data-testid="master-record-save" :disabled="!canSave" @click="requestSave">保存</button>
@@ -14,8 +15,8 @@
         <button type="button" :disabled="!canEditSavedDraft" @click="emit('toggleStatus')">{{ statusActionLabel }}</button>
         <button type="button" :disabled="!canEditSavedDraft" @click="emit('deleteRecord')">删除</button>
         <button type="button" @click="emit('cancel')">取消</button>
-      </div>
-    </header>
+      </template>
+    </DocumentCommandHeader>
 
     <div class="master-record-body">
       <section
@@ -121,6 +122,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import DocumentCommandHeader from "../../components/DocumentCommandHeader.vue";
 import { fetchListRows } from "../../services/listApi";
 import type { MasterDataField } from "./types";
 
@@ -162,6 +164,8 @@ const localError = ref("");
 
 const statusText = computed(() => props.form.status || "启用");
 const auditStatusText = computed(() => props.form.auditStatus || "草稿");
+const statusLabel = computed(() => `${statusText.value} / ${auditStatusText.value}`);
+const statusClass = computed(() => auditStatusText.value === "已审核" ? "audited" : "draft");
 const canSave = computed(() => !props.readOnly && auditStatusText.value !== "已审核");
 const canEditSavedDraft = computed(() => !props.readOnly && props.editing && auditStatusText.value !== "已审核");
 const statusActionLabel = computed(() => statusText.value === "禁用" ? "启用" : "禁用");

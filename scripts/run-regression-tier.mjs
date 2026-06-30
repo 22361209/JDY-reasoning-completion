@@ -100,23 +100,30 @@ const areaScripts = {
   ]
 };
 
-if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log(`Usage: node scripts/run-regression-tier.mjs smoke|area:<module>|full
+const args = process.argv.slice(2);
+const continueOnFailure = args.includes("--continue-on-failure") || args.includes("--continue");
+const requestedTier = args.find((arg) => !arg.startsWith("--")) ?? "smoke";
+const tier = requestedTier.endsWith(":continue") ? requestedTier.slice(0, -":continue".length) : requestedTier;
+const shouldContinue = continueOnFailure || requestedTier.endsWith(":continue");
+const resultTier = shouldContinue && tier === "full" ? "full-continue" : tier;
+
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(`Usage: node scripts/run-regression-tier.mjs smoke|area:<module>|full [--continue-on-failure]
 
 Examples:
   node scripts/run-regression-tier.mjs smoke
   node scripts/run-regression-tier.mjs area:sales
   node scripts/run-regression-tier.mjs full
+  node scripts/run-regression-tier.mjs full --continue-on-failure
 
 Areas:
   ${Object.keys(areaScripts).sort().join(", ")}`);
   process.exit(0);
 }
 
-const tier = process.argv[2] ?? "smoke";
 const startedAt = new Date().toISOString();
 const scripts = await scriptsForTier(tier);
-const safeTier = tier.replace(/[^a-zA-Z0-9_-]/g, "-");
+const safeTier = resultTier.replace(/[^a-zA-Z0-9_-]/g, "-");
 const resultPath = path.join(verificationDir, `regression-tier-${safeTier}-latest.json`);
 const results = [];
 
@@ -137,8 +144,8 @@ for (const script of scripts) {
     stderrTail: tail(result.stderr)
   };
   results.push(entry);
-  console.log(JSON.stringify({ tier, script, ok: entry.ok, status: entry.status, durationMs: entry.durationMs }));
-  if (!entry.ok) {
+  console.log(JSON.stringify({ tier, script, ok: entry.ok, status: entry.status, durationMs: entry.durationMs, continueOnFailure: shouldContinue }));
+  if (!entry.ok && !shouldContinue) {
     break;
   }
 }
@@ -147,6 +154,8 @@ const bad = results.filter((result) => !result.ok);
 const summary = {
   generatedAt: new Date().toISOString(),
   tier,
+  resultTier,
+  continueOnFailure: shouldContinue,
   ok: bad.length === 0 && results.length === scripts.length,
   total: results.length,
   expectedTotal: scripts.length,
@@ -163,6 +172,8 @@ await writeFile(resultPath, JSON.stringify(summary, null, 2));
 console.log(JSON.stringify({
   ok: summary.ok,
   tier,
+  resultTier,
+  continueOnFailure: shouldContinue,
   total: summary.total,
   expectedTotal: summary.expectedTotal,
   badCount: summary.badCount,
@@ -194,7 +205,13 @@ async function scriptsForTier(selectedTier) {
 
 function runScript(script) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [script], { cwd: rootDir });
+    const child = spawn(process.execPath, [script], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        JAVA_HOME: process.env.JAVA_HOME || "/opt/homebrew/opt/openjdk@21"
+      }
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });

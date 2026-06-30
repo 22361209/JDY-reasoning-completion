@@ -12,7 +12,7 @@
     :rows="lines"
     :min-width="1180"
     :max-resize-width="420"
-    :row-visible="lineMatchesFilters"
+    :row-visible="rowMatchesFilters"
     :row-class="entryRowClass"
     :row-attrs="entryRowAttrs"
     :row-draggable="false"
@@ -338,7 +338,7 @@
 
   <ColumnFilterPopover
     :open="filterDialogOpen && Boolean(activeFilterColumn)"
-    :operators="filterOperators"
+    :operators="tableFilterOperators"
     :operator="activeFilterOperator"
     :value="activeFilterValue"
     :left="filterPopoverLeft"
@@ -467,13 +467,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { taxAmounts } from "../app/taxAmounts";
 import { fetchSalesUnitPriceSources, type SalesUnitPriceSource, type SalesUnitPriceSourcesByProduct } from "../services/documentApi";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
+import { tableFilterOperators, useColumnFilters } from "./table/useColumnFilters";
 import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
 
 export interface EntryLine {
@@ -531,11 +532,6 @@ interface EntryColumn {
   configurable?: boolean;
   numeric?: boolean;
   bulkFillable?: boolean;
-}
-
-interface ColumnFilter {
-  operator: string;
-  value: string;
 }
 
 const props = defineProps<{
@@ -603,14 +599,7 @@ const emit = defineEmits<{
 }>();
 
 const columnDialogOpen = ref(false);
-const filterDialogOpen = ref(false);
 const columns = ref<EntryColumn[]>([]);
-const columnFilters = reactive<Record<string, ColumnFilter>>({});
-const activeFilterColumn = ref<EntryColumn | null>(null);
-const activeFilterOperator = ref("包含");
-const activeFilterValue = ref("");
-const filterPopoverLeft = ref(0);
-const filterPopoverTop = ref(0);
 const bulkFillColumnKey = ref<EntryColumnKey | "">("");
 const bulkFillLeft = ref(0);
 const bulkFillTop = ref(0);
@@ -627,7 +616,6 @@ const datePickerLeft = ref(0);
 const datePickerTop = ref(0);
 const datePickerYear = ref(new Date().getFullYear());
 const datePickerMonth = ref(new Date().getMonth());
-const filterOperators = ["包含", "不包含", "等于", "不等于", "以……开始", "以……结束", "为空", "不为空"];
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 const numericColumns = new Set<EntryColumnKey>(["rowNo", "netWeight", "grossWeight", "qty", "executedQty", "remainingQty", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"]);
 const bulkPriceSourceOptions = [
@@ -649,6 +637,20 @@ const columnReorder = useColumnReorder<EntryColumn>({
   canReorder: (column) => column.configurable !== false && canReorderColumn(column),
   onReorder: persistColumnPreferences
 });
+const {
+  columnFilters,
+  activeFilterColumn,
+  filterDialogOpen,
+  activeFilterOperator,
+  activeFilterValue,
+  filterPopoverLeft,
+  filterPopoverTop,
+  openColumnFilter,
+  applyColumnFilter,
+  clearColumnFilter,
+  rowMatchesFilters,
+  isFilterActive
+} = useColumnFilters<EntryColumn>(entryColumnValue);
 
 const defaultColumns = computed<EntryColumn[]>(() => [
   { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", locked: true, configurable: false, numeric: true },
@@ -694,7 +696,7 @@ const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.
   fixed: column.fixed,
   filterable: column.configurable !== false,
   resizable: column.configurable !== false,
-  filterActive: Boolean(columnFilters[column.key]?.value) || ["为空", "不为空"].includes(columnFilters[column.key]?.operator ?? ""),
+  filterActive: isFilterActive(column.key),
   bulkFillable: Boolean(column.bulkFillable) && props.isDraft,
   dragging: columnReorder.draggingKey.value === column.key,
   dragOver: columnReorder.dragOverKey.value === column.key,
@@ -883,67 +885,8 @@ function columnClass(column: EntryColumn) {
   };
 }
 
-function openColumnFilter(column: EntryColumn, event: MouseEvent) {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  activeFilterColumn.value = column;
-  activeFilterOperator.value = columnFilters[column.key]?.operator ?? "包含";
-  activeFilterValue.value = columnFilters[column.key]?.value ?? "";
-  filterPopoverLeft.value = Math.min(rect.right - 136, window.innerWidth - 150);
-  filterPopoverTop.value = Math.min(rect.bottom + 4, window.innerHeight - 260);
-  filterDialogOpen.value = true;
-}
-
-function applyColumnFilter() {
-  const column = activeFilterColumn.value;
-  if (!column) {
-    return;
-  }
-  const value = activeFilterValue.value.trim();
-  if (value || ["为空", "不为空"].includes(activeFilterOperator.value)) {
-    columnFilters[column.key] = { operator: activeFilterOperator.value, value };
-  } else {
-    delete columnFilters[column.key];
-  }
-  filterDialogOpen.value = false;
-}
-
-function clearColumnFilter() {
-  if (activeFilterColumn.value) {
-    delete columnFilters[activeFilterColumn.value.key];
-  }
-  activeFilterValue.value = "";
-  filterDialogOpen.value = false;
-}
-
-function lineMatchesFilters(line: EntryLine, index: number) {
-  return Object.entries(columnFilters).every(([key, filter]) => matchesColumnFilter(entryColumnValue(line, index, key as EntryColumnKey), filter));
-}
-
-function matchesColumnFilter(rawValue: string, filter: ColumnFilter) {
-  const source = rawValue.trim().toLowerCase();
-  const value = filter.value.trim().toLowerCase();
-  switch (filter.operator) {
-    case "不包含":
-      return !source.includes(value);
-    case "等于":
-      return source === value;
-    case "不等于":
-      return source !== value;
-    case "以……开始":
-      return source.startsWith(value);
-    case "以……结束":
-      return source.endsWith(value);
-    case "为空":
-      return !source;
-    case "不为空":
-      return Boolean(source);
-    case "包含":
-    default:
-      return source.includes(value);
-  }
-}
-
-function entryColumnValue(line: EntryLine, index: number, key: EntryColumnKey) {
+function entryColumnValue(row: unknown, index: number, key: string) {
+  const line = row as EntryLine;
   switch (key) {
     case "rowNo":
       return String(lineLineNo(line, index));

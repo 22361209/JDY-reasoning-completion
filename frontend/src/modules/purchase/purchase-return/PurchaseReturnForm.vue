@@ -98,83 +98,26 @@
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
   />
-  <div v-if="sourceSelectorOpen" class="modal-mask" data-testid="purchase-return-source-selector-dialog">
-    <div class="dialog source-selector-dialog">
-      <h3>选择采购入库单</h3>
-      <p>{{ document.form.partyCode || '未限定供应商' }} {{ document.form.partyName || '' }} 已审核且有剩余可退数量的采购入库明细。</p>
-      <div class="source-selector-toolbar">
-        <input
-          v-model="sourceSelectorKeyword"
-          data-testid="purchase-return-source-selector-search"
-          placeholder="供应商/物料/入库单号"
-        />
-        <button type="button" data-testid="purchase-return-source-selector-select-all" @click="selectAllVisibleSourceLines">全选</button>
-        <strong data-testid="purchase-return-source-selector-count">{{ selectedSourceLineCount }}</strong>
-      </div>
-      <div class="source-selector-table">
-        <table>
-          <thead>
-            <tr>
-              <th>选</th>
-              <th>采购入库单</th>
-              <th>行号</th>
-              <th>供应商</th>
-              <th>日期</th>
-              <th>物料编码</th>
-              <th>物料名称</th>
-              <th>单位</th>
-              <th>净重</th>
-              <th>毛重</th>
-              <th>仓库</th>
-              <th>入库数量</th>
-              <th>已退货</th>
-              <th>剩余可退</th>
-              <th>单价</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="sourceSelectorLoading">
-              <td colspan="15">加载中...</td>
-            </tr>
-            <tr v-else-if="filteredSourceSelectorLines.length === 0">
-              <td colspan="15">暂无可选明细</td>
-            </tr>
-            <template v-else>
-              <tr v-for="line in filteredSourceSelectorLines" :key="sourceSelectorLineKey(line)">
-                <td>
-                  <input
-                    type="checkbox"
-                    :checked="Boolean(sourceSelectorSelected[sourceSelectorLineKey(line)])"
-                    :data-testid="`purchase-return-source-line-${sourceSelectorLineKey(line)}`"
-                    @change="toggleSourceSelectorLine(line, ($event.target as HTMLInputElement).checked)"
-                  />
-                </td>
-                <td>{{ line.billNo }}</td>
-                <td>#{{ line.lineNo }}</td>
-                <td>{{ line.supplierCode }} {{ line.supplier || '' }}</td>
-                <td>{{ line.billDate }}</td>
-                <td>{{ line.productCode }}</td>
-                <td>{{ line.productName || line.spec || '-' }}</td>
-                <td>{{ line.unit || '-' }}</td>
-                <td>{{ formatOptionalAmount(line.netWeight) }}</td>
-                <td>{{ formatOptionalAmount(line.grossWeight) }}</td>
-                <td>{{ line.warehouseCode }}</td>
-                <td>{{ formatQty(line.sourceQty) }}</td>
-                <td>{{ formatQty(line.returnedQty) }}</td>
-                <td>{{ formatQty(line.remainingQty) }}</td>
-                <td>{{ formatAmount(line.unitPrice) }}</td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="sourceSelectorMessage" class="form-error" data-testid="purchase-return-source-selector-message">{{ sourceSelectorMessage }}</p>
-      <div class="dialog-actions">
-        <button type="button" data-testid="purchase-return-source-selector-cancel" @click="closeSourceSelector">取消</button>
-        <button class="primary-action" type="button" data-testid="purchase-return-source-selector-ok" @click="confirmSourceSelector">确定</button>
-      </div>
-    </div>
-  </div>
+  <SourceSelectorDialog
+    :open="sourceSelectorOpen"
+    test-prefix="purchase-return"
+    title="选择采购入库单"
+    :description="`${document.form.partyCode || '未限定供应商'} ${document.form.partyName || ''} 已审核且有剩余可退数量的采购入库明细。`"
+    v-model:keyword="sourceSelectorKeyword"
+    search-placeholder="供应商/物料/入库单号"
+    :loading="sourceSelectorLoading"
+    :rows="filteredSourceSelectorLines"
+    :columns="sourceSelectorColumns"
+    :selected="sourceSelectorSelected"
+    :count-label="selectedSourceLineCount"
+    :message="sourceSelectorMessage"
+    :row-key="sourceSelectorRowKey"
+    :format-cell="formatSourceSelectorCell"
+    @select-all="selectAllVisibleSourceLines"
+    @toggle="toggleSourceSelectorRow"
+    @close="closeSourceSelector"
+    @confirm="confirmSourceSelector"
+  />
   <DocumentDialogs v-bind="dialogBindings" v-on="dialogHandlers" />
 </template>
 
@@ -182,6 +125,7 @@
 import { computed, reactive, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { OrderLineForm } from "../../../app/documentModel";
 import { fetchSelectablePurchaseInLines, type SelectablePurchaseInLine } from "../../../services/purchaseInApi";
@@ -221,6 +165,23 @@ const sourceSelectorMessage = ref("");
 const sourceSelectorKeyword = ref("");
 const sourceSelectorLines = ref<SelectablePurchaseInLine[]>([]);
 const sourceSelectorSelected = reactive<Record<string, boolean>>({});
+const sourceSelectorColumns: SourceSelectorColumn[] = [
+  { key: "selection", title: "选", width: 42, visible: true, configurable: false },
+  { key: "billNo", title: "采购入库单", width: 150, visible: true },
+  { key: "lineNo", title: "行号", width: 70, visible: true },
+  { key: "supplier", title: "供应商", width: 190, visible: true },
+  { key: "billDate", title: "日期", width: 120, visible: true },
+  { key: "productCode", title: "物料编码", width: 130, visible: true },
+  { key: "productName", title: "物料名称", width: 180, visible: true },
+  { key: "unit", title: "单位", width: 80, visible: true },
+  { key: "netWeight", title: "净重", width: 90, visible: true, align: "right" },
+  { key: "grossWeight", title: "毛重", width: 90, visible: true, align: "right" },
+  { key: "warehouseCode", title: "仓库", width: 110, visible: true },
+  { key: "sourceQty", title: "入库数量", width: 100, visible: true, align: "right" },
+  { key: "returnedQty", title: "已退货", width: 100, visible: true, align: "right" },
+  { key: "remainingQty", title: "剩余可退", width: 110, visible: true, align: "right" },
+  { key: "unitPrice", title: "单价", width: 100, visible: true, align: "right" }
+];
 
 const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
 const filteredSourceSelectorLines = computed(() => {
@@ -321,6 +282,10 @@ function toggleSourceSelectorLine(line: SelectablePurchaseInLine, checked: boole
   sourceSelectorSelected[sourceSelectorLineKey(line)] = checked;
 }
 
+function toggleSourceSelectorRow(row: unknown, checked: boolean) {
+  toggleSourceSelectorLine(row as SelectablePurchaseInLine, checked);
+}
+
 function selectAllVisibleSourceLines() {
   filteredSourceSelectorLines.value.forEach((line) => {
     sourceSelectorSelected[sourceSelectorLineKey(line)] = true;
@@ -378,6 +343,31 @@ function selectableLineToFormLine(line: SelectablePurchaseInLine): OrderLineForm
 
 function sourceSelectorLineKey(line: SelectablePurchaseInLine) {
   return `${line.billNo}:${line.lineNo}`;
+}
+
+function sourceSelectorRowKey(row: unknown) {
+  return sourceSelectorLineKey(row as SelectablePurchaseInLine);
+}
+
+function formatSourceSelectorCell(row: unknown, columnKey: string) {
+  const line = row as SelectablePurchaseInLine;
+  const values: Record<string, string | number> = {
+    billNo: String(line.billNo ?? ""),
+    lineNo: `#${line.lineNo ?? ""}`,
+    supplier: `${line.supplierCode ?? ""} ${line.supplier || ""}`.trim(),
+    billDate: String(line.billDate ?? ""),
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName || line.spec || "-"),
+    unit: String(line.unit || "-"),
+    netWeight: formatOptionalAmount(line.netWeight),
+    grossWeight: formatOptionalAmount(line.grossWeight),
+    warehouseCode: String(line.warehouseCode ?? ""),
+    sourceQty: formatQty(line.sourceQty),
+    returnedQty: formatQty(line.returnedQty),
+    remainingQty: formatQty(line.remainingQty),
+    unitPrice: formatAmount(line.unitPrice)
+  };
+  return values[columnKey] ?? "";
 }
 
 function sourceLineSearchText(line: SelectablePurchaseInLine) {

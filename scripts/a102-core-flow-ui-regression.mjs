@@ -91,6 +91,18 @@ async function drag(page, locator, dx, dy = 0) {
   await page.mouse.up();
 }
 
+async function dragColumnBoundary(page, headerLocator, dx) {
+  const box = await headerLocator.evaluate((node) => {
+    const rect = (node.closest("th") ?? node).getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  assert(box.width > 0 && box.height > 0, "column header should have measurable box");
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2 + dx, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
 const source = await createAuditedSalesOrder("SRC", true);
 const reverse = await createAuditedSalesOrder("REV");
 const browser = await chromium.launch({ headless: true });
@@ -166,11 +178,23 @@ try {
   await page.getByTestId("entry-column-drag-ghost").waitFor({ state: "visible" });
   const entryGhostText = (await page.getByTestId("entry-column-drag-ghost").textContent())?.trim();
   await page.mouse.up();
-  assert(entryGhostText === "商品编码", `entry table drag ghost should show title, got ${entryGhostText}`);
-  const widthBefore = (await page.getByTestId("sales-out-line-source-order-no").boundingBox())?.width ?? 0;
-  await drag(page, page.getByTestId("entry-column-resize-sourceOrderNo"), 70);
-  const widthAfter = (await page.getByTestId("sales-out-line-source-order-no").boundingBox())?.width ?? 0;
-  assert(widthAfter > widthBefore + 30, `entry column resize should change width, got ${widthBefore} -> ${widthAfter}`);
+  assert(entryGhostText === "物料编码", `entry table drag ghost should show title, got ${entryGhostText}`);
+  const resizeHeader = page.getByTestId("entry-column-drag-warehouse");
+  const widthBefore = await resizeHeader.evaluate((node) => node.closest("th")?.getBoundingClientRect().width ?? 0);
+  const resizeHit = await resizeHeader.evaluate((node) => {
+    const rect = (node.closest("th") ?? node).getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.x + rect.width - 2, rect.y + rect.height / 2);
+    return {
+      tag: hit?.tagName ?? "",
+      className: hit instanceof HTMLElement ? hit.className : "",
+      testId: hit instanceof HTMLElement ? hit.dataset.testid ?? "" : "",
+      parentClassName: hit?.parentElement instanceof HTMLElement ? hit.parentElement.className : "",
+      parentTestId: hit?.parentElement instanceof HTMLElement ? hit.parentElement.dataset.testid ?? "" : ""
+    };
+  });
+  await dragColumnBoundary(page, resizeHeader, 70);
+  const widthAfter = await resizeHeader.evaluate((node) => node.closest("th")?.getBoundingClientRect().width ?? 0);
+  assert(widthAfter > widthBefore + 30, `entry column resize should change width, got ${widthBefore} -> ${widthAfter}; hit ${JSON.stringify(resizeHit)}`);
 
   await page.getByTestId("sales-out-party-open-selector").click();
   await page.getByTestId("master-selector-dialog").waitFor({ state: "visible" });

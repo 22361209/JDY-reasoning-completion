@@ -8,14 +8,14 @@
     :locked="false"
     :dirty="dirty"
     :message="displayMessage"
-    :can-save="true"
-    :can-audit="false"
-    :can-reverse="false"
+    :can-save="canSave"
+    :can-audit="canAudit"
+    :can-reverse="canReverse"
     :can-void="false"
     :can-delete="false"
     :can-output="false"
-    :show-audit="false"
-    :show-reverse="false"
+    :show-audit="true"
+    :show-reverse="true"
     :show-red-reverse="false"
     :show-void="false"
     :show-close="false"
@@ -26,12 +26,14 @@
     :show-export="false"
     :show-print="false"
     :show-push-down="true"
-    :can-push-down="Boolean(form.billNo) && !dirty"
+    :can-push-down="canPushDown"
     push-down-label="下推"
     push-down-test-id="production-plan-push-down"
     data-testid="production-plan-form"
     @create="startNew"
     @save="save"
+    @audit="audit"
+    @reverse="reverse"
     @push-down="pushDown"
   >
     <div class="form-layout production-plan-form">
@@ -70,7 +72,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import ProductionPlanEntryTable, { type ProductionPlanEntryLine } from "../../../components/ProductionPlanEntryTable.vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
-import { createProductionPlan, nextProductionPlanNumber, pushDownProductionPlan } from "../../../services/productionApi";
+import { auditProductionPlan, createProductionPlan, nextProductionPlanNumber, pushDownProductionPlan, reverseProductionPlan } from "../../../services/productionApi";
 
 const props = defineProps<{
   title: string;
@@ -85,7 +87,7 @@ const emit = defineEmits<{
 
 const message = ref("");
 const hasError = ref(false);
-const statusLabel = ref("草稿");
+const status = ref("DRAFT");
 const form = reactive({
   billNo: "",
   bomCode: "",
@@ -109,6 +111,11 @@ const entryLine = reactive<ProductionPlanEntryLine>({
 
 const entryLines = computed(() => [entryLine]);
 const displayMessage = computed(() => hasError.value ? message.value : message.value);
+const statusLabel = computed(() => backendStatusLabel(status.value));
+const canSave = computed(() => status.value === "DRAFT");
+const canAudit = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "DRAFT");
+const canReverse = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "AUDITED");
+const canPushDown = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "AUDITED");
 
 function markDirty() {
   emit("markDirty");
@@ -125,7 +132,7 @@ async function startNew() {
   entryLine.planDeliveryDate = todayText();
   form.sourceType = "SELF";
   form.departmentCode = "";
-  statusLabel.value = "草稿";
+  status.value = "DRAFT";
   message.value = "";
   hasError.value = false;
   const result = await nextProductionPlanNumber();
@@ -164,12 +171,28 @@ async function save() {
   entryLine.bomVersionNo = String(result.data?.bomVersionNo ?? "");
   entryLine.unit = String(result.data?.unit ?? "");
   entryLine.inProgressQty = String(result.data?.inProgressQty ?? "0");
-  statusLabel.value = backendStatusLabel(String(result.data?.status ?? "AUDITED"));
+  status.value = String(result.data?.status ?? "DRAFT");
   emit("clearDirty");
 }
 
+async function audit() {
+  if (!form.billNo || props.dirty || status.value !== "DRAFT") {
+    return;
+  }
+  const result = await auditProductionPlan(form.billNo);
+  applyLifecycleResult(result, "生产计划已审核");
+}
+
+async function reverse() {
+  if (!form.billNo || props.dirty || status.value !== "AUDITED") {
+    return;
+  }
+  const result = await reverseProductionPlan(form.billNo);
+  applyLifecycleResult(result, "生产计划已反审核");
+}
+
 async function pushDown() {
-  if (!form.billNo || props.dirty) {
+  if (!form.billNo || props.dirty || status.value !== "AUDITED") {
     return;
   }
   const result = await pushDownProductionPlan(form.billNo);
@@ -184,6 +207,18 @@ async function pushDown() {
   const requisitions = Array.isArray(purchaseRequisitions) ? purchaseRequisitions.length : 0;
   hasError.value = false;
   message.value = `已下推：生产任务 ${tasks} 张，采购申请 ${requisitions} 张`;
+}
+
+function applyLifecycleResult(result: { ok: boolean; message: string; data?: Record<string, unknown> }, okMessage: string) {
+  if (!result.ok) {
+    hasError.value = true;
+    message.value = result.message;
+    return;
+  }
+  hasError.value = false;
+  message.value = okMessage;
+  status.value = String(result.data?.status ?? status.value);
+  emit("clearDirty");
 }
 
 function resetSaved() {

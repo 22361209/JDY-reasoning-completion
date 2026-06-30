@@ -80,17 +80,25 @@ try {
   const focusAfterPriceEnter = await activeTestId(page);
   assertEqual("focus after price Enter", focusAfterPriceEnter, "sales-line-tax-rate");
   await page.keyboard.press("Enter");
-  await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
   const focusAfterTaxRateEnter = await activeTestId(page);
-  assertEqual("focus after tax rate Enter", focusAfterTaxRateEnter, "sales-line-product-2");
+  assertEqual("focus after tax rate Enter", focusAfterTaxRateEnter, "sales-line-plan-delivery-date");
+  await page.getByTestId("sales-line-plan-delivery-date").fill("2026/6/7");
+  await page.keyboard.press("Enter");
+  const focusAfterPlanDateEnter = await activeTestId(page);
+  assertEqual("focus after plan delivery date Enter", focusAfterPlanDateEnter, "sales-line-remark");
+  const normalizedPlanDate = await page.getByTestId("sales-line-plan-delivery-date").inputValue();
+  assertEqual("normalized plan delivery date after Enter", normalizedPlanDate, "2026-06-07");
+  await page.getByTestId("sales-line-remark").fill("A27 行备注");
+  await page.keyboard.press("Enter");
+  await page.getByTestId("sales-line-product-2").waitFor({ state: "visible" });
+  const focusAfterRemarkEnter = await activeTestId(page);
+  assertEqual("focus after remark Enter", focusAfterRemarkEnter, "sales-line-product-2");
   assertEqual("row count after price Enter", await page.getByTestId("sales-entry-row").count(), 2);
 
-  await page.getByTestId("sales-line-plan-delivery-date").fill("2026/6/7");
+  await page.getByTestId("sales-line-plan-delivery-date").focus();
   await page.keyboard.press("ArrowDown");
   const focusAfterPlanDateArrowDown = await activeTestId(page);
   assertEqual("focus after plan delivery date ArrowDown", focusAfterPlanDateArrowDown, "sales-line-plan-delivery-date-2");
-  const normalizedPlanDate = await page.getByTestId("sales-line-plan-delivery-date").inputValue();
-  assertEqual("normalized plan delivery date after ArrowDown", normalizedPlanDate, "2026-06-07");
 
   await page.getByTestId("sales-line-product-2").fill("PJ-014");
   await page.getByTestId("sales-line-warehouse-2").fill("CK-002");
@@ -127,6 +135,9 @@ try {
     billNo,
     focusAfterQtyEnter,
     focusAfterPriceEnter,
+    focusAfterTaxRateEnter,
+    focusAfterPlanDateEnter,
+    focusAfterRemarkEnter,
     focusAfterPlanDateArrowDown,
     normalizedPlanDate,
     line1Amount,
