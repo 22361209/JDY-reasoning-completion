@@ -616,11 +616,11 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
 };
 const canAuditCurrentList = computed(() => {
   const permission = auditPermissionByListKey[props.listKey];
-  return !isDetailView.value && Boolean(permission) && session.hasPermission(permission);
+  return Boolean(permission) && session.hasPermission(permission);
 });
 const canMaintainCurrentList = computed(() => {
   const permission = maintainPermissionByListKey[props.listKey];
-  return !isDetailView.value && Boolean(permission) && session.hasPermission(permission);
+  return Boolean(permission) && session.hasPermission(permission);
 });
 const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
 const supportsCreateCurrentList = computed(() => !isStockAlertList.value && (isMasterList.value || Boolean(openableDocumentType.value) || canCreateListRecord(props.listKey)));
@@ -650,10 +650,21 @@ const isOpenableListRecord = computed(() => isOpenableDocumentList.value || canO
 const supportsDetailView = computed(() => isOpenableDocumentList.value);
 const currentLifecyclePolicy = computed(() => lifecyclePolicyFor(documentActionTypeByListKey[props.listKey] ?? null));
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
-const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value) && !isDetailView.value);
+const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value));
 const supportsBatchAudit = computed(() => Boolean(documentActionTypeByListKey[props.listKey]) && supportsAuditCurrentList.value);
 const supportsBatchCloseFreeze = computed(() => Boolean(isLifecycleDocumentList.value && currentLifecyclePolicy.value?.closeFreezeAllowed));
 const selectedBillRows = computed(() => selectedRows.value.filter((row) => String(row.billNo ?? "").trim()));
+const selectedUniqueBillRows = computed(() => {
+  const seen = new Set<string>();
+  return selectedBillRows.value.filter((row) => {
+    const billNo = String(row.billNo ?? "").trim();
+    if (!billNo || seen.has(billNo)) {
+      return false;
+    }
+    seen.add(billNo);
+    return true;
+  });
+});
 const canOperateLifecycle = computed(() => canMaintainCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value);
 const canBatchAudit = computed(() => supportsBatchAudit.value && canAuditCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value && selectedBillRows.value.every(isDraftBillStatus));
 const canBatchClose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus !== "CLOSED" && row.frozenStatus !== "FROZEN"));
@@ -1397,7 +1408,7 @@ function closePendingAction() {
 
 async function submitBatchAudit() {
   const type = documentActionTypeByListKey[props.listKey];
-  const targets = selectedBillRows.value.map((row) => String(row.billNo));
+  const targets = selectedUniqueBillRows.value.map((row) => String(row.billNo));
   if (!type || targets.length === 0) {
     batchMessage.value = "请选择可审核的草稿单据。";
     return;
@@ -1412,7 +1423,7 @@ async function submitBatchAudit() {
 
 async function submitBatchReverse() {
   const type = documentActionTypeByListKey[props.listKey];
-  const targets = selectedRows.value
+  const targets = selectedUniqueBillRows.value
     .filter(isAuditedRow)
     .map((row) => String(row.billNo ?? ""))
     .filter(Boolean);
@@ -1437,7 +1448,7 @@ async function submitBatchLifecycle(action: string, reasonInput: string) {
     "解冻": "unfreeze"
   } as const;
   const apiAction = actionMap[action as keyof typeof actionMap];
-  const targets = selectedBillRows.value.map((row) => String(row.billNo));
+  const targets = selectedUniqueBillRows.value.map((row) => String(row.billNo));
   if (!type || !apiAction || targets.length === 0) {
     batchMessage.value = `请选择可${action}的单据。`;
     return;
@@ -1453,7 +1464,7 @@ async function submitBatchLifecycle(action: string, reasonInput: string) {
 
 async function submitBatchVoid(reason: string, username: string, password: string) {
   const type = documentActionTypeByListKey[props.listKey];
-  const targets = selectedBillRows.value.map((row) => String(row.billNo));
+  const targets = selectedUniqueBillRows.value.map((row) => String(row.billNo));
   if (!type || targets.length === 0) {
     batchMessage.value = "请选择可作废的草稿单据。";
     return;

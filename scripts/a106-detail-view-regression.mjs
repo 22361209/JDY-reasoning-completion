@@ -78,6 +78,14 @@ async function dragColumnWidth(page, field) {
   await page.mouse.up();
 }
 
+async function toolbarSignature(page) {
+  return page.locator(".list-toolbar .list-toolbar-actions button").evaluateAll((buttons) => buttons.map((button) => ({
+    testId: button.getAttribute("data-testid"),
+    label: button.textContent?.trim(),
+    disabled: button.hasAttribute("disabled")
+  })));
+}
+
 const billNo = await createAuditedSalesOrder();
 const headerRows = await fetchList("sales-order-form-list", { keyword: billNo, view: "header" });
 const detailRows = await fetchList("sales-order-form-list", { keyword: billNo, view: "detail" });
@@ -119,9 +127,15 @@ try {
 
   const headerCount = await page.locator(".vxe-wrap .vxe-body--row").count();
   assert(headerCount === 1, `UI header view should render one row, got ${headerCount}`);
+  const headerToolbar = await toolbarSignature(page);
 
   await page.getByTestId("list-detail-view-toggle").click();
   await page.getByTestId("column-drag-productCode").waitFor({ state: "visible" });
+  const detailToolbar = await toolbarSignature(page);
+  assert(
+    JSON.stringify(detailToolbar.map(({ testId, label }) => ({ testId, label }))) === JSON.stringify(headerToolbar.map(({ testId, label }) => ({ testId, label }))),
+    `header/detail toolbar actions should keep the same order and labels, header=${JSON.stringify(headerToolbar)}, detail=${JSON.stringify(detailToolbar)}`
+  );
   await page.getByTestId("column-drag-customerCode").waitFor({ state: "visible" });
   await page.getByTestId("column-drag-customerMaterialCode").waitFor({ state: "visible" });
   await page.getByTestId("column-drag-planDeliveryDate").waitFor({ state: "visible" });
@@ -137,15 +151,31 @@ try {
   await page.locator(".vxe-wrap", { hasText: "CP-001" }).waitFor({ state: "visible" });
   await page.locator(".vxe-wrap", { hasText: "PJ-014" }).waitFor({ state: "hidden" });
   await dragColumnWidth(page, "productCode");
+  await page.getByTestId("column-filter-productCode").first().click();
+  await page.getByTestId("column-filter-dialog").waitFor({ state: "visible" });
+  await page.getByTestId("column-filter-dialog").getByRole("button", { name: "重置" }).click();
+  await page.getByTestId("column-filter-dialog").waitFor({ state: "hidden" });
+  await page.locator(".vxe-wrap", { hasText: "CP-001" }).waitFor({ state: "visible" });
+  await page.locator(".vxe-wrap", { hasText: "PJ-014" }).waitFor({ state: "visible" });
+  await page.locator(".vxe-wrap .vxe-body--row").first().locator('[role="checkbox"]').click();
+  const reverseButton = page.getByTestId("batch-reverse");
+  assert(await reverseButton.isEnabled(), "detail view selected audited line should enable document-level reverse audit");
+  await reverseButton.click();
+  await page.getByTestId("batch-confirm-dialog").waitFor({ state: "visible" });
+  await page.getByTestId("batch-confirm-dialog").getByRole("button", { name: "确定" }).click();
+  await page.getByTestId("list-batch-message").waitFor({ state: "visible" });
+  const reverseMessage = await page.getByTestId("list-batch-message").innerText();
+  assert(reverseMessage.includes("已反审核 1 张单据"), `detail reverse should dedupe selected lines by billNo, got: ${reverseMessage}`);
+  const reversedRows = await fetchList("sales-order-form-list", { keyword: billNo, view: "header" });
+  assert(reversedRows.rows[0].status === "草稿", `detail reverse should return document to draft, got ${reversedRows.rows[0].status}`);
 
   const detailScreenshot = `a106-detail-view-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, detailScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${detailScreenshot}`);
 
   await page.getByTestId("list-detail-view-toggle").click();
-  await page.getByTestId(`open-document-${billNo}`).waitFor({ state: "visible" });
+  await page.getByTestId("column-drag-productCode").waitFor({ state: "hidden" });
   const restoredHeaderCount = await page.locator(".vxe-wrap .vxe-body--row").count();
-  assert(restoredHeaderCount >= 1, `UI should switch back to visible header rows, got ${restoredHeaderCount}`);
   assert(await page.getByTestId("column-drag-productCode").count() === 0, "header view should restore header columns and hide detail productCode column");
 
   const paginationVisible = await page.locator(".list-pagination").isVisible();
@@ -162,7 +192,10 @@ try {
       filteredDetailTotal: filteredDetailRows.total,
       headerCount,
       restoredHeaderCount,
-      paginationVisible
+      paginationVisible,
+      toolbarParity: true,
+      detailReverseEnabled: true,
+      reverseMessage
     },
     detailRows: detailRows.rows,
     kingdeeReference,

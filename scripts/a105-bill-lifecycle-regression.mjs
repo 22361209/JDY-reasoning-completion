@@ -65,6 +65,9 @@ async function verifyLifecycleCodeContracts() {
   assert(dataListPage.includes("auditDocument(type, billNo)"), "DataListPage batch audit must call auditDocument");
   assert(dataListPage.includes("async function submitBatchAudit()"), "DataListPage must implement submitBatchAudit");
   assert(dataListPage.includes("selectedBillRows.value.every(isDraftBillStatus)"), "batch audit button must only enable for draft bills");
+  assert(dataListPage.includes("const selectedUniqueBillRows = computed"), "list lifecycle actions must dedupe selected detail rows by billNo");
+  assert(!dataListPage.includes("return !isDetailView.value && Boolean(permission) && session.hasPermission(permission);"), "detail view must not disable document lifecycle permissions");
+  assert(dataListPage.includes("const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value));"), "header and detail views must share document lifecycle action visibility");
   assert(!dataListPage.includes('outStatus !== "全部出库"'), "sales pushdown must not depend on outStatus display text");
   assert(!dataListPage.includes('inStatus !== "全部入库"'), "purchase pushdown must not depend on inStatus display text");
   assert(listStubController.includes('dn.close_status AS "closeStatus"'), "delivery notice list must return closeStatus");
