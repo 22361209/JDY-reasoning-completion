@@ -129,6 +129,21 @@ try {
   const dateRangeButtonBox = await buttonBox(page, "list-date-range");
   assert(JSON.stringify(quickDateButtonBox) === JSON.stringify(queryButtonBox), "常用过滤条件按钮与普通查询区按钮视觉一致", { quickDateButtonBox, queryButtonBox });
   assert(JSON.stringify(dateRangeButtonBox) === JSON.stringify(queryButtonBox), "日期范围按钮与普通查询区按钮视觉一致", { dateRangeButtonBox, queryButtonBox });
+  const dateRangeButtonPositionBefore = await page.getByTestId("list-date-range").boundingBox();
+  await page.getByTestId("list-quick-date").click();
+  await page.getByTestId("list-quick-date-menu").waitFor({ state: "visible", timeout: 10000 });
+  const dateRangeButtonPositionAfter = await page.getByTestId("list-date-range").boundingBox();
+  assert(
+    Math.abs((dateRangeButtonPositionAfter?.x ?? 0) - (dateRangeButtonPositionBefore?.x ?? 0)) < 1,
+    "打开常用过滤条件不应推动日期范围按钮",
+    { before: dateRangeButtonPositionBefore, after: dateRangeButtonPositionAfter }
+  );
+  assert(await page.getByTestId("list-quick-date-menu").getByRole("button", { name: "上季度" }).count() === 1, "常用过滤条件必须包含上季度");
+  await page.getByTestId("list-quick-date-menu").getByRole("button", { name: "上季度" }).click();
+  await page.getByTestId("list-active-date-range").waitFor({ state: "visible", timeout: 10000 });
+  const previousQuarterLabel = (await page.getByTestId("list-active-date-range").innerText()).trim();
+  assert(previousQuarterLabel === "2026-04-01 至 2026-06-30", "上季度快捷过滤落到 dateFrom/dateTo", { previousQuarterLabel });
+  await page.getByTestId("list-reset").click();
 
   await ensureHeaderView(page);
   let listRequestCount = 0;

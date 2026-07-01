@@ -13,6 +13,7 @@ const [
   protocol,
   dataListPage,
   listQueryBar,
+  baseCss,
   dataListDefinition,
   listApi,
   listController,
@@ -28,6 +29,7 @@ const [
   text("docs/guides/list-query-unification-protocol.md"),
   text("frontend/src/components/DataListPage.vue"),
   text("frontend/src/components/list/ListQueryBar.vue"),
+  text("frontend/src/styles/base.css"),
   text("frontend/src/components/list/useDataListDefinition.ts"),
   text("frontend/src/services/listApi.ts"),
   text("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java"),
@@ -46,6 +48,7 @@ assert(!apiContract.includes("dateFrom` | date | 否 | 操作日志专用"), "da
 assert(protocol.includes("普通列表不得再显示顶部 `状态` 下拉"), "A128 协议必须禁止普通列表顶部状态下拉");
 assert(protocol.includes("旧 `status` 参数仅为兼容旧链接和旧预设保留"), "A128 协议必须说明旧 status 兼容边界");
 assert(protocol.includes("headerMatch=existsLine"), "A128 协议必须声明整单视图命中明细字段的 existsLine 口径");
+assert(protocol.includes("上季度"), "A128 协议必须登记常用过滤条件“上季度”");
 
 assert(!dataListPage.includes('data-testid="list-status"'), "DataListPage 不得渲染普通列表顶部状态下拉");
 assert(!dataListPage.includes("2026-06-01 至 2026-06-30"), "DataListPage 不得保留旧只读日期占位");
@@ -58,6 +61,13 @@ assert(listQueryBar.includes('data-testid="list-date-range"'), "ListQueryBar 必
 assert(listQueryBar.includes("list-query-button"), "日期过滤触发按钮必须使用统一查询按钮样式");
 assert(listQueryBar.includes(`@keydown.enter="emit('query')"`) || listQueryBar.includes(`@keydown.enter="emit(\\"query\\")"`), "关键字必须回车才触发查询");
 assert(!listQueryBar.includes(`@input="emit('query')"`) && !listQueryBar.includes(`@input="emit(\\"query\\")"`), "关键字输入不得即时触发查询");
+assert(listQueryBar.includes('"previousQuarter"'), "常用过滤条件必须包含上季度");
+assert(!listQueryBar.includes("expanded || dateRangeOpen || quickDateMenuOpen"), "弹层开关不得改变查询栏 expanded 布局");
+assert(!listQueryBar.includes('class="date-filter-menu"'), "常用过滤条件不得使用私有 date-filter-menu 弹层");
+assert(!listQueryBar.includes('class="date-range-popover"'), "日期范围不得使用私有 date-range-popover 弹层");
+assert(listQueryBar.includes("column-filter-popover"), "常用过滤条件和日期范围必须复用列筛选 popover 体系");
+assert(!baseCss.includes(".date-filter-menu"), "不得保留私有 date-filter-menu 样式系统");
+assert(!baseCss.includes(".date-range-popover"), "不得保留私有 date-range-popover 样式系统");
 
 assert(dataListDefinition.includes("searchFields:"), "ListDefinition 必须包含 searchFields 协议元数据");
 assert(dataListDefinition.includes("dateField:"), "ListDefinition 必须包含 dateField 协议元数据");

@@ -1,5 +1,5 @@
 <template>
-  <section class="list-filter" :class="{ expanded: expanded || dateRangeOpen || quickDateMenuOpen }">
+  <section class="list-filter" :class="{ expanded }">
     <label>
       关键字
       <input
@@ -11,25 +11,27 @@
       />
     </label>
     <div v-if="supportsQuickDateFilter" class="date-filter-control">
-      <button class="list-query-button" type="button" data-testid="list-quick-date" @click="toggleQuickDateMenu">常用过滤条件</button>
-      <div v-if="quickDateMenuOpen" class="date-filter-menu" data-testid="list-quick-date-menu">
-        <button v-for="option in quickDateOptions" :key="option.key" type="button" @click="selectQuickDate(option.key)">
-          {{ option.label }}
-        </button>
+      <button ref="quickDateButton" class="list-query-button" type="button" data-testid="list-quick-date" @click="toggleQuickDateMenu">常用过滤条件</button>
+      <div v-if="quickDateMenuOpen" class="column-filter-popover" :style="quickDatePopoverStyle" data-testid="list-quick-date-menu">
+        <div class="filter-operator-list">
+          <button v-for="option in quickDateOptions" :key="option.key" type="button" @click="selectQuickDate(option.key)">
+            {{ option.label }}
+          </button>
+        </div>
       </div>
     </div>
     <div v-if="supportsQuickDateFilter" class="date-filter-control">
-      <button class="list-query-button" type="button" data-testid="list-date-range" @click="toggleDateRange">日期范围</button>
-      <div v-if="dateRangeOpen" class="date-range-popover" data-testid="list-date-range-popover">
-        <label>
+      <button ref="dateRangeButton" class="list-query-button" type="button" data-testid="list-date-range" @click="toggleDateRange">日期范围</button>
+      <div v-if="dateRangeOpen" class="column-filter-popover" :style="dateRangePopoverStyle" data-testid="list-date-range-popover">
+        <label class="column-filter-input-row">
           开始日期
           <input v-model="draftDateFrom" type="date" data-testid="list-date-from" />
         </label>
-        <label>
+        <label class="column-filter-input-row">
           结束日期
           <input v-model="draftDateTo" type="date" data-testid="list-date-to" />
         </label>
-        <div class="date-range-actions">
+        <div class="column-filter-actions">
           <button type="button" @click="clearDateRange">清除</button>
           <button class="primary-action" type="button" data-testid="list-date-range-apply" @click="applyDateRange">确定</button>
         </div>
@@ -51,7 +53,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 
-type QuickDateRangeKey = "currentMonth" | "previousMonth" | "currentQuarter" | "currentYear" | "previousYear";
+type QuickDateRangeKey = "currentMonth" | "previousMonth" | "currentQuarter" | "previousQuarter" | "currentYear" | "previousYear";
 
 const props = defineProps<{
   keyword: string;
@@ -75,14 +77,33 @@ const quickDateMenuOpen = ref(false);
 const dateRangeOpen = ref(false);
 const draftDateFrom = ref("");
 const draftDateTo = ref("");
+const quickDateButton = ref<HTMLElement | null>(null);
+const dateRangeButton = ref<HTMLElement | null>(null);
+const quickDatePopoverLeft = ref(0);
+const quickDatePopoverTop = ref(0);
+const dateRangePopoverLeft = ref(0);
+const dateRangePopoverTop = ref(0);
 
 const quickDateOptions: Array<{ key: QuickDateRangeKey; label: string }> = [
   { key: "currentMonth", label: "本月" },
   { key: "previousMonth", label: "上月" },
   { key: "currentQuarter", label: "本季度" },
+  { key: "previousQuarter", label: "上季度" },
   { key: "currentYear", label: "本年度" },
   { key: "previousYear", label: "上年度" }
 ];
+
+const quickDatePopoverStyle = computed(() => ({
+  left: `${quickDatePopoverLeft.value}px`,
+  top: `${quickDatePopoverTop.value}px`,
+  width: "160px"
+}));
+
+const dateRangePopoverStyle = computed(() => ({
+  left: `${dateRangePopoverLeft.value}px`,
+  top: `${dateRangePopoverTop.value}px`,
+  width: "260px"
+}));
 
 const activeDateRangeLabel = computed(() => {
   if (props.dateFrom && props.dateTo) {
@@ -107,6 +128,7 @@ watch(() => [props.dateFrom, props.dateTo], ([from, to]) => {
 function toggleQuickDateMenu() {
   quickDateMenuOpen.value = !quickDateMenuOpen.value;
   if (quickDateMenuOpen.value) {
+    placePopover(quickDateButton.value, 160, quickDatePopoverLeft, quickDatePopoverTop);
     dateRangeOpen.value = false;
   }
 }
@@ -114,6 +136,7 @@ function toggleQuickDateMenu() {
 function toggleDateRange() {
   dateRangeOpen.value = !dateRangeOpen.value;
   if (dateRangeOpen.value) {
+    placePopover(dateRangeButton.value, 260, dateRangePopoverLeft, dateRangePopoverTop);
     quickDateMenuOpen.value = false;
     draftDateFrom.value = props.dateFrom;
     draftDateTo.value = props.dateTo;
@@ -154,6 +177,13 @@ function quickDateRange(key: QuickDateRangeKey, baseDate: Date) {
       to: formatDate(new Date(year, quarterStart + 3, 0))
     };
   }
+  if (key === "previousQuarter") {
+    const quarterStart = Math.floor(month / 3) * 3 - 3;
+    return {
+      from: formatDate(new Date(year, quarterStart, 1)),
+      to: formatDate(new Date(year, quarterStart + 3, 0))
+    };
+  }
   if (key === "currentYear") {
     return { from: `${year}-01-01`, to: `${year}-12-31` };
   }
@@ -172,5 +202,14 @@ function formatDate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function placePopover(anchor: HTMLElement | null, width: number, leftRef: typeof quickDatePopoverLeft, topRef: typeof quickDatePopoverTop) {
+  if (!anchor) {
+    return;
+  }
+  const rect = anchor.getBoundingClientRect();
+  leftRef.value = Math.min(rect.left, window.innerWidth - width - 8);
+  topRef.value = Math.min(rect.bottom + 4, window.innerHeight - 220);
 }
 </script>
