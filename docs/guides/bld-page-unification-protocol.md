@@ -160,6 +160,8 @@ actions: ["create", "save", "audit", "reverse", "sourceSelect", "delete", "expor
 
 生命周期相关按钮的新增或调整必须同时检查三处：后端 `BillLifecyclePolicy`、前端 `documentLifecyclePolicy.ts`、列表/详情页动作声明。只改按钮文案或外观属于全局 UI 改动；改某类单据是否允许关闭、冻结、红冲属于生命周期协议改动，必须更新业务规则和验收报告。
 
+新增正式单据时，还必须执行 `docs/guides/bill-lifecycle-unification-protocol.md` 的“新增单据生命周期接入门禁”，并运行 `node scripts/a124-lifecycle-contract-scan.mjs`。页面协议只保证外观和交互一致，生命周期协议负责防止按钮、状态和后端规则分叉。
+
 ## 表格/表体硬约束
 
 ### 共享表格外观
