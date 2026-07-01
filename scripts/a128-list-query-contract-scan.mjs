@@ -15,7 +15,13 @@ const [
   listQueryBar,
   dataListDefinition,
   listApi,
-  listController
+  listController,
+  listQueryService,
+  contractRegistry,
+  listQueryAdapter,
+  salesOrderAdapter,
+  defaultAdapter,
+  listQuerySupport
 ] = await Promise.all([
   text("docs/13-列表API契约.md"),
   text("docs/guides/list-query-unification-protocol.md"),
@@ -23,7 +29,13 @@ const [
   text("frontend/src/components/list/ListQueryBar.vue"),
   text("frontend/src/components/list/useDataListDefinition.ts"),
   text("frontend/src/services/listApi.ts"),
-  text("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java")
+  text("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryService.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryContractRegistry.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryAdapter.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/SalesOrderListQueryAdapter.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/DefaultStubListQueryAdapter.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/ListQuerySupport.java")
 ]);
 
 assert(apiContract.includes("多词 AND、字段内 OR"), "列表 API 契约必须声明关键字多词 AND / 字段内 OR");
@@ -42,6 +54,8 @@ assert(dataListPage.includes("submitQuery()"), "查询动作必须统一回到�
 assert(listQueryBar.includes('data-testid="list-quick-date"'), "ListQueryBar 必须提供常用过滤条件入口");
 assert(listQueryBar.includes('data-testid="list-date-range"'), "ListQueryBar 必须提供日期范围入口");
 assert(listQueryBar.includes("list-query-button"), "日期过滤触发按钮必须使用统一查询按钮样式");
+assert(listQueryBar.includes(`@keydown.enter="emit('query')"`) || listQueryBar.includes(`@keydown.enter="emit(\\"query\\")"`), "关键字必须回车才触发查询");
+assert(!listQueryBar.includes(`@input="emit('query')"`) && !listQueryBar.includes(`@input="emit(\\"query\\")"`), "关键字输入不得即时触发查询");
 
 assert(dataListDefinition.includes("searchFields:"), "ListDefinition 必须包含 searchFields 协议元数据");
 assert(dataListDefinition.includes("dateField:"), "ListDefinition 必须包含 dateField 协议元数据");
@@ -53,15 +67,58 @@ assert(listApi.includes("status?: string"), "ListQuery.status 必须是兼容字
 assert(!listApi.includes("status: query.status,\n"), "listApi 不得无条件发送 status 参数");
 assert(listApi.includes("if (query.status)"), "listApi 只能在兼容旧调用时发送 status 参数");
 
-assert(listController.includes("ListQueryRequest"), "后端列表查询必须收敛到统一查询请求");
-assert(listController.includes("ListQueryContract"), "后端列表查询必须登记统一查询契约");
-assert(listController.includes("salesOrderHeaderRows"), "销售订单整单视图必须有 header adapter");
-assert(listController.includes("EXISTS"), "整单视图命中明细字段必须用 EXISTS 或等价 join");
-assert(!listController.includes("searchFieldsFor("), "后端不得保留旧 searchFieldsFor 推断函数");
-assert(!listController.includes("dateFieldFor("), "后端不得保留旧 dateFieldFor 推断函数");
-assert(listController.includes("keywordTokens"), "后端列表查询必须实现关键字分词");
-assert(listController.includes("matchesKeywordTokens"), "后端列表查询必须实现多词关键字匹配");
-assert(listController.includes("matchesDateRange"), "后端列表查询必须实现通用日期范围");
-assert(listController.includes('filters.put("status"'), "后端必须把旧 status 参数兼容为列头筛选");
+assert(listController.includes("ListQueryService"), "Controller 必须委托 ListQueryService");
+assert(listController.includes("listQueryService.query"), "Controller 必须通过统一查询服务读取列表");
+assert(!listController.includes("ListQueryContract"), "Controller 不得登记或感知查询契约");
+assert(!listController.includes("adapterHandlesQuery"), "Controller 不得保留 adapterHandlesQuery 特判");
+assert(!listController.includes("contractFor("), "Controller 不得保留私有 contractFor");
+assert(!listController.includes("salesOrderHeaderRows"), "Controller 不得保留销售订单 header SQL adapter");
+assert(!listController.includes("matchesKeywordTokens"), "Controller 不得保留关键字匹配规则");
+assert(!listController.includes("matchesDateRange"), "Controller 不得保留日期匹配规则");
+assert(!listController.includes("parseColumnFilters"), "Controller 不得解析列筛选协议");
+assert(!listController.includes('filters.put("status"'), "Controller 不得处理旧 status 兼容");
+
+assert(listQueryService.includes("ListQueryContractRegistry"), "后端必须通过 ListQueryContractRegistry 获取协议");
+assert(listQueryService.includes("ListQueryAdapter"), "后端必须通过 ListQueryAdapter 执行查询");
+assert(listQueryService.includes("contractRegistry.contractFor"), "ListQueryService 必须按 listKey/view 获取契约");
+assert(listQueryService.includes("contract.adapterKey()"), "ListQueryService 必须由契约决定 adapter");
+assert(contractRegistry.includes('"sales-order-form-list"'), "Registry 必须登记销售订单列表契约");
+assert(contractRegistry.includes('"salesOrder"'), "销售订单契约必须指向 salesOrder adapter");
+assert(contractRegistry.includes('"exists"'), "销售订单整单视图必须声明 exists 明细命中策略");
+assert(contractRegistry.includes('"join"'), "销售订单明细视图必须声明 join 明细返回策略");
+assert(listQueryAdapter.includes("ListQueryResult query"), "ListQueryAdapter 必须定义统一查询结果接口");
+assert(defaultAdapter.includes("seedRowsProvider"), "默认 adapter 必须显式依赖 seedRowsProvider");
+assert(listQuerySupport.includes("keywordTokens"), "后端列表查询必须实现关键字分词");
+assert(listQuerySupport.includes("matchesKeywordTokens"), "默认 adapter 必须支持多词关键字匹配");
+assert(listQuerySupport.includes("matchesDateRange"), "默认 adapter 必须支持通用日期范围");
+assert(listQuerySupport.includes('filters.put("status"'), "旧 status 参数必须在统一 support 中兼容为列头筛选");
+assert(salesOrderAdapter.includes("EXISTS"), "整单视图命中明细字段必须用 EXISTS 或等价 join");
+assert(salesOrderAdapter.includes("LIMIT ? OFFSET ?"), "销售订单 adapter 必须 SQL 下推分页");
+assert(salesOrderAdapter.includes("SELECT count(*)"), "销售订单 adapter 必须 SQL 下推 total 计算");
+assert(!salesOrderAdapter.includes("seedRowsProvider.seedRows"), "销售订单 adapter 不得回退 seedRows");
+assert(salesOrderAdapter.includes("contract.returnShape()"), "销售订单 adapter 必须消费 contract 的 returnShape");
+[
+  "planDeliveryDate",
+  "qty",
+  "shippedQty",
+  "remainingQty",
+  "amount",
+  "priceTaxTotal",
+  "unitPrice",
+  "taxInclusiveUnitPrice",
+  "customerMaterialCode",
+  "customerOrderNo",
+  "lineRemark"
+].forEach((field) => {
+  assert(salesOrderAdapter.includes(`expressions.put("${field}"`), `销售订单 adapter 必须映射可见列筛选字段 ${field}`);
+});
+[
+  "HEADER_AMOUNT_TEXT",
+  "HEADER_PRICE_TAX_TOTAL_TEXT",
+  "DETAIL_AMOUNT_TEXT",
+  "DETAIL_PRICE_TAX_TOTAL_TEXT"
+].forEach((constantName) => {
+  assert(salesOrderAdapter.includes(constantName), `销售订单金额/数量筛选必须复用显示文本表达式 ${constantName}`);
+});
 
 console.log("A128 list query contract scan passed");

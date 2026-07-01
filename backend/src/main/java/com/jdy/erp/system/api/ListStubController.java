@@ -1,14 +1,12 @@
 package com.jdy.erp.system.api;
 
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdy.erp.system.application.list.ListQueryRequest;
+import com.jdy.erp.system.application.list.ListQueryService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,21 +24,21 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/lists")
 public class ListStubController {
-    private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final TenantDataScopeService tenantDataScopeService;
+    private final ListQueryService listQueryService;
 
     public ListStubController(
-        ObjectMapper objectMapper,
         JdbcTemplate jdbcTemplate,
         CurrentSessionService currentSessionService,
-        TenantDataScopeService tenantDataScopeService
+        TenantDataScopeService tenantDataScopeService,
+        ListQueryService listQueryService
     ) {
-        this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.tenantDataScopeService = tenantDataScopeService;
+        this.listQueryService = listQueryService;
     }
 
     @GetMapping("/{listKey}")
@@ -68,16 +66,16 @@ public class ListStubController {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Stub error for list state");
         }
 
-        var request = listQueryRequest(listKey, keyword, status, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
-        var rows = executeListQuery(request);
+        var request = listQueryRequest(listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo, false);
+        var result = listQueryService.query(request, this::seedRowsForQuery);
         return Map.of(
-            "page", page,
-            "pageSize", pageSize,
-            "view", request.view(),
-            "sortField", sortField,
-            "sortOrder", sortOrder,
-            "total", rows.size(),
-            "rows", rows.stream().skip((long) (page - 1) * pageSize).limit(pageSize).toList()
+            "page", result.page(),
+            "pageSize", result.pageSize(),
+            "view", result.view(),
+            "sortField", result.sortField(),
+            "sortOrder", result.sortOrder(),
+            "total", result.total(),
+            "rows", result.rows()
         );
     }
 
@@ -98,8 +96,8 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String dateFrom,
         @RequestParam(defaultValue = "") String dateTo
     ) {
-        var request = listQueryRequest(listKey, keyword, status, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo);
-        var rows = executeListQuery(request);
+        var request = listQueryRequest(listKey, keyword, status, 1, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo, true);
+        var rows = listQueryService.query(request, this::seedRowsForQuery).rows();
         var columns = columnsForExport(listKey, rows);
         var csv = new StringBuilder();
         csv.append('\ufeff');
@@ -121,6 +119,7 @@ public class ListStubController {
         String listKey,
         String keyword,
         String status,
+        int page,
         int pageSize,
         String view,
         String sortField,
@@ -131,130 +130,27 @@ public class ListStubController {
         String operator,
         String targetType,
         String dateFrom,
-        String dateTo
+        String dateTo,
+        boolean exportMode
     ) {
-        var filters = new LinkedHashMap<>(parseColumnFilters(columnFilters));
-        if (status != null && !status.isBlank() && !filters.containsKey("status")) {
-            filters.put("status", Map.of("operator", "等于", "value", status));
-        }
         return new ListQueryRequest(
             listKey,
-            normalizedView(view),
-            keywordTokens(keyword),
-            filters,
+            keyword == null ? "" : keyword,
+            status == null ? "" : status,
+            Math.max(1, page),
             pageSize,
+            normalizedView(view),
             sortField == null ? "" : sortField,
             sortOrder == null ? "asc" : sortOrder,
+            columnFilters == null ? "" : columnFilters,
             module == null ? "" : module,
             action == null ? "" : action,
             operator == null ? "" : operator,
             targetType == null ? "" : targetType,
             dateFrom == null ? "" : dateFrom,
-            dateTo == null ? "" : dateTo
+            dateTo == null ? "" : dateTo,
+            exportMode
         );
-    }
-
-    private List<Map<String, ?>> executeListQuery(ListQueryRequest request) {
-        var contract = contractFor(request.listKey());
-        var rows = adapterRows(request, contract);
-        var adapterHandledQuery = adapterHandlesQuery(request);
-        var stream = rows.stream();
-        if (!adapterHandledQuery) {
-            stream = stream
-                .filter(row -> matchesKeywordTokens(row, contract.searchFields(), request.keywordTokens()))
-                .filter(row -> matchesDateRange(row, contract.dateField(), request.dateFrom(), request.dateTo()));
-        }
-        rows = stream
-            .filter(row -> matchesOperationLogFilters(request.listKey(), row, request.module(), request.action(), request.operator(), request.targetType(), request.dateFrom(), request.dateTo()))
-            .filter(row -> matchesColumnFilters(row, request.columnFilters()))
-            .toList();
-        if (!request.sortField().isBlank()) {
-            rows = rows.stream()
-                .sorted(comparator(request.sortField(), request.sortOrder()))
-                .toList();
-        }
-        return rows;
-    }
-
-    private boolean adapterHandlesQuery(ListQueryRequest request) {
-        return "sales-order-form-list".equals(request.listKey()) && "header".equals(request.view());
-    }
-
-    private List<Map<String, ?>> adapterRows(ListQueryRequest request, ListQueryContract contract) {
-        if ("sales-order-form-list".equals(request.listKey()) && "header".equals(request.view())) {
-            return salesOrderHeaderRows(request);
-        }
-        var seedRows = seedRows(request.listKey(), request.view());
-        return expandRowsForLargePage(request.listKey(), seedRows, request.pageSize());
-    }
-
-    private record ListQueryRequest(
-        String listKey,
-        String view,
-        List<String> keywordTokens,
-        Map<String, Map<String, String>> columnFilters,
-        int pageSize,
-        String sortField,
-        String sortOrder,
-        String module,
-        String action,
-        String operator,
-        String targetType,
-        String dateFrom,
-        String dateTo
-    ) {}
-
-    private record ListQueryContract(
-        List<String> searchFields,
-        String dateField,
-        String headerMatch
-    ) {}
-
-    private ListQueryContract contractFor(String listKey) {
-        if (listKey.endsWith("-master-list")) {
-            return new ListQueryContract(List.of("code", "name", "spec", "category", "contact", "phone", "warehouseCode", "warehouseName"), "updatedAt", "rowOnly");
-        }
-        return switch (listKey) {
-            case "operation-log-list" -> new ListQueryContract(List.of("module", "action", "targetType", "targetNo", "operator", "reason", "operatedAt"), "operatedAt", "rowOnly");
-            case "sales-order-form-list", "sales-quote-form-list", "delivery-notice-form-list", "sales-out-list", "sales-out-form-list" ->
-                new ListQueryContract(List.of("billNo", "customerCode", "customer", "partner", "productCode", "productName", "spec", "customerMaterialCode", "customerOrderNo", "remark", "lineRemark"), "billDate", "existsLine");
-            case "purchase-order-form-list", "purchase-in-list", "purchase-in-form-list", "purchase-return-list", "purchase-return-form-list" ->
-                new ListQueryContract(List.of("billNo", "supplierCode", "supplier", "partner", "productCode", "productName", "spec", "sourceBillNo", "lineRemark"), "billDate", "existsLine");
-            case "inventory-query-list", "stock-alert-list" -> new ListQueryContract(List.of("productCode", "productName", "spec", "warehouse", "warehouseCode", "warehouseName", "status"), "", "rowOnly");
-            default -> new ListQueryContract(List.of(), "", "rowOnly");
-        };
-    }
-
-    private List<String> keywordTokens(String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return List.of();
-        }
-        return Stream.of(keyword.trim().split("[\\s\\u3000]+"))
-            .map(String::trim)
-            .filter(token -> !token.isBlank())
-            .toList();
-    }
-
-    private boolean matchesKeywordTokens(Map<String, ?> row, List<String> searchFields, List<String> tokens) {
-        if (tokens.isEmpty()) {
-            return true;
-        }
-        var fields = searchFields.isEmpty() ? row.keySet().stream().toList() : searchFields;
-        return tokens.stream().allMatch(token -> fields.stream().anyMatch(field -> {
-            var value = row.get(field);
-            return value != null && String.valueOf(value).contains(token);
-        }));
-    }
-
-    private boolean matchesDateRange(Map<String, ?> row, String dateField, String dateFrom, String dateTo) {
-        if (dateField == null || dateField.isBlank() || ((dateFrom == null || dateFrom.isBlank()) && (dateTo == null || dateTo.isBlank()))) {
-            return true;
-        }
-        var rawValue = row.get(dateField);
-        var value = String.valueOf(rawValue == null ? "" : rawValue);
-        var date = value.length() >= 10 ? value.substring(0, 10) : value;
-        return (dateFrom == null || dateFrom.isBlank() || date.compareTo(dateFrom) >= 0)
-            && (dateTo == null || dateTo.isBlank() || date.compareTo(dateTo) <= 0);
     }
 
     private String normalizedView(String view) {
@@ -295,72 +191,6 @@ public class ListStubController {
 
     private record ExportColumn(String field, String title) {}
 
-    private boolean matchesOperationLogFilters(
-        String listKey,
-        Map<String, ?> row,
-        String module,
-        String action,
-        String operator,
-        String targetType,
-        String dateFrom,
-        String dateTo
-    ) {
-        if (!"operation-log-list".equals(listKey)) {
-            return true;
-        }
-        var rowModule = String.valueOf(row.get("module") == null ? "" : row.get("module"));
-        var rowAction = String.valueOf(row.get("action") == null ? "" : row.get("action"));
-        var rowOperator = String.valueOf(row.get("operator") == null ? "" : row.get("operator"));
-        var rowTargetType = String.valueOf(row.get("targetType") == null ? "" : row.get("targetType"));
-        var operatedAt = String.valueOf(row.get("operatedAt") == null ? "" : row.get("operatedAt"));
-        var operatedDate = operatedAt.length() >= 10 ? operatedAt.substring(0, 10) : "";
-        return (module == null || module.isBlank() || module.equals(rowModule))
-            && (action == null || action.isBlank() || action.equals(rowAction))
-            && (operator == null || operator.isBlank() || rowOperator.contains(operator))
-            && (targetType == null || targetType.isBlank() || targetType.equals(rowTargetType))
-            && (dateFrom == null || dateFrom.isBlank() || operatedDate.compareTo(dateFrom) >= 0)
-            && (dateTo == null || dateTo.isBlank() || operatedDate.compareTo(dateTo) <= 0);
-    }
-
-    private Map<String, Map<String, String>> parseColumnFilters(String columnFilters) {
-        if (columnFilters == null || columnFilters.isBlank()) {
-            return Map.of();
-        }
-        try {
-            return objectMapper.readValue(columnFilters, new TypeReference<>() {});
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    private boolean matchesColumnFilters(Map<String, ?> row, Map<String, Map<String, String>> filters) {
-        return filters.entrySet().stream().allMatch(entry -> {
-            var filter = entry.getValue();
-            var operator = filter.getOrDefault("operator", "包含");
-            var value = filter.getOrDefault("value", "");
-            var rawValue = row.get(entry.getKey());
-            var cellValue = String.valueOf(rawValue == null ? "" : rawValue);
-            return switch (operator) {
-                case "不包含" -> !cellValue.contains(value);
-                case "等于" -> cellValue.equals(value);
-                case "不等于" -> !cellValue.equals(value);
-                case "以……开始" -> cellValue.startsWith(value);
-                case "以……结束" -> cellValue.endsWith(value);
-                case "为空" -> cellValue.isBlank();
-                case "不为空" -> !cellValue.isBlank();
-                default -> cellValue.contains(value);
-            };
-        });
-    }
-
-    private Comparator<Map<String, ?>> comparator(String sortField, String sortOrder) {
-        var comparator = Comparator.comparing((Map<String, ?> row) -> {
-            var rawValue = row.get(sortField);
-            return String.valueOf(rawValue == null ? "" : rawValue);
-        });
-        return "desc".equalsIgnoreCase(sortOrder) ? comparator.reversed() : comparator;
-    }
-
     private List<Map<String, ?>> expandRowsForLargePage(String listKey, List<Map<String, ?>> seedRows, int pageSize) {
         if (pageSize < 1000 || seedRows.isEmpty() || !isSyntheticExpandableList(listKey)) {
             return seedRows;
@@ -384,6 +214,10 @@ public class ListStubController {
     private boolean isSyntheticExpandableList(String listKey) {
         return Stream.of("standard-list", "error-list", "permission-denied-list")
             .anyMatch(listKey::equals);
+    }
+
+    private List<Map<String, ?>> seedRowsForQuery(String listKey, String view, int pageSize) {
+        return expandRowsForLargePage(listKey, seedRows(listKey, view), pageSize);
     }
 
     private List<Map<String, ?>> seedRows(String listKey, String view) {
@@ -1107,92 +941,6 @@ public class ListStubController {
                 p.code,
                 w.code
             """, inventoryScopeId()));
-    }
-
-    private List<Map<String, ?>> salesOrderHeaderRows(ListQueryRequest request) {
-        var sql = new StringBuilder("""
-            SELECT so.id::text AS id,
-                   so.bill_no AS "billNo",
-                   c.code AS "customerCode",
-                   c.name AS customer,
-                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
-                   CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
-                   CASE
-                       WHEN so.out_status = 'ALL_OUT' THEN '全部出库'
-                       WHEN so.out_status = 'PART_OUT' THEN '部分出库'
-                       ELSE '未出库'
-                   END AS "outStatus",
-                   so.close_status AS "closeStatus",
-                   so.close_mode AS "closeMode",
-                   CASE
-                       WHEN so.close_status = 'OPEN' THEN '未关闭'
-                       WHEN so.close_status = 'CLOSED' AND so.close_mode = 'AUTO' THEN '自动关闭'
-                       WHEN so.close_status = 'CLOSED' AND so.close_mode = 'MANUAL' THEN '手动关闭'
-                       WHEN so.close_status = 'CLOSED' THEN '历史已关闭'
-                       ELSE COALESCE(so.close_status, '')
-                   END AS "closeStatusLabel",
-                   so.frozen_status AS "frozenStatus",
-                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END AS "frozenStatusLabel",
-                   trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
-                   trim(to_char(COALESCE(extra.shipped_qty, 0), 'FM9999999990.####')) AS "shippedQty",
-                   trim(to_char(GREATEST(0, COALESCE(extra.qty, 0) - COALESCE(extra.shipped_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
-                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
-                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
-                   COALESCE(so.remark, '') AS remark,
-                   COALESCE(so.owner_name, '') AS owner
-            FROM sales_order so
-            JOIN md_customer c ON c.id = so.customer_id
-            LEFT JOIN (
-                SELECT order_id,
-                       MIN(plan_delivery_date) AS plan_delivery_date,
-                       SUM(qty) AS qty,
-                       SUM(shipped_qty) AS shipped_qty,
-                       SUM(amount) AS amount
-                FROM sales_order_line
-                GROUP BY order_id
-            ) extra ON extra.order_id = so.id
-            WHERE 1 = 1
-            """);
-        var args = new ArrayList<Object>();
-        if (!request.dateFrom().isBlank()) {
-            sql.append(" AND so.bill_date >= ?::date");
-            args.add(request.dateFrom());
-        }
-        if (!request.dateTo().isBlank()) {
-            sql.append(" AND so.bill_date <= ?::date");
-            args.add(request.dateTo());
-        }
-        for (var token : request.keywordTokens()) {
-            sql.append("""
-                 AND (
-                    so.bill_no ILIKE ?
-                    OR c.code ILIKE ?
-                    OR c.name ILIKE ?
-                    OR COALESCE(so.remark, '') ILIKE ?
-                    OR EXISTS (
-                        SELECT 1
-                        FROM sales_order_line line
-                        JOIN md_product product ON product.id = line.product_id
-                        WHERE line.order_id = so.id
-                          AND (
-                            COALESCE(line.product_code_snapshot, product.code, '') ILIKE ?
-                            OR COALESCE(line.product_name_snapshot, product.name, '') ILIKE ?
-                            OR COALESCE(line.product_spec_snapshot, product.spec, '') ILIKE ?
-                            OR COALESCE(line.customer_material_code, '') ILIKE ?
-                            OR COALESCE(line.customer_order_no, '') ILIKE ?
-                            OR COALESCE(line.line_remark, '') ILIKE ?
-                          )
-                    )
-                )
-                """);
-            var like = "%" + token + "%";
-            for (var index = 0; index < 10; index += 1) {
-                args.add(like);
-            }
-        }
-        sql.append(" ORDER BY so.updated_at DESC, so.id DESC");
-        return new ArrayList<Map<String, ?>>(jdbcTemplate.queryForList(sql.toString(), args.toArray()));
     }
 
     private List<Map<String, ?>> salesRows() {

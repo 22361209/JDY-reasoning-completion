@@ -73,8 +73,11 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 单据类列表允许声明：
 
 ```text
-headerMatch=existsLine
+lineMatchPolicy=exists
+returnShape=header
 ```
+
+旧资料里的 `headerMatch=existsLine` 只作为语义别名保留，不作为新代码字段。
 
 语义：
 

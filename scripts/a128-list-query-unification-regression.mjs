@@ -131,6 +131,18 @@ try {
   assert(JSON.stringify(dateRangeButtonBox) === JSON.stringify(queryButtonBox), "日期范围按钮与普通查询区按钮视觉一致", { dateRangeButtonBox, queryButtonBox });
 
   await ensureHeaderView(page);
+  let listRequestCount = 0;
+  const countListRequest = (request) => {
+    if (request.url().includes("/api/lists/sales-order-form-list")) {
+      listRequestCount += 1;
+    }
+  };
+  page.on("request", countListRequest);
+  await page.getByTestId("list-keyword").fill(`NO_AUTO_QUERY_${batch}`);
+  await page.waitForTimeout(300);
+  page.off("request", countListRequest);
+  assert(listRequestCount === 0, "关键字输入不即时查询，必须回车或点击查询触发", { listRequestCount });
+
   await page.getByTestId("list-keyword").fill(`A128KEY ${batch} CP-001`);
   await page.getByTestId("list-query").click();
   await page.getByTestId(`open-document-${julyBillNo}`).waitFor({ state: "visible", timeout: 10000 });
@@ -187,6 +199,21 @@ try {
     return { ok: response.ok, text: await response.text() };
   }, { billNo: julyBillNo });
   assert(exportResponse.ok && exportResponse.text.includes(julyBillNo), "导出接口复用关键字和列头筛选参数");
+
+  const amountFilterResponse = await page.evaluate(async ({ billNo }) => {
+    const noMatchFilters = encodeURIComponent(JSON.stringify({ amount: { operator: "等于", value: "NO_MATCH_AMOUNT" } }));
+    const matchFilters = encodeURIComponent(JSON.stringify({ amount: { operator: "等于", value: "86.00" } }));
+    const [noMatchResponse, matchResponse] = await Promise.all([
+      fetch(`/api/lists/sales-order-form-list?keyword=${encodeURIComponent(billNo)}&columnFilters=${noMatchFilters}&view=header&pageSize=200`),
+      fetch(`/api/lists/sales-order-form-list?keyword=${encodeURIComponent(billNo)}&columnFilters=${matchFilters}&view=header&pageSize=200`)
+    ]);
+    return {
+      noMatch: await noMatchResponse.json(),
+      match: await matchResponse.json()
+    };
+  }, { billNo: julyBillNo });
+  assert(amountFilterResponse.noMatch.total === 0, "销售订单金额列筛选按显示文本匹配且不应静默忽略", { total: amountFilterResponse.noMatch.total });
+  assert(amountFilterResponse.match.total === 1, "销售订单金额列筛选可命中显示文本 86.00", { total: amountFilterResponse.match.total });
 
   await page.screenshot({ path: screenshot, fullPage: true });
   evidence.screenshots.push(screenshot);

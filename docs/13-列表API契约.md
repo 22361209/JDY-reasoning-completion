@@ -98,7 +98,9 @@ GET /api/lists/{listKey}/export.csv
 | `supportsQuickDateFilter` | 是否显示“常用过滤条件”和“日期范围”。 |
 | `defaultDateRange` | 可选默认日期范围，当前默认不启用。 |
 | `lifecycleColumns` | 生命周期展示列，如 `status`、`closeStatusLabel`、`frozenStatusLabel`；仅用于展示和列筛选，不作为按钮能力来源。 |
-| `headerMatch` | 整单视图关键字如何命中明细字段；单据类可声明 `existsLine`，主数据类通常为 `rowOnly`。 |
+| `lineMatchPolicy` | 整单/明细视图如何命中分录；整单视图可声明 `exists`，明细视图声明 `join`，主数据类为 `row`。旧文档中的 `headerMatch=existsLine` 等价于 `lineMatchPolicy=exists` + `returnShape=header`。 |
+| `returnShape` | 命中后返回整单还是明细；整单视图必须返回 `header`，不能因命中分录而展开行。 |
+| `adapterKey` | 后端 adapter 名称，如 `default`、`salesOrder`；禁止 Controller 通过 `listKey` 自行分支。 |
 
 普通列表筛选区统一由 `DataListPage` 渲染。新增列表不得复制顶部状态下拉、只读日期筛选或私有查询栏；特殊列表扩展字段必须先写入本契约。
 
@@ -113,7 +115,7 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 要求：
 
 - Controller 只收参和返回，不写列表搜索规则。
-- `ListQueryService` 负责分词、旧 `status` 兼容、日期、列筛选、排序、分页和导出复用。
+- `ListQueryService` 负责分词、旧 `status` 兼容、日期、列筛选、排序、分页和导出复用，并按契约选择 adapter。
 - `ListQueryContractRegistry` 是列表搜索字段、日期字段、生命周期列和视图语义的唯一后端登记处。
 - `ListQueryAdapter` 负责把契约映射到真实 SQL 或 stub 数据。已接库业务列表必须优先把关键字、日期、状态等高选择性条件下推到数据库。
 - 同一次请求只能生成一次查询计划，不能为搜索字段、日期字段和结果集重复读取 `seedRows`。
