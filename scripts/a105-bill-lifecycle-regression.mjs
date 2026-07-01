@@ -1,5 +1,5 @@
 import { chromium } from "playwright";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
@@ -43,6 +43,32 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+async function verifyLifecycleCodeContracts() {
+  const dataListPage = await readFile(path.join(rootDir, "frontend/src/components/DataListPage.vue"), "utf8");
+  const listStubController = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/system/api/ListStubController.java"), "utf8");
+  const lifecyclePolicy = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/BillLifecyclePolicy.java"), "utf8");
+  const lifecycleService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/BillLifecycleService.java"), "utf8");
+  const outsourcingService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/outsourcing/application/OutsourcingDocumentAppService.java"), "utf8");
+
+  assert(dataListPage.includes("auditDocument(type, billNo)"), "DataListPage batch audit must call auditDocument");
+  assert(dataListPage.includes("async function submitBatchAudit()"), "DataListPage must implement submitBatchAudit");
+  assert(dataListPage.includes("selectedBillRows.value.every(isDraftBillStatus)"), "batch audit button must only enable for draft bills");
+  assert(!dataListPage.includes('outStatus !== "全部出库"'), "sales pushdown must not depend on outStatus display text");
+  assert(!dataListPage.includes('inStatus !== "全部入库"'), "purchase pushdown must not depend on inStatus display text");
+  assert(listStubController.includes('dn.close_status AS "closeStatus"'), "delivery notice list must return closeStatus");
+  assert(listStubController.includes('dn.frozen_status AS "frozenStatus"'), "delivery notice list must return frozenStatus");
+  assert(lifecyclePolicy.includes("boolean voidAllowed"), "backend lifecycle policy must include voidAllowed");
+  assert(lifecycleService.includes("BillLifecyclePolicy.requireVoidAllowed(target);"), "voidBill must enforce backend voidAllowed policy");
+  assert(!outsourcingService.includes("BillStatus.AUDITED.name(), BillStatus.REVERSED.name()"), "new reverse logic must not transition AUDITED to REVERSED");
+  return {
+    batchAuditSubmits: true,
+    pushdownUsesRemainingQty: true,
+    deliveryNoticeListLifecycleStatus: true,
+    backendVoidAllowedEnforced: true,
+    reverseReturnsDraft: true
+  };
+}
+
 async function seedStock() {
   await requireApi("/api/inventory/adjustments", {
     body: {
@@ -56,6 +82,12 @@ async function seedStock() {
 }
 
 async function createSalesOrder(suffix, qtys = [6, 4]) {
+  const billNo = await createSalesOrderDraft(suffix, qtys);
+  await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
+  return billNo;
+}
+
+async function createSalesOrderDraft(suffix, qtys = [6, 4]) {
   const billNo = `XSDD-A105-${suffix}-${batch}`;
   await requireApi("/api/sales-orders/draft", {
     body: {
@@ -75,7 +107,6 @@ async function createSalesOrder(suffix, qtys = [6, 4]) {
       }))
     }
   });
-  await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }
 
@@ -254,9 +285,45 @@ async function verifyUi() {
   }
 }
 
+async function verifyBatchAuditUi() {
+  const draftNo = await createSalesOrderDraft("BATCHAUDIT", [2]);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+  try {
+    await page.goto(frontendUrl, { waitUntil: "networkidle" });
+    await loginAsAdmin(page);
+    await page.getByTestId("module-销售管理").hover();
+    await page.getByTestId("query-sales-order-form").click();
+    await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
+    await page.getByTestId("list-keyword").fill(draftNo);
+    await page.getByTestId("list-query").click();
+    await page.getByTestId(`open-document-${draftNo}`).waitFor({ state: "visible", timeout: 10000 });
+
+    const row = page.locator(".vxe-body--row", { has: page.getByTestId(`open-document-${draftNo}`) }).first();
+    await row.locator("[data-testid^='list-select-toggle-']").first().click();
+    const auditButton = page.getByTestId("batch-audit");
+    await auditButton.waitFor({ state: "visible" });
+    assert(await auditButton.isEnabled(), "batch audit button should be enabled for selected draft bill");
+    await auditButton.click();
+    await page.getByTestId("batch-confirm-dialog").waitFor({ state: "visible" });
+    await page.getByRole("button", { name: "确定" }).last().click();
+    await page.getByTestId("list-batch-message").waitFor({ state: "visible", timeout: 10000 });
+    const message = (await page.getByTestId("list-batch-message").textContent())?.trim() ?? "";
+    assert(message.includes("已审核 1 张单据"), `batch audit should report success, got ${message}`);
+
+    const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(draftNo)}`, { method: "GET" });
+    assert(detail.order.status === "AUDITED", "batch audit should persist AUDITED status");
+    return { draftNo, message };
+  } finally {
+    await browser.close();
+  }
+}
+
+const codeContracts = await verifyLifecycleCodeContracts();
 await seedStock();
 const lifecycle = await verifyLifecycleApi();
 const ui = await verifyUi();
+const batchAuditUi = await verifyBatchAuditUi();
 
 const result = {
   batch,
@@ -267,10 +334,17 @@ const result = {
     "下推可选行跳过已关闭/已冻结行",
     "作废需要账号密码且草稿作废成功",
     "已有下游影响禁止作废",
-    "前端普通按钮和作废危险区二次确认可见"
+    "前端普通按钮和作废危险区二次确认可见",
+    "批量审核接入真实 auditDocument 提交",
+    "发货通知单列表返回 closeStatus/frozenStatus",
+    "下推按钮不再依赖 outStatus/inStatus 展示文案",
+    "后端作废入口强校验 voidAllowed",
+    "新反审核逻辑不再转入 REVERSED"
   ],
+  codeContracts,
   lifecycle,
-  ui
+  ui,
+  batchAuditUi
 };
 
 await writeFile(resultPath, JSON.stringify(result, null, 2));

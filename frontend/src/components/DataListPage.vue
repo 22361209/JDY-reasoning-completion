@@ -153,10 +153,22 @@
             :checked="allDisplayedRowsSelected"
             type="checkbox"
             aria-label="全选列表行"
+            aria-hidden="true"
+            tabindex="-1"
             data-testid="list-select-all"
             @change="toggleAllDisplayedRows(($event.target as HTMLInputElement).checked)"
           />
-          <span class="vxe-checkbox--icon" @click="toggleAllDisplayedRows(!allDisplayedRowsSelected)" />
+          <span
+            class="vxe-checkbox--icon"
+            role="checkbox"
+            aria-label="全选列表行"
+            :aria-checked="allDisplayedRowsSelected"
+            tabindex="0"
+            data-testid="list-select-all-toggle"
+            @click="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
+            @keydown.enter.prevent="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
+            @keydown.space.prevent="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
+          />
         </template>
         <TableCoreHeaderCell
           v-else
@@ -179,10 +191,22 @@
           <input
             :checked="isRowSelected(row)"
             type="checkbox"
+            aria-hidden="true"
+            tabindex="-1"
             :data-testid="`list-select-${rowKey(row)}`"
             @change="toggleRowSelection(row, ($event.target as HTMLInputElement).checked)"
           />
-          <span class="vxe-checkbox--icon" @click="toggleRowSelection(row, !isRowSelected(row))" />
+          <span
+            class="vxe-checkbox--icon"
+            role="checkbox"
+            aria-label="选择列表行"
+            :aria-checked="isRowSelected(row)"
+            tabindex="0"
+            :data-testid="`list-select-toggle-${rowKey(row)}`"
+            @click="toggleRowSelection(row, !isRowSelected(row))"
+            @keydown.enter.prevent="toggleRowSelection(row, !isRowSelected(row))"
+            @keydown.space.prevent="toggleRowSelection(row, !isRowSelected(row))"
+          />
         </template>
         <div v-else class="vxe-cell">
           <span v-if="column.key === 'status'" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
@@ -388,7 +412,7 @@ import {
   type StockAlertSetting,
   type ListFilterPreset
 } from "../services/listApi";
-import { lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
+import { auditDocument, lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
 import {
   isAuditedBillStatus,
   isDraftBillStatus,
@@ -627,9 +651,11 @@ const supportsDetailView = computed(() => isOpenableDocumentList.value);
 const currentLifecyclePolicy = computed(() => lifecyclePolicyFor(documentActionTypeByListKey[props.listKey] ?? null));
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
 const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value) && !isDetailView.value);
+const supportsBatchAudit = computed(() => Boolean(documentActionTypeByListKey[props.listKey]) && supportsAuditCurrentList.value);
 const supportsBatchCloseFreeze = computed(() => Boolean(isLifecycleDocumentList.value && currentLifecyclePolicy.value?.closeFreezeAllowed));
 const selectedBillRows = computed(() => selectedRows.value.filter((row) => String(row.billNo ?? "").trim()));
 const canOperateLifecycle = computed(() => canMaintainCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value);
+const canBatchAudit = computed(() => supportsBatchAudit.value && canAuditCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value && selectedBillRows.value.every(isDraftBillStatus));
 const canBatchClose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus !== "CLOSED" && row.frozenStatus !== "FROZEN"));
 const canBatchUnclose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus === "CLOSED"));
 const canBatchFreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
@@ -646,7 +672,7 @@ const canPushDownSalesOut = computed(() => {
     isAuditedBillStatus(row) &&
     row?.closeStatus !== "CLOSED" &&
     row?.frozenStatus !== "FROZEN" &&
-    row?.outStatus !== "全部出库"
+    hasPositiveQuantity(row?.remainingQty)
   );
 });
 const canPushDownPurchaseIn = computed(() => {
@@ -659,7 +685,7 @@ const canPushDownPurchaseIn = computed(() => {
     isAuditedBillStatus(row) &&
     row?.closeStatus !== "CLOSED" &&
     row?.frozenStatus !== "FROZEN" &&
-    row?.inStatus !== "全部入库"
+    hasPositiveQuantity(row?.remainingQty)
   );
 });
 const columns = ref<ListColumn[]>([]);
@@ -720,8 +746,8 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("audit", {
     key: "batchAudit",
-    visible: supportsAuditCurrentList.value,
-    enabled: canAuditCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value,
+    visible: supportsBatchAudit.value,
+    enabled: canBatchAudit.value,
     testId: "batch-audit"
   }),
   defineAction("reverse", {
@@ -1336,6 +1362,10 @@ async function submitPendingAction() {
   const voidUsername = pendingVoidUsername.value.trim();
   const voidPassword = pendingVoidPassword.value;
   closePendingAction();
+  if (action === "审核") {
+    await submitBatchAudit();
+    return;
+  }
   if (action === "反审核") {
     await submitBatchReverse();
     return;
@@ -1348,7 +1378,7 @@ async function submitPendingAction() {
     await submitBatchVoid(reason, voidUsername, voidPassword);
     return;
   }
-  batchMessage.value = `${action}已确认，当前批次只接入反审核实际提交。`;
+  batchMessage.value = `${action}未找到可执行的批量处理，请刷新后重试。`;
 }
 
 function closePendingAction() {
@@ -1357,6 +1387,21 @@ function closePendingAction() {
   pendingVoidUsername.value = "";
   pendingVoidPassword.value = "";
   pendingActionMessage.value = "";
+}
+
+async function submitBatchAudit() {
+  const type = documentActionTypeByListKey[props.listKey];
+  const targets = selectedBillRows.value.map((row) => String(row.billNo));
+  if (!type || targets.length === 0) {
+    batchMessage.value = "请选择可审核的草稿单据。";
+    return;
+  }
+  const results = await Promise.all(targets.map((billNo) => auditDocument(type, billNo)));
+  const failed = results.filter((result) => !result.ok);
+  batchMessage.value = failed.length
+    ? `审核完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查单据状态"}`
+    : `已审核 ${targets.length} 张单据。`;
+  await reload();
 }
 
 async function submitBatchReverse() {
@@ -1422,6 +1467,12 @@ async function submitBatchVoid(reason: string, username: string, password: strin
 
 function isAuditedRow(row: Record<string, unknown>) {
   return isAuditedBillStatus(row);
+}
+
+function hasPositiveQuantity(value: unknown) {
+  const normalized = typeof value === "string" ? value.replace(/,/g, "").trim() : value;
+  const quantity = Number(normalized ?? 0);
+  return Number.isFinite(quantity) && quantity > 0;
 }
 
 function pushDownSalesOut() {

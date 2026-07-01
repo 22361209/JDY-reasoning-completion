@@ -1385,6 +1385,8 @@ public class ListStubController {
                        WHEN dn.status = 'VOID' THEN '已作废'
                        ELSE '已审核'
                    END AS status,
+                   dn.close_status AS "closeStatus",
+                   dn.frozen_status AS "frozenStatus",
                    trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
                    trim(to_char(dn.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
                    COALESCE(dn.remark, '') AS remark,

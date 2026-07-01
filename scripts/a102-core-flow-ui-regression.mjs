@@ -211,7 +211,7 @@ try {
   await page.getByTestId("list-keyword").fill(reverse.orderNo);
   await page.getByTestId("list-query").click();
   await page.getByText(reverse.orderNo).waitFor({ state: "visible" });
-  await page.locator(".vxe-body--row", { hasText: reverse.orderNo }).locator(".vxe-checkbox--icon").first().click({ force: true });
+  await page.locator(".vxe-body--row", { hasText: reverse.orderNo }).locator("[data-testid^='list-select-toggle-']").first().click();
   await page.getByTestId("batch-reverse").click();
   await page.getByTestId("batch-confirm-dialog").waitFor({ state: "visible" });
   await page.locator('[data-testid="batch-confirm-dialog"] .danger-action').click();

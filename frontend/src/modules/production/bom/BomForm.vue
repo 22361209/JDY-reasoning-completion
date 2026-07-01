@@ -300,7 +300,7 @@ async function reverseAudit() {
     return;
   }
   const result = await reverseBom(form.code);
-  handleWriteResult(result, "BOM 已反审核。");
+  handleWriteResult(result, "BOM 已反审核，状态回到草稿。");
 }
 
 async function toggleStatus() {

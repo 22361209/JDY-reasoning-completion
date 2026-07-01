@@ -577,7 +577,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
 
   async function reverse() {
     const result = await reverseDocument("salesOut", form.billNo);
-    message.value = result.ok ? "反审核成功，库存流水已冲销" : result.message;
+    message.value = result.ok ? "反审核成功，状态回到草稿；库存流水已冲销" : result.message;
     if (result.ok) {
       const reversed = result.data as { status?: unknown } | undefined;
       form.status = typeof reversed?.status === "string" ? formStatusByBackendStatus[reversed.status] ?? "DRAFT" : "DRAFT";

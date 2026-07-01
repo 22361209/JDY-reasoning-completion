@@ -172,7 +172,7 @@ public class OutsourcingDocumentAppService {
             """, workOrder.get("id")) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "委外加工单已有未反审核委外产品入库单，不能反审核");
         }
-        return transition("outsourcing_work_order", billNo, BillStatus.AUDITED.name(), BillStatus.REVERSED.name(), "REVERSE_WORK_ORDER");
+        return transition("outsourcing_work_order", billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), "REVERSE_WORK_ORDER");
     }
 
     @Transactional
@@ -263,7 +263,7 @@ public class OutsourcingDocumentAppService {
             """, source.get("workOrderId")) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "委外加工单已有未反审核委外产品入库单，不能反审核发料");
         }
-        var issue = transition("outsourcing_material_issue", billNo, BillStatus.AUDITED.name(), BillStatus.REVERSED.name(), "REVERSE_ISSUE");
+        var issue = transition("outsourcing_material_issue", billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), "REVERSE_ISSUE");
         var lines = jdbcTemplate.queryForList("""
             SELECT source_component_id::text AS "sourceComponentId",
                    product_code_snapshot AS "productCode",
@@ -371,7 +371,7 @@ public class OutsourcingDocumentAppService {
             """, receiptSource.get("id")) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "委外产品入库单已有未反审核报废单，不能反审核");
         }
-        var receipt = transition("outsourcing_receipt", billNo, BillStatus.AUDITED.name(), BillStatus.REVERSED.name(), "REVERSE_RECEIPT");
+        var receipt = transition("outsourcing_receipt", billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), "REVERSE_RECEIPT");
         var lines = jdbcTemplate.queryForList("""
             SELECT source_work_order_line_id::text AS "sourceLineId",
                    product_code_snapshot AS "productCode",
@@ -588,7 +588,7 @@ public class OutsourcingDocumentAppService {
         var fkColumn = "return".equals(kind) ? "return_id" : "scrap_id";
         var sourceColumn = "return".equals(kind) ? "returned" : "scrapped";
         var action = "return".equals(kind) ? "REVERSE_RETURN" : "REVERSE_SCRAP";
-        var adjustment = transition(table, billNo, BillStatus.AUDITED.name(), BillStatus.REVERSED.name(), action);
+        var adjustment = transition(table, billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), action);
         var lines = jdbcTemplate.queryForList("""
             SELECT source_receipt_line_id::text AS "sourceReceiptLineId",
                    product_code_snapshot AS "productCode",

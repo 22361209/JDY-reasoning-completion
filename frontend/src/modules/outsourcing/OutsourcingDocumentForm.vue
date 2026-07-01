@@ -420,8 +420,8 @@ async function reverse() {
     message.value = result.message;
     return;
   }
-  statusLabel.value = backendStatusLabel(String(result.data?.status ?? "REVERSED"));
-  message.value = `${props.title}已反审核：${form.billNo}`;
+  statusLabel.value = backendStatusLabel(String(result.data?.status ?? "DRAFT"));
+  message.value = `${props.title}已反审核，状态回到草稿：${form.billNo}`;
   emit("clearDirty");
 }
 

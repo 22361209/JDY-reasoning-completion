@@ -188,7 +188,7 @@ async function reverse() {
     return;
   }
   const result = await reverseProductionPlan(form.billNo);
-  applyLifecycleResult(result, "生产计划已反审核");
+  applyLifecycleResult(result, "生产计划已反审核，状态回到草稿");
 }
 
 async function pushDown() {

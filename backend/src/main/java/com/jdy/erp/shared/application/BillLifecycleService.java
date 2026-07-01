@@ -312,6 +312,7 @@ public class BillLifecycleService {
 
     @Transactional
     public Map<String, Object> voidBill(BillLifecycleTarget target, String billNo, VoidRequest request) {
+        BillLifecyclePolicy.requireVoidAllowed(target);
         guardTarget(target);
         var username = request == null ? "" : request.username() == null ? "" : request.username().trim();
         if (username.isBlank()) {

@@ -18,6 +18,7 @@ import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.security.CurrentSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,10 @@ class CoreBusinessFastIntegrationTest {
         new BillLifecycleTarget("sales_order", "sales_order_line", "order_id", "SALES", "sales_order");
     private static final BillLifecycleTarget SALES_OUT_TARGET =
         new BillLifecycleTarget("sales_out", "sales_out_line", "bill_id", "SALES", "sales_out");
+    private static final BillLifecycleTarget DELIVERY_NOTICE_TARGET =
+        new BillLifecycleTarget("delivery_notice", "delivery_notice_line", "bill_id", "SALES", "delivery_notice");
+    private static final BillLifecycleTarget VOID_BLOCKED_TEST_TARGET =
+        new BillLifecycleTarget("legacy_lifecycle_test", "legacy_lifecycle_test_line", "bill_id", "TEST", "legacy_lifecycle_test");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -53,6 +58,9 @@ class CoreBusinessFastIntegrationTest {
 
     @Autowired
     private DeliveryNoticeAppService deliveryNoticeAppService;
+
+    @Autowired
+    private ListStubController listStubController;
 
     @MockitoBean
     private CurrentSessionService currentSessionService;
@@ -141,6 +149,51 @@ class CoreBusinessFastIntegrationTest {
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("已有下游影响");
         assertThat(statusOf("sales_order", billNo)).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void billLifecycleVoidPolicyBlocksTargetsThatDoNotAllowVoid() {
+        assertThatThrownBy(() -> lifecycleService.voidBill(VOID_BLOCKED_TEST_TARGET, "LEGACY-A124-VOID", new VoidRequest("A124 void policy", "admin", "admin123")))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("不支持作废");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void deliveryNoticeListReturnsCloseAndFrozenStatus() {
+        var closedNoticeNo = billNo("FHTZD-A124-LIST-CLOSED");
+        var frozenNoticeNo = billNo("FHTZD-A124-LIST-FROZEN");
+        insertDeliveryNotice(closedNoticeNo, "AUDITED", "CP-001", "CK-001");
+        insertDeliveryNotice(frozenNoticeNo, "AUDITED", "CP-001", "CK-001");
+
+        lifecycleService.closeBill(DELIVERY_NOTICE_TARGET, closedNoticeNo, "A124 列表关闭状态");
+        lifecycleService.freezeBill(DELIVERY_NOTICE_TARGET, frozenNoticeNo, "A124 列表冻结状态");
+
+        var payload = listStubController.rows(
+            "delivery-notice-form-list",
+            "FHTZD-A124-LIST",
+            "",
+            1,
+            200,
+            "header",
+            "",
+            "asc",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+        );
+        var rows = (List<Map<String, Object>>) payload.get("rows");
+        var closedRow = rows.stream().filter(row -> closedNoticeNo.equals(row.get("billNo"))).findFirst().orElseThrow();
+        var frozenRow = rows.stream().filter(row -> frozenNoticeNo.equals(row.get("billNo"))).findFirst().orElseThrow();
+
+        assertThat(closedRow.get("closeStatus")).isEqualTo("CLOSED");
+        assertThat(closedRow.get("frozenStatus")).isEqualTo("NORMAL");
+        assertThat(frozenRow.get("closeStatus")).isEqualTo("OPEN");
+        assertThat(frozenRow.get("frozenStatus")).isEqualTo("FROZEN");
     }
 
     @Test
