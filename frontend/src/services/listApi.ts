@@ -1,6 +1,6 @@
 export interface ListQuery {
   keyword: string;
-  status: string;
+  status?: string;
   page: number;
   pageSize: number;
   view?: "header" | "detail";
@@ -237,10 +237,12 @@ export async function deleteStockAlertSetting(id: string): Promise<{ ok: boolean
 function buildListSearch(query: ListQuery) {
   const search = new URLSearchParams({
     keyword: query.keyword,
-    status: query.status,
     page: String(query.page),
     pageSize: String(query.pageSize)
   });
+  if (query.status) {
+    search.set("status", query.status);
+  }
   if (query.view) {
     search.set("view", query.view);
   }

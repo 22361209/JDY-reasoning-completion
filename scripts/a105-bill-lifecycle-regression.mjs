@@ -64,6 +64,11 @@ async function verifyLifecycleCodeContracts() {
 
   assert(dataListPage.includes("auditDocument(type, billNo)"), "DataListPage batch audit must call auditDocument");
   assert(dataListPage.includes("async function submitBatchAudit()"), "DataListPage must implement submitBatchAudit");
+  assert(dataListPage.includes("deleteDocument(type, billNo)"), "DataListPage batch delete must call deleteDocument");
+  assert(dataListPage.includes("async function submitBatchDelete()"), "DataListPage must implement submitBatchDelete");
+  assert(dataListPage.includes("pendingAction === '删除'"), "delete action must show a dedicated confirmation branch");
+  assert(dataListPage.includes("删除不可逆"), "delete confirmation must warn that deletion is irreversible");
+  assert(dataListPage.includes("deleteSupportedDocumentTypes"), "delete button must only enable for supported document DELETE APIs");
   assert(dataListPage.includes("selectedBillRows.value.every(isDraftBillStatus)"), "batch audit button must only enable for draft bills");
   assert(dataListPage.includes("const selectedUniqueBillRows = computed"), "list lifecycle actions must dedupe selected detail rows by billNo");
   assert(!dataListPage.includes("return !isDetailView.value && Boolean(permission) && session.hasPermission(permission);"), "detail view must not disable document lifecycle permissions");
@@ -354,11 +359,53 @@ async function verifyBatchAuditUi() {
   }
 }
 
+async function verifyBatchDeleteUi() {
+  const draftNo = await createSalesOrderDraft("BATCHDELETE", [1]);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+  try {
+    await page.goto(frontendUrl, { waitUntil: "networkidle" });
+    await loginAsAdmin(page);
+    await page.getByTestId("module-销售管理").hover();
+    await page.getByTestId("query-sales-order-form").click();
+    await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
+    await page.getByTestId("list-keyword").fill(draftNo);
+    await page.getByTestId("list-query").click();
+    await page.getByTestId(`open-document-${draftNo}`).waitFor({ state: "visible", timeout: 10000 });
+
+    const row = page.locator(".vxe-body--row", { has: page.getByTestId(`open-document-${draftNo}`) }).first();
+    await row.locator("[data-testid^='list-select-toggle-']").first().click();
+    await page.getByTestId("list-more-actions").hover();
+    const deleteButton = page.getByTestId("batch-delete");
+    await deleteButton.waitFor({ state: "visible" });
+    assert(await deleteButton.isEnabled(), "batch delete button should be enabled for selected draft bill");
+    await deleteButton.click();
+
+    const dialog = page.getByTestId("batch-confirm-dialog");
+    await dialog.waitFor({ state: "visible" });
+    const dialogText = await dialog.innerText();
+    assert(dialogText.includes("确定要删除已选中的 1 条数据吗？"), `delete confirmation should show target count, got ${dialogText}`);
+    assert(dialogText.includes("删除不可逆"), `delete confirmation should warn irreversible deletion, got ${dialogText}`);
+    await dialog.getByRole("button", { name: "确定" }).click();
+
+    await page.getByTestId("list-batch-message").waitFor({ state: "visible", timeout: 10000 });
+    const message = (await page.getByTestId("list-batch-message").textContent())?.trim() ?? "";
+    assert(message.includes("已删除 1 张草稿单据"), `batch delete should report success, got ${message}`);
+
+    const deleted = await api(`/api/sales-orders/${encodeURIComponent(draftNo)}`, { method: "GET", expectFailure: true });
+    assert(deleted.status === 404, `deleted draft sales order should return 404, got ${deleted.status}`);
+    return { draftNo, message };
+  } finally {
+    await browser.close();
+  }
+}
+
 const codeContracts = await verifyLifecycleCodeContracts();
 await seedStock();
 const lifecycle = await verifyLifecycleApi();
 const ui = await verifyUi();
 const batchAuditUi = await verifyBatchAuditUi();
+const batchDeleteUi = await verifyBatchDeleteUi();
 
 const result = {
   batch,
@@ -375,12 +422,14 @@ const result = {
     "下推按钮不再依赖 outStatus/inStatus 展示文案",
     "后端作废入口强校验 voidAllowed",
     "新反审核逻辑不再转入 REVERSED",
-    "销售订单前端不再暴露行关闭状态且下推按钮不依赖 lineCloseStatus"
+    "销售订单前端不再暴露行关闭状态且下推按钮不依赖 lineCloseStatus",
+    "删除按钮弹出不可逆确认并接入真实 deleteDocument 提交"
   ],
   codeContracts,
   lifecycle,
   ui,
-  batchAuditUi
+  batchAuditUi,
+  batchDeleteUi
 };
 
 await writeFile(resultPath, JSON.stringify(result, null, 2));

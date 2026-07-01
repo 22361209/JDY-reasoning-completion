@@ -8,103 +8,70 @@
       <div class="status-stamp">列表</div>
     </div>
 
-    <section class="list-filter" :class="{ expanded: filtersExpanded }">
-      <label>
-        关键字
-        <input
-          v-model="query.keyword"
-          :placeholder="definition.keywordPlaceholder"
-          data-testid="list-keyword"
-          @keydown.enter="reload"
-        />
-      </label>
-      <label>
-        状态
-        <select v-model="query.status" data-testid="list-status">
-          <option value="">全部</option>
-          <option v-for="status in definition.statuses" :key="status" :value="status">{{ status }}</option>
-        </select>
-      </label>
-      <label v-if="filtersExpanded && isOperationLogList">
-        模块
-        <select v-model="query.module" data-testid="operation-log-module">
-          <option value="">全部</option>
-          <option v-for="module in operationLogModules" :key="module" :value="module">{{ module }}</option>
-        </select>
-      </label>
-      <label v-if="filtersExpanded && isOperationLogList">
-        动作
-        <select v-model="query.action" data-testid="operation-log-action">
-          <option value="">全部</option>
-          <option v-for="action in operationLogActions" :key="action" :value="action">{{ action }}</option>
-        </select>
-      </label>
-      <label v-if="filtersExpanded && isOperationLogList">
-        操作人
-        <input
-          v-model="query.operator"
-          data-testid="operation-log-operator"
-          placeholder="操作人"
-          @keydown.enter="reload"
-        />
-      </label>
-      <label v-if="filtersExpanded && isOperationLogList">
-        对象类型
-        <select v-model="query.targetType" data-testid="operation-log-target-type">
-          <option value="">全部</option>
-          <option v-for="targetType in operationLogTargetTypes" :key="targetType" :value="targetType">{{ targetType }}</option>
-        </select>
-      </label>
-      <label v-if="filtersExpanded && isOperationLogList">
-        开始日期
-        <input v-model="query.dateFrom" type="date" data-testid="operation-log-date-from" />
-      </label>
-      <label v-if="filtersExpanded && isOperationLogList">
-        结束日期
-        <input v-model="query.dateTo" type="date" data-testid="operation-log-date-to" />
-      </label>
-      <div v-if="filtersExpanded && isOperationLogList" class="filter-preset-row">
-        <label>
-          预设名称
-          <input
-            v-model="presetName"
-            data-testid="operation-log-preset-name"
-            placeholder="如 红冲审计"
-            @keydown.enter="saveCurrentPreset"
-          />
-        </label>
-        <label>
-          已保存预设
-          <select v-model="selectedPresetId" data-testid="operation-log-preset-select">
-            <option value="">请选择</option>
-            <option v-for="preset in operationLogPresets" :key="preset.id" :value="preset.id">
-              {{ preset.name }}（{{ presetScopeLabel(preset) }}）{{ preset.isDefault ? "（默认）" : "" }}{{ preset.readOnly ? "（只读）" : "" }}
-            </option>
+    <ListQueryBar
+      v-model:keyword="query.keyword"
+      :keyword-placeholder="definition.keywordPlaceholder"
+      :supports-quick-date-filter="definition.supportsQuickDateFilter"
+      :date-from="query.dateFrom"
+      :date-to="query.dateTo"
+      :expanded="filtersExpanded"
+      :has-expanded-filters="isOperationLogList"
+      @update-date-range="applyQueryBarDateRange"
+      @query="submitQuery"
+      @reset="resetQuery()"
+      @toggle-expanded="filtersExpanded = !filtersExpanded"
+    >
+      <template #expanded-fields="{ expanded }">
+        <label v-if="expanded && isOperationLogList">
+          模块
+          <select v-model="query.module" data-testid="operation-log-module">
+            <option value="">全部</option>
+            <option v-for="module in operationLogModules" :key="module" :value="module">{{ module }}</option>
           </select>
         </label>
-        <div class="filter-actions preset-actions">
-          <button type="button" data-testid="operation-log-preset-save" @click="saveCurrentPreset">保存预设</button>
-          <button type="button" :disabled="!selectedPresetId" data-testid="operation-log-preset-apply" @click="applySelectedPreset">应用预设</button>
-          <button type="button" :disabled="!selectedPresetId || selectedPreset?.readOnly" data-testid="operation-log-preset-delete" @click="deleteSelectedPreset">删除预设</button>
-          <span v-if="presetMessage" class="filter-preset-message" data-testid="operation-log-preset-message">{{ presetMessage }}</span>
+        <label v-if="expanded && isOperationLogList">
+          动作
+          <select v-model="query.action" data-testid="operation-log-action">
+            <option value="">全部</option>
+            <option v-for="action in operationLogActions" :key="action" :value="action">{{ action }}</option>
+          </select>
+        </label>
+        <label v-if="expanded && isOperationLogList">
+          操作人
+          <input v-model="query.operator" data-testid="operation-log-operator" placeholder="操作人" @keydown.enter="submitQuery" />
+        </label>
+        <label v-if="expanded && isOperationLogList">
+          对象类型
+          <select v-model="query.targetType" data-testid="operation-log-target-type">
+            <option value="">全部</option>
+            <option v-for="targetType in operationLogTargetTypes" :key="targetType" :value="targetType">{{ targetType }}</option>
+          </select>
+        </label>
+      </template>
+      <template #preset-row="{ expanded }">
+        <div v-if="expanded && isOperationLogList" class="filter-preset-row">
+          <label>
+            预设名称
+            <input v-model="presetName" data-testid="operation-log-preset-name" placeholder="如 红冲审计" @keydown.enter="saveCurrentPreset" />
+          </label>
+          <label>
+            已保存预设
+            <select v-model="selectedPresetId" data-testid="operation-log-preset-select">
+              <option value="">请选择</option>
+              <option v-for="preset in operationLogPresets" :key="preset.id" :value="preset.id">
+                {{ preset.name }}（{{ presetScopeLabel(preset) }}）{{ preset.isDefault ? "（默认）" : "" }}{{ preset.readOnly ? "（只读）" : "" }}
+              </option>
+            </select>
+          </label>
+          <div class="filter-actions preset-actions">
+            <button type="button" data-testid="operation-log-preset-save" @click="saveCurrentPreset">保存预设</button>
+            <button type="button" :disabled="!selectedPresetId" data-testid="operation-log-preset-apply" @click="applySelectedPreset">应用预设</button>
+            <button type="button" :disabled="!selectedPresetId || selectedPreset?.readOnly" data-testid="operation-log-preset-delete" @click="deleteSelectedPreset">删除预设</button>
+            <span v-if="presetMessage" class="filter-preset-message" data-testid="operation-log-preset-message">{{ presetMessage }}</span>
+          </div>
         </div>
-      </div>
-      <label v-if="filtersExpanded && !isOperationLogList">
-        日期
-        <input value="2026-06-01 至 2026-06-30" readonly />
-      </label>
-      <label v-if="filtersExpanded && !isOperationLogList">
-        经办人
-        <input value="本地管理员" readonly />
-      </label>
-      <div class="filter-actions">
-        <button class="primary-action" type="button" data-testid="list-query" @click="reload">查询</button>
-        <button type="button" data-testid="list-reset" @click="resetQuery()">重置</button>
-        <button type="button" data-testid="list-toggle-filter" @click="filtersExpanded = !filtersExpanded">
-          {{ filtersExpanded ? "收起过滤" : "展开过滤" }}
-        </button>
-      </div>
-    </section>
+      </template>
+    </ListQueryBar>
 
     <div class="list-toolbar">
       <ActionBar bar-class="list-toolbar-actions" :actions="listToolbarActions" @action="handleListAction" />
@@ -366,7 +333,11 @@
     <div v-if="pendingAction" class="modal-mask" data-testid="batch-confirm-dialog">
       <div class="dialog">
         <h3>操作确认</h3>
-        <p>确定要{{ pendingAction }}已选中的 {{ selectedRows.length }} 条数据吗？</p>
+        <template v-if="pendingAction === '删除'">
+          <p>确定要删除已选中的 {{ pendingActionTargetCount }} 条数据吗？</p>
+          <p class="danger-text">删除不可逆，草稿单据删除后不会再出现在普通业务列表中，编号不复用。</p>
+        </template>
+        <p v-else>确定要{{ pendingAction }}已选中的 {{ pendingActionTargetCount }} 条数据吗？</p>
         <label v-if="pendingActionRequiresReason" class="batch-confirm-field">
           原因
           <input v-model="pendingReason" data-testid="batch-action-reason" placeholder="请输入操作原因" />
@@ -412,7 +383,7 @@ import {
   type StockAlertSetting,
   type ListFilterPreset
 } from "../services/listApi";
-import { auditDocument, lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
+import { auditDocument, deleteDocument, lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
 import {
   isAuditedBillStatus,
   isDraftBillStatus,
@@ -430,6 +401,7 @@ import {
 } from "./list/useDataListColumnPreferences";
 import { useDataListSelection } from "./list/useDataListSelection";
 import { useDataListSummary } from "./list/useDataListSummary";
+import ListQueryBar from "./list/ListQueryBar.vue";
 
 const props = defineProps<{
   listKey: string;
@@ -652,6 +624,10 @@ const currentLifecyclePolicy = computed(() => lifecyclePolicyFor(documentActionT
 const isReverseableDocumentList = computed(() => Boolean(documentActionTypeByListKey[props.listKey]));
 const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value));
 const supportsBatchAudit = computed(() => Boolean(documentActionTypeByListKey[props.listKey]) && supportsAuditCurrentList.value);
+const supportsBatchDelete = computed(() => {
+  const type = documentActionTypeByListKey[props.listKey];
+  return Boolean(type && deleteSupportedDocumentTypes.has(type));
+});
 const supportsBatchCloseFreeze = computed(() => Boolean(isLifecycleDocumentList.value && currentLifecyclePolicy.value?.closeFreezeAllowed));
 const selectedBillRows = computed(() => selectedRows.value.filter((row) => String(row.billNo ?? "").trim()));
 const selectedUniqueBillRows = computed(() => {
@@ -678,7 +654,14 @@ const canBatchUnclose = computed(() => supportsBatchCloseFreeze.value && canOper
 const canBatchFreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
 const canBatchUnfreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus === "FROZEN"));
 const canBatchVoid = computed(() => Boolean(currentLifecyclePolicy.value?.voidAllowed) && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
+const canBatchDelete = computed(() => supportsBatchDelete.value && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
 const pendingActionRequiresReason = computed(() => ["关闭", "冻结", "作废"].includes(pendingAction.value));
+const pendingActionTargetCount = computed(() => {
+  if (pendingAction.value === "删除" && !isMasterList.value) {
+    return selectedUniqueBillRows.value.length;
+  }
+  return selectedRows.value.length;
+});
 const canPushDownSalesOut = computed(() => {
   const row = selectedRows.value[0];
   return Boolean(
@@ -829,7 +812,9 @@ const listMoreActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("delete", {
     key: "batchDelete",
-    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value,
+    enabled: isMasterList.value
+      ? canMaintainCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value
+      : canBatchDelete.value,
     testId: "batch-delete"
   })
 ]);
@@ -903,6 +888,14 @@ const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
   "stock-count-gain-form-list": "stockCountGain",
   "stock-count-loss-form-list": "stockCountLoss"
 };
+const deleteSupportedDocumentTypes = new Set<DocumentType>([
+  "salesQuote",
+  "salesOrder",
+  "deliveryNotice",
+  "salesOut",
+  "purchaseIn",
+  "purchaseReturn"
+]);
 
 watch(() => props.listKey, () => {
   loadDetailViewPreference();
@@ -1128,7 +1121,6 @@ async function deleteSelectedPreset() {
 function snapshotOperationLogQuery(): Record<string, string> {
   return {
     keyword: query.keyword,
-    status: query.status,
     module: query.module,
     action: query.action,
     operator: query.operator,
@@ -1136,6 +1128,11 @@ function snapshotOperationLogQuery(): Record<string, string> {
     dateFrom: query.dateFrom,
     dateTo: query.dateTo
   };
+}
+
+function submitQuery() {
+  query.page = 1;
+  reload();
 }
 
 function presetScopeLabel(preset: ListFilterPreset) {
@@ -1195,11 +1192,12 @@ async function loadOperationLogPresets(applyDefault = false) {
 }
 
 function applyOperationLogPreset(preset: ListFilterPreset, message = "") {
+  const migrated = migratePresetStatusFilter(preset);
   Object.assign(query, {
-    ...preset.query,
+    ...migrated.query,
     page: 1
   });
-  replaceColumnFilters(preset.columnFilters);
+  replaceColumnFilters(migrated.columnFilters);
   filtersExpanded.value = true;
   selectedPresetId.value = preset.id;
   presetName.value = preset.name;
@@ -1225,10 +1223,29 @@ function resetQuery(shouldReload = true) {
   query.dateFrom = "";
   query.dateTo = "";
   query.page = 1;
+  replaceColumnFilters({});
   presetMessage.value = "";
   if (shouldReload) {
     reload();
   }
+}
+
+function migratePresetStatusFilter(preset: ListFilterPreset) {
+  const querySnapshot = { ...preset.query };
+  const columnFilterSnapshot: Record<string, TableColumnFilter> = { ...preset.columnFilters };
+  const legacyStatus = String(querySnapshot.status ?? "").trim();
+  if (legacyStatus && !columnFilterSnapshot.status) {
+    columnFilterSnapshot.status = { operator: "等于", value: legacyStatus };
+  }
+  querySnapshot.status = "";
+  return { query: querySnapshot, columnFilters: columnFilterSnapshot };
+}
+
+function applyQueryBarDateRange(range: { from: string; to: string }) {
+  query.dateFrom = range.from;
+  query.dateTo = range.to;
+  query.page = 1;
+  reload();
 }
 
 function toggleDetailView() {
@@ -1337,11 +1354,8 @@ function handleListAction(actionKey: string) {
     return;
   }
   if (actionKey === "batchDelete") {
-    if (isMasterList.value) {
-      void submitMasterDelete();
-      return;
-    }
     confirmAction("删除");
+    return;
   }
 }
 
@@ -1393,6 +1407,10 @@ async function submitPendingAction() {
   }
   if (action === "作废") {
     await submitBatchVoid(reason, voidUsername, voidPassword);
+    return;
+  }
+  if (action === "删除") {
+    await submitBatchDelete();
     return;
   }
   batchMessage.value = `${action}未找到可执行的批量处理，请刷新后重试。`;
@@ -1479,6 +1497,30 @@ async function submitBatchVoid(reason: string, username: string, password: strin
   batchMessage.value = failed.length
     ? `作废完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查账号密码或下游约束"}`
     : `已作废 ${targets.length} 张单据。`;
+  await reload();
+}
+
+async function submitBatchDelete() {
+  if (isMasterList.value) {
+    const count = selectedRows.value.length;
+    const deleted = await submitMasterDelete();
+    batchMessage.value = deleted ? `已删除 ${count} 条资料。` : "请选择可删除的资料。";
+    return;
+  }
+  const type = documentActionTypeByListKey[props.listKey];
+  const targets = selectedUniqueBillRows.value
+    .filter(isDraftBillStatus)
+    .map((row) => String(row.billNo ?? ""))
+    .filter(Boolean);
+  if (!type || targets.length === 0) {
+    batchMessage.value = "请选择可删除的草稿单据。";
+    return;
+  }
+  const results = await Promise.all(targets.map((billNo) => deleteDocument(type, billNo)));
+  const failed = results.filter((result) => !result.ok);
+  batchMessage.value = failed.length
+    ? `删除完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "只有草稿单据可以删除"}`
+    : `已删除 ${targets.length} 张草稿单据。`;
   await reload();
 }
 
@@ -1591,7 +1633,7 @@ async function submitMasterStatus(enabled: boolean) {
 }
 
 async function submitMasterDelete() {
-  await masterMaintenance.submitDelete();
+  return masterMaintenance.submitDelete();
 }
 
 function listColumnByKey(key: string) {

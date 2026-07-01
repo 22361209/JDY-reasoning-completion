@@ -20,7 +20,14 @@ export interface ListDefinition {
   keywordPlaceholder: string;
   statuses: string[];
   columns: ListColumn[];
+  searchFields: string[];
+  dateField: string;
+  supportsQuickDateFilter: boolean;
+  defaultDateRange?: "" | "currentMonth" | "previousMonth" | "currentQuarter" | "currentYear" | "previousYear";
+  lifecycleColumns: string[];
 }
+
+type RawListDefinition = Omit<ListDefinition, "searchFields" | "dateField" | "supportsQuickDateFilter" | "lifecycleColumns"> & Partial<Pick<ListDefinition, "searchFields" | "dateField" | "supportsQuickDateFilter" | "lifecycleColumns">>;
 
 export type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
@@ -32,11 +39,15 @@ const masterListDefinitions = Object.fromEntries(
       subtitle: "",
       keywordPlaceholder: masterDefinition.keywordPlaceholder,
       statuses: masterDefinition.statuses,
-      columns: masterDefinition.listColumns.map((column) => ({ ...column }))
+      columns: masterDefinition.listColumns.map((column) => ({ ...column })),
+      searchFields: searchFieldsFromPlaceholder(masterDefinition.keywordPlaceholder, masterDefinition.listColumns.map((column) => column.field)),
+      dateField: "updatedAt",
+      supportsQuickDateFilter: false,
+      lifecycleColumns: ["status", "auditStatus"]
     }
   ])
 ) as Record<string, ListDefinition>;
-const definitions: Record<string, ListDefinition> = {
+const rawDefinitions: Record<string, RawListDefinition> = {
   ...masterListDefinitions,
   "sales-order-form-list": {
     title: "销售订单列表",
@@ -724,21 +735,99 @@ const fallbackDefinition: ListDefinition = {
   subtitle: "该入口暂用 B1 标准列表骨架承载。",
   keywordPlaceholder: "编码、名称、单据编号",
   statuses: ["草稿", "已审核", "启用"],
-  columns: definitions["sales-order-form-list"].columns
+  columns: rawDefinitions["sales-order-form-list"].columns,
+  searchFields: ["code", "name", "billNo"],
+  dateField: "billDate",
+  supportsQuickDateFilter: true,
+  lifecycleColumns: ["status"]
 };
+
+const definitions: Record<string, ListDefinition> = Object.fromEntries(
+  Object.entries(rawDefinitions).map(([listKey, definition]) => [listKey, normalizeListDefinition(listKey, definition)])
+);
+
+function normalizeListDefinition(listKey: string, definition: RawListDefinition): ListDefinition {
+  const fields = definition.columns.map((column) => column.field);
+  return {
+    ...definition,
+    searchFields: definition.searchFields?.length ? definition.searchFields : searchFieldsFromPlaceholder(definition.keywordPlaceholder, fields),
+    dateField: definition.dateField ?? defaultDateField(listKey, fields),
+    supportsQuickDateFilter: definition.supportsQuickDateFilter ?? defaultSupportsDateFilter(listKey, fields),
+    lifecycleColumns: definition.lifecycleColumns ?? defaultLifecycleColumns(fields)
+  };
+}
+
+function searchFieldsFromPlaceholder(placeholder: string, fields: string[]) {
+  const aliases: Record<string, string[]> = {
+    编码: ["code", "billNo", "productCode", "customerCode", "supplierCode", "warehouseCode"],
+    名称: ["name", "productName", "customer", "supplier", "partner"],
+    单据编号: ["billNo"],
+    单号: ["billNo", "sourceBillNo"],
+    客户: ["customer", "customerCode", "partner"],
+    供应商: ["supplier", "supplierCode", "partner"],
+    商品: ["productCode", "productName", "spec"],
+    物料: ["productCode", "productName", "spec", "materialCode", "materialName"],
+    仓库: ["warehouse", "warehouseCode", "warehouseName"],
+    BOM: ["bomNo", "bomCode", "bomName"],
+    模块: ["module"],
+    动作: ["action"],
+    对象: ["targetType", "targetNo"],
+    时间: ["operatedAt", "billDate"]
+  };
+  const selected = new Set<string>();
+  Object.entries(aliases).forEach(([token, mappedFields]) => {
+    if (placeholder.includes(token)) {
+      mappedFields.filter((field) => fields.includes(field)).forEach((field) => selected.add(field));
+    }
+  });
+  if (!selected.size) {
+    ["billNo", "code", "name", "customer", "supplier", "partner", "productCode", "productName", "spec"]
+      .filter((field) => fields.includes(field))
+      .forEach((field) => selected.add(field));
+  }
+  return Array.from(selected);
+}
+
+function defaultDateField(listKey: string, fields: string[]) {
+  if (listKey === "operation-log-list" && fields.includes("operatedAt")) {
+    return "operatedAt";
+  }
+  if (fields.includes("billDate")) {
+    return "billDate";
+  }
+  if (fields.includes("operatedAt")) {
+    return "operatedAt";
+  }
+  if (fields.includes("updatedAt")) {
+    return "updatedAt";
+  }
+  return "";
+}
+
+function defaultSupportsDateFilter(listKey: string, fields: string[]) {
+  if (listKey.endsWith("-master-list") || ["product-category-list", "unit-master-list", "role-list", "user-role-list"].includes(listKey)) {
+    return false;
+  }
+  return Boolean(defaultDateField(listKey, fields));
+}
+
+function defaultLifecycleColumns(fields: string[]) {
+  return ["status", "closeStatusLabel", "frozenStatusLabel", "auditStatus"].filter((field) => fields.includes(field));
+}
 
 export function useDataListDefinition(listKey: () => string) {
   const billDefinition = computed(() => getBillDefinitionByListKey(listKey()));
   const definition = computed(() => {
     const metadataDefinition = billDefinition.value;
     if (metadataDefinition) {
-      return {
+      return normalizeListDefinition(listKey(), {
         title: `${metadataDefinition.title}列表`,
         subtitle: metadataDefinition.subtitle,
         keywordPlaceholder: metadataDefinition.keywordPlaceholder,
         statuses: metadataDefinition.statuses,
-        columns: metadataDefinition.listViews.header
-      };
+        columns: metadataDefinition.listViews.header,
+        searchFields: searchFieldsFromPlaceholder(metadataDefinition.keywordPlaceholder, metadataDefinition.listViews.header.map((column) => column.field))
+      });
     }
     return definitions[listKey()] ?? fallbackDefinition;
   });

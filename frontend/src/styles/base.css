@@ -1688,7 +1688,7 @@ input:disabled {
   flex: 0 0 auto;
   min-height: 44px;
   display: grid;
-  grid-template-columns: minmax(180px, 260px) 150px minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 280px) repeat(3, max-content) minmax(0, 1fr);
   gap: 6px;
   align-items: end;
   background: #ffffff;
@@ -1698,7 +1698,7 @@ input:disabled {
 }
 
 .list-filter.expanded {
-  grid-template-columns: minmax(180px, 260px) 150px 220px 180px minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 280px) repeat(4, minmax(120px, max-content)) minmax(0, 1fr);
 }
 
 .list-filter label {
@@ -1726,6 +1726,61 @@ input:disabled {
   gap: 6px;
 }
 
+.date-filter-control {
+  position: relative;
+  display: flex;
+  align-items: end;
+}
+
+.date-filter-menu,
+.date-range-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 180px;
+  padding: 8px;
+  border: 1px solid #b9c7d7;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(31, 49, 72, 0.14);
+}
+
+.date-filter-menu {
+  display: grid;
+  gap: 4px;
+}
+
+.date-filter-menu button {
+  justify-content: flex-start;
+}
+
+.date-range-popover {
+  width: 260px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.date-range-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.active-date-range {
+  align-self: end;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid #d7e0ea;
+  border-radius: 4px;
+  background: #f7fbff;
+  color: #31516f;
+  font-size: 12px;
+}
+
 .filter-preset-row {
   grid-column: 1 / -1;
   display: flex;
@@ -1750,6 +1805,7 @@ input:disabled {
 }
 
 .filter-actions button,
+.list-query-button,
 .list-toolbar button,
 .list-pagination button {
   height: 24px;
@@ -1871,6 +1927,11 @@ input:disabled {
 
 .list-more-menu .danger-menu-action {
   color: #9b2f22;
+}
+
+.danger-text {
+  color: #9b2f22;
+  font-weight: 600;
 }
 
 .batch-confirm-field {
