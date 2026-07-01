@@ -215,6 +215,13 @@ try {
   assert(amountFilterResponse.noMatch.total === 0, "销售订单金额列筛选按显示文本匹配且不应静默忽略", { total: amountFilterResponse.noMatch.total });
   assert(amountFilterResponse.match.total === 1, "销售订单金额列筛选可命中显示文本 86.00", { total: amountFilterResponse.match.total });
 
+  const unknownFilterResponse = await page.evaluate(async ({ billNo }) => {
+    const unknownFilters = encodeURIComponent(JSON.stringify({ unsupportedA128Column: { operator: "等于", value: "x" } }));
+    const response = await fetch(`/api/lists/sales-order-form-list?keyword=${encodeURIComponent(billNo)}&columnFilters=${unknownFilters}&view=header&pageSize=200`);
+    return { ok: response.ok, status: response.status, text: await response.text() };
+  }, { billNo: julyBillNo });
+  assert(!unknownFilterResponse.ok && unknownFilterResponse.text.includes("Unsupported sales order list column filter"), "销售订单未知列筛选必须显式失败，不能静默忽略", unknownFilterResponse);
+
   await page.screenshot({ path: screenshot, fullPage: true });
   evidence.screenshots.push(screenshot);
 } finally {

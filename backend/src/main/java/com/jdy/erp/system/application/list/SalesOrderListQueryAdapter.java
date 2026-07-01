@@ -226,7 +226,7 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
         filters.forEach((field, filter) -> {
             var expression = expressions.get(field);
             if (expression == null) {
-                return;
+                throw new IllegalArgumentException("Unsupported sales order list column filter: " + field);
             }
             var operator = filter.getOrDefault("operator", "包含");
             var value = filter.getOrDefault("value", "");

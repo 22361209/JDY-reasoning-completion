@@ -21,7 +21,8 @@ const [
   listQueryAdapter,
   salesOrderAdapter,
   defaultAdapter,
-  listQuerySupport
+  listQuerySupport,
+  stubSeedRowsProvider
 ] = await Promise.all([
   text("docs/13-列表API契约.md"),
   text("docs/guides/list-query-unification-protocol.md"),
@@ -35,7 +36,8 @@ const [
   text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryAdapter.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/SalesOrderListQueryAdapter.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/DefaultStubListQueryAdapter.java"),
-  text("backend/src/main/java/com/jdy/erp/system/application/list/ListQuerySupport.java")
+  text("backend/src/main/java/com/jdy/erp/system/application/list/ListQuerySupport.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java")
 ]);
 
 assert(apiContract.includes("多词 AND、字段内 OR"), "列表 API 契约必须声明关键字多词 AND / 字段内 OR");
@@ -77,11 +79,23 @@ assert(!listController.includes("matchesKeywordTokens"), "Controller 不得保�
 assert(!listController.includes("matchesDateRange"), "Controller 不得保留日期匹配规则");
 assert(!listController.includes("parseColumnFilters"), "Controller 不得解析列筛选协议");
 assert(!listController.includes('filters.put("status"'), "Controller 不得处理旧 status 兼容");
+assert(!listController.includes("switch (listKey)"), "Controller 不得保留 listKey 数据路由 switch");
+assert(!/case\s+"/.test(listController), "Controller 不得保留 listKey case 分支");
+assert(!listController.includes("documentDetailRows"), "Controller 不得保留明细 rows 数据提供逻辑");
+assert(!listController.includes("queryDetailRows"), "Controller 不得保留明细 SQL 查询逻辑");
+assert(!listController.includes("JdbcTemplate"), "Controller 不得直接依赖 JdbcTemplate 读取列表数据");
+assert(!listController.includes("permission-denied-list"), "Controller 不得保留权限态 listKey 特判");
+assert(!listController.includes("error-list"), "Controller 不得保留错误态 listKey 特判");
+assert(!listController.includes(".equals(listKey)"), "Controller 不得直接判断 listKey 特判");
+assert(stubSeedRowsProvider.includes("implements ListSeedRowsProvider"), "历史 seed rows 必须迁入正式 ListSeedRowsProvider 实现");
+assert(stubSeedRowsProvider.includes("switch (listKey)"), "历史 listKey 数据路由只能存在于 StubListSeedRowsProvider");
 
 assert(listQueryService.includes("ListQueryContractRegistry"), "后端必须通过 ListQueryContractRegistry 获取协议");
 assert(listQueryService.includes("ListQueryAdapter"), "后端必须通过 ListQueryAdapter 执行查询");
 assert(listQueryService.includes("contractRegistry.contractFor"), "ListQueryService 必须按 listKey/view 获取契约");
 assert(listQueryService.includes("contract.adapterKey()"), "ListQueryService 必须由契约决定 adapter");
+assert(!listQueryService.includes("getOrDefault(contract.adapterKey()"), "非 default adapter 缺失不得静默回退到 default");
+assert(listQueryService.includes("Missing list query adapter"), "adapter 缺失必须 fail fast 并给出明确错误");
 assert(contractRegistry.includes('"sales-order-form-list"'), "Registry 必须登记销售订单列表契约");
 assert(contractRegistry.includes('"salesOrder"'), "销售订单契约必须指向 salesOrder adapter");
 assert(contractRegistry.includes('"exists"'), "销售订单整单视图必须声明 exists 明细命中策略");
@@ -97,18 +111,38 @@ assert(salesOrderAdapter.includes("LIMIT ? OFFSET ?"), "销售订单 adapter 必
 assert(salesOrderAdapter.includes("SELECT count(*)"), "销售订单 adapter 必须 SQL 下推 total 计算");
 assert(!salesOrderAdapter.includes("seedRowsProvider.seedRows"), "销售订单 adapter 不得回退 seedRows");
 assert(salesOrderAdapter.includes("contract.returnShape()"), "销售订单 adapter 必须消费 contract 的 returnShape");
+assert(salesOrderAdapter.includes("Unsupported sales order list column filter"), "销售订单未知列筛选必须 fail fast，不能静默忽略");
 [
+  "billNo",
+  "customerCode",
+  "customer",
+  "billDate",
+  "status",
+  "outStatus",
   "planDeliveryDate",
   "qty",
   "shippedQty",
   "remainingQty",
   "amount",
   "priceTaxTotal",
+  "remark",
+  "owner",
+  "partner",
+  "lineNo",
+  "productCode",
+  "productName",
+  "spec",
   "unitPrice",
   "taxInclusiveUnitPrice",
   "customerMaterialCode",
   "customerOrderNo",
-  "lineRemark"
+  "lineRemark",
+  "warehouse",
+  "unit",
+  "netWeight",
+  "grossWeight",
+  "sourceBillNo",
+  "sourceLineNo"
 ].forEach((field) => {
   assert(salesOrderAdapter.includes(`expressions.put("${field}"`), `销售订单 adapter 必须映射可见列筛选字段 ${field}`);
 });

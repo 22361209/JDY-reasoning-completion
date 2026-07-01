@@ -25,9 +25,9 @@ public class ListQueryService {
 
     public ListQueryResult query(ListQueryRequest request, ListSeedRowsProvider seedRowsProvider) {
         var contract = contractRegistry.contractFor(request.listKey(), request.normalizedView());
-        var adapter = adapters.getOrDefault(contract.adapterKey(), adapters.get("default"));
+        var adapter = adapters.get(contract.adapterKey());
         if (adapter == null) {
-            throw new IllegalStateException("Missing default list query adapter");
+            throw new IllegalStateException("Missing list query adapter: " + contract.adapterKey() + " for " + contract.listKey() + "/" + contract.view());
         }
         return adapter.query(request, contract, support, seedRowsProvider);
     }
