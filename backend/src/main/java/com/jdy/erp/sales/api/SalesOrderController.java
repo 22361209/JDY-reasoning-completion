@@ -30,6 +30,7 @@ public class SalesOrderController {
 
     @PostMapping("/draft")
     @ResponseStatus(HttpStatus.CREATED)
+    @RequirePermission("sales.order.audit")
     public Map<String, Object> saveDraft(@RequestBody SalesOrderDraftRequest request) {
         lockService.assertWritable("salesOrder", request.billNo());
         var result = appService.saveDraft(request);

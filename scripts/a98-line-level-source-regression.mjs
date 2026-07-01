@@ -149,8 +149,10 @@ try {
 
   const detail = await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
   assert(!detail.document.sourceOrderNo, "audited sales out header sourceOrderNo should be empty");
-  const persistedSources = detail.lines.map((line) => line.sourceOrderNo);
-  assert(persistedSources.includes(data.sourceA.noticeNo) && persistedSources.includes(data.sourceB.noticeNo), `audited sales out should persist line-level delivery notice numbers, got ${persistedSources.join(",")}`);
+  const persistedOrderSources = detail.lines.map((line) => line.sourceOrderNo);
+  const persistedNoticeSources = detail.lines.map((line) => line.sourceDeliveryNoticeNo);
+  assert(persistedOrderSources.includes(data.sourceA.orderNo) && persistedOrderSources.includes(data.sourceB.orderNo), `audited sales out should persist line-level sales order numbers, got ${persistedOrderSources.join(",")}`);
+  assert(persistedNoticeSources.includes(data.sourceA.noticeNo) && persistedNoticeSources.includes(data.sourceB.noticeNo), `audited sales out should persist line-level delivery notice numbers, got ${persistedNoticeSources.join(",")}`);
 
   const orderADetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.sourceA.orderNo)}`, { method: "GET" });
   const orderBDetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.sourceB.orderNo)}`, { method: "GET" });

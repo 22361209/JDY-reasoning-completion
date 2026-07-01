@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
@@ -134,8 +135,8 @@ public class SalesOutAppService {
         }
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
-                   COALESCE(l.source_delivery_notice_no, l.source_order_no) AS "sourceOrderNo",
-                   COALESCE(l.source_delivery_line_no, l.source_line_no) AS "sourceLineNo",
+                   l.source_order_no AS "sourceOrderNo",
+                   l.source_line_no AS "sourceLineNo",
                    l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
                    l.source_delivery_line_no AS "sourceDeliveryLineNo",
                    l.product_id::text AS "productId",
@@ -297,18 +298,8 @@ public class SalesOutAppService {
     }
 
     @Transactional
-    public Map<String, Object> voidBill(String billNo) {
-        return lifecycleService.transition(
-            BILL_TABLE,
-            billNo,
-            BillStatus.DRAFT,
-            BillStatus.VOID,
-            "id::text AS id, bill_no AS \"billNo\", status",
-            "SALES",
-            "VOID",
-            "sales_out",
-            "只有草稿销售出库单可以作废"
-        );
+    public Map<String, Object> voidBill(String billNo, VoidRequest request) {
+        return lifecycleService.voidBill(LIFECYCLE_TARGET, billNo, request);
     }
 
     public Map<String, Object> delete(String billNo) {

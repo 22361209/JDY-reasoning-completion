@@ -161,7 +161,8 @@ const reverseBlocked = await api(`/api/sales-orders/${encodeURIComponent(salesOr
 assert(flow.afterQty === flow.beforeQty - qty, `stock should decrease by ${qty}: ${flow.beforeQty} -> ${flow.afterQty}`);
 assert(salesOutDetail.document.status === "AUDITED", `sales out should be AUDITED, got ${salesOutDetail.document.status}`);
 assert(!salesOutDetail.document.sourceOrderNo, "sales out header should not keep a single source order no");
-assert(salesOutDetail.lines[0]?.sourceOrderNo === flow.generatedDeliveryNoticeNo, "sales out visible source should be delivery notice no");
+assert(salesOutDetail.lines[0]?.sourceOrderNo === salesOrderNo, "sales out line should keep sales order source no");
+assert(salesOutDetail.lines[0]?.sourceDeliveryNoticeNo === flow.generatedDeliveryNoticeNo, "sales out line should keep delivery notice source no");
 assert(salesOutCount() === 1, "one sales out should be generated from source order");
 assert(sourceDetail.order.status === "AUDITED", `source order should stay AUDITED, got ${sourceDetail.order.status}`);
 assert(sourceDetail.lines.every((line) => Number(line.remainingQty ?? 0) === 0), "source order should have no remaining outbound qty");

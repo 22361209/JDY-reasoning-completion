@@ -3,6 +3,7 @@ package com.jdy.erp.sales.api;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.DocumentLockService;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.sales.application.SalesOutAppService;
 import com.jdy.erp.sales.application.SalesOutAppService.RedReverseRequest;
 import com.jdy.erp.sales.application.SalesOutAppService.SalesOutDraftRequest;
@@ -56,8 +57,8 @@ public class SalesOutController {
 
     @PostMapping("/{billNo}/void")
     @RequirePermission("sales.out.audit")
-    public Map<String, Object> voidBill(@PathVariable String billNo) {
-        return salesOutAppService.voidBill(billNo);
+    public Map<String, Object> voidBill(@PathVariable String billNo, @RequestBody VoidRequest request) {
+        return salesOutAppService.voidBill(billNo, request);
     }
 
     @DeleteMapping("/{billNo}")

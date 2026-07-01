@@ -9,6 +9,7 @@ import java.util.Map;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.ProductSnapshotService;
@@ -27,6 +28,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class DeliveryNoticeAppService {
     private static final String BILL_TABLE = "delivery_notice";
     private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "delivery_notice_line", "bill_id", "SALES", "delivery_notice");
+    private static final SourceExecutionSpec SALES_ORDER_NOTICE_SPEC = new SourceExecutionSpec(
+        "sales_order",
+        "sales_order_line",
+        "order_id",
+        "line_no",
+        "shipped_qty",
+        "qty",
+        "out_status",
+        "发货通知数量不能超过销售订单剩余可通知数量"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -410,8 +421,17 @@ public class DeliveryNoticeAppService {
             if (line.get("sourceOrderNo") == null || line.get("sourceLineNo") == null) {
                 continue;
             }
+            var sourceRows = jdbcTemplate.queryForList(
+                "SELECT id::text AS id FROM sales_order WHERE bill_no = ? AND status = ?",
+                String.valueOf(line.get("sourceOrderNo")),
+                BillStatus.AUDITED.name()
+            );
+            if (sourceRows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售订单不存在或未审核，不能下推发货通知");
+            }
+            lifecycleService.guardExecutableSourceLine(SALES_ORDER_NOTICE_SPEC, String.valueOf(sourceRows.get(0).get("id")), line.get("sourceLineNo"));
             var remaining = jdbcTemplate.queryForObject("""
-                SELECT sol.qty - sol.shipped_qty - COALESCE(notice.noticed_qty, 0)
+                SELECT sol.qty - COALESCE(notice.noticed_qty, 0)
                 FROM sales_order so
                 JOIN sales_order_line sol ON sol.order_id = so.id AND sol.line_no = ?
                 LEFT JOIN (

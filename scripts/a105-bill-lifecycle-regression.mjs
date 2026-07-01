@@ -257,11 +257,11 @@ async function verifyUi() {
     await page.getByTestId("list-query").click();
     await page.getByTestId(`open-document-${uiNo}`).waitFor({ state: "visible", timeout: 10000 });
     await page.getByTestId(`open-document-${uiNo}`).click();
-    await page.getByTestId("close-document").waitFor({ state: "visible" });
     await page.waitForFunction((billNo) => {
       const input = document.querySelector('[data-testid="sales-bill-no"]');
       return input instanceof HTMLInputElement && input.value === billNo;
-    }, uiNo);
+    }, uiNo, { timeout: 15000 });
+    await page.getByTestId("close-document").waitFor({ state: "visible", timeout: 15000 });
     await page.getByText("已审核").waitFor({ state: "visible" });
     assert(await page.getByTestId("close-document").isEnabled(), "close button should be enabled for audited document");
     assert(await page.getByTestId("freeze-document").isEnabled(), "freeze button should be enabled for audited document");
