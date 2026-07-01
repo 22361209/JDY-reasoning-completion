@@ -87,6 +87,8 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String dateFrom,
         @RequestParam(defaultValue = "") String dateTo
     ) {
+        stateGuard.assertReadable(listKey);
+
         var request = listQueryRequest(listKey, keyword, status, 1, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo, true);
         var rows = listQueryService.query(request, seedRowsProvider).rows();
         var columns = exportColumnProvider.columnsFor(listKey, rows);

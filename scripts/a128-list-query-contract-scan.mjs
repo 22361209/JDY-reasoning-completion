@@ -71,6 +71,7 @@ assert(listApi.includes("if (query.status)"), "listApi 只能在兼容旧调用�
 
 assert(listController.includes("ListQueryService"), "Controller 必须委托 ListQueryService");
 assert(listController.includes("listQueryService.query"), "Controller 必须通过统一查询服务读取列表");
+assert(listController.match(/stateGuard\.assertReadable\(listKey\)/g)?.length === 2, "列表读取和导出必须共用状态门禁");
 assert(!listController.includes("ListQueryContract"), "Controller 不得登记或感知查询契约");
 assert(!listController.includes("adapterHandlesQuery"), "Controller 不得保留 adapterHandlesQuery 特判");
 assert(!listController.includes("contractFor("), "Controller 不得保留私有 contractFor");
@@ -111,6 +112,7 @@ assert(salesOrderAdapter.includes("LIMIT ? OFFSET ?"), "销售订单 adapter 必
 assert(salesOrderAdapter.includes("SELECT count(*)"), "销售订单 adapter 必须 SQL 下推 total 计算");
 assert(!salesOrderAdapter.includes("seedRowsProvider.seedRows"), "销售订单 adapter 不得回退 seedRows");
 assert(salesOrderAdapter.includes("contract.returnShape()"), "销售订单 adapter 必须消费 contract 的 returnShape");
+assert(salesOrderAdapter.includes("ResponseStatusException(HttpStatus.BAD_REQUEST"), "销售订单未知列筛选必须按协议错误返回 400");
 assert(salesOrderAdapter.includes("Unsupported sales order list column filter"), "销售订单未知列筛选必须 fail fast，不能静默忽略");
 [
   "billNo",

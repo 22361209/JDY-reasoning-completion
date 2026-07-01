@@ -5,8 +5,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class SalesOrderListQueryAdapter implements ListQueryAdapter {
@@ -226,7 +228,7 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
         filters.forEach((field, filter) -> {
             var expression = expressions.get(field);
             if (expression == null) {
-                throw new IllegalArgumentException("Unsupported sales order list column filter: " + field);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported sales order list column filter: " + field);
             }
             var operator = filter.getOrDefault("operator", "包含");
             var value = filter.getOrDefault("value", "");

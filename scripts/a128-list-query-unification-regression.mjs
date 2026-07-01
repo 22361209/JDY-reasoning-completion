@@ -200,6 +200,12 @@ try {
   }, { billNo: julyBillNo });
   assert(exportResponse.ok && exportResponse.text.includes(julyBillNo), "导出接口复用关键字和列头筛选参数");
 
+  const guardedExportResponse = await page.evaluate(async () => {
+    const response = await fetch("/api/lists/permission-denied-list/export.csv?pageSize=1000");
+    return { ok: response.ok, status: response.status, text: await response.text() };
+  });
+  assert(!guardedExportResponse.ok && guardedExportResponse.status === 403, "导出接口必须复用列表状态门禁，权限态返回 403", guardedExportResponse);
+
   const amountFilterResponse = await page.evaluate(async ({ billNo }) => {
     const noMatchFilters = encodeURIComponent(JSON.stringify({ amount: { operator: "等于", value: "NO_MATCH_AMOUNT" } }));
     const matchFilters = encodeURIComponent(JSON.stringify({ amount: { operator: "等于", value: "86.00" } }));
@@ -220,7 +226,7 @@ try {
     const response = await fetch(`/api/lists/sales-order-form-list?keyword=${encodeURIComponent(billNo)}&columnFilters=${unknownFilters}&view=header&pageSize=200`);
     return { ok: response.ok, status: response.status, text: await response.text() };
   }, { billNo: julyBillNo });
-  assert(!unknownFilterResponse.ok && unknownFilterResponse.text.includes("Unsupported sales order list column filter"), "销售订单未知列筛选必须显式失败，不能静默忽略", unknownFilterResponse);
+  assert(!unknownFilterResponse.ok && unknownFilterResponse.status === 400 && unknownFilterResponse.text.includes("Unsupported sales order list column filter"), "销售订单未知列筛选必须按协议错误返回 400，不能静默忽略", unknownFilterResponse);
 
   await page.screenshot({ path: screenshot, fullPage: true });
   evidence.screenshots.push(screenshot);
