@@ -34,6 +34,7 @@ export interface SalesOrderDetail {
     remark?: string;
     status: string;
     closeStatus?: string;
+    closeMode?: string | null;
     frozenStatus?: string;
     isTaxInclusive?: boolean;
   };
@@ -50,6 +51,7 @@ export interface SalesOrderDetail {
     qty: number | string;
     shippedQty?: number | string;
     remainingQty?: number | string;
+    availableNoticeQty?: number | string;
     lineCloseStatus?: string;
     lineFrozenStatus?: string;
     unitPrice: number | string;
@@ -83,6 +85,7 @@ export interface SelectableSalesOrderLine {
   sourceQty: number | string;
   shippedQty?: number | string;
   remainingQty: number | string;
+  availableNoticeQty?: number | string;
   unitPrice: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;

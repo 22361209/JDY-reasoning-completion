@@ -79,6 +79,7 @@ public class SalesOrderAppService {
                 status = EXCLUDED.status,
                 out_status = 'NOT_OUT',
                 close_status = 'OPEN',
+                close_mode = NULL,
                 close_reason = NULL,
                 closed_by = NULL,
                 closed_at = NULL,
@@ -217,6 +218,7 @@ public class SalesOrderAppService {
                    l.qty AS "sourceQty",
                    l.shipped_qty AS "shippedQty",
                    GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) AS "availableNoticeQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
@@ -248,7 +250,7 @@ public class SalesOrderAppService {
                 SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
                 FROM delivery_notice_line dnl
                 JOIN delivery_notice dn ON dn.id = dnl.bill_id
-                WHERE dn.status <> 'VOID'
+                WHERE dn.status = 'AUDITED'
                 GROUP BY source_order_no, source_line_no
             ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE c.code = ?
@@ -273,6 +275,7 @@ public class SalesOrderAppService {
                    so.department,
                    so.status,
                    so.close_status AS "closeStatus",
+                   so.close_mode AS "closeMode",
                    so.frozen_status AS "frozenStatus",
                    so.total_amount AS "totalAmount",
                    so.is_tax_inclusive AS "isTaxInclusive",
@@ -301,7 +304,8 @@ public class SalesOrderAppService {
                    w.code AS "warehouseCode",
                    l.qty,
                    l.shipped_qty AS "shippedQty",
-                   GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(l.shipped_qty, 0)) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) AS "availableNoticeQty",
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
@@ -335,7 +339,7 @@ public class SalesOrderAppService {
                 SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
                 FROM delivery_notice_line dnl
                 JOIN delivery_notice dn ON dn.id = dnl.bill_id
-                WHERE dn.status <> 'VOID'
+                WHERE dn.status = 'AUDITED'
                 GROUP BY source_order_no, source_line_no
             ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = l.line_no
             WHERE so.bill_no = ?

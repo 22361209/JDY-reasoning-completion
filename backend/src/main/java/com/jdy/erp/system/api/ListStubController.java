@@ -369,6 +369,17 @@ public class ListStubController {
                        to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                        c.name AS partner,
                        CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                       so.close_status AS "closeStatus",
+                       so.close_mode AS "closeMode",
+                       CASE
+                           WHEN so.close_status = 'OPEN' THEN '未关闭'
+                           WHEN so.close_status = 'CLOSED' AND so.close_mode = 'AUTO' THEN '自动关闭'
+                           WHEN so.close_status = 'CLOSED' AND so.close_mode = 'MANUAL' THEN '手动关闭'
+                           WHEN so.close_status = 'CLOSED' THEN '历史已关闭'
+                           ELSE COALESCE(so.close_status, '')
+                       END AS "closeStatusLabel",
+                       so.frozen_status AS "frozenStatus",
+                       CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END AS "frozenStatusLabel",
                        l.line_no AS "lineNo",
                        COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                        COALESCE(l.product_name_snapshot, p.name) AS "productName",
@@ -438,7 +449,7 @@ public class ListStubController {
                            SUM(pil.qty) AS received_qty
                     FROM purchase_in_line pil
                     JOIN purchase_in pi ON pi.id = pil.bill_id
-                    WHERE pi.status <> 'VOID'
+                    WHERE pi.status = 'AUDITED'
                     GROUP BY pil.source_order_no, pil.source_line_no
                 ) in_qty ON in_qty.source_order_no = po.bill_no AND in_qty.source_line_no = l.line_no
                 ORDER BY po.updated_at DESC, l.line_no
@@ -1003,7 +1014,16 @@ public class ListStubController {
                        ELSE '未出库'
                    END AS "outStatus",
                    so.close_status AS "closeStatus",
+                   so.close_mode AS "closeMode",
+                   CASE
+                       WHEN so.close_status = 'OPEN' THEN '未关闭'
+                       WHEN so.close_status = 'CLOSED' AND so.close_mode = 'AUTO' THEN '自动关闭'
+                       WHEN so.close_status = 'CLOSED' AND so.close_mode = 'MANUAL' THEN '手动关闭'
+                       WHEN so.close_status = 'CLOSED' THEN '历史已关闭'
+                       ELSE COALESCE(so.close_status, '')
+                   END AS "closeStatusLabel",
                    so.frozen_status AS "frozenStatus",
+                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END AS "frozenStatusLabel",
                    trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
                    trim(to_char(COALESCE(extra.shipped_qty, 0), 'FM9999999990.####')) AS "shippedQty",
                    trim(to_char(GREATEST(0, COALESCE(extra.qty, 0) - COALESCE(extra.shipped_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
@@ -1031,6 +1051,10 @@ public class ListStubController {
                 Map.entry("customer", "广州测试客户"),
                 Map.entry("billDate", "2026-06-23"),
                 Map.entry("status", "已审核"),
+                Map.entry("closeStatus", "OPEN"),
+                Map.entry("closeStatusLabel", "未关闭"),
+                Map.entry("frozenStatus", "NORMAL"),
+                Map.entry("frozenStatusLabel", "正常"),
                 Map.entry("qty", "20"),
                 Map.entry("shippedQty", "20"),
                 Map.entry("remainingQty", "0"),
@@ -1044,6 +1068,10 @@ public class ListStubController {
                 Map.entry("customer", "佛山测试客户"),
                 Map.entry("billDate", "2026-06-22"),
                 Map.entry("status", "草稿"),
+                Map.entry("closeStatus", "OPEN"),
+                Map.entry("closeStatusLabel", "未关闭"),
+                Map.entry("frozenStatus", "NORMAL"),
+                Map.entry("frozenStatusLabel", "正常"),
                 Map.entry("qty", "8"),
                 Map.entry("shippedQty", "0"),
                 Map.entry("remainingQty", "8"),
@@ -1057,6 +1085,10 @@ public class ListStubController {
                 Map.entry("customer", "东莞备用客户"),
                 Map.entry("billDate", "2026-06-21"),
                 Map.entry("status", "草稿"),
+                Map.entry("closeStatus", "OPEN"),
+                Map.entry("closeStatusLabel", "未关闭"),
+                Map.entry("frozenStatus", "NORMAL"),
+                Map.entry("frozenStatusLabel", "正常"),
                 Map.entry("qty", "12"),
                 Map.entry("shippedQty", "0"),
                 Map.entry("remainingQty", "12"),
@@ -1132,7 +1164,7 @@ public class ListStubController {
                            SUM(pil.qty) AS received_qty
                     FROM purchase_in_line pil
                     JOIN purchase_in pi ON pi.id = pil.bill_id
-                    WHERE pi.status <> 'VOID'
+                    WHERE pi.status = 'AUDITED'
                     GROUP BY pil.source_order_no, pil.source_line_no
                 ) in_qty ON in_qty.source_order_no = po2.bill_no AND in_qty.source_line_no = pol.line_no
                 GROUP BY pol.order_id

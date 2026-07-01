@@ -74,7 +74,7 @@ export function isAuditedBillStatus(row: Record<string, unknown>): boolean {
   return rowBillStatus(row) === "AUDITED";
 }
 
-export function documentLifecycleStatusLabel(status: unknown, closeStatus?: unknown, frozenStatus?: unknown): string {
+export function documentLifecycleStatusLabel(status: unknown, closeStatus?: unknown, frozenStatus?: unknown, closeMode?: unknown): string {
   const mainLabels: Record<string, string> = {
     DRAFT: "草稿",
     AUDITED: "已审核",
@@ -84,7 +84,13 @@ export function documentLifecycleStatusLabel(status: unknown, closeStatus?: unkn
   };
   const labels = [mainLabels[normalizeBillStatus(status)] ?? String(status ?? "")];
   if (closeStatus === "CLOSED") {
-    labels.push("已关闭");
+    if (closeMode === "AUTO") {
+      labels.push("自动关闭");
+    } else if (closeMode === "MANUAL") {
+      labels.push("手动关闭");
+    } else {
+      labels.push("历史已关闭");
+    }
   }
   if (frozenStatus === "FROZEN") {
     labels.push("已冻结");

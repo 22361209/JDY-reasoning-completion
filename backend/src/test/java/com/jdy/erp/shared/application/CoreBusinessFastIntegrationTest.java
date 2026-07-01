@@ -48,6 +48,9 @@ class CoreBusinessFastIntegrationTest {
     private BillLifecycleService lifecycleService;
 
     @Autowired
+    private ConversionService conversionService;
+
+    @Autowired
     private InventoryPostingService inventoryPostingService;
 
     @Autowired
@@ -99,6 +102,15 @@ class CoreBusinessFastIntegrationTest {
         var frozen = lifecycleService.freezeBill(SALES_ORDER_TARGET, frozenBillNo, "A111 freeze");
 
         assertThat(closed.get("closeStatus")).isEqualTo("CLOSED");
+        assertThat(closed.get("closeMode")).isEqualTo("MANUAL");
+        assertThat(jdbcTemplate.queryForObject("""
+            SELECT line_close_status
+            FROM sales_order_line
+            WHERE order_id = ?::uuid AND line_no = 1
+            """, String.class, idOf("sales_order", closedBillNo))).isEqualTo("OPEN");
+        assertThatThrownBy(() -> lifecycleService.setLineClosed(SALES_ORDER_TARGET, closedBillNo, 1, true, "A127 line close disabled"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("销售订单新业务不支持行关闭");
         assertThat(frozen.get("frozenStatus")).isEqualTo("FROZEN");
         assertThatThrownBy(() -> lifecycleService.guardExecutableSourceLine(sourceSpec(), idOf("sales_order", closedBillNo), 1))
             .isInstanceOf(ResponseStatusException.class)
@@ -106,6 +118,52 @@ class CoreBusinessFastIntegrationTest {
         assertThatThrownBy(() -> lifecycleService.guardExecutableSourceLine(sourceSpec(), idOf("sales_order", frozenBillNo), 1))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("源单或源单行已关闭/冻结");
+
+        var reopened = lifecycleService.reopenBill(SALES_ORDER_TARGET, closedBillNo, "A111 unclose");
+        assertThat(reopened.get("closeStatus")).isEqualTo("OPEN");
+        assertThat(reopened.get("closeMode")).isNull();
+    }
+
+    @Test
+    void salesOrderAutoCloseTracksExecutedQuantityFacts() {
+        var billNo = billNo("XSDD-A127-AUTO-CLOSE");
+        insertSalesOrder(billNo, "AUDITED");
+        var orderId = idOf("sales_order", billNo);
+
+        jdbcTemplate.update("""
+            UPDATE sales_order_line
+            SET shipped_qty = qty
+            WHERE order_id = ?::uuid
+            """, orderId);
+        conversionService.refreshSourceStatus(salesOrderShippedSpec(), orderId);
+        var autoClosed = jdbcTemplate.queryForMap("""
+            SELECT close_status AS "closeStatus", close_mode AS "closeMode", close_reason AS "closeReason"
+            FROM sales_order
+            WHERE bill_no = ?
+            """, billNo);
+
+        assertThat(autoClosed.get("closeStatus")).isEqualTo("CLOSED");
+        assertThat(autoClosed.get("closeMode")).isEqualTo("AUTO");
+        assertThat(autoClosed.get("closeReason")).isEqualTo("全部出库，系统自动关闭");
+        assertThatThrownBy(() -> lifecycleService.reopenBill(SALES_ORDER_TARGET, billNo, "A127 auto unclose"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("只有手动关闭");
+
+        jdbcTemplate.update("""
+            UPDATE sales_order_line
+            SET shipped_qty = 0
+            WHERE order_id = ?::uuid
+            """, orderId);
+        conversionService.refreshSourceStatus(salesOrderShippedSpec(), orderId);
+        var reopened = jdbcTemplate.queryForMap("""
+            SELECT close_status AS "closeStatus", close_mode AS "closeMode", close_reason AS "closeReason"
+            FROM sales_order
+            WHERE bill_no = ?
+            """, billNo);
+
+        assertThat(reopened.get("closeStatus")).isEqualTo("OPEN");
+        assertThat(reopened.get("closeMode")).isNull();
+        assertThat(reopened.get("closeReason")).isNull();
     }
 
     @Test
@@ -428,6 +486,10 @@ class CoreBusinessFastIntegrationTest {
 
     private SourceExecutionSpec sourceSpec() {
         return new SourceExecutionSpec("sales_order", "sales_order_line", "order_id", "line_no", "out_qty", "qty", "out_status", "over");
+    }
+
+    private SourceExecutionSpec salesOrderShippedSpec() {
+        return new SourceExecutionSpec("sales_order", "sales_order_line", "order_id", "line_no", "shipped_qty", "qty", "out_status", "over");
     }
 
     private String statusOf(String table, String billNo) {

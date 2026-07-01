@@ -7,6 +7,8 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
@@ -42,6 +44,15 @@ public class PurchaseInAppService {
         "NOT_IN",
         "PART_IN",
         "ALL_IN"
+    );
+    private static final SourceLineQuantityGuard PURCHASE_ORDER_IN_QUANTITY_GUARD = new SourceLineQuantityGuard(
+        PURCHASE_ORDER_IN_SPEC,
+        "purchase_in",
+        "purchase_in_line",
+        "bill_id",
+        "source_order_no",
+        "source_line_no",
+        "qty"
     );
 
     private final JdbcTemplate jdbcTemplate;
@@ -196,6 +207,7 @@ public class PurchaseInAppService {
             "采购入库单不存在或已审核"
         );
         var lines = postingLines(billNo);
+        lifecycleService.guardSourceLineQuantities(PURCHASE_ORDER_IN_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
             if (sourceOrderId != null) {
@@ -487,6 +499,17 @@ public class PurchaseInAppService {
             .filter(id -> id != null && !id.isBlank())
             .distinct()
             .forEach(id -> conversionService.refreshSourceStatus(PURCHASE_ORDER_IN_SPEC, id));
+    }
+
+    private List<SourceLineQuantityDemand> sourceLineDemands(List<Map<String, Object>> lines) {
+        return lines.stream()
+            .filter(line -> line.get("sourceOrderNo") != null && line.get("sourceLineNo") != null)
+            .map(line -> new SourceLineQuantityDemand(
+                String.valueOf(line.get("sourceOrderNo")),
+                line.get("sourceLineNo"),
+                (BigDecimal) line.get("qty")
+            ))
+            .toList();
     }
 
     public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, Boolean isTaxInclusive, List<PurchaseInLineRequest> lines) {

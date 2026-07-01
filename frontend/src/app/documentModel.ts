@@ -44,6 +44,7 @@ export interface OrderLineForm {
   qty: number;
   executedQty?: number;
   remainingQty?: number;
+  availableNoticeQty?: number;
   lineCloseStatus?: "OPEN" | "CLOSED" | string;
   lineFrozenStatus?: "NORMAL" | "FROZEN" | string;
   unitPrice: number;
@@ -106,6 +107,7 @@ export interface OrderForm {
   validUntil?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   closeStatus?: "OPEN" | "CLOSED" | string;
+  closeMode?: "AUTO" | "MANUAL" | string | null;
   frozenStatus?: "NORMAL" | "FROZEN" | string;
   lines: OrderLineForm[];
 }
@@ -114,6 +116,7 @@ export interface PendingPushLine extends OrderLineForm {
   sourceQty: number;
   executedQty: number;
   remainingQty: number;
+  availableNoticeQty?: number;
   selected?: boolean;
 }
 

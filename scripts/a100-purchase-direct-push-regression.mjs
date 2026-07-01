@@ -95,7 +95,7 @@ async function createData() {
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 8, lineRemark: "A100 多源 B" }
   ]);
   const draftOccupiedOrderNo = await createPurchaseOrder("DRAFT-OCCUPY", [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 72, lineRemark: "A100 草稿占用源单" }
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 72, lineRemark: "A100 草稿不占用源单" }
   ]);
   const draftOccupiedInNo = `CGRK-A100-DRAFT-OCCUPY-${batch}`;
   await requireApi("/api/purchase-ins/draft", {
@@ -106,7 +106,7 @@ async function createData() {
       department: "采购部",
       ownerName: "本地管理员",
       lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: draftOccupiedOrderNo, sourceLineNo: 1, qty: 4, unitPrice: 72, lineRemark: "A100 未审核入库占用源单" }
+        { productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: draftOccupiedOrderNo, sourceLineNo: 1, qty: 4, unitPrice: 72, lineRemark: "A100 未审核入库不占用源单" }
       ]
     }
   });
@@ -219,7 +219,7 @@ try {
   assert(Number(orderBDetail.lines[0].remainingQty) === 0, "purchase order B should have no remaining qty after multi-source purchase in audit");
   const selectableAfterDraft = await requireApi(`/api/purchase-orders/selectable-lines?supplierCode=${encodeURIComponent("GYS-001")}`, { method: "GET" });
   const occupiedSelectableLine = selectableAfterDraft.lines.find((line) => line.billNo === data.draftOccupiedOrderNo);
-  assert(!occupiedSelectableLine, `purchase order line occupied by non-void draft purchase in should not be selectable: ${JSON.stringify(occupiedSelectableLine)}`);
+  assert(Number(occupiedSelectableLine?.remainingQty) === 4, `draft purchase in should not occupy purchase order source qty: ${JSON.stringify(occupiedSelectableLine)}`);
 
   const duplicateNo = `CGRK-A100-OVER-${batch}`;
   await requireApi("/api/purchase-ins/draft", {
@@ -244,8 +244,8 @@ try {
       "采购订单下推采购入库直连无确认对话框",
       "采购下推按剩余可入数量带全行并在入库单内改数量",
       "采购入库支持多采购订单行级源单号",
-      "未审核采购入库草稿占用采购订单源单剩余量",
-      "采购入库审核保留超剩余数量守卫"
+      "未审核采购入库草稿不占用采购订单源单剩余量",
+      "采购入库审核按源单行汇总保留超剩余数量守卫"
     ],
     directOrderNo: data.directOrderNo,
     directLines,

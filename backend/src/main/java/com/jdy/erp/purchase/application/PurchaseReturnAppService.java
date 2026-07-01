@@ -7,6 +7,9 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
+import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
@@ -28,6 +31,27 @@ import org.springframework.web.server.ResponseStatusException;
 public class PurchaseReturnAppService {
     private static final String BILL_TABLE = "purchase_return";
     private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "purchase_return_line", "bill_id", "PURCHASE", "purchase_return");
+    private static final SourceExecutionSpec PURCHASE_IN_RETURN_SPEC = new SourceExecutionSpec(
+        "purchase_in",
+        "purchase_in_line",
+        "bill_id",
+        "line_no",
+        "qty",
+        "qty",
+        "in_status",
+        "采购退货数量不能超过源采购入库剩余可退数量"
+    );
+    private static final SourceLineQuantityGuard PURCHASE_IN_RETURN_QUANTITY_GUARD = new SourceLineQuantityGuard(
+        PURCHASE_IN_RETURN_SPEC,
+        "purchase_return",
+        "purchase_return_line",
+        "bill_id",
+        "source_in_no",
+        "source_line_no",
+        "qty",
+        "采购退货源入库明细不存在或未审核",
+        "采购退货数量不能超过源采购入库剩余可退数量"
+    );
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -149,7 +173,7 @@ public class PurchaseReturnAppService {
                 SELECT source_in_no, source_line_no, SUM(qty) AS returned_qty
                 FROM purchase_return_line prl
                 JOIN purchase_return pr ON pr.id = prl.bill_id
-                WHERE pr.status <> 'VOID'
+                WHERE pr.status = 'AUDITED'
                 GROUP BY source_in_no, source_line_no
             ) returned ON returned.source_in_no = pi.bill_no AND returned.source_line_no = l.line_no
             WHERE s.code = ?
@@ -205,7 +229,7 @@ public class PurchaseReturnAppService {
     @Transactional
     public Map<String, Object> audit(String billNo) {
         var lines = postingLines(billNo);
-        validateReturnQuantities(billNo, lines);
+        lifecycleService.guardSourceLineQuantities(PURCHASE_IN_RETURN_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
@@ -326,40 +350,15 @@ public class PurchaseReturnAppService {
             """, billNo);
     }
 
-    private void validateReturnQuantities(String billNo, List<Map<String, Object>> lines) {
-        for (var line : lines) {
-            var sourceInNo = String.valueOf(line.get("sourceOrderNo") == null ? "" : line.get("sourceOrderNo")).trim();
-            var sourceLineNo = line.get("sourceLineNo");
-            if (sourceInNo.isBlank() || sourceLineNo == null) {
-                continue;
-            }
-            var rows = jdbcTemplate.queryForList("""
-                SELECT l.qty AS source_qty,
-                       COALESCE(returned.returned_qty, 0) AS returned_qty
-                FROM purchase_in pi
-                JOIN purchase_in_line l ON l.bill_id = pi.id
-                LEFT JOIN (
-                    SELECT prl.source_in_no, prl.source_line_no, SUM(prl.qty) AS returned_qty
-                    FROM purchase_return_line prl
-                    JOIN purchase_return pr ON pr.id = prl.bill_id
-                    WHERE pr.status <> 'VOID'
-                      AND pr.bill_no <> ?
-                    GROUP BY prl.source_in_no, prl.source_line_no
-                ) returned ON returned.source_in_no = pi.bill_no AND returned.source_line_no = l.line_no
-                WHERE pi.bill_no = ?
-                  AND pi.status = ?
-                  AND l.line_no = ?
-                """, billNo, sourceInNo, BillStatus.AUDITED.name(), sourceLineNo);
-            if (rows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货源入库明细不存在或未审核");
-            }
-            var sourceQty = (BigDecimal) rows.get(0).get("source_qty");
-            var returnedQty = (BigDecimal) rows.get(0).get("returned_qty");
-            var qty = (BigDecimal) line.get("qty");
-            if (returnedQty.add(qty).compareTo(sourceQty) > 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货数量不能超过源采购入库剩余可退数量");
-            }
-        }
+    private List<SourceLineQuantityDemand> sourceLineDemands(List<Map<String, Object>> lines) {
+        return lines.stream()
+            .filter(line -> line.get("sourceOrderNo") != null && line.get("sourceLineNo") != null)
+            .map(line -> new SourceLineQuantityDemand(
+                String.valueOf(line.get("sourceOrderNo")),
+                line.get("sourceLineNo"),
+                (BigDecimal) line.get("qty")
+            ))
+            .toList();
     }
 
     private PostingContext financeContext(Map<String, Object> row, String txnType, BigDecimal amount) {

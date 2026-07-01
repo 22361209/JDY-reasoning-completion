@@ -113,6 +113,7 @@
         :show-target-warehouse-column="showTargetWarehouseColumn"
         :show-plan-delivery-date-column="showPlanDeliveryDateColumn"
         :show-stock-columns="showStockColumns"
+        :show-line-close-status="showLineCloseStatus"
         :enable-sales-price-bulk="enableSalesPriceBulk"
         :sales-price-customer-code="form.partyCode"
         :execution-qty-label="executionQtyLabel"
@@ -245,6 +246,7 @@ const props = withDefaults(defineProps<{
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
   showStockColumns?: boolean;
+  showLineCloseStatus?: boolean;
   enableSalesPriceBulk?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
@@ -300,6 +302,7 @@ const props = withDefaults(defineProps<{
   extraActionLabel: "执行",
   extraActionTestId: "extra-document-action",
   showValidUntil: false,
+  showLineCloseStatus: true,
   enableSalesPriceBulk: false
 });
 

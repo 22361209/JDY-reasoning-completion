@@ -85,6 +85,51 @@ public class ConversionService {
                 spec.executedQtyColumn(),
                 spec.totalQtyColumn()
             ), sourceId, spec.notStartedStatus(), sourceId, spec.allExecutedStatus(), spec.partExecutedStatus(), sourceId);
+        if ("sales_order".equals(spec.headerTable())) {
+            syncSalesOrderAutoClose(sourceId);
+        }
+    }
+
+    private void syncSalesOrderAutoClose(String sourceId) {
+        jdbcTemplate.update("""
+            UPDATE sales_order
+            SET close_status = 'OPEN',
+                close_mode = NULL,
+                close_reason = NULL,
+                closed_by = NULL,
+                closed_at = NULL,
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+              AND close_status = 'CLOSED'
+              AND close_mode = 'AUTO'
+              AND EXISTS (
+                  SELECT 1
+                  FROM sales_order_line
+                  WHERE order_id = ?::uuid
+                    AND qty > COALESCE(shipped_qty, 0)
+              )
+            """, sourceId, sourceId);
+        jdbcTemplate.update("""
+            UPDATE sales_order
+            SET close_status = 'CLOSED',
+                close_mode = 'AUTO',
+                close_reason = '全部出库，系统自动关闭',
+                closed_by = NULL,
+                closed_at = now(),
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+              AND status = 'AUDITED'
+              AND close_status = 'OPEN'
+              AND frozen_status = 'NORMAL'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM sales_order_line
+                  WHERE order_id = ?::uuid
+                    AND qty > COALESCE(shipped_qty, 0)
+              )
+            """, sourceId, sourceId);
     }
 
     public ConversionResult createStockCountAdjustments(String stockCountBillNo) {

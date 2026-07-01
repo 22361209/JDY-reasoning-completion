@@ -100,6 +100,8 @@ export const salesOrderBillDefinition: BillDefinition = {
       identityListColumns[1],
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "outStatus", title: "出库状态", width: 110, visible: true },
+      { field: "closeStatusLabel", title: "关闭状态", width: 110, visible: true },
+      { field: "frozenStatusLabel", title: "冻结状态", width: 110, visible: true },
       { field: "qty", title: "数量", width: 110, align: "right", visible: true },
       { field: "shippedQty", title: "已出库数量", width: 120, align: "right", visible: true },
       { field: "remainingQty", title: "未出库数量", width: 120, align: "right", visible: true },
@@ -108,7 +110,13 @@ export const salesOrderBillDefinition: BillDefinition = {
       { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "owner", title: "经办人", width: 120, visible: true }
     ],
-    detail: [...salesOrderDetailColumns, ...sourceDetailColumns]
+    detail: [
+      ...salesOrderDetailColumns.slice(0, 8),
+      { field: "closeStatusLabel", title: "关闭状态", width: 110, visible: true },
+      { field: "frozenStatusLabel", title: "冻结状态", width: 110, visible: true },
+      ...salesOrderDetailColumns.slice(8),
+      ...sourceDetailColumns
+    ]
   },
   toolbarActions: [
     { key: "create", label: "新增" },

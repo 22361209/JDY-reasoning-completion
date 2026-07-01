@@ -48,7 +48,19 @@ async function verifyLifecycleCodeContracts() {
   const listStubController = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/system/api/ListStubController.java"), "utf8");
   const lifecyclePolicy = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/BillLifecyclePolicy.java"), "utf8");
   const lifecycleService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/BillLifecycleService.java"), "utf8");
+  const deliveryNoticeService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/DeliveryNoticeAppService.java"), "utf8");
+  const salesOutService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/SalesOutAppService.java"), "utf8");
+  const purchaseInService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseInAppService.java"), "utf8");
+  const purchaseReturnService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseReturnAppService.java"), "utf8");
+  const purchaseOrderService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java"), "utf8");
   const outsourcingService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/outsourcing/application/OutsourcingDocumentAppService.java"), "utf8");
+  const salesOrderForm = await readFile(path.join(rootDir, "frontend/src/modules/sales/sales-order/SalesOrderForm.vue"), "utf8");
+  const appVue = await readFile(path.join(rootDir, "frontend/src/app/App.vue"), "utf8");
+  const salesOrderPushDownStart = appVue.indexOf("async function openDeliveryNoticeFromSalesOrder");
+  const salesOrderPushDownEnd = appVue.indexOf("async function openOutboundFromDeliveryNotice");
+  const salesOrderPushDown = salesOrderPushDownStart >= 0 && salesOrderPushDownEnd > salesOrderPushDownStart
+    ? appVue.slice(salesOrderPushDownStart, salesOrderPushDownEnd)
+    : "";
 
   assert(dataListPage.includes("auditDocument(type, billNo)"), "DataListPage batch audit must call auditDocument");
   assert(dataListPage.includes("async function submitBatchAudit()"), "DataListPage must implement submitBatchAudit");
@@ -59,13 +71,32 @@ async function verifyLifecycleCodeContracts() {
   assert(listStubController.includes('dn.frozen_status AS "frozenStatus"'), "delivery notice list must return frozenStatus");
   assert(lifecyclePolicy.includes("boolean voidAllowed"), "backend lifecycle policy must include voidAllowed");
   assert(lifecycleService.includes("BillLifecyclePolicy.requireVoidAllowed(target);"), "voidBill must enforce backend voidAllowed policy");
+  assert(lifecycleService.includes("销售订单新业务不支持行关闭/反关闭"), "sales order line close API must be disabled for new business");
+  assert(lifecycleService.includes("public void guardSourceLineQuantities("), "BillLifecycleService must own aggregate source-line quantity guard");
+  assert(lifecycleService.includes("WHERE dh.status = 'AUDITED'"), "aggregate source-line quantity guard must only count audited downstream bills");
+  assert(deliveryNoticeService.includes("guardSourceLineQuantities(SALES_ORDER_NOTICE_QUANTITY_GUARD"), "delivery notice audit must use lifecycle aggregate quantity guard");
+  assert(salesOutService.includes("guardSourceLineQuantities(DELIVERY_NOTICE_OUT_QUANTITY_GUARD"), "sales out audit must use lifecycle aggregate quantity guard");
+  assert(purchaseInService.includes("guardSourceLineQuantities(PURCHASE_ORDER_IN_QUANTITY_GUARD"), "purchase in audit must use lifecycle aggregate quantity guard");
+  assert(purchaseReturnService.includes("guardSourceLineQuantities(PURCHASE_IN_RETURN_QUANTITY_GUARD"), "purchase return audit must use lifecycle aggregate quantity guard");
+  assert(!deliveryNoticeService.includes("guardSourceOrderNoticeQuantity"), "delivery notice must not keep private aggregate quantity guard");
+  assert(!salesOutService.includes("guardDeliveryNoticeRemaining"), "sales out must not keep private aggregate quantity guard");
+  assert(!purchaseReturnService.includes("validateReturnQuantities"), "purchase return must not keep private aggregate quantity guard");
+  assert(!purchaseOrderService.includes("WHERE pi.status <> 'VOID'"), "purchase order selectable remaining qty must not count draft purchase-in as source occupation");
+  assert(!purchaseReturnService.includes("WHERE pr.status <> 'VOID'"), "purchase return selectable remaining qty must not count draft purchase-return as source occupation");
   assert(!outsourcingService.includes("BillStatus.AUDITED.name(), BillStatus.REVERSED.name()"), "new reverse logic must not transition AUDITED to REVERSED");
+  assert(salesOrderForm.includes(':show-line-close-status="false"'), "sales order form must hide line close status for new business");
+  assert(!salesOrderForm.includes('line.lineCloseStatus !== "CLOSED"'), "sales order pushdown button must not depend on lineCloseStatus");
+  assert(salesOrderPushDown.includes("availableNoticeQty"), "legacy sales order pushdown must use available notice quantity");
+  assert(!salesOrderPushDown.includes('lineCloseStatus !== "CLOSED"'), "legacy sales order pushdown must not filter by lineCloseStatus");
   return {
     batchAuditSubmits: true,
     pushdownUsesRemainingQty: true,
     deliveryNoticeListLifecycleStatus: true,
     backendVoidAllowedEnforced: true,
-    reverseReturnsDraft: true
+    reverseReturnsDraft: true,
+    aggregateSourceLineQuantityGuard: true,
+    salesOrderLineCloseHidden: true,
+    legacySalesOrderPushdownUsesAvailableNoticeQty: true
   };
 }
 
@@ -172,18 +203,19 @@ async function createSalesOutDraftFromNotice(noticeNo, suffix, qty = 1) {
 
 async function verifyLifecycleApi() {
   const closeNo = await createSalesOrder("CLOSE");
-  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/lines/1/close`, { body: { reason: "A105 行关闭" } });
+  const lineClose = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/lines/1/close`, { body: { reason: "A105 行关闭" }, expectFailure: true });
+  assert(lineClose.status === 400, `sales order line close API should be disabled with 400, got ${lineClose.status}`);
   let detail = await requireApi(`/api/sales-orders/${encodeURIComponent(closeNo)}`, { method: "GET" });
-  assert(detail.lines[0].lineCloseStatus === "CLOSED", "line close status should be CLOSED");
-  assert(detail.lines[1].lineCloseStatus === "OPEN", "other line should stay OPEN");
-  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/lines/1/unclose`, { body: { reason: "A105 行反关闭" } });
+  assert(detail.lines.every((line) => line.lineCloseStatus === "OPEN"), "sales order line close API should not mutate lines");
   await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/close`, { body: { reason: "A105 整单关闭" } });
   detail = await requireApi(`/api/sales-orders/${encodeURIComponent(closeNo)}`, { method: "GET" });
   assert(detail.order.closeStatus === "CLOSED", "header close status should be CLOSED");
-  assert(detail.lines.every((line) => line.lineCloseStatus === "CLOSED"), "all lines should be closed by header close");
+  assert(detail.order.closeMode === "MANUAL", "sales order manual header close should set closeMode MANUAL");
+  assert(detail.lines.every((line) => line.lineCloseStatus === "OPEN"), "sales order header close should not close lines");
   await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(closeNo)}/unclose`, { body: { reason: "A105 整单反关闭" } });
   detail = await requireApi(`/api/sales-orders/${encodeURIComponent(closeNo)}`, { method: "GET" });
   assert(detail.order.closeStatus === "OPEN", "header close status should reopen");
+  assert(!detail.order.closeMode, "sales order manual unclose should clear closeMode");
   assert(detail.lines.every((line) => line.lineCloseStatus === "OPEN"), "all lines should reopen");
 
   const freezeNo = await createSalesOrder("FREEZE");
@@ -205,10 +237,10 @@ async function verifyLifecycleApi() {
   await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(freezeNo)}/unfreeze`, { body: { reason: "A105 整单解冻" } });
 
   const lineBlockNo = await createSalesOrder("LINEBLOCK");
-  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(lineBlockNo)}/lines/1/close`, { body: { reason: "A105 已关闭行不下推" } });
+  await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(lineBlockNo)}/lines/1/freeze`, { body: { reason: "A105 已冻结行不下推" } });
   const selectable = await requireApi(`/api/sales-orders/selectable-lines?customerCode=KH-001`, { method: "GET" });
   const sourceLines = selectable.lines.filter((line) => line.billNo === lineBlockNo);
-  assert(sourceLines.length === 1 && Number(sourceLines[0].lineNo) === 2, "selectable lines should skip closed line and keep open line");
+  assert(sourceLines.length === 1 && Number(sourceLines[0].lineNo) === 2, "selectable lines should skip frozen line and keep normal line");
 
   const voidNo = `XSDD-A105-VOID-${batch}`;
   await requireApi("/api/sales-orders/draft", {
@@ -329,9 +361,9 @@ const result = {
   batch,
   generatedAt: new Date().toISOString(),
   assertions: [
-    "关闭/反关闭支持表头与行级并保留业务事实",
+    "销售订单关闭/反关闭只作用整单，销售订单行关闭 API 已禁用",
     "冻结/解冻支持表头与行级并阻断执行",
-    "下推可选行跳过已关闭/已冻结行",
+    "下推可选行跳过已冻结行",
     "作废需要账号密码且草稿作废成功",
     "已有下游影响禁止作废",
     "前端普通按钮和作废危险区二次确认可见",
@@ -339,7 +371,8 @@ const result = {
     "发货通知单列表返回 closeStatus/frozenStatus",
     "下推按钮不再依赖 outStatus/inStatus 展示文案",
     "后端作废入口强校验 voidAllowed",
-    "新反审核逻辑不再转入 REVERSED"
+    "新反审核逻辑不再转入 REVERSED",
+    "销售订单前端不再暴露行关闭状态且下推按钮不依赖 lineCloseStatus"
   ],
   codeContracts,
   lifecycle,

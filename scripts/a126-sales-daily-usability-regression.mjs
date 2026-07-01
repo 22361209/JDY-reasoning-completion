@@ -104,7 +104,7 @@ function stock() {
 
 function orderStats(orderNo) {
   const raw = sqlValue(`
-    SELECT so.status || '|' || so.close_status || '|' || so.frozen_status || '|' || so.out_status || '|' ||
+    SELECT so.status || '|' || so.close_status || '|' || COALESCE(so.close_mode, '') || '|' || so.frozen_status || '|' || so.out_status || '|' ||
            COALESCE(sol.qty, 0) || '|' || COALESCE(sol.shipped_qty, 0) || '|' ||
            GREATEST(0, COALESCE(sol.qty, 0) - COALESCE(sol.shipped_qty, 0)) || '|' ||
            sol.line_close_status || '|' || sol.line_frozen_status
@@ -112,10 +112,11 @@ function orderStats(orderNo) {
     JOIN sales_order_line sol ON sol.order_id = so.id AND sol.line_no = 1
     WHERE so.bill_no = '${orderNo}'
   `);
-  const [status, closeStatus, frozenStatus, outStatus, qty, shippedQty, remainingQty, lineCloseStatus, lineFrozenStatus] = raw.split("|");
+  const [status, closeStatus, closeMode, frozenStatus, outStatus, qty, shippedQty, remainingQty, lineCloseStatus, lineFrozenStatus] = raw.split("|");
   return {
     status,
     closeStatus,
+    closeMode: closeMode || null,
     frozenStatus,
     outStatus,
     qty: Number(qty),
@@ -138,6 +139,15 @@ function listRow(listKey, billNo, view = "header") {
     { encoding: "utf8" }
   ).trim();
   return raw ? JSON.parse(raw) : null;
+}
+
+async function selectableSalesOrderLines(customerCodeValue = customerCode) {
+  const result = await requireApi(
+    adminCookie,
+    `/api/sales-orders/selectable-lines?customerCode=${encodeURIComponent(customerCodeValue)}`,
+    { method: "GET" }
+  );
+  return Array.isArray(result.lines) ? result.lines : [];
 }
 
 async function seedInventory(qtyDelta, label) {
@@ -199,6 +209,11 @@ async function createOrder(orderNo, qty, sourceQuoteNo = "") {
 }
 
 async function createNotice(noticeNo, orderNo, qty, cookie = adminCookie) {
+  await saveNoticeDraft(noticeNo, orderNo, [line(qty, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })], cookie);
+  await requireApi(cookie, `/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+}
+
+async function saveNoticeDraft(noticeNo, orderNo, lines, cookie = adminCookie) {
   await requireApi(cookie, "/api/delivery-notices/draft", {
     body: {
       billNo: noticeNo,
@@ -208,10 +223,9 @@ async function createNotice(noticeNo, orderNo, qty, cookie = adminCookie) {
       department: "销售部",
       ownerName: cookie === warehouseCookie ? "仓库操作员" : "本地管理员",
       remark: "A126 发货通知",
-      lines: [line(qty, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]
+      lines
     }
   });
-  await requireApi(cookie, `/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
 }
 
 async function createSalesOut(outNo, noticeNo, qty, cookie = warehouseCookie) {
@@ -248,11 +262,28 @@ async function runMainFlow() {
   assert(afterOut.onHand === afterNotice.onHand - 12, "销售出库审核扣减即时库存", { afterNotice, afterOut });
   assert(afterOut.reserved === afterNotice.reserved - 12, "销售出库审核释放对应预留库存", { afterNotice, afterOut });
   assert(stats.shippedQty === 12 && stats.remainingQty === 0 && stats.outStatus === "ALL_OUT", "主流程销售订单已出库/未出库数量正确", stats);
+  assert(stats.closeStatus === "CLOSED" && stats.closeMode === "AUTO", "销售订单全部出库后自动关闭", stats);
+  const blockedNoticeAfterAutoClose = `FHTZA126MB${batch}`;
+  await requireApi(adminCookie, "/api/delivery-notices/draft", {
+    body: {
+      billNo: blockedNoticeAfterAutoClose,
+      sourceOrderNo: orderNo,
+      customerCode,
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]
+    }
+  });
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNoticeAfterAutoClose)}/audit`, 409);
+  await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/unclose`, 409, {
+    body: { reason: "自动关闭不能手动反关闭" }
+  });
   const orderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(orderNo)}`, { method: "GET" });
   const outDetail = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}`, { method: "GET" });
   assert((orderDetail.lines?.[0]?.downstreamDocs ?? []).some((doc) => doc.billNo === noticeNo), "销售订单行能追踪到发货通知单", orderDetail.lines?.[0]?.downstreamDocs);
   assert(outDetail.lines?.[0]?.sourceDeliveryNoticeNo === noticeNo && outDetail.lines?.[0]?.sourceOrderNo === orderNo, "销售出库行保留发货通知和销售订单来源", outDetail.lines?.[0]);
-  evidence.data.mainFlow = { quoteNo, orderNo, noticeNo, outNo, before, afterNotice, afterOut, stats };
+  evidence.data.mainFlow = { quoteNo, orderNo, noticeNo, outNo, blockedNoticeAfterAutoClose, before, afterNotice, afterOut, stats };
   return evidence.data.mainFlow;
 }
 
@@ -305,6 +336,72 @@ async function runPartialFlow() {
   return evidence.data.partialFlow;
 }
 
+async function runFullyNoticedPendingShipmentFlow() {
+  const orderNo = `XSDDA126N${batch}`;
+  const noticeNo = `FHTZA126N${batch}`;
+  await seedInventory(120, "fully-noticed-pending-shipment");
+  await createOrder(orderNo, 100);
+  await createNotice(noticeNo, orderNo, 100);
+
+  const stats = orderStats(orderNo);
+  assert(stats.shippedQty === 0 && stats.remainingQty === 100, "已全量发货通知但未出库时，销售订单未出库数量仍按已出库事实计算", stats);
+  assert(stats.closeStatus === "OPEN" && stats.closeMode === null, "已通知未出库不应自动关闭销售订单", stats);
+
+  const orderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(orderNo)}`, { method: "GET" });
+  const detailLine = orderDetail.lines?.[0] ?? {};
+  assert(numberOf(detailLine.shippedQty) === 0, "销售订单详情显示已出库数量为 0", detailLine);
+  assert(numberOf(detailLine.remainingQty) === 100, "销售订单详情未出库数量不被发货通知扣减", detailLine);
+  assert(numberOf(detailLine.availableNoticeQty) === 0, "销售订单详情可通知数量已被发货通知扣完", detailLine);
+
+  const headerRow = listRow("sales-order-form-list", orderNo, "header");
+  const detailRow = listRow("sales-order-form-list", orderNo, "detail");
+  assert(numberOf(headerRow?.shippedQty) === 0 && numberOf(headerRow?.remainingQty) === 100, "销售订单整单列表未出库数量不被发货通知扣减", headerRow);
+  assert(numberOf(detailRow?.shippedQty) === 0 && numberOf(detailRow?.remainingQty) === 100, "销售订单明细列表未出库数量不被发货通知扣减", detailRow);
+
+  const selectableLines = await selectableSalesOrderLines();
+  assert(!selectableLines.some((line) => line.billNo === orderNo), "已全量发货通知的销售订单不再进入发货通知选源", selectableLines.filter((line) => line.billNo === orderNo));
+
+  evidence.data.fullyNoticedPendingShipment = { orderNo, noticeNo, stats, detailLine, headerRow, detailRow };
+  return evidence.data.fullyNoticedPendingShipment;
+}
+
+async function runNoticeDraftAndGroupedAuditGuardFlow() {
+  const draftOrderNo = `XSDDA126D${batch}`;
+  const draftNoticeNo = `FHTZA126D${batch}`;
+  await createOrder(draftOrderNo, 100);
+  await saveNoticeDraft(draftNoticeNo, draftOrderNo, [line(100, 86, { sourceOrderNo: draftOrderNo, sourceLineNo: 1 })]);
+
+  const draftOrderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(draftOrderNo)}`, { method: "GET" });
+  const draftLine = draftOrderDetail.lines?.[0] ?? {};
+  assert(numberOf(draftLine.availableNoticeQty) === 100, "发货通知草稿不占用销售订单可通知量", draftLine);
+  let selectableLines = await selectableSalesOrderLines();
+  const selectableDraftLine = selectableLines.find((line) => line.billNo === draftOrderNo);
+  assert(numberOf(selectableDraftLine?.availableNoticeQty ?? selectableDraftLine?.remainingQty) === 100, "草稿发货通知不影响销售订单选源可通知量", selectableDraftLine);
+
+  await requireApi(adminCookie, `/api/delivery-notices/${encodeURIComponent(draftNoticeNo)}/audit`);
+  const auditedOrderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(draftOrderNo)}`, { method: "GET" });
+  assert(numberOf(auditedOrderDetail.lines?.[0]?.availableNoticeQty) === 0, "发货通知审核后才占用销售订单可通知量", auditedOrderDetail.lines?.[0]);
+
+  const groupedOrderNo = `XSDDA126G${batch}`;
+  const overNoticeNo = `FHTZA126G${batch}`;
+  const okNoticeNo = `FHTZA126GOK${batch}`;
+  await createOrder(groupedOrderNo, 100);
+  await saveNoticeDraft(overNoticeNo, groupedOrderNo, [
+    line(80, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 }),
+    line(30, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 })
+  ]);
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(overNoticeNo)}/audit`, 409);
+
+  await saveNoticeDraft(okNoticeNo, groupedOrderNo, [
+    line(40, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 }),
+    line(60, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 })
+  ]);
+  await requireApi(adminCookie, `/api/delivery-notices/${encodeURIComponent(okNoticeNo)}/audit`);
+
+  evidence.data.noticeDraftAndGroupedAuditGuard = { draftOrderNo, draftNoticeNo, groupedOrderNo, overNoticeNo, okNoticeNo };
+  return evidence.data.noticeDraftAndGroupedAuditGuard;
+}
+
 async function runCloseRemainingFlow() {
   const orderNo = `XSDDA126C${batch}`;
   const n1 = `FHTZA126C1${batch}`;
@@ -313,11 +410,12 @@ async function runCloseRemainingFlow() {
   await createOrder(orderNo, 100);
   await createNotice(n1, orderNo, 80);
   await createSalesOut(o1, n1, 80);
-  await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/lines/1/close`, {
+  await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/close`, {
     body: { reason: "客户接受少发，关闭剩余 20" }
   });
   const afterClose = orderStats(orderNo);
-  assert(afterClose.lineCloseStatus === "CLOSED", "销售订单剩余行可关闭", afterClose);
+  assert(afterClose.closeStatus === "CLOSED" && afterClose.closeMode === "MANUAL", "销售订单剩余未发可手动关闭整单", afterClose);
+  assert(afterClose.remainingQty === 20 && afterClose.lineCloseStatus === "OPEN", "手动关闭后未出库数量保留且不关闭行", afterClose);
   const blockedNotice = `FHTZA126CB${batch}`;
   await requireApi(adminCookie, "/api/delivery-notices/draft", {
     body: {
@@ -331,7 +429,12 @@ async function runCloseRemainingFlow() {
     }
   });
   await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNotice)}/audit`, 409);
-  evidence.data.closeRemaining = { orderNo, shippedOut: o1, afterClose };
+  await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/unclose`, {
+    body: { reason: "A126 手动反关闭恢复执行" }
+  });
+  const afterUnclose = orderStats(orderNo);
+  assert(afterUnclose.closeStatus === "OPEN" && afterUnclose.closeMode === null && afterUnclose.remainingQty === 20, "手动关闭的销售订单可以反关闭且保留未出库数量", afterUnclose);
+  evidence.data.closeRemaining = { orderNo, shippedOut: o1, afterClose, afterUnclose };
   return evidence.data.closeRemaining;
 }
 
@@ -356,7 +459,9 @@ async function runRedReverseFlow() {
   assert(afterRed.onHand === beforeOut.onHand, "红冲后库存回退到出库前", { beforeOut, afterRed });
   assert(original.document?.redReverseBillNo === redNo, "原销售出库能看到红字单", original.document);
   assert(red.document?.redSourceBillNo === outNo && red.document?.status === "RED_REVERSED", "红字单能追溯原销售出库", red.document);
-  evidence.data.redReverse = { orderNo, noticeNo, outNo, redNo, beforeOut, afterOut, afterRed };
+  const afterRedOrder = orderStats(orderNo);
+  assert(afterRedOrder.closeStatus === "OPEN" && afterRedOrder.closeMode === null && afterRedOrder.remainingQty === 10, "红冲导致未出库数量回升后自动关闭订单恢复未关闭", afterRedOrder);
+  evidence.data.redReverse = { orderNo, noticeNo, outNo, redNo, beforeOut, afterOut, afterRed, afterRedOrder };
   return evidence.data.redReverse;
 }
 
@@ -524,6 +629,8 @@ async function openListAndScreenshot(page, entryTestId, tabKey, billNo, name) {
 
 await runMainFlow();
 await runPartialFlow();
+await runFullyNoticedPendingShipmentFlow();
+await runNoticeDraftAndGroupedAuditGuardFlow();
 await runCloseRemainingFlow();
 await runRedReverseFlow();
 await runFreezeFlow();

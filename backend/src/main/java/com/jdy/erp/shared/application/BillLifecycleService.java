@@ -1,6 +1,8 @@
 package com.jdy.erp.shared.application;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -139,30 +141,49 @@ public class BillLifecycleService {
     public Map<String, Object> closeBill(BillLifecycleTarget target, String billNo, String reason) {
         guardTarget(target);
         BillLifecyclePolicy.requireCloseFreezeAllowed(target, "关闭");
-        var rows = jdbcTemplate.queryForList("""
-            UPDATE %s
-            SET close_status = 'CLOSED',
-                close_reason = ?,
-                closed_by = ?::uuid,
-                closed_at = now(),
-                updated_at = now(),
-                version = version + 1
-            WHERE bill_no = ?
-              AND status = 'AUDITED'
-              AND frozen_status = 'NORMAL'
-              AND close_status <> 'CLOSED'
-            RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
-            """.formatted(target.headerTable()), requiredReason(reason, "关闭原因"), currentSessionService.currentUserId(), billNo);
+        var requiredReason = requiredReason(reason, "关闭原因");
+        var rows = isSalesOrderTarget(target)
+            ? jdbcTemplate.queryForList("""
+                UPDATE sales_order
+                SET close_status = 'CLOSED',
+                    close_mode = 'MANUAL',
+                    close_reason = ?,
+                    closed_by = ?::uuid,
+                    closed_at = now(),
+                    updated_at = now(),
+                    version = version + 1
+                WHERE bill_no = ?
+                  AND status = 'AUDITED'
+                  AND frozen_status = 'NORMAL'
+                  AND close_status <> 'CLOSED'
+                RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", close_mode AS "closeMode", frozen_status AS "frozenStatus"
+                """, requiredReason, currentSessionService.currentUserId(), billNo)
+            : jdbcTemplate.queryForList("""
+                UPDATE %s
+                SET close_status = 'CLOSED',
+                    close_reason = ?,
+                    closed_by = ?::uuid,
+                    closed_at = now(),
+                    updated_at = now(),
+                    version = version + 1
+                WHERE bill_no = ?
+                  AND status = 'AUDITED'
+                  AND frozen_status = 'NORMAL'
+                  AND close_status <> 'CLOSED'
+                RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
+                """.formatted(target.headerTable()), requiredReason, currentSessionService.currentUserId(), billNo);
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核、未冻结且未关闭的单据可以关闭");
         }
-        jdbcTemplate.update("""
-            UPDATE %s
-            SET line_close_status = 'CLOSED',
-                line_close_reason = COALESCE(line_close_reason, ?)
-            WHERE %s = ?::uuid
-              AND line_close_status <> 'CLOSED'
-            """.formatted(target.lineTable(), target.lineOwnerColumn()), requiredReason(reason, "关闭原因"), rows.get(0).get("id"));
+        if (!isSalesOrderTarget(target)) {
+            jdbcTemplate.update("""
+                UPDATE %s
+                SET line_close_status = 'CLOSED',
+                    line_close_reason = COALESCE(line_close_reason, ?)
+                WHERE %s = ?::uuid
+                  AND line_close_status <> 'CLOSED'
+                """.formatted(target.lineTable(), target.lineOwnerColumn()), requiredReason, rows.get(0).get("id"));
+        }
         operationLogService.log(target.module(), "CLOSE", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
         return rows.get(0);
     }
@@ -171,28 +192,46 @@ public class BillLifecycleService {
     public Map<String, Object> reopenBill(BillLifecycleTarget target, String billNo, String reason) {
         guardTarget(target);
         BillLifecyclePolicy.requireCloseFreezeAllowed(target, "反关闭");
-        var rows = jdbcTemplate.queryForList("""
-            UPDATE %s
-            SET close_status = 'OPEN',
-                close_reason = ?,
-                closed_by = NULL,
-                closed_at = NULL,
-                updated_at = now(),
-                version = version + 1
-            WHERE bill_no = ?
-              AND status = 'AUDITED'
-              AND close_status = 'CLOSED'
-            RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
-            """.formatted(target.headerTable()), optionalReason(reason), billNo);
+        var rows = isSalesOrderTarget(target)
+            ? jdbcTemplate.queryForList("""
+                UPDATE sales_order
+                SET close_status = 'OPEN',
+                    close_mode = NULL,
+                    close_reason = NULL,
+                    closed_by = NULL,
+                    closed_at = NULL,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE bill_no = ?
+                  AND status = 'AUDITED'
+                  AND close_status = 'CLOSED'
+                  AND close_mode = 'MANUAL'
+                RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", close_mode AS "closeMode", frozen_status AS "frozenStatus"
+                """, billNo)
+            : jdbcTemplate.queryForList("""
+                UPDATE %s
+                SET close_status = 'OPEN',
+                    close_reason = ?,
+                    closed_by = NULL,
+                    closed_at = NULL,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE bill_no = ?
+                  AND status = 'AUDITED'
+                  AND close_status = 'CLOSED'
+                RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
+                """.formatted(target.headerTable()), optionalReason(reason), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核且已关闭的单据可以反关闭");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, isSalesOrderTarget(target) ? "只有手动关闭的销售订单可以反关闭" : "只有已审核且已关闭的单据可以反关闭");
         }
-        jdbcTemplate.update("""
-            UPDATE %s
-            SET line_close_status = 'OPEN',
-                line_close_reason = ?
-            WHERE %s = ?::uuid
-            """.formatted(target.lineTable(), target.lineOwnerColumn()), optionalReason(reason), rows.get(0).get("id"));
+        if (!isSalesOrderTarget(target)) {
+            jdbcTemplate.update("""
+                UPDATE %s
+                SET line_close_status = 'OPEN',
+                    line_close_reason = ?
+                WHERE %s = ?::uuid
+                """.formatted(target.lineTable(), target.lineOwnerColumn()), optionalReason(reason), rows.get(0).get("id"));
+        }
         operationLogService.log(target.module(), "UNCLOSE", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
         return rows.get(0);
     }
@@ -262,6 +301,9 @@ public class BillLifecycleService {
     @Transactional
     public Map<String, Object> setLineClosed(BillLifecycleTarget target, String billNo, int lineNo, boolean closed, String reason) {
         guardTarget(target);
+        if (isSalesOrderTarget(target)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "销售订单新业务不支持行关闭/反关闭，请使用整单关闭/反关闭。");
+        }
         BillLifecyclePolicy.requireLineCloseFreezeAllowed(target, closed ? "关闭" : "反关闭");
         var header = header(target, billNo);
         requireAuditedExecutableHeader(header, closed ? "行关闭" : "行反关闭");
@@ -365,6 +407,82 @@ public class BillLifecycleService {
         }
     }
 
+    public void guardSourceLineQuantities(
+        SourceLineQuantityGuard guard,
+        List<SourceLineQuantityDemand> demands,
+        String currentBillNo
+    ) {
+        guardSourceLineQuantityGuard(guard);
+        if (demands == null || demands.isEmpty()) {
+            return;
+        }
+        var grouped = new HashMap<String, SourceLineQuantityDemand>();
+        for (var demand : demands) {
+            if (demand == null || demand.sourceBillNo() == null || demand.sourceBillNo().isBlank()
+                || demand.sourceLineNo() == null || demand.qty() == null) {
+                continue;
+            }
+            var sourceBillNo = demand.sourceBillNo().trim();
+            var key = sourceBillNo + "\u0000" + demand.sourceLineNo();
+            var existing = grouped.get(key);
+            grouped.put(
+                key,
+                existing == null
+                    ? new SourceLineQuantityDemand(sourceBillNo, demand.sourceLineNo(), demand.qty())
+                    : new SourceLineQuantityDemand(sourceBillNo, demand.sourceLineNo(), existing.qty().add(demand.qty()))
+            );
+        }
+        for (var demand : grouped.values()) {
+            var rows = jdbcTemplate.queryForList("""
+                SELECT l.%s - COALESCE(used.used_qty, 0) AS remaining_qty
+                FROM %s h
+                JOIN %s l ON l.%s = h.id AND l.%s = ?
+                LEFT JOIN (
+                    SELECT dl.%s AS source_bill_no,
+                           dl.%s AS source_line_no,
+                           SUM(dl.%s) AS used_qty
+                    FROM %s dl
+                    JOIN %s dh ON dh.id = dl.%s
+                    WHERE dh.status = 'AUDITED'
+                      AND dh.bill_no <> ?
+                    GROUP BY dl.%s, dl.%s
+                ) used ON used.source_bill_no = h.bill_no AND used.source_line_no = l.%s
+                WHERE h.bill_no = ?
+                  AND h.status = 'AUDITED'
+                  AND h.close_status = 'OPEN'
+                  AND h.frozen_status = 'NORMAL'
+                  AND l.line_close_status = 'OPEN'
+                  AND l.line_frozen_status = 'NORMAL'
+                """.formatted(
+                    guard.sourceSpec().totalQtyColumn(),
+                    guard.sourceSpec().headerTable(),
+                    guard.sourceSpec().lineTable(),
+                    guard.sourceSpec().lineOwnerColumn(),
+                    guard.sourceSpec().lineNoColumn(),
+                    guard.downstreamSourceBillNoColumn(),
+                    guard.downstreamSourceLineNoColumn(),
+                    guard.downstreamQtyColumn(),
+                    guard.downstreamLineTable(),
+                    guard.downstreamHeaderTable(),
+                    guard.downstreamLineOwnerColumn(),
+                    guard.downstreamSourceBillNoColumn(),
+                    guard.downstreamSourceLineNoColumn(),
+                    guard.sourceSpec().lineNoColumn()
+                ),
+                demand.sourceLineNo(),
+                currentBillNo == null ? "" : currentBillNo,
+                demand.sourceBillNo()
+            );
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, guard.sourceNotExecutableMessage());
+            }
+            var remaining = (BigDecimal) rows.get(0).get("remaining_qty");
+            if (remaining == null || remaining.compareTo(demand.qty()) < 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, guard.quantityExceededMessage());
+            }
+        }
+    }
+
     private Map<String, Object> header(BillLifecycleTarget target, String billNo) {
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
@@ -386,25 +504,51 @@ public class BillLifecycleService {
               AND line_close_status <> 'CLOSED'
             """.formatted(target.lineTable(), target.lineOwnerColumn()), Long.class, header.get("id"));
         if (openLines != null && openLines == 0) {
-            jdbcTemplate.update("""
-                UPDATE %s
-                SET close_status = 'CLOSED',
-                    close_reason = ?,
-                    closed_by = ?::uuid,
-                    closed_at = now(),
-                    updated_at = now(),
-                    version = version + 1
-                WHERE id = ?::uuid
-                """.formatted(target.headerTable()), optionalReason(reason), currentSessionService.currentUserId(), header.get("id"));
+            if (isSalesOrderTarget(target)) {
+                jdbcTemplate.update("""
+                    UPDATE sales_order
+                    SET close_status = 'CLOSED',
+                        close_mode = NULL,
+                        close_reason = ?,
+                        closed_by = ?::uuid,
+                        closed_at = now(),
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                    """, optionalReason(reason), currentSessionService.currentUserId(), header.get("id"));
+            } else {
+                jdbcTemplate.update("""
+                    UPDATE %s
+                    SET close_status = 'CLOSED',
+                        close_reason = ?,
+                        closed_by = ?::uuid,
+                        closed_at = now(),
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                    """.formatted(target.headerTable()), optionalReason(reason), currentSessionService.currentUserId(), header.get("id"));
+            }
         } else {
-            jdbcTemplate.update("""
-                UPDATE %s
-                SET close_status = 'OPEN',
-                    updated_at = now(),
-                    version = version + 1
-                WHERE id = ?::uuid
-                  AND close_status = 'CLOSED'
-                """.formatted(target.headerTable()), header.get("id"));
+            if (isSalesOrderTarget(target)) {
+                jdbcTemplate.update("""
+                    UPDATE sales_order
+                    SET close_status = 'OPEN',
+                        close_mode = NULL,
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                      AND close_status = 'CLOSED'
+                    """, header.get("id"));
+            } else {
+                jdbcTemplate.update("""
+                    UPDATE %s
+                    SET close_status = 'OPEN',
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                      AND close_status = 'CLOSED'
+                    """.formatted(target.headerTable()), header.get("id"));
+            }
         }
     }
 
@@ -472,6 +616,10 @@ public class BillLifecycleService {
         return value == null ? 0 : value;
     }
 
+    private boolean isSalesOrderTarget(BillLifecycleTarget target) {
+        return "sales_order".equals(target.headerTable());
+    }
+
     private String requiredReason(String reason, String label) {
         var value = reason == null ? "" : reason.trim();
         if (value.isBlank()) {
@@ -497,9 +645,70 @@ public class BillLifecycleService {
         }
     }
 
+    private void guardSourceLineQuantityGuard(SourceLineQuantityGuard guard) {
+        guardTable(guard.sourceSpec().headerTable());
+        guardTable(guard.downstreamHeaderTable());
+        for (var identifier : List.of(
+            guard.sourceSpec().lineTable(),
+            guard.sourceSpec().lineOwnerColumn(),
+            guard.sourceSpec().lineNoColumn(),
+            guard.sourceSpec().totalQtyColumn(),
+            guard.downstreamLineTable(),
+            guard.downstreamLineOwnerColumn(),
+            guard.downstreamSourceBillNoColumn(),
+            guard.downstreamSourceLineNoColumn(),
+            guard.downstreamQtyColumn()
+        )) {
+            guardSqlIdentifier(identifier);
+        }
+    }
+
+    private void guardSqlIdentifier(String identifier) {
+        if (identifier == null || !identifier.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new IllegalArgumentException("Unsupported SQL identifier: " + identifier);
+        }
+    }
+
     public record BillLifecycleTarget(String headerTable, String lineTable, String lineOwnerColumn, String module, String targetType) {
     }
 
     public record VoidRequest(String reason, String username, String password) {
+    }
+
+    public record SourceLineQuantityGuard(
+        SourceExecutionSpec sourceSpec,
+        String downstreamHeaderTable,
+        String downstreamLineTable,
+        String downstreamLineOwnerColumn,
+        String downstreamSourceBillNoColumn,
+        String downstreamSourceLineNoColumn,
+        String downstreamQtyColumn,
+        String sourceNotExecutableMessage,
+        String quantityExceededMessage
+    ) {
+        public SourceLineQuantityGuard(
+            SourceExecutionSpec sourceSpec,
+            String downstreamHeaderTable,
+            String downstreamLineTable,
+            String downstreamLineOwnerColumn,
+            String downstreamSourceBillNoColumn,
+            String downstreamSourceLineNoColumn,
+            String downstreamQtyColumn
+        ) {
+            this(
+                sourceSpec,
+                downstreamHeaderTable,
+                downstreamLineTable,
+                downstreamLineOwnerColumn,
+                downstreamSourceBillNoColumn,
+                downstreamSourceLineNoColumn,
+                downstreamQtyColumn,
+                "源单或源单行已关闭/冻结，或源单未审核，不能继续下推或执行",
+                sourceSpec.overQuantityMessage()
+            );
+        }
+    }
+
+    public record SourceLineQuantityDemand(String sourceBillNo, Object sourceLineNo, BigDecimal qty) {
     }
 }

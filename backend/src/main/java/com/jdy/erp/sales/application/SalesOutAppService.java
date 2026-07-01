@@ -7,6 +7,8 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
@@ -51,6 +53,15 @@ public class SalesOutAppService {
         "qty",
         "out_status",
         "销售出库数量不能超过发货通知剩余可出数量"
+    );
+    private static final SourceLineQuantityGuard DELIVERY_NOTICE_OUT_QUANTITY_GUARD = new SourceLineQuantityGuard(
+        DELIVERY_NOTICE_OUT_SPEC,
+        "sales_out",
+        "sales_out_line",
+        "bill_id",
+        "source_delivery_notice_no",
+        "source_delivery_line_no",
+        "qty"
     );
 
     private final JdbcTemplate jdbcTemplate;
@@ -231,8 +242,7 @@ public class SalesOutAppService {
             "销售出库单不存在或已审核"
         );
         var lines = postingLines(billNo);
-        guardDeliveryNoticeExecutable(lines);
-        guardDeliveryNoticeRemaining(lines, billNo);
+        lifecycleService.guardSourceLineQuantities(DELIVERY_NOTICE_OUT_QUANTITY_GUARD, deliveryNoticeDemands(lines), billNo);
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
             if (sourceOrderId != null) {
@@ -564,48 +574,21 @@ public class SalesOutAppService {
         return sourceOrderId(String.valueOf(sourceOrderNo));
     }
 
-    private void guardDeliveryNoticeRemaining(List<Map<String, Object>> lines, String billNo) {
-        for (var line : lines) {
-            if (line.get("sourceDeliveryNoticeNo") == null || line.get("sourceDeliveryLineNo") == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库只能来自发货通知单");
-            }
-            var remaining = jdbcTemplate.queryForObject("""
-                SELECT dnl.qty - COALESCE(out_qty.shipped_qty, 0)
-                FROM delivery_notice dn
-                JOIN delivery_notice_line dnl ON dnl.bill_id = dn.id AND dnl.line_no = ?
-                LEFT JOIN (
-                    SELECT source_delivery_notice_no, source_delivery_line_no, SUM(qty) AS shipped_qty
-                    FROM sales_out_line sol
-                    JOIN sales_out so ON so.id = sol.bill_id
-                    WHERE so.status = 'AUDITED'
-                      AND so.bill_no <> ?
-                    GROUP BY source_delivery_notice_no, source_delivery_line_no
-                ) out_qty ON out_qty.source_delivery_notice_no = dn.bill_no AND out_qty.source_delivery_line_no = dnl.line_no
-                WHERE dn.bill_no = ? AND dn.status = 'AUDITED'
-                """, BigDecimal.class, line.get("sourceDeliveryLineNo"), billNo, line.get("sourceDeliveryNoticeNo"));
-            if (remaining == null || remaining.compareTo((BigDecimal) line.get("qty")) < 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库数量不能超过发货通知剩余数量");
-            }
-        }
-    }
-
-    private void guardDeliveryNoticeExecutable(List<Map<String, Object>> lines) {
-        for (var line : lines) {
-            var sourceDeliveryNoticeNo = line.get("sourceDeliveryNoticeNo");
-            var sourceDeliveryLineNo = line.get("sourceDeliveryLineNo");
-            if (sourceDeliveryNoticeNo == null || sourceDeliveryLineNo == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库只能来自发货通知单");
-            }
-            var rows = jdbcTemplate.queryForList(
-                "SELECT id::text AS id FROM delivery_notice WHERE bill_no = ? AND status = ?",
-                String.valueOf(sourceDeliveryNoticeNo),
-                BillStatus.AUDITED.name()
-            );
-            if (rows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库来源发货通知单不存在或未审核");
-            }
-            lifecycleService.guardExecutableSourceLine(DELIVERY_NOTICE_OUT_SPEC, String.valueOf(rows.get(0).get("id")), sourceDeliveryLineNo);
-        }
+    private List<SourceLineQuantityDemand> deliveryNoticeDemands(List<Map<String, Object>> lines) {
+        return lines.stream()
+            .map(line -> {
+                var sourceDeliveryNoticeNo = line.get("sourceDeliveryNoticeNo");
+                var sourceDeliveryLineNo = line.get("sourceDeliveryLineNo");
+                if (sourceDeliveryNoticeNo == null || sourceDeliveryLineNo == null) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库只能来自发货通知单");
+                }
+                return new SourceLineQuantityDemand(
+                    String.valueOf(sourceDeliveryNoticeNo),
+                    sourceDeliveryLineNo,
+                    (BigDecimal) line.get("qty")
+                );
+            })
+            .toList();
     }
 
     private void refreshSalesSourceStatuses(List<Map<String, Object>> lines) {

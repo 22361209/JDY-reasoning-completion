@@ -657,7 +657,13 @@ const selectedBillRows = computed(() => selectedRows.value.filter((row) => Strin
 const canOperateLifecycle = computed(() => canMaintainCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value);
 const canBatchAudit = computed(() => supportsBatchAudit.value && canAuditCurrentList.value && selectedBillRows.value.length > 0 && !selectedContainsLockedRow.value && selectedBillRows.value.every(isDraftBillStatus));
 const canBatchClose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus !== "CLOSED" && row.frozenStatus !== "FROZEN"));
-const canBatchUnclose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.closeStatus === "CLOSED"));
+const canUncloseSelectedRow = (row: Record<string, unknown>) => {
+  if (!isAuditedRow(row) || row.closeStatus !== "CLOSED") {
+    return false;
+  }
+  return props.listKey !== "sales-order-form-list" || row.closeMode === "MANUAL";
+};
+const canBatchUnclose = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every(canUncloseSelectedRow));
 const canBatchFreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
 const canBatchUnfreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus === "FROZEN"));
 const canBatchVoid = computed(() => Boolean(currentLifecyclePolicy.value?.voidAllowed) && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));

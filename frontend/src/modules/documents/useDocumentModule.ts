@@ -176,7 +176,13 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const canRedReverse = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED"));
   const canVoid = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.voidAllowed && form.status === "DRAFT"));
   const canClose = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN"));
-  const canUnclose = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus === "CLOSED"));
+  const canUnclose = computed(() => Boolean(
+    config.saveType &&
+    lifecyclePolicy.value?.closeFreezeAllowed &&
+    form.status === "AUDITED" &&
+    form.closeStatus === "CLOSED" &&
+    (config.documentType !== "salesOrder" || form.closeMode === "MANUAL")
+  ));
   const canFreeze = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.frozenStatus !== "FROZEN" && form.closeStatus !== "CLOSED"));
   const canUnfreeze = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.frozenStatus === "FROZEN"));
   const showDelete = computed(() => Boolean(config.allowDraftDelete));
@@ -200,7 +206,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
-  const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus));
+  const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus, form.closeMode));
   const redReverseBillNo = computed(() => `HC-${form.billNo}`);
   const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
   const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
@@ -237,6 +243,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.validUntil = config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined;
     form.status = "DRAFT";
     form.closeStatus = "OPEN";
+    form.closeMode = null;
     form.frozenStatus = "NORMAL";
     form.lines = [blankLine()];
     hasPersistedDraft.value = false;
@@ -267,6 +274,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.validUntil = document.validUntil || (config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.closeStatus = document.closeStatus ?? "OPEN";
+    form.closeMode = document.closeMode ?? null;
     form.frozenStatus = document.frozenStatus ?? "NORMAL";
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
@@ -280,14 +288,15 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         warehouseCode: String(line.warehouseCode ?? "CK-001"),
         targetWarehouseCode: String(line.targetWarehouseCode ?? config.defaultTargetWarehouseCode ?? "CK-002"),
         lineNo: normalizedOptionalInt(line.lineNo),
-	        sourceOrderNo: String(line.sourceOrderNo ?? ""),
-	        sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
-	        customerMaterialCode: String(line.customerMaterialCode ?? ""),
-	        supplierMaterialCode: String(line.supplierMaterialCode ?? ""),
-	        customerOrderNo: String(line.customerOrderNo ?? ""),
-	        qty: Number(line.qty ?? 0),
+        sourceOrderNo: String(line.sourceOrderNo ?? ""),
+        sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
+        customerMaterialCode: String(line.customerMaterialCode ?? ""),
+        supplierMaterialCode: String(line.supplierMaterialCode ?? ""),
+        customerOrderNo: String(line.customerOrderNo ?? ""),
+        qty: Number(line.qty ?? 0),
         executedQty: documentLineExecutedQty(line),
         remainingQty: documentLineRemainingQty(line),
+        availableNoticeQty: documentLineAvailableNoticeQty(line),
         lineCloseStatus: line.lineCloseStatus ?? "OPEN",
         lineFrozenStatus: line.lineFrozenStatus ?? "NORMAL",
         unitPrice: Number(line.unitPrice ?? 0),
@@ -1235,6 +1244,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         if (action === "close" || action === "unclose") {
           line.lineCloseStatus = action === "close" ? "CLOSED" : "OPEN";
           form.closeStatus = form.lines.every((item) => item.lineCloseStatus === "CLOSED") ? "CLOSED" : "OPEN";
+          form.closeMode = form.closeStatus === "CLOSED" && config.documentType === "salesOrder" ? null : form.closeMode;
         }
         if (action === "freeze" || action === "unfreeze") {
           line.lineFrozenStatus = action === "freeze" ? "FROZEN" : "NORMAL";
@@ -1244,7 +1254,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     if (action === "close" || action === "unclose") {
       form.closeStatus = action === "close" ? "CLOSED" : "OPEN";
-      form.lines.forEach((line) => { line.lineCloseStatus = form.closeStatus; });
+      form.closeMode = action === "close" && config.documentType === "salesOrder" ? "MANUAL" : null;
+      if (config.documentType !== "salesOrder") {
+        form.lines.forEach((line) => { line.lineCloseStatus = form.closeStatus; });
+      }
     }
     if (action === "freeze" || action === "unfreeze") {
       form.frozenStatus = action === "freeze" ? "FROZEN" : "NORMAL";
@@ -1579,6 +1592,10 @@ function documentLineRemainingQty(line: { remainingQty?: number | string; diffQt
     return normalizedQty(line.diffQty);
   }
   return line.remainingQty === undefined ? undefined : normalizedQty(line.remainingQty);
+}
+
+function documentLineAvailableNoticeQty(line: { availableNoticeQty?: number | string }) {
+  return line.availableNoticeQty === undefined ? undefined : normalizedQty(line.availableNoticeQty);
 }
 
 function lineLineNo(line: OrderLineForm, index: number) {

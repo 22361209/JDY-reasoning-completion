@@ -9,6 +9,8 @@ import java.util.Map;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
+import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
@@ -37,6 +39,15 @@ public class DeliveryNoticeAppService {
         "qty",
         "out_status",
         "发货通知数量不能超过销售订单剩余可通知数量"
+    );
+    private static final SourceLineQuantityGuard SALES_ORDER_NOTICE_QUANTITY_GUARD = new SourceLineQuantityGuard(
+        SALES_ORDER_NOTICE_SPEC,
+        "delivery_notice",
+        "delivery_notice_line",
+        "bill_id",
+        "source_order_no",
+        "source_line_no",
+        "qty"
     );
 
     private final JdbcTemplate jdbcTemplate;
@@ -156,7 +167,7 @@ public class DeliveryNoticeAppService {
             "发货通知单不存在或已审核"
         );
         var lines = postingLines(billNo);
-        guardSourceOrderNoticeQuantity(lines, billNo);
+        lifecycleService.guardSourceLineQuantities(SALES_ORDER_NOTICE_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
         for (var line : lines) {
             inventoryPostingService.reserve(
                 String.valueOf(line.get("productCode")),
@@ -416,37 +427,15 @@ public class DeliveryNoticeAppService {
         }).toList();
     }
 
-    private void guardSourceOrderNoticeQuantity(List<Map<String, Object>> lines, String billNo) {
-        for (var line : lines) {
-            if (line.get("sourceOrderNo") == null || line.get("sourceLineNo") == null) {
-                continue;
-            }
-            var sourceRows = jdbcTemplate.queryForList(
-                "SELECT id::text AS id FROM sales_order WHERE bill_no = ? AND status = ?",
+    private List<SourceLineQuantityDemand> sourceLineDemands(List<Map<String, Object>> lines) {
+        return lines.stream()
+            .filter(line -> line.get("sourceOrderNo") != null && line.get("sourceLineNo") != null)
+            .map(line -> new SourceLineQuantityDemand(
                 String.valueOf(line.get("sourceOrderNo")),
-                BillStatus.AUDITED.name()
-            );
-            if (sourceRows.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售订单不存在或未审核，不能下推发货通知");
-            }
-            lifecycleService.guardExecutableSourceLine(SALES_ORDER_NOTICE_SPEC, String.valueOf(sourceRows.get(0).get("id")), line.get("sourceLineNo"));
-            var remaining = jdbcTemplate.queryForObject("""
-                SELECT sol.qty - COALESCE(notice.noticed_qty, 0)
-                FROM sales_order so
-                JOIN sales_order_line sol ON sol.order_id = so.id AND sol.line_no = ?
-                LEFT JOIN (
-                    SELECT source_order_no, source_line_no, SUM(dnl.qty) AS noticed_qty
-                    FROM delivery_notice_line dnl
-                    JOIN delivery_notice dn ON dn.id = dnl.bill_id
-                    WHERE dn.status = 'AUDITED' AND dn.bill_no <> ?
-                    GROUP BY source_order_no, source_line_no
-                ) notice ON notice.source_order_no = so.bill_no AND notice.source_line_no = sol.line_no
-                WHERE so.bill_no = ?
-                """, BigDecimal.class, line.get("sourceLineNo"), billNo, line.get("sourceOrderNo"));
-            if (remaining == null || remaining.compareTo((BigDecimal) line.get("qty")) < 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "发货通知数量不能超过销售订单剩余可通知数量");
-            }
-        }
+                line.get("sourceLineNo"),
+                (BigDecimal) line.get("qty")
+            ))
+            .toList();
     }
 
     private long downstreamSalesOutCount(String billNo) {

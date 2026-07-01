@@ -250,7 +250,7 @@
             </template>
             <span v-else-if="column.key === 'remainingQty'" class="line-lifecycle-state">
               {{ lineRemainingQty(line) }}
-              <small v-if="line.lineCloseStatus === 'CLOSED'">已关闭</small>
+              <small v-if="displayLineCloseStatus && line.lineCloseStatus === 'CLOSED'">已关闭</small>
               <small v-if="line.lineFrozenStatus === 'FROZEN'">已冻结</small>
             </span>
             <span v-else-if="column.key === 'stockOnHand'" class="entry-cell-value entry-cell-value--number">{{ formatQty(line.stockOnHand) }}</span>
@@ -540,6 +540,7 @@ const props = defineProps<{
   totalAmount: string;
   isTaxInclusive?: boolean;
   showTaxColumns?: boolean;
+  showLineCloseStatus?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -617,6 +618,7 @@ const datePickerTop = ref(0);
 const datePickerYear = ref(new Date().getFullYear());
 const datePickerMonth = ref(new Date().getMonth());
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
+const displayLineCloseStatus = computed(() => props.showLineCloseStatus !== false);
 
 const columnReorder = useColumnReorder<EntryColumn>({
   getColumns: () => columns.value,

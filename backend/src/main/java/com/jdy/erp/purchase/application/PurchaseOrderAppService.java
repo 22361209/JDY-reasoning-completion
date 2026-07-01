@@ -184,7 +184,7 @@ public class PurchaseOrderAppService {
                        SUM(pil.qty) AS received_qty
                 FROM purchase_in_line pil
                 JOIN purchase_in pi ON pi.id = pil.bill_id
-                WHERE pi.status <> 'VOID'
+                WHERE pi.status = 'AUDITED'
                 GROUP BY pil.source_order_no, pil.source_line_no
             ) in_qty ON in_qty.source_order_no = po.bill_no AND in_qty.source_line_no = l.line_no
             WHERE s.code = ?

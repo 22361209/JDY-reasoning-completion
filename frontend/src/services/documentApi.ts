@@ -153,6 +153,7 @@ export interface DocumentDetail {
     remark?: string;
     status: string;
     closeStatus?: string;
+    closeMode?: string | null;
     frozenStatus?: string;
     redReverseBillNo?: string;
     redSourceBillNo?: string;
@@ -165,11 +166,11 @@ export interface DocumentDetail {
     sourceOrderNo?: string;
     sourceLineNo?: number | string;
     sourceDeliveryNoticeNo?: string;
-	    sourceDeliveryLineNo?: number | string;
-	    customerMaterialCode?: string;
-	    supplierMaterialCode?: string;
-	    customerOrderNo?: string;
-	    productId?: string;
+    sourceDeliveryLineNo?: number | string;
+    customerMaterialCode?: string;
+    supplierMaterialCode?: string;
+    customerOrderNo?: string;
+    productId?: string;
     productCode?: string;
     productName?: string;
     spec?: string;
@@ -182,6 +183,7 @@ export interface DocumentDetail {
     receivedQty?: number | string;
     shippedQty?: number | string;
     remainingQty?: number | string;
+    availableNoticeQty?: number | string;
     lineCloseStatus?: string;
     lineFrozenStatus?: string;
     unitPrice?: number | string;

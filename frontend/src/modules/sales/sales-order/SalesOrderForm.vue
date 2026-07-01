@@ -46,6 +46,7 @@
     :show-execution-columns="document.showExecutionColumns.value"
     :show-plan-delivery-date-column="document.showPlanDeliveryDateColumn.value"
     :show-stock-columns="document.showStockColumns.value"
+    :show-line-close-status="false"
     :enable-sales-price-bulk="true"
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
@@ -196,7 +197,7 @@ const showPushDownSalesOut = computed(() => (
   document.form.status === "AUDITED" &&
   document.form.closeStatus !== "CLOSED" &&
   document.form.frozenStatus !== "FROZEN" &&
-  document.form.lines.some((line) => Number(line.remainingQty ?? line.qty ?? 0) > 0 && line.lineCloseStatus !== "CLOSED" && line.lineFrozenStatus !== "FROZEN")
+  document.form.lines.some((line) => Number(line.availableNoticeQty ?? line.remainingQty ?? line.qty ?? 0) > 0 && line.lineFrozenStatus !== "FROZEN")
 ));
 const canPushDownSalesOut = computed(() => showPushDownSalesOut.value && props.hasPermission("sales.out.audit"));
 const sourceSelectorOpen = ref(false);
