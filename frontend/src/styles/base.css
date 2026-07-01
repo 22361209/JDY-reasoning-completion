@@ -2197,6 +2197,7 @@ input:disabled {
 
 .vxe-wrap .vxe-header--column.col--fixed {
   background: #f3f6f9;
+  z-index: 5;
 }
 
 .vxe-wrap .vxe-header--column .vxe-cell {
@@ -4103,9 +4104,11 @@ th {
 }
 
 .dialog.source-selector-dialog {
-  width: min(1200px, calc(100vw - 36px));
-  max-height: calc(100vh - 56px);
-  overflow: auto;
+  width: min(1480px, calc(100vw - 32px));
+  height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .source-selector-toolbar {
@@ -4141,6 +4144,25 @@ th {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid #d6e0ea;
+}
+
+.source-selector-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid #d6e0ea;
+  border-top: 0;
+  background: #fff8df;
+  color: #536678;
+  font-size: 12px;
+}
+
+.source-selector-summary .strong {
+  color: #25364a;
+  font-weight: 700;
 }
 
 .downstream-trace-dialog {
@@ -4401,10 +4423,10 @@ th {
 
 .source-selector-table {
   border: 1px solid #d6e0ea;
-  max-height: 420px;
   max-width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  margin-bottom: 8px;
 }
 
 .source-selector-table > .table-core-frame {

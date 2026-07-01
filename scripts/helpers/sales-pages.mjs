@@ -31,6 +31,7 @@ export async function chooseSalesOutSourceSelections(page, { selections, search 
   await openSalesOutSourceSelector(page);
   if (search) {
     await page.getByTestId("sales-out-source-selector-search").fill(search);
+    await page.getByTestId("sales-out-source-selector-query").click();
   }
   for (const selection of selections) {
     await selectSalesOutSourceLines(page, selection.billNo, selection.lineNos);

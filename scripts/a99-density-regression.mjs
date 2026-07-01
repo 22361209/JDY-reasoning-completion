@@ -206,6 +206,7 @@ try {
   await page.getByTestId("sales-out-party-code").fill("KH-001");
   await openSalesOutSourceSelector(page);
   await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
+  await page.getByTestId("sales-out-source-selector-query").click();
   await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceSelectorRows = await waitForHeights(page, ".source-selector-table tbody tr");
   assert(Math.max(...sourceSelectorRows) <= 22.5, `source selector rows should be 20-22px, got ${sourceSelectorRows.join(",")}`);

@@ -411,16 +411,16 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!isDraft.value) {
       return;
     }
-    sourceSelectorOpen.value = true;
     sourceSelectorMessage.value = "";
     sourceSelectorSelected.value = {};
     const customerCode = form.partyCode.trim();
     if (!customerCode) {
       sourceSelectorLoading.value = false;
       sourceSelectorLines.value = [];
-      sourceSelectorMessage.value = "请先在单头选择客户，再从该客户的已审核发货通知单中选源单。";
+      message.value = "请先在单头选择客户，再从该客户的已审核发货通知单中选源单。";
       return;
     }
+    sourceSelectorOpen.value = true;
     sourceSelectorLoading.value = true;
     const result = await fetchSelectableDeliveryNoticeLines(customerCode);
     sourceSelectorLoading.value = false;

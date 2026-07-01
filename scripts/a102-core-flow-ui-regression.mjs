@@ -133,12 +133,19 @@ try {
   await openSalesOutSourceSelector(page);
   const sourceDialogMetrics = await page.locator(".source-selector-dialog").evaluate((node) => ({
     width: Math.round(node.getBoundingClientRect().width),
-    height: Math.round(node.getBoundingClientRect().height)
+    height: Math.round(node.getBoundingClientRect().height),
+    overflow: getComputedStyle(node).overflow
   }));
-  assert(sourceDialogMetrics.width >= 1000, `source selector should be large modal, got ${JSON.stringify(sourceDialogMetrics)}`);
+  assert(sourceDialogMetrics.width >= 1300, `source selector should be wide enough for source detail lines, got ${JSON.stringify(sourceDialogMetrics)}`);
+  assert(sourceDialogMetrics.height >= 700, `source selector should be tall enough for source detail lines, got ${JSON.stringify(sourceDialogMetrics)}`);
+  assert(sourceDialogMetrics.overflow === "hidden", `source selector dialog should keep scrolling inside the table body, got ${JSON.stringify(sourceDialogMetrics)}`);
 
   await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
+  await page.getByTestId("sales-out-source-selector-query").click();
   await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
+  const sourceSummaryText = (await page.getByTestId("sales-out-source-selector-summary").textContent())?.replace(/\s+/g, " ").trim();
+  assert(sourceSummaryText?.includes("当前明细：2 行"), `source selector summary should show visible line count, got ${sourceSummaryText}`);
+  assert(sourceSummaryText?.includes("剩余可出合计"), `source selector summary should show remaining qty total, got ${sourceSummaryText}`);
   const sourceTableScroll = await page.locator(".source-selector-table").evaluate((node) => ({
     scrollWidth: node.scrollWidth,
     clientWidth: node.clientWidth,

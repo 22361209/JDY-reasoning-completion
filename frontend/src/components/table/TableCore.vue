@@ -93,7 +93,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref, type CSSProperties } from "vue";
 import TableCoreFrame from "./TableCoreFrame.vue";
 import TableCoreHeaderCell from "./TableCoreHeaderCell.vue";
 
@@ -201,7 +201,56 @@ function bodyCellClass(column: TableCoreColumn) {
 
 function cellStyle(column: TableCoreColumn) {
   const width = `${columnWidth(column)}px`;
-  return { width, minWidth: width, maxWidth: width };
+  const fixedStyle = fixedCellStyle(column);
+  return { width, minWidth: width, maxWidth: width, ...fixedStyle };
+}
+
+function fixedCellStyle(column: TableCoreColumn): CSSProperties {
+  if (column.fixed === "left") {
+    return {
+      position: "sticky",
+      left: `${fixedOffsetLeft(column)}px`,
+      zIndex: 3
+    };
+  }
+  if (column.fixed === "right") {
+    return {
+      position: "sticky",
+      right: `${fixedOffsetRight(column)}px`,
+      zIndex: 3
+    };
+  }
+  return {};
+}
+
+function fixedOffsetLeft(column: TableCoreColumn) {
+  let offset = 0;
+  for (const current of props.columns) {
+    if (current.key === column.key) {
+      return offset;
+    }
+    if (current.fixed === "left") {
+      offset += columnWidth(current);
+    }
+  }
+  return offset;
+}
+
+function fixedOffsetRight(column: TableCoreColumn) {
+  let offset = 0;
+  for (let index = props.columns.length - 1; index >= 0; index -= 1) {
+    const current = props.columns[index];
+    if (!current) {
+      continue;
+    }
+    if (current.key === column.key) {
+      return offset;
+    }
+    if (current.fixed === "right") {
+      offset += columnWidth(current);
+    }
+  }
+  return offset;
 }
 
 function rowKey(row: Row, rowIndex: number) {

@@ -156,6 +156,7 @@ try {
 
   await openSalesOutSourceSelector(page);
   await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
+  await page.getByTestId("sales-out-source-selector-query").click();
   await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceTableScroll = await page.locator(".source-selector-table").evaluate((node) => ({
     scrollWidth: node.scrollWidth,

@@ -126,6 +126,7 @@
     :columns="sourceSelectorColumns"
     :selected="sourceSelectorSelected"
     :count-label="selectedSourceLineCount"
+    :summary-items="sourceSelectorSummaryItems"
     :message="sourceSelectorMessage"
     :row-key="sourceSelectorRowKey"
     :format-cell="formatSourceSelectorCell"
@@ -141,7 +142,7 @@
 import { computed, reactive, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
 import { fetchSelectableSalesOrderLines, type SelectableSalesOrderLine } from "../../../services/salesOrderApi";
@@ -200,6 +201,16 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
 ];
 const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
+const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
+  const visibleLines = filteredSourceSelectorLines.value;
+  const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected[sourceSelectorLineKey(line)]);
+  return [
+    { key: "visibleRows", label: "当前明细", value: `${visibleLines.length} 行`, strong: true },
+    { key: "selectedRows", label: "已选", value: `${selectedLines.length} 行`, strong: true },
+    { key: "remainingQty", label: "剩余可通知合计", value: document.formatQty(sumLines(visibleLines, "remainingQty")) },
+    { key: "selectedQty", label: "已选数量", value: document.formatQty(sumLines(selectedLines, "remainingQty")) }
+  ];
+});
 const filteredSourceSelectorLines = computed(() => {
   const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
   if (!keyword) {
@@ -262,7 +273,6 @@ const dialogHandlers = {
 };
 
 async function openSourceSelector() {
-  sourceSelectorOpen.value = true;
   sourceSelectorMessage.value = "";
   sourceSelectorKeyword.value = "";
   resetSourceSelection();
@@ -270,9 +280,10 @@ async function openSourceSelector() {
   if (!customerCode) {
     sourceSelectorLines.value = [];
     sourceSelectorLoading.value = false;
-    sourceSelectorMessage.value = "请先在单头选择客户，再从该客户的已审核销售订单中选源单。";
+    document.message.value = "请先在单头选择客户，再从该客户的已审核销售订单中选源单。";
     return;
   }
+  sourceSelectorOpen.value = true;
   sourceSelectorLoading.value = true;
   const result = await fetchSelectableSalesOrderLines(customerCode);
   sourceSelectorLoading.value = false;
@@ -391,6 +402,13 @@ function sourceLineSearchText(line: SelectableSalesOrderLine) {
 
 function formatOptionalAmount(value: unknown) {
   return value === null || value === undefined || value === "" ? "-" : document.formatAmount(value as number | string | undefined);
+}
+
+function sumLines(lines: SelectableSalesOrderLine[], field: keyof SelectableSalesOrderLine) {
+  return lines.reduce((sum, line) => {
+    const value = Number(line[field] ?? 0);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
 }
 
 function resetSourceSelection() {

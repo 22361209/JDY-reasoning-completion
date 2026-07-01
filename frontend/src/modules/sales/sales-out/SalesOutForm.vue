@@ -126,6 +126,7 @@
     :columns="sourceSelectorColumns"
     :selected="document.sourceSelectorSelected.value"
     :count-label="selectedSourceLineCount"
+    :summary-items="sourceSelectorSummaryItems"
     :message="document.sourceSelectorMessage.value"
     :row-key="sourceSelectorRowKey"
     :format-cell="formatSourceSelectorCell"
@@ -191,7 +192,7 @@
 <script setup lang="ts">
 import DocumentForm from "../../../components/DocumentForm.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
 import { knownProductOptions, type PendingPushLine } from "../../../app/documentModel";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { SelectableDeliveryNoticeLine } from "../../../services/salesOrderApi";
@@ -228,6 +229,16 @@ const document = useSalesOutDocument({
 
 const selectedSourceLineCount = computed(() => `${Object.values(document.sourceSelectorSelected.value).filter(Boolean).length} 行已选`);
 const sourceSelectorKeyword = ref("");
+const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
+  const visibleLines = filteredSourceSelectorLines.value;
+  const selectedLines = document.sourceSelectorLines.value.filter((line) => document.sourceSelectorSelected.value[document.sourceSelectorLineKey(line)]);
+  return [
+    { key: "visibleRows", label: "当前明细", value: `${visibleLines.length} 行`, strong: true },
+    { key: "selectedRows", label: "已选", value: `${selectedLines.length} 行`, strong: true },
+    { key: "remainingQty", label: "剩余可出合计", value: document.formatQty(sumLines(visibleLines, "remainingQty")) },
+    { key: "selectedQty", label: "已选数量", value: document.formatQty(sumLines(selectedLines, "remainingQty")) }
+  ];
+});
 const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "发货通知单", width: 150, visible: true },
@@ -298,6 +309,13 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
 
 function formatOptionalAmount(value: unknown) {
   return value === null || value === undefined || value === "" ? "-" : document.formatAmount(value as number | string | undefined);
+}
+
+function sumLines(lines: SelectableDeliveryNoticeLine[], field: keyof SelectableDeliveryNoticeLine) {
+  return lines.reduce((sum, line) => {
+    const value = Number(line[field] ?? 0);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
 }
 
 function selectAllVisibleSourceLines() {

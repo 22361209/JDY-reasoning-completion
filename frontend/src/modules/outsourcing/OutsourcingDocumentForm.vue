@@ -155,10 +155,12 @@
         :columns="sourceSelectorColumns"
         :selected="selectedSourceMap"
         :count-label="selectedSourceCountLabel"
+        :summary-items="sourceSelectorSummaryItems"
         :message="sourceSelectorMessage"
         :row-key="sourceSelectorRowKey"
         :format-cell="formatSourceSelectorCell"
         :show-select-all="false"
+        :show-column-settings="true"
         empty-text="暂无可选源单"
         @toggle="toggleSourceSelectorRow"
         @close="closeSourcePicker"
@@ -172,7 +174,7 @@
 import { computed, reactive, ref } from "vue";
 import type { EntryLine, MasterOption } from "../../components/EntryTable.vue";
 import EntryTable from "../../components/EntryTable.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn } from "../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorSummaryItem } from "../../components/SourceSelectorDialog.vue";
 import StandardDocument from "../../components/StandardDocument.vue";
 import TableCore, { type TableCoreColumn } from "../../components/table/TableCore.vue";
 import { fetchListRows } from "../../services/listApi";
@@ -307,6 +309,16 @@ const filteredSourceOptions = computed(() => {
   ].some((value) => value.toLowerCase().includes(keyword)));
 });
 const selectedSourceCountLabel = computed(() => `已选中 ${Object.values(selectedSourceMap).filter(Boolean).length} 条`);
+const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
+  const visibleSources = filteredSourceOptions.value;
+  const selectedSources = sourceOptions.value.filter((source) => selectedSourceMap[sourceSelectorRowKey(source)]);
+  return [
+    { key: "visibleRows", label: "当前明细", value: `${visibleSources.length} 行`, strong: true },
+    { key: "selectedRows", label: "已选", value: `${selectedSources.length} 行`, strong: true },
+    { key: "remainingQty", label: "剩余数量合计", value: formatSummaryQty(sumSources(visibleSources)) },
+    { key: "selectedQty", label: "已选数量", value: formatSummaryQty(sumSources(selectedSources)) }
+  ];
+});
 
 function resizeComponentDemandColumn(payload: { column: TableCoreColumn; width: number }) {
   payload.column.width = payload.width;
@@ -805,6 +817,17 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
     unit: source.unit
   };
   return values[columnKey] ?? "";
+}
+
+function sumSources(sources: SourceOption[]) {
+  return sources.reduce((sum, source) => {
+    const value = Number(source.remainingQty || 0);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+}
+
+function formatSummaryQty(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 function textValue(value: unknown) {
