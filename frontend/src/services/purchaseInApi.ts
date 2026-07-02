@@ -1,3 +1,5 @@
+import { exactSourceFilter, fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
+
 export interface SelectablePurchaseInLine {
   billNo: string;
   supplierCode: string;
@@ -25,12 +27,17 @@ export interface SelectablePurchaseInLine {
   lineRemark?: string;
 }
 
-export async function fetchSelectablePurchaseInLines(supplierCode: string): Promise<{ ok: boolean; message: string; data: SelectablePurchaseInLine[] }> {
-  const result = await callPurchaseIn(`/api/purchase-returns/selectable-lines?supplierCode=${encodeURIComponent(supplierCode)}`, "GET");
-  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
-    return { ok: false, message: result.message || "采购入库选单列表加载失败。", data: [] };
-  }
-  return { ok: true, message: "", data: (result.data as { lines: SelectablePurchaseInLine[] }).lines };
+export async function fetchSelectablePurchaseInLines(
+  supplierCode: string,
+  query: { keyword?: string; columnFilters?: SourceSelectorColumnFilters } = {}
+): Promise<{ ok: boolean; message: string; data: SelectablePurchaseInLine[] }> {
+  const result = await fetchSourceSelectorRows({
+    listKey: "purchase-in-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    fixedFilters: exactSourceFilter("supplierCode", supplierCode)
+  });
+  return { ok: result.ok, message: result.message || "采购入库选单列表加载失败。", data: result.rows as unknown as SelectablePurchaseInLine[] };
 }
 
 async function callPurchaseIn(url: string, method: string): Promise<{ ok: boolean; message: string; data?: unknown }> {

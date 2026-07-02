@@ -133,6 +133,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const sourceSelectorLoading = ref(false);
   const sourceSelectorLines = ref<SelectableDeliveryNoticeLine[]>([]);
   const sourceSelectorSelected = ref<Record<string, boolean>>({});
+  const sourceSelectorSelectedRows = ref<Record<string, SelectableDeliveryNoticeLine>>({});
   const sourceSelectorMessage = ref("");
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
@@ -413,6 +414,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }
     sourceSelectorMessage.value = "";
     sourceSelectorSelected.value = {};
+    sourceSelectorSelectedRows.value = {};
     const customerCode = form.partyCode.trim();
     if (!customerCode) {
       sourceSelectorLoading.value = false;
@@ -441,11 +443,18 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function toggleSourceSelectorLine(line: SelectableDeliveryNoticeLine, checked: boolean) {
-    sourceSelectorSelected.value[sourceSelectorLineKey(line)] = checked;
+    const key = sourceSelectorLineKey(line);
+    if (checked) {
+      sourceSelectorSelected.value[key] = true;
+      sourceSelectorSelectedRows.value[key] = line;
+      return;
+    }
+    delete sourceSelectorSelected.value[key];
+    delete sourceSelectorSelectedRows.value[key];
   }
 
   async function confirmCustomerSourceSelector() {
-    const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected.value[sourceSelectorLineKey(line)]);
+    const selectedLines = Object.values(sourceSelectorSelectedRows.value);
     if (selectedLines.length === 0) {
       sourceSelectorMessage.value = "请至少勾选一条发货通知明细。";
       return;
@@ -1200,6 +1209,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     sourceSelectorLoading,
     sourceSelectorLines,
     sourceSelectorSelected,
+    sourceSelectorSelectedRows,
     sourceSelectorMessage,
     pendingZeroEntrySave,
     downstreamTrace,

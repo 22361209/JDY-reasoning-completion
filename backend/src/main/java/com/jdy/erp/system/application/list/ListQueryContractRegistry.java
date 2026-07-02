@@ -23,6 +23,36 @@ public class ListQueryContractRegistry {
         if ("sales-order-form-list".equals(listKey)) {
             return salesOrderContract(normalizedView);
         }
+        if (listKey.endsWith("-source-selector")) {
+            return new ListQueryContract(
+                listKey,
+                "detail",
+                List.of(
+                    "billNo",
+                    "sourceBillNo",
+                    "sourceOrderNo",
+                    "customerCode",
+                    "customer",
+                    "supplierCode",
+                    "supplier",
+                    "supplierName",
+                    "productCode",
+                    "productName",
+                    "spec",
+                    "unit",
+                    "warehouseCode",
+                    "customerMaterialCode",
+                    "customerOrderNo",
+                    "supplierMaterialCode",
+                    "lineRemark"
+                ),
+                "billDate",
+                "row",
+                "detail",
+                "sourceSelector",
+                false
+            );
+        }
         return switch (listKey) {
             case "operation-log-list" -> new ListQueryContract(
                 listKey,

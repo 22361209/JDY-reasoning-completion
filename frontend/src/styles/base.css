@@ -4140,18 +4140,11 @@ th {
   color: #405064;
 }
 
-.source-selector-table {
-  max-width: 100%;
-  overflow-x: auto;
-  border: 1px solid #d6e0ea;
-}
-
-.source-selector-summary {
+.source-selector-footer {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 12px;
   align-items: center;
-  min-height: 30px;
+  justify-content: space-between;
   padding: 6px 8px;
   border: 1px solid #d6e0ea;
   border-top: 0;
@@ -4160,9 +4153,49 @@ th {
   font-size: 12px;
 }
 
+.source-selector-summary {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  min-width: 0;
+}
+
 .source-selector-summary .strong {
   color: #25364a;
   font-weight: 700;
+}
+
+.source-selector-pagination {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-selector-pagination select {
+  height: 24px;
+  border: 1px solid #b8c7d8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #284057;
+  padding: 0 6px;
+}
+
+.source-selector-pagination button {
+  height: 24px;
+  border: 1px solid #b8c7d8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #284057;
+  padding: 0 8px;
+}
+
+.source-selector-pagination button:disabled {
+  color: #91a0ae;
+  cursor: not-allowed;
+  background: #f5f7fa;
 }
 
 .downstream-trace-dialog {
@@ -4422,18 +4455,40 @@ th {
 }
 
 .source-selector-table {
-  border: 1px solid #d6e0ea;
   max-width: 100%;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  overflow: hidden;
 }
 
 .source-selector-table > .table-core-frame {
-  width: max-content;
-  min-width: 100%;
-  max-width: none;
-  overflow-x: visible;
+  flex: 1 1 auto;
+}
+
+.source-selector-table .data-list-native-table .vxe-table--body-wrapper {
+  background: #ffffff;
+}
+
+.source-selector-table .data-list-native-table .vxe-body--column {
+  border-bottom: 1px solid #e5ebf2;
+}
+
+.source-selector-table .table-core-header-cell {
+  --table-core-header-resizer-right: -12px;
+}
+
+.source-selector-table .table-core-column-resizer {
+  width: 24px;
+  z-index: 8;
+}
+
+.source-selector-table .table-core-column-resizer::after {
+  left: 11px;
+}
+
+.source-selector-table .table-core-column-resizer:hover::after {
+  background: #1f72b8;
 }
 
 .source-selector-table input[type="checkbox"] {
@@ -4442,6 +4497,13 @@ th {
   height: 14px;
   margin: 0 auto;
   padding: 0;
+}
+
+.source-selector-select-all {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
 }
 
 @media (max-width: 1200px) {

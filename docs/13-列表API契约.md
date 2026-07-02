@@ -121,6 +121,15 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 - 同一次请求只能生成一次查询计划，不能为搜索字段、日期字段和结果集重复读取 `seedRows`。
 - 导出接口必须调用同一查询服务，只改变分页策略为“筛选后全集”。
 
+### 选源单查询
+
+- 选源单候选数据属于正式列表查询协议，统一走 `Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter`。
+- 选源单 `listKey` 使用 `*-source-selector` 后缀，由 `ListQueryContractRegistry` 登记关键字字段、日期字段、明细视图和 `sourceSelector` adapter。
+- 前端只能通过 `fetchSourceSelectorRows` 传递 `keyword`、`columnFilters`、`page`、`pageSize`、`sort`、`dateFrom/dateTo`；单据页面不得再直接调用页面私有候选源单查询协议。
+- `fetchSourceSelectorRows` 必须按统一查询协议拉齐当前过滤全集，`SourceSelectorDialog` 只负责本地分页展示和选择语义。
+- 依赖客户/供应商的选源单入口，客户/供应商过滤作为固定列筛选合并进统一查询，不能在页面外层另算一套候选集。
+- 弹窗底部“当前明细、剩余合计”等汇总必须基于统一查询返回后的最终可见行计算，不能只按页面本地关键字结果计算。
+
 ## 当前 stub 边界
 
 - 真实业务查询未接入前，纯 stub 列表可在 `pageSize=1000` 时扩展样本行，用于验证前端 1000 行渲染和滚动密度。

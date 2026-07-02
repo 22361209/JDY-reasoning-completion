@@ -130,6 +130,7 @@
     :message="sourceSelectorMessage"
     :row-key="sourceSelectorRowKey"
     :format-cell="formatSourceSelectorCell"
+    @query-change="reloadSourceSelector"
     @select-all="selectAllVisibleSourceLines"
     @toggle="toggleSourceSelectorRow"
     @close="closeSourceSelector"
@@ -142,7 +143,7 @@
 import { computed, reactive, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
 import { fetchSelectableSalesOrderLines, type SelectableSalesOrderLine } from "../../../services/salesOrderApi";
@@ -185,6 +186,7 @@ const sourceSelectorMessage = ref("");
 const sourceSelectorKeyword = ref("");
 const sourceSelectorLines = ref<SelectableSalesOrderLine[]>([]);
 const sourceSelectorSelected = reactive<Record<string, boolean>>({});
+const sourceSelectorSelectedRows = reactive<Record<string, SelectableSalesOrderLine>>({});
 const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "销售订单", width: 150, visible: true },
@@ -198,12 +200,13 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "grossWeight", title: "毛重", width: 90, visible: true, align: "right" },
   { key: "remainingQty", title: "剩余可通知", width: 110, visible: true, align: "right" },
   { key: "unitPrice", title: "单价", width: 100, visible: true, align: "right" },
-  { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true }
+  { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true },
+  { key: "lineRemark", title: "行备注", width: 160, visible: true }
 ];
-const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
+const selectedSourceLineCount = computed(() => `${Object.keys(sourceSelectorSelectedRows).length} 行已选`);
 const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
   const visibleLines = filteredSourceSelectorLines.value;
-  const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected[sourceSelectorLineKey(line)]);
+  const selectedLines = Object.values(sourceSelectorSelectedRows);
   return [
     { key: "visibleRows", label: "当前明细", value: `${visibleLines.length} 行`, strong: true },
     { key: "selectedRows", label: "已选", value: `${selectedLines.length} 行`, strong: true },
@@ -304,21 +307,50 @@ function closeSourceSelector() {
 }
 
 function toggleSourceSelectorLine(line: SelectableSalesOrderLine, checked: boolean) {
-  sourceSelectorSelected[sourceSelectorLineKey(line)] = checked;
+  const key = sourceSelectorLineKey(line);
+  if (checked) {
+    sourceSelectorSelected[key] = true;
+    sourceSelectorSelectedRows[key] = line;
+    return;
+  }
+  delete sourceSelectorSelected[key];
+  delete sourceSelectorSelectedRows[key];
 }
 
 function toggleSourceSelectorRow(row: unknown, checked: boolean) {
   toggleSourceSelectorLine(row as SelectableSalesOrderLine, checked);
 }
 
-function selectAllVisibleSourceLines() {
-  filteredSourceSelectorLines.value.forEach((line) => {
-    sourceSelectorSelected[sourceSelectorLineKey(line)] = true;
+async function reloadSourceSelector(query: SourceSelectorQueryChange) {
+  sourceSelectorKeyword.value = query.keyword;
+  if (!document.form.partyCode) {
+    return;
+  }
+  sourceSelectorLoading.value = true;
+  const result = await fetchSelectableSalesOrderLines(document.form.partyCode, query);
+  sourceSelectorLoading.value = false;
+  if (!result.ok) {
+    sourceSelectorLines.value = [];
+    sourceSelectorMessage.value = result.message || "销售订单选单列表加载失败。";
+    return;
+  }
+  sourceSelectorLines.value = result.data;
+  sourceSelectorMessage.value = result.data.length ? "" : "当前过滤条件下暂无可选销售订单明细。";
+}
+
+function selectAllVisibleSourceLines(checked: boolean, rows: unknown[]) {
+  if (!checked) {
+    resetSourceSelection();
+    return;
+  }
+  rows.forEach((row) => {
+    const line = row as SelectableSalesOrderLine;
+    toggleSourceSelectorLine(line, true);
   });
 }
 
 function confirmSourceSelector() {
-  const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected[sourceSelectorLineKey(line)]);
+  const selectedLines = Object.values(sourceSelectorSelectedRows);
   if (selectedLines.length === 0) {
     sourceSelectorMessage.value = "请至少勾选一条销售订单明细。";
     return;
@@ -391,13 +423,14 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
     grossWeight: formatOptionalAmount(line.grossWeight),
     remainingQty: document.formatQty(line.remainingQty),
     unitPrice: document.formatAmount(line.unitPrice),
-    planDeliveryDate: String(line.planDeliveryDate || "-")
+    planDeliveryDate: String(line.planDeliveryDate || "-"),
+    lineRemark: String(line.lineRemark || "")
   };
   return values[columnKey] ?? "";
 }
 
 function sourceLineSearchText(line: SelectableSalesOrderLine) {
-  return [line.customerCode, line.customer, line.productCode, line.productName, line.spec, line.unit, line.billNo].filter(Boolean).join(" ").toLowerCase();
+  return [line.customerCode, line.customer, line.productCode, line.productName, line.spec, line.unit, line.billNo, line.lineRemark].filter(Boolean).join(" ").toLowerCase();
 }
 
 function formatOptionalAmount(value: unknown) {
@@ -414,6 +447,9 @@ function sumLines(lines: SelectableSalesOrderLine[], field: keyof SelectableSale
 function resetSourceSelection() {
   Object.keys(sourceSelectorSelected).forEach((key) => {
     delete sourceSelectorSelected[key];
+  });
+  Object.keys(sourceSelectorSelectedRows).forEach((key) => {
+    delete sourceSelectorSelectedRows[key];
   });
 }
 

@@ -146,11 +146,14 @@ try {
   const sourceSummaryText = (await page.getByTestId("sales-out-source-selector-summary").textContent())?.replace(/\s+/g, " ").trim();
   assert(sourceSummaryText?.includes("当前明细：2 行"), `source selector summary should show visible line count, got ${sourceSummaryText}`);
   assert(sourceSummaryText?.includes("剩余可出合计"), `source selector summary should show remaining qty total, got ${sourceSummaryText}`);
-  const sourceTableScroll = await page.locator(".source-selector-table").evaluate((node) => ({
+  const sourceTableScroll = await page.locator(".source-selector-table .table-core-frame").evaluate((node) => ({
+    outerOverflowX: getComputedStyle(node.closest(".source-selector-table")).overflowX,
     scrollWidth: node.scrollWidth,
     clientWidth: node.clientWidth,
     overflowX: getComputedStyle(node).overflowX
   }));
+  assert(sourceTableScroll.outerOverflowX === "hidden", `source selector outer wrapper should not own horizontal scroll, got ${JSON.stringify(sourceTableScroll)}`);
+  assert(sourceTableScroll.overflowX === "scroll", `source selector should reuse TableCore horizontal scroll, got ${JSON.stringify(sourceTableScroll)}`);
   assert(sourceTableScroll.scrollWidth > sourceTableScroll.clientWidth, `source selector needs horizontal scroll, got ${JSON.stringify(sourceTableScroll)}`);
   await page.getByTestId("sales-out-source-selector-select-all").click();
   const selectedCount = await page.getByTestId("sales-out-source-selector-count").textContent();
@@ -160,6 +163,14 @@ try {
   await page.locator(".column-setting-row").filter({ hasText: "单价" }).locator('input[type="checkbox"]').uncheck();
   await page.getByTestId("sales-out-source-selector-column-settings-ok").click();
   assert(await page.locator(".source-selector-table th", { hasText: "单价" }).count() === 0, "source selector column settings should hide selected column");
+  await page.getByTestId("sales-out-source-selector-search").fill(`NO-HIT-${batch}`);
+  await page.getByTestId("sales-out-source-selector-query").click();
+  await page.getByTestId("sales-out-source-selector-message").filter({ hasText: "当前过滤条件下暂无可选发货通知明细。" }).waitFor({ state: "visible" });
+  const hiddenSelectedCount = await page.getByTestId("sales-out-source-selector-count").textContent();
+  assert(hiddenSelectedCount?.includes("2 行已选"), `source selector query changes should keep selected basket, got ${hiddenSelectedCount}`);
+  const hiddenSourceSummaryText = (await page.getByTestId("sales-out-source-selector-summary").textContent())?.replace(/\s+/g, " ").trim();
+  assert(hiddenSourceSummaryText?.includes("当前明细：0 行"), `source selector hidden summary should use current visible rows, got ${hiddenSourceSummaryText}`);
+  assert(hiddenSourceSummaryText?.includes("已选：2 行"), `source selector hidden summary should use selected basket, got ${hiddenSourceSummaryText}`);
   await confirmSalesOutSourceSelector(page);
 
   await page.getByTestId("sales-out-line-source-order-no").waitFor({ state: "visible" });

@@ -150,7 +150,7 @@
         description="仅显示已审核且有剩余可下推数量的单据。"
         v-model:keyword="sourceSelectorKeyword"
         search-placeholder="搜索单据编号、供应商、物料"
-        :loading="false"
+        :loading="sourceSelectorLoading"
         :rows="filteredSourceOptions"
         :columns="sourceSelectorColumns"
         :selected="selectedSourceMap"
@@ -162,6 +162,7 @@
         :show-select-all="false"
         :show-column-settings="true"
         empty-text="暂无可选源单"
+        @query-change="reloadSourcePicker"
         @toggle="toggleSourceSelectorRow"
         @close="closeSourcePicker"
         @confirm="confirmSourcePicker"
@@ -174,7 +175,7 @@
 import { computed, reactive, ref } from "vue";
 import type { EntryLine, MasterOption } from "../../components/EntryTable.vue";
 import EntryTable from "../../components/EntryTable.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorSummaryItem } from "../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange, type SourceSelectorSummaryItem } from "../../components/SourceSelectorDialog.vue";
 import StandardDocument from "../../components/StandardDocument.vue";
 import TableCore, { type TableCoreColumn } from "../../components/table/TableCore.vue";
 import { fetchListRows } from "../../services/listApi";
@@ -186,11 +187,9 @@ import {
   auditOutsourcingWorkOrder,
   fetchOutsourcingIssue,
   fetchOutsourcingReceipt,
-  fetchOutsourcingReceiptSources,
   fetchOutsourcingReturn,
   fetchOutsourcingScrap,
   fetchOutsourcingWorkOrder,
-  fetchOutsourcingWorkOrderSources,
   pushOutsourcingIssue,
   pushOutsourcingReceipt,
   pushOutsourcingReturn,
@@ -202,6 +201,7 @@ import {
   reverseOutsourcingWorkOrder,
   saveOutsourcingWorkOrder
 } from "../../services/outsourcingApi";
+import { fetchSourceSelectorRows } from "../../services/sourceSelectorListApi";
 
 type OutsourcingKind = "workOrder" | "issue" | "receipt" | "return" | "scrap";
 interface ComponentDemandLine {
@@ -228,6 +228,7 @@ interface SourceOption {
   unit: string;
   warehouseCode: string;
   remainingQty: string;
+  lineRemark: string;
 }
 
 const props = defineProps<{
@@ -260,7 +261,9 @@ const sourcePickerOpen = ref(false);
 const sourceOptions = ref<SourceOption[]>([]);
 const sourceSelectorKeyword = ref("");
 const selectedSourceMap = reactive<Record<string, boolean>>({});
+const selectedSourceRows = reactive<Record<string, SourceOption>>({});
 const sourceSelectorMessage = ref("");
+const sourceSelectorLoading = ref(false);
 
 const testPrefix = computed(() => `outsourcing-${props.kind}`);
 const canSave = computed(() => statusLabel.value === "草稿" && (props.kind === "workOrder" || (!form.billNo && Boolean(form.sourceBillNo.trim()))));
@@ -281,7 +284,8 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "productCode", title: "物料编码", width: 140, visible: true },
   { key: "productName", title: "物料名称", width: 160, visible: true },
   { key: "remainingQty", title: "剩余数量", width: 100, visible: true, align: "right" },
-  { key: "unit", title: "单位", width: 70, visible: true }
+  { key: "unit", title: "单位", width: 70, visible: true },
+  { key: "lineRemark", title: "行备注", width: 160, visible: true }
 ];
 const componentDemandColumns = ref<TableCoreColumn[]>([
   { key: "lineNo", title: "序号", width: 48, minWidth: 48, align: "center", resizable: false, filterable: false, headerClass: "entry-row-no-cell entry-frozen-cell", cellClass: "entry-row-no-cell entry-frozen-cell" },
@@ -305,13 +309,14 @@ const filteredSourceOptions = computed(() => {
     source.supplierName,
     source.productCode,
     source.productName,
-    source.spec
+    source.spec,
+    source.lineRemark
   ].some((value) => value.toLowerCase().includes(keyword)));
 });
-const selectedSourceCountLabel = computed(() => `已选中 ${Object.values(selectedSourceMap).filter(Boolean).length} 条`);
+const selectedSourceCountLabel = computed(() => `已选中 ${Object.keys(selectedSourceRows).length} 条`);
 const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
   const visibleSources = filteredSourceOptions.value;
-  const selectedSources = sourceOptions.value.filter((source) => selectedSourceMap[sourceSelectorRowKey(source)]);
+  const selectedSources = Object.values(selectedSourceRows);
   return [
     { key: "visibleRows", label: "当前明细", value: `${visibleSources.length} 行`, strong: true },
     { key: "selectedRows", label: "已选", value: `${selectedSources.length} 行`, strong: true },
@@ -438,15 +443,14 @@ async function reverse() {
 }
 
 async function openSourcePicker() {
-  const result = await fetchSourceOptions();
-  if (!result.ok || !Array.isArray(result.data)) {
-    message.value = result.message || "可选源单加载失败。";
-    return;
-  }
-  sourceOptions.value = result.data.map(sourceFromRow);
   sourceSelectorKeyword.value = "";
   sourceSelectorMessage.value = "";
   clearSelectedSourceMap();
+  const ok = await reloadSourcePicker({ keyword: "", columnFilters: {} });
+  if (!ok) {
+    message.value = sourceSelectorMessage.value || "可选源单加载失败。";
+    return;
+  }
   sourcePickerOpen.value = true;
 }
 
@@ -458,13 +462,15 @@ function closeSourcePicker() {
 function toggleSourceSelectorRow(row: unknown, checked: boolean) {
   clearSelectedSourceMap();
   if (checked) {
-    selectedSourceMap[sourceSelectorRowKey(row)] = true;
+    const source = row as SourceOption;
+    const key = sourceSelectorRowKey(source);
+    selectedSourceMap[key] = true;
+    selectedSourceRows[key] = source;
   }
 }
 
 async function confirmSourcePicker() {
-  const selectedKey = Object.entries(selectedSourceMap).find(([, selected]) => selected)?.[0];
-  const source = sourceOptions.value.find((item) => sourceSelectorRowKey(item) === selectedKey);
+  const source = Object.values(selectedSourceRows)[0];
   if (!source) {
     sourceSelectorMessage.value = "请先选择一条源单。";
     return;
@@ -474,6 +480,7 @@ async function confirmSourcePicker() {
 
 function clearSelectedSourceMap() {
   Object.keys(selectedSourceMap).forEach((key) => delete selectedSourceMap[key]);
+  Object.keys(selectedSourceRows).forEach((key) => delete selectedSourceRows[key]);
 }
 
 async function selectSource(source: SourceOption) {
@@ -591,17 +598,36 @@ async function fetchDetailByKind(billNo: string) {
   return fetchOutsourcingScrap(billNo);
 }
 
-async function fetchSourceOptions() {
+async function reloadSourcePicker(query: SourceSelectorQueryChange) {
+  sourceSelectorKeyword.value = query.keyword;
+  sourceSelectorLoading.value = true;
+  const result = await fetchSourceSelectorRows({
+    listKey: sourceSelectorListKey(),
+    keyword: query.keyword,
+    columnFilters: query.columnFilters
+  });
+  sourceSelectorLoading.value = false;
+  if (!result.ok) {
+    sourceOptions.value = [];
+    sourceSelectorMessage.value = result.message || "可选源单加载失败。";
+    return false;
+  }
+  sourceOptions.value = result.rows.map(sourceFromRow);
+  sourceSelectorMessage.value = sourceOptions.value.length ? "" : "当前过滤条件下暂无可选源单。";
+  return true;
+}
+
+function sourceSelectorListKey() {
   if (props.kind === "issue") {
-    return fetchOutsourcingWorkOrderSources("issue");
+    return "outsourcing-work-order-issue-source-selector";
   }
   if (props.kind === "receipt") {
-    return fetchOutsourcingWorkOrderSources("receipt");
+    return "outsourcing-work-order-receipt-source-selector";
   }
   if (props.kind === "return") {
-    return fetchOutsourcingReceiptSources("return");
+    return "outsourcing-receipt-return-source-selector";
   }
-  return fetchOutsourcingReceiptSources("scrap");
+  return "outsourcing-receipt-scrap-source-selector";
 }
 
 function handlePushResult(result: { ok: boolean; message: string; data?: Record<string, unknown> }, prefix: string) {
@@ -797,7 +823,8 @@ function sourceFromRow(raw: unknown): SourceOption {
     spec: textValue(row.spec),
     unit: textValue(row.unit),
     warehouseCode: textValue(row.warehouseCode),
-    remainingQty: textValue(row.remainingQty)
+    remainingQty: textValue(row.remainingQty),
+    lineRemark: textValue(row.lineRemark || row.remark)
   };
 }
 
@@ -814,7 +841,8 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
     productCode: source.productCode,
     productName: source.productName,
     remainingQty: source.remainingQty,
-    unit: source.unit
+    unit: source.unit,
+    lineRemark: source.lineRemark
   };
   return values[columnKey] ?? "";
 }

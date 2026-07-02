@@ -1,3 +1,5 @@
+import { exactSourceFilter, fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
+
 export interface SelectableSalesQuoteLine {
   billNo: string;
   customerCode: string;
@@ -27,12 +29,17 @@ export interface SelectableSalesQuoteLine {
   planDeliveryDate?: string;
 }
 
-export async function fetchSelectableSalesQuoteLines(customerCode: string): Promise<{ ok: boolean; message: string; data: SelectableSalesQuoteLine[] }> {
-  const result = await callSalesQuote(`/api/sales-quotes/selectable-lines?customerCode=${encodeURIComponent(customerCode)}`, "GET");
-  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
-    return { ok: false, message: result.message || "销售报价单选单列表加载失败。", data: [] };
-  }
-  return { ok: true, message: "", data: (result.data as { lines: SelectableSalesQuoteLine[] }).lines };
+export async function fetchSelectableSalesQuoteLines(
+  customerCode: string,
+  query: { keyword?: string; columnFilters?: SourceSelectorColumnFilters } = {}
+): Promise<{ ok: boolean; message: string; data: SelectableSalesQuoteLine[] }> {
+  const result = await fetchSourceSelectorRows({
+    listKey: "sales-quote-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    fixedFilters: exactSourceFilter("customerCode", customerCode)
+  });
+  return { ok: result.ok, message: result.message || "销售报价单选单列表加载失败。", data: result.rows as unknown as SelectableSalesQuoteLine[] };
 }
 
 export async function setSalesQuoteValid(billNo: string, valid: boolean): Promise<{ ok: boolean; message: string; data?: unknown }> {

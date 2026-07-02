@@ -1,3 +1,5 @@
+import { exactSourceFilter, fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
+
 export interface SalesOrderDraftPayload {
   billNo: string;
   customerCode: string;
@@ -134,20 +136,30 @@ export async function fetchSalesOrderDetail(billNo: string): Promise<{ ok: boole
   };
 }
 
-export async function fetchSelectableSalesOrderLines(customerCode: string): Promise<{ ok: boolean; message: string; data: SelectableSalesOrderLine[] }> {
-  const result = await callSalesOrder(`/api/sales-orders/selectable-lines?customerCode=${encodeURIComponent(customerCode)}`, "GET");
-  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
-    return { ok: false, message: result.message || "销售订单选单列表加载失败。", data: [] };
-  }
-  return { ok: true, message: "", data: (result.data as { lines: SelectableSalesOrderLine[] }).lines };
+export async function fetchSelectableSalesOrderLines(
+  customerCode: string,
+  query: { keyword?: string; columnFilters?: SourceSelectorColumnFilters } = {}
+): Promise<{ ok: boolean; message: string; data: SelectableSalesOrderLine[] }> {
+  const result = await fetchSourceSelectorRows({
+    listKey: "sales-order-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    fixedFilters: exactSourceFilter("customerCode", customerCode)
+  });
+  return { ok: result.ok, message: result.message || "销售订单选单列表加载失败。", data: result.rows as unknown as SelectableSalesOrderLine[] };
 }
 
-export async function fetchSelectableDeliveryNoticeLines(customerCode: string): Promise<{ ok: boolean; message: string; data: SelectableDeliveryNoticeLine[] }> {
-  const result = await callSalesOrder(`/api/delivery-notices/selectable-lines?customerCode=${encodeURIComponent(customerCode)}`, "GET");
-  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
-    return { ok: false, message: result.message || "发货通知单选单列表加载失败。", data: [] };
-  }
-  return { ok: true, message: "", data: (result.data as { lines: SelectableDeliveryNoticeLine[] }).lines };
+export async function fetchSelectableDeliveryNoticeLines(
+  customerCode: string,
+  query: { keyword?: string; columnFilters?: SourceSelectorColumnFilters } = {}
+): Promise<{ ok: boolean; message: string; data: SelectableDeliveryNoticeLine[] }> {
+  const result = await fetchSourceSelectorRows({
+    listKey: "delivery-notice-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    fixedFilters: exactSourceFilter("customerCode", customerCode)
+  });
+  return { ok: result.ok, message: result.message || "发货通知单选单列表加载失败。", data: result.rows as unknown as SelectableDeliveryNoticeLine[] };
 }
 
 export async function deleteSalesOrder(billNo: string) {

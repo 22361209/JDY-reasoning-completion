@@ -121,6 +121,7 @@
     :row-key="sourceSelectorRowKey"
     :format-cell="formatSourceSelectorCell"
     :show-column-settings="true"
+    @query-change="reloadSourceSelector"
     @select-all="selectAllVisibleSourceLines"
     @toggle="toggleSourceSelectorRow"
     @close="closeSourceSelector"
@@ -134,7 +135,7 @@
 import { computed, reactive, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
 import { fetchSelectablePurchaseOrderLines, type SelectablePurchaseOrderLine } from "../../../services/purchaseOrderApi";
@@ -174,6 +175,7 @@ const sourceSelectorMessage = ref("");
 const sourceSelectorKeyword = ref("");
 const sourceSelectorLines = ref<SelectablePurchaseOrderLine[]>([]);
 const sourceSelectorSelected = reactive<Record<string, boolean>>({});
+const sourceSelectorSelectedRows = reactive<Record<string, SelectablePurchaseOrderLine>>({});
 const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "采购订单", width: 150, visible: true },
@@ -193,12 +195,12 @@ const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "remainingQty", title: "剩余可入", width: 110, visible: true },
   { key: "unitPrice", title: "单价", width: 100, visible: true },
   { key: "priceTaxTotal", title: "含税金额", width: 110, visible: true },
-  { key: "lineRemark", title: "行备注", width: 160, visible: false }
+  { key: "lineRemark", title: "行备注", width: 160, visible: true }
 ]);
-const selectedSourceLineCount = computed(() => `${Object.values(sourceSelectorSelected).filter(Boolean).length} 行已选`);
+const selectedSourceLineCount = computed(() => `${Object.keys(sourceSelectorSelectedRows).length} 行已选`);
 const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
   const visibleLines = filteredSourceSelectorLines.value;
-  const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected[sourceSelectorLineKey(line)]);
+  const selectedLines = Object.values(sourceSelectorSelectedRows);
   return [
     { key: "visibleRows", label: "当前明细", value: `${visibleLines.length} 行`, strong: true },
     { key: "selectedRows", label: "已选", value: `${selectedLines.length} 行`, strong: true },
@@ -302,21 +304,50 @@ function closeSourceSelector() {
 }
 
 function toggleSourceSelectorLine(line: SelectablePurchaseOrderLine, checked: boolean) {
-  sourceSelectorSelected[sourceSelectorLineKey(line)] = checked;
+  const key = sourceSelectorLineKey(line);
+  if (checked) {
+    sourceSelectorSelected[key] = true;
+    sourceSelectorSelectedRows[key] = line;
+    return;
+  }
+  delete sourceSelectorSelected[key];
+  delete sourceSelectorSelectedRows[key];
 }
 
 function toggleSourceSelectorRow(row: unknown, checked: boolean) {
   toggleSourceSelectorLine(row as SelectablePurchaseOrderLine, checked);
 }
 
-function selectAllVisibleSourceLines() {
-  filteredSourceSelectorLines.value.forEach((line) => {
-    sourceSelectorSelected[sourceSelectorLineKey(line)] = true;
+async function reloadSourceSelector(query: SourceSelectorQueryChange) {
+  sourceSelectorKeyword.value = query.keyword;
+  if (!document.form.partyCode) {
+    return;
+  }
+  sourceSelectorLoading.value = true;
+  const result = await fetchSelectablePurchaseOrderLines(document.form.partyCode, query);
+  sourceSelectorLoading.value = false;
+  if (!result.ok) {
+    sourceSelectorLines.value = [];
+    sourceSelectorMessage.value = result.message || "采购订单选单列表加载失败。";
+    return;
+  }
+  sourceSelectorLines.value = result.data;
+  sourceSelectorMessage.value = result.data.length ? "" : "当前过滤条件下暂无可选采购订单明细。";
+}
+
+function selectAllVisibleSourceLines(checked: boolean, rows: unknown[]) {
+  if (!checked) {
+    resetSourceSelection();
+    return;
+  }
+  rows.forEach((row) => {
+    const line = row as SelectablePurchaseOrderLine;
+    toggleSourceSelectorLine(line, true);
   });
 }
 
 function confirmSourceSelector() {
-  const selectedLines = sourceSelectorLines.value.filter((line) => sourceSelectorSelected[sourceSelectorLineKey(line)]);
+  const selectedLines = Object.values(sourceSelectorSelectedRows);
   if (selectedLines.length === 0) {
     sourceSelectorMessage.value = "请至少勾选一条采购订单明细。";
     return;
@@ -406,7 +437,8 @@ function sourceLineSearchText(line: SelectablePurchaseOrderLine) {
     line.productName,
     line.spec,
     line.unit,
-    line.billNo
+    line.billNo,
+    line.lineRemark
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
@@ -430,6 +462,9 @@ function resetSourceColumns() {
 function resetSourceSelection() {
   Object.keys(sourceSelectorSelected).forEach((key) => {
     delete sourceSelectorSelected[key];
+  });
+  Object.keys(sourceSelectorSelectedRows).forEach((key) => {
+    delete sourceSelectorSelectedRows[key];
   });
 }
 

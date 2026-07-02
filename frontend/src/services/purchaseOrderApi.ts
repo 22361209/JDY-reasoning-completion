@@ -1,3 +1,5 @@
+import { exactSourceFilter, fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
+
 export interface SelectablePurchaseOrderLine {
   billNo: string;
   supplierCode: string;
@@ -27,20 +29,30 @@ export interface SelectablePurchaseOrderLine {
   lineRemark?: string;
 }
 
-export async function fetchSelectablePurchaseOrderLines(supplierCode: string): Promise<{ ok: boolean; message: string; data: SelectablePurchaseOrderLine[] }> {
-  const result = await callPurchaseOrder(`/api/purchase-orders/selectable-lines?supplierCode=${encodeURIComponent(supplierCode)}`, "GET");
-  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
-    return { ok: false, message: result.message || "采购订单选单列表加载失败。", data: [] };
-  }
-  return { ok: true, message: "", data: (result.data as { lines: SelectablePurchaseOrderLine[] }).lines };
+export async function fetchSelectablePurchaseOrderLines(
+  supplierCode: string,
+  query: { keyword?: string; columnFilters?: SourceSelectorColumnFilters } = {}
+): Promise<{ ok: boolean; message: string; data: SelectablePurchaseOrderLine[] }> {
+  const result = await fetchSourceSelectorRows({
+    listKey: "purchase-order-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    fixedFilters: exactSourceFilter("supplierCode", supplierCode)
+  });
+  return { ok: result.ok, message: result.message || "采购订单选单列表加载失败。", data: result.rows as unknown as SelectablePurchaseOrderLine[] };
 }
 
-export async function fetchSelectablePurchaseRequisitionLines(supplierCode: string): Promise<{ ok: boolean; message: string; data: SelectablePurchaseOrderLine[] }> {
-  const result = await callPurchaseOrder(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent(supplierCode)}`, "GET");
-  if (!result.ok || !result.data || !Array.isArray((result.data as { lines?: unknown }).lines)) {
-    return { ok: false, message: result.message || "采购申请选单列表加载失败。", data: [] };
-  }
-  return { ok: true, message: "", data: (result.data as { lines: SelectablePurchaseOrderLine[] }).lines };
+export async function fetchSelectablePurchaseRequisitionLines(
+  supplierCode: string,
+  query: { keyword?: string; columnFilters?: SourceSelectorColumnFilters } = {}
+): Promise<{ ok: boolean; message: string; data: SelectablePurchaseOrderLine[] }> {
+  const result = await fetchSourceSelectorRows({
+    listKey: "purchase-requisition-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    fixedFilters: exactSourceFilter("supplierCode", supplierCode)
+  });
+  return { ok: result.ok, message: result.message || "采购申请选单列表加载失败。", data: result.rows as unknown as SelectablePurchaseOrderLine[] };
 }
 
 async function callPurchaseOrder(url: string, method: string): Promise<{ ok: boolean; message: string; data?: unknown }> {
