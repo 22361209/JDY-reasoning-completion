@@ -128,7 +128,7 @@
     v-model:keyword="sourceSelectorKeyword"
     search-placeholder="客户/商品/报价单号"
     :loading="sourceSelectorLoading"
-    :rows="filteredSourceSelectorLines"
+    :rows="sourceSelectorRows"
     :columns="sourceSelectorColumns"
     :selected="sourceSelectorSelected"
     :count-label="selectedSourceLineCount"
@@ -136,9 +136,9 @@
     :message="sourceSelectorMessage"
     :row-key="sourceSelectorRowKey"
     :format-cell="formatSourceSelectorCell"
-    @query-change="reloadSourceSelector"
-    @select-all="selectAllVisibleSourceLines"
-    @toggle="toggleSourceSelectorRow"
+    @query-change="sourceSelector.load"
+    @select-all="sourceSelector.selectAll"
+    @toggle="sourceSelector.toggleRow"
     @close="closeSourceSelector"
     @confirm="confirmSourceSelector"
   />
@@ -146,11 +146,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { OrderLineForm } from "../../../app/documentModel";
+import { useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import { getBillDefinition, pushDownAction, sourceSelectAction } from "../../metadata/registry";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import { fetchSelectableSalesQuoteLines, type SelectableSalesQuoteLine } from "../../../services/salesQuoteApi";
@@ -202,13 +203,6 @@ const showPushDownSalesOut = computed(() => (
   document.form.lines.some((line) => Number(line.availableNoticeQty ?? line.remainingQty ?? line.qty ?? 0) > 0 && line.lineFrozenStatus !== "FROZEN")
 ));
 const canPushDownSalesOut = computed(() => showPushDownSalesOut.value && props.hasPermission("sales.out.audit"));
-const sourceSelectorOpen = ref(false);
-const sourceSelectorLoading = ref(false);
-const sourceSelectorMessage = ref("");
-const sourceSelectorKeyword = ref("");
-const sourceSelectorLines = ref<SelectableSalesQuoteLine[]>([]);
-const sourceSelectorSelected = reactive<Record<string, boolean>>({});
-const sourceSelectorSelectedRows = reactive<Record<string, SelectableSalesQuoteLine>>({});
 const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "报价单", width: 150, visible: true },
@@ -225,24 +219,25 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "unitPrice", title: "单价", width: 100, visible: true, align: "right" },
   { key: "lineRemark", title: "行备注", width: 160, visible: true }
 ];
-const selectedSourceLineCount = computed(() => `${Object.keys(sourceSelectorSelectedRows).length} 行已选`);
-const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
-  const visibleLines = filteredSourceSelectorLines.value;
-  const selectedLines = Object.values(sourceSelectorSelectedRows);
-  return [
-    { key: "visibleRows", label: "当前明细", value: `${visibleLines.length} 行`, strong: true },
-    { key: "selectedRows", label: "已选", value: `${selectedLines.length} 行`, strong: true },
-    { key: "sourceQty", label: "报价数量合计", value: document.formatQty(sumLines(visibleLines, "sourceQty")) },
-    { key: "selectedQty", label: "已选数量", value: document.formatQty(sumLines(selectedLines, "sourceQty")) }
-  ];
+const sourceSelector = useSourceSelectorLifecycle<SelectableSalesQuoteLine>({
+  rowKey: sourceSelectorLineKey,
+  fetchRows: (query) => fetchSelectableSalesQuoteLines(document.form.partyCode, query),
+  quantityField: "sourceQty",
+  quantityLabel: "报价数量合计",
+  selectedQuantityLabel: "已选数量",
+  emptyMessage: "当前过滤条件下暂无可选销售报价明细。",
+  loadErrorMessage: "销售报价单选单列表加载失败。",
+  formatQty: document.formatQty,
+  allocatedQty: allocatedSourceQty
 });
-const filteredSourceSelectorLines = computed(() => {
-  const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
-  if (!keyword) {
-    return sourceSelectorLines.value;
-  }
-  return sourceSelectorLines.value.filter((line) => sourceLineSearchText(line).includes(keyword));
-});
+const sourceSelectorOpen = sourceSelector.open;
+const sourceSelectorLoading = sourceSelector.loading;
+const sourceSelectorMessage = sourceSelector.message;
+const sourceSelectorKeyword = sourceSelector.keyword;
+const sourceSelectorRows = sourceSelector.rows;
+const sourceSelectorSelected = sourceSelector.selected;
+const selectedSourceLineCount = sourceSelector.countLabel;
+const sourceSelectorSummaryItems = sourceSelector.summaryItems;
 
 const dialogBindings = computed(() => ({
   pendingZeroEntrySave: document.pendingZeroEntrySave.value,
@@ -298,81 +293,20 @@ const dialogHandlers = {
 };
 
 async function openSourceSelector() {
-  sourceSelectorMessage.value = "";
-  sourceSelectorKeyword.value = "";
-  resetSourceSelection();
   const customerCode = document.form.partyCode.trim();
   if (!customerCode) {
-    sourceSelectorLines.value = [];
-    sourceSelectorLoading.value = false;
     document.message.value = "请先在单头选择客户，再从该客户的已审核销售报价单中选源单。";
     return;
   }
-  sourceSelectorOpen.value = true;
-  sourceSelectorLoading.value = true;
-  const result = await fetchSelectableSalesQuoteLines(customerCode);
-  sourceSelectorLoading.value = false;
-  if (!result.ok) {
-    sourceSelectorLines.value = [];
-    sourceSelectorMessage.value = result.message || "销售报价单选单列表加载失败。";
-    return;
-  }
-  sourceSelectorLines.value = result.data;
-  if (result.data.length === 0) {
-    sourceSelectorMessage.value = "该客户暂无已审核、有效且未过期的销售报价单。";
-  }
+  await sourceSelector.openAndLoad({ keyword: "", columnFilters: {} });
 }
 
 function closeSourceSelector() {
-  sourceSelectorOpen.value = false;
-  sourceSelectorMessage.value = "";
-}
-
-function toggleSourceSelectorLine(line: SelectableSalesQuoteLine, checked: boolean) {
-  const key = sourceSelectorLineKey(line);
-  if (checked) {
-    sourceSelectorSelected[key] = true;
-    sourceSelectorSelectedRows[key] = line;
-    return;
-  }
-  delete sourceSelectorSelected[key];
-  delete sourceSelectorSelectedRows[key];
-}
-
-function toggleSourceSelectorRow(row: unknown, checked: boolean) {
-  toggleSourceSelectorLine(row as SelectableSalesQuoteLine, checked);
-}
-
-async function reloadSourceSelector(query: SourceSelectorQueryChange) {
-  sourceSelectorKeyword.value = query.keyword;
-  if (!document.form.partyCode) {
-    return;
-  }
-  sourceSelectorLoading.value = true;
-  const result = await fetchSelectableSalesQuoteLines(document.form.partyCode, query);
-  sourceSelectorLoading.value = false;
-  if (!result.ok) {
-    sourceSelectorLines.value = [];
-    sourceSelectorMessage.value = result.message || "销售报价单选单列表加载失败。";
-    return;
-  }
-  sourceSelectorLines.value = result.data;
-  sourceSelectorMessage.value = result.data.length ? "" : "当前过滤条件下暂无可选销售报价明细。";
-}
-
-function selectAllVisibleSourceLines(checked: boolean, rows: unknown[]) {
-  if (!checked) {
-    resetSourceSelection();
-    return;
-  }
-  rows.forEach((row) => {
-    const line = row as SelectableSalesQuoteLine;
-    toggleSourceSelectorLine(line, true);
-  });
+  sourceSelector.close();
 }
 
 function confirmSourceSelector() {
-  const selectedLines = Object.values(sourceSelectorSelectedRows);
+  const selectedLines = sourceSelector.selectedRowList.value;
   if (selectedLines.length === 0) {
     sourceSelectorMessage.value = "请至少勾选一条销售报价明细。";
     return;
@@ -386,8 +320,7 @@ function confirmSourceSelector() {
   document.form.department = first.department || document.form.department || "销售部";
   document.form.isTaxInclusive = Boolean(first.isTaxInclusive);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
-  sourceSelectorOpen.value = false;
-  sourceSelectorMessage.value = "";
+  sourceSelector.close();
   document.message.value = `已追加 ${selectedLines.length} 行销售报价明细`;
   document.markDirty();
 }
@@ -423,7 +356,7 @@ function selectableLineToFormLine(line: SelectableSalesQuoteLine): OrderLineForm
 }
 
 function sourceSelectorLineKey(line: SelectableSalesQuoteLine) {
-  return `${line.billNo}:${line.lineNo}`;
+  return sourceLineKey(line.billNo, line.lineNo);
 }
 
 function sourceSelectorRowKey(row: unknown) {
@@ -450,37 +383,22 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
   return values[columnKey] ?? "";
 }
 
-function sourceLineSearchText(line: SelectableSalesQuoteLine) {
-  return [
-    line.customerCode,
-    line.customer,
-    line.productCode,
-    line.productName,
-    line.spec,
-    line.unit,
-    line.billNo,
-    line.lineRemark
-  ].filter(Boolean).join(" ").toLowerCase();
-}
-
 function formatOptionalAmount(value: unknown) {
   return value === null || value === undefined || value === "" ? "-" : document.formatAmount(value as number | string | undefined);
 }
 
-function sumLines(lines: SelectableSalesQuoteLine[], field: keyof SelectableSalesQuoteLine) {
-  return lines.reduce((sum, line) => {
-    const value = Number(line[field] ?? 0);
-    return Number.isFinite(value) ? sum + value : sum;
+function allocatedSourceQty(source: SelectableSalesQuoteLine) {
+  const sourceKey = sourceSelectorLineKey(source);
+  return document.form.lines.reduce((sum, line) => {
+    if (sourceLineKey(line.sourceOrderNo, line.sourceLineNo) !== sourceKey) {
+      return sum;
+    }
+    return sum + normalizedQty(line.qty);
   }, 0);
 }
 
-function resetSourceSelection() {
-  Object.keys(sourceSelectorSelected).forEach((key) => {
-    delete sourceSelectorSelected[key];
-  });
-  Object.keys(sourceSelectorSelectedRows).forEach((key) => {
-    delete sourceSelectorSelectedRows[key];
-  });
+function sourceLineKey(billNo: unknown, lineNo: unknown) {
+  return `${String(billNo ?? "")}:${String(lineNo ?? "")}`;
 }
 
 function normalizedQty(value: number | string | undefined) {

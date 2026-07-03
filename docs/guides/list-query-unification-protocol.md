@@ -10,6 +10,7 @@
 - 查询状态统一：查询、重置、分页、排序、列筛选、导出使用同一组参数。
 - 整单/明细视图统一：整单视图可以被明细字段命中，但结果仍显示命中单据；明细视图才显示分录行。
 - 生命周期边界清楚：列表过滤只影响结果集，不影响按钮能力判断。
+- 选源单查询统一：候选源单仍走 `ListQueryService`，当前单据本地分配量由 `useSourceSelectorLifecycle` 扣减，不允许页面私写候选过滤和选择协议。
 
 ## 统一筛选条
 
@@ -67,6 +68,23 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 | ListQueryAdapter | 按契约生成真实 SQL 或 stub 查询。已接库业务列表必须把关键字、日期、状态等高选择性条件下推到数据库。 |
 
 同一次请求只能形成一份查询计划。禁止为了判断 `searchFields`、`dateField` 和结果集重复读取 `seedRows`。
+
+## 选源单生命周期
+
+选源单是列表查询协议的派生场景，查询链路仍为：
+
+```text
+SourceSelectorDialog -> fetchSourceSelectorRows -> ListQueryService -> ListQueryAdapter
+```
+
+要求：
+
+- 后端 adapter 返回正式剩余量，只处理已审核源单、关闭/冻结/作废状态、跨单正式执行量和跨单超量阻断。
+- 前端页面必须通过 `useSourceSelectorLifecycle` 接入弹窗，不得保留 `filteredSourceSelectorLines`、页面私有 `sourceLineSearchText`、页面私有已选集合或页面私有全选语义。
+- 可选量统一按 `后端正式剩余量 - 当前单据本地已分配量` 计算。保存草稿不产生正式全局占用，但同一草稿再次打开选源单时，已拉入的源单行数量必须被扣减，扣完为 0 的候选行不再展示。
+- 页面只提供四类业务差异：`fetchRows`、`rowKey`、当前单据已分配量计算、源单行到当前单据分录的回填映射。
+- 多选弹窗列头复选框语义固定为：勾选当前过滤全集；取消清空全部已选行，包括当前页外和当前过滤外隐藏行。单选弹窗必须声明单选语义。
+- 关闭、取消和确认成功后的收口必须调用 `sourceSelector.close()`，不得由页面直接写 `sourceSelectorOpen.value = false` 或 `sourcePickerOpen.value = false`。
 
 ## 整单视图命中明细字段
 
@@ -164,6 +182,7 @@ node scripts/a128-list-query-unification-regression.mjs
 - 关键字、日期范围、列头状态、排序、分页、导出组合一致。
 - 操作日志扩展字段和预设仍可用。
 - 生命周期按钮能力不因筛选条件变化。
+- 选源单确认后再次打开，同一当前单据已拉入的源单数量不会被重复展示为可选数量。
 
 ## 验收标准
 
@@ -177,4 +196,6 @@ node scripts/a128-list-query-unification-regression.mjs
 - 旧 `query.status` 预设可继续应用，新保存预设不再写顶部 `status`。
 - A128 静态扫描能阻止后续页面私写筛选栏。
 - A124 生命周期扫描通过，证明查询协议没有污染生命周期能力判断。
+- 选源单页面统一接入 `useSourceSelectorLifecycle`，A128 静态扫描禁止新增页面私有源单过滤、选择、汇总协议。
+- 选源单页面关闭、取消和确认成功后统一调用 `sourceSelector.close()`，A128 静态扫描禁止页面直接改写弹窗 open ref。
 - 查询栏按钮必须与同区按钮共享高度、边框、背景、字号、hover 和禁用态；日期弹层可专用，触发按钮不可另造视觉系统。

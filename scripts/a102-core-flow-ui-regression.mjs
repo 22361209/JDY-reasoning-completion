@@ -181,6 +181,15 @@ try {
   assert(await page.locator(".table-core-header-cell", { hasText: "源单号" }).count() > 0, "entry table should have source order header");
   assert(await page.locator(".table-core-header-cell", { hasText: "源单行号" }).count() > 0, "entry table should have source line header");
 
+  await openSalesOutSourceSelector(page);
+  await page.getByTestId("sales-out-source-selector-search").fill(source.noticeNo);
+  await page.getByTestId("sales-out-source-selector-query").click();
+  await page.getByTestId("sales-out-source-selector-message").filter({ hasText: "当前过滤条件下暂无可选发货通知明细。" }).waitFor({ state: "visible" });
+  const repeatedSourceSummaryText = (await page.getByTestId("sales-out-source-selector-summary").textContent())?.replace(/\s+/g, " ").trim();
+  assert(repeatedSourceSummaryText?.includes("当前明细：0 行"), `reopened source selector should deduct current document allocation, got ${repeatedSourceSummaryText}`);
+  assert(repeatedSourceSummaryText?.includes("已选：0 行"), `reopened source selector should start with empty basket, got ${repeatedSourceSummaryText}`);
+  await page.getByTestId("sales-out-source-selector-cancel").click();
+
   const productOpenButton = page.getByTestId("sales-out-line-product-open-selector");
   const hiddenOpacity = await productOpenButton.evaluate((node) => getComputedStyle(node).opacity);
   await page.getByTestId("sales-out-line-product").hover();
@@ -256,6 +265,7 @@ try {
       selectedCount,
       sourceOrderCell,
       sourceLineCell,
+      repeatedSourceSummaryText,
       hiddenOpacity,
       hoverOpacity,
       entryGhostText,

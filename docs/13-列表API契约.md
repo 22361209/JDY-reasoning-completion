@@ -127,6 +127,9 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 - 选源单 `listKey` 使用 `*-source-selector` 后缀，由 `ListQueryContractRegistry` 登记关键字字段、日期字段、明细视图和 `sourceSelector` adapter。
 - 前端只能通过 `fetchSourceSelectorRows` 传递 `keyword`、`columnFilters`、`page`、`pageSize`、`sort`、`dateFrom/dateTo`；单据页面不得再直接调用页面私有候选源单查询协议。
 - `fetchSourceSelectorRows` 必须按统一查询协议拉齐当前过滤全集，`SourceSelectorDialog` 只负责本地分页展示和选择语义。
+- 单据页必须通过 `useSourceSelectorLifecycle` 接入选源单：页面只提供拉取函数、行唯一键、当前单据已分配数量和回填映射，不得私自维护候选行本地过滤、已选行集合、全选语义或汇总口径。
+- 选源单可选量按 `后端正式剩余量 - 当前单据本地已分配量` 计算；当前单据已拉入的同一源单行再次打开时必须从候选集中扣减或隐藏，避免未保存草稿内重复选择同一可用数量。
+- 关闭、取消和确认成功后的收口必须调用 `sourceSelector.close()`，由生命周期统一废弃 pending 查询、重置 loading 和清理弹窗消息；页面不得直接改写弹窗 open ref。
 - 依赖客户/供应商的选源单入口，客户/供应商过滤作为固定列筛选合并进统一查询，不能在页面外层另算一套候选集。
 - 弹窗底部“当前明细、剩余合计”等汇总必须基于统一查询返回后的最终可见行计算，不能只按页面本地关键字结果计算。
 

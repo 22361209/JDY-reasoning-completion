@@ -112,7 +112,7 @@
     v-model:keyword="sourceSelectorKeyword"
     search-placeholder="供应商/商品/订单号"
     :loading="sourceSelectorLoading"
-    :rows="filteredSourceSelectorLines"
+    :rows="sourceSelectorRows"
     :columns="sourceSelectorColumns"
     :selected="sourceSelectorSelected"
     :count-label="selectedSourceLineCount"
@@ -121,9 +121,9 @@
     :row-key="sourceSelectorRowKey"
     :format-cell="formatSourceSelectorCell"
     :show-column-settings="true"
-    @query-change="reloadSourceSelector"
-    @select-all="selectAllVisibleSourceLines"
-    @toggle="toggleSourceSelectorRow"
+    @query-change="sourceSelector.load"
+    @select-all="sourceSelector.selectAll"
+    @toggle="sourceSelector.toggleRow"
     @close="closeSourceSelector"
     @confirm="confirmSourceSelector"
     @reset-columns="resetSourceColumns"
@@ -132,12 +132,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, ref } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange, type SourceSelectorSummaryItem } from "../../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
+import { sumField, useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import { fetchSelectablePurchaseOrderLines, type SelectablePurchaseOrderLine } from "../../../services/purchaseOrderApi";
 import { usePurchaseInDocument } from "./usePurchaseInDocument";
 
@@ -169,13 +170,6 @@ const document = usePurchaseInDocument({
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
 
-const sourceSelectorOpen = ref(false);
-const sourceSelectorLoading = ref(false);
-const sourceSelectorMessage = ref("");
-const sourceSelectorKeyword = ref("");
-const sourceSelectorLines = ref<SelectablePurchaseOrderLine[]>([]);
-const sourceSelectorSelected = reactive<Record<string, boolean>>({});
-const sourceSelectorSelectedRows = reactive<Record<string, SelectablePurchaseOrderLine>>({});
 const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "采购订单", width: 150, visible: true },
@@ -197,25 +191,28 @@ const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "priceTaxTotal", title: "含税金额", width: 110, visible: true },
   { key: "lineRemark", title: "行备注", width: 160, visible: true }
 ]);
-const selectedSourceLineCount = computed(() => `${Object.keys(sourceSelectorSelectedRows).length} 行已选`);
-const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
-  const visibleLines = filteredSourceSelectorLines.value;
-  const selectedLines = Object.values(sourceSelectorSelectedRows);
-  return [
-    { key: "visibleRows", label: "当前明细", value: `${visibleLines.length} 行`, strong: true },
-    { key: "selectedRows", label: "已选", value: `${selectedLines.length} 行`, strong: true },
-    { key: "remainingQty", label: "剩余可入合计", value: formatQty(sumLines(visibleLines, "remainingQty")) },
-    { key: "selectedQty", label: "已选数量", value: formatQty(sumLines(selectedLines, "remainingQty")) },
-    { key: "priceTaxTotal", label: "含税金额合计", value: formatAmount(sumLines(visibleLines, "priceTaxTotal")) }
-  ];
+const sourceSelector = useSourceSelectorLifecycle<SelectablePurchaseOrderLine>({
+  rowKey: sourceSelectorLineKey,
+  fetchRows: (query) => fetchSelectablePurchaseOrderLines(document.form.partyCode, query),
+  quantityField: "remainingQty",
+  quantityLabel: "剩余可入合计",
+  selectedQuantityLabel: "已选数量",
+  emptyMessage: "当前过滤条件下暂无可选采购订单明细。",
+  loadErrorMessage: "采购订单选单列表加载失败。",
+  formatQty,
+  allocatedQty: allocatedSourceQty,
+  extraSummaryItems: (visibleRows) => [
+    { key: "priceTaxTotal", label: "含税金额合计", value: formatAmount(sumField(visibleRows, "priceTaxTotal")) }
+  ]
 });
-const filteredSourceSelectorLines = computed(() => {
-  const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
-  if (!keyword) {
-    return sourceSelectorLines.value;
-  }
-  return sourceSelectorLines.value.filter((line) => sourceLineSearchText(line).includes(keyword));
-});
+const sourceSelectorOpen = sourceSelector.open;
+const sourceSelectorLoading = sourceSelector.loading;
+const sourceSelectorMessage = sourceSelector.message;
+const sourceSelectorKeyword = sourceSelector.keyword;
+const sourceSelectorRows = sourceSelector.rows;
+const sourceSelectorSelected = sourceSelector.selected;
+const selectedSourceLineCount = sourceSelector.countLabel;
+const sourceSelectorSummaryItems = sourceSelector.summaryItems;
 
 const dialogBindings = computed(() => ({
   pendingZeroEntrySave: document.pendingZeroEntrySave.value,
@@ -273,81 +270,20 @@ async function openSourceSelector() {
   if (!document.isDraft.value) {
     return;
   }
-  sourceSelectorMessage.value = "";
-  sourceSelectorKeyword.value = "";
-  resetSourceSelection();
   const supplierCode = document.form.partyCode.trim();
   if (!supplierCode) {
-    sourceSelectorLines.value = [];
-    sourceSelectorLoading.value = false;
     document.message.value = "请先在单头选择供应商，再从该供应商的已审核采购订单中选源单。";
     return;
   }
-  sourceSelectorOpen.value = true;
-  sourceSelectorLoading.value = true;
-  const result = await fetchSelectablePurchaseOrderLines(supplierCode);
-  sourceSelectorLoading.value = false;
-  if (!result.ok) {
-    sourceSelectorLines.value = [];
-    sourceSelectorMessage.value = result.message || "采购订单选单列表加载失败。";
-    return;
-  }
-  sourceSelectorLines.value = result.data;
-  if (result.data.length === 0) {
-    sourceSelectorMessage.value = "该供应商暂无已审核且有剩余可入数量的采购订单。";
-  }
+  await sourceSelector.openAndLoad({ keyword: "", columnFilters: {} });
 }
 
 function closeSourceSelector() {
-  sourceSelectorOpen.value = false;
-  sourceSelectorMessage.value = "";
-}
-
-function toggleSourceSelectorLine(line: SelectablePurchaseOrderLine, checked: boolean) {
-  const key = sourceSelectorLineKey(line);
-  if (checked) {
-    sourceSelectorSelected[key] = true;
-    sourceSelectorSelectedRows[key] = line;
-    return;
-  }
-  delete sourceSelectorSelected[key];
-  delete sourceSelectorSelectedRows[key];
-}
-
-function toggleSourceSelectorRow(row: unknown, checked: boolean) {
-  toggleSourceSelectorLine(row as SelectablePurchaseOrderLine, checked);
-}
-
-async function reloadSourceSelector(query: SourceSelectorQueryChange) {
-  sourceSelectorKeyword.value = query.keyword;
-  if (!document.form.partyCode) {
-    return;
-  }
-  sourceSelectorLoading.value = true;
-  const result = await fetchSelectablePurchaseOrderLines(document.form.partyCode, query);
-  sourceSelectorLoading.value = false;
-  if (!result.ok) {
-    sourceSelectorLines.value = [];
-    sourceSelectorMessage.value = result.message || "采购订单选单列表加载失败。";
-    return;
-  }
-  sourceSelectorLines.value = result.data;
-  sourceSelectorMessage.value = result.data.length ? "" : "当前过滤条件下暂无可选采购订单明细。";
-}
-
-function selectAllVisibleSourceLines(checked: boolean, rows: unknown[]) {
-  if (!checked) {
-    resetSourceSelection();
-    return;
-  }
-  rows.forEach((row) => {
-    const line = row as SelectablePurchaseOrderLine;
-    toggleSourceSelectorLine(line, true);
-  });
+  sourceSelector.close();
 }
 
 function confirmSourceSelector() {
-  const selectedLines = Object.values(sourceSelectorSelectedRows);
+  const selectedLines = sourceSelector.selectedRowList.value;
   if (selectedLines.length === 0) {
     sourceSelectorMessage.value = "请至少勾选一条采购订单明细。";
     return;
@@ -362,8 +298,7 @@ function confirmSourceSelector() {
   document.form.department = first.department || document.form.department || "采购部";
   document.form.isTaxInclusive = Boolean(first.isTaxInclusive);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
-  sourceSelectorOpen.value = false;
-  sourceSelectorMessage.value = "";
+  sourceSelector.close();
   document.message.value = `已追加 ${selectedLines.length} 行采购订单剩余可入明细`;
   document.markDirty();
 }
@@ -396,7 +331,7 @@ function selectableLineToFormLine(line: SelectablePurchaseOrderLine): OrderLineF
 }
 
 function sourceSelectorLineKey(line: SelectablePurchaseOrderLine) {
-  return `${line.billNo}:${line.lineNo}`;
+  return sourceLineKey(line.billNo, line.lineNo);
 }
 
 function sourceSelectorRowKey(row: unknown) {
@@ -428,29 +363,8 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
   return values[columnKey] ?? "";
 }
 
-function sourceLineSearchText(line: SelectablePurchaseOrderLine) {
-  return [
-    line.supplierCode,
-    line.supplier,
-    line.productCode,
-    line.supplierMaterialCode,
-    line.productName,
-    line.spec,
-    line.unit,
-    line.billNo,
-    line.lineRemark
-  ].filter(Boolean).join(" ").toLowerCase();
-}
-
 function formatOptionalAmount(value: unknown) {
   return value === null || value === undefined || value === "" ? "-" : formatAmount(value as number | string | undefined);
-}
-
-function sumLines(lines: SelectablePurchaseOrderLine[], field: keyof SelectablePurchaseOrderLine) {
-  return lines.reduce((sum, line) => {
-    const value = Number(line[field] ?? 0);
-    return Number.isFinite(value) ? sum + value : sum;
-  }, 0);
 }
 
 function resetSourceColumns() {
@@ -459,13 +373,18 @@ function resetSourceColumns() {
   });
 }
 
-function resetSourceSelection() {
-  Object.keys(sourceSelectorSelected).forEach((key) => {
-    delete sourceSelectorSelected[key];
-  });
-  Object.keys(sourceSelectorSelectedRows).forEach((key) => {
-    delete sourceSelectorSelectedRows[key];
-  });
+function allocatedSourceQty(source: SelectablePurchaseOrderLine) {
+  const sourceKey = sourceSelectorLineKey(source);
+  return document.form.lines.reduce((sum, line) => {
+    if (sourceLineKey(line.sourceOrderNo, line.sourceLineNo) !== sourceKey) {
+      return sum;
+    }
+    return sum + normalizedQty(line.qty);
+  }, 0);
+}
+
+function sourceLineKey(billNo: unknown, lineNo: unknown) {
+  return `${String(billNo ?? "")}:${String(lineNo ?? "")}`;
 }
 
 function formatQty(value: number | string | undefined) {

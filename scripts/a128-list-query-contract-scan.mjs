@@ -23,7 +23,8 @@ const [
   salesOrderAdapter,
   defaultAdapter,
   listQuerySupport,
-  stubSeedRowsProvider
+  stubSeedRowsProvider,
+  sourceSelectorLifecycle
 ] = await Promise.all([
   text("docs/13-列表API契约.md"),
   text("docs/guides/list-query-unification-protocol.md"),
@@ -39,16 +40,31 @@ const [
   text("backend/src/main/java/com/jdy/erp/system/application/list/SalesOrderListQueryAdapter.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/DefaultStubListQueryAdapter.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/ListQuerySupport.java"),
-  text("backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java")
+  text("backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java"),
+  text("frontend/src/app/sourceSelectorLifecycle.ts")
 ]);
+
+const sourceSelectorModuleText = (await Promise.all([
+  text("frontend/src/modules/sales/sales-order/SalesOrderForm.vue"),
+  text("frontend/src/modules/sales/delivery-notice/DeliveryNoticeForm.vue"),
+  text("frontend/src/modules/sales/sales-out/SalesOutForm.vue"),
+  text("frontend/src/modules/sales/sales-out/useSalesOutDocument.ts"),
+  text("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue"),
+  text("frontend/src/modules/purchase/purchase-in/PurchaseInForm.vue"),
+  text("frontend/src/modules/purchase/purchase-return/PurchaseReturnForm.vue"),
+  text("frontend/src/modules/outsourcing/OutsourcingDocumentForm.vue")
+])).join("\n");
 
 assert(apiContract.includes("多词 AND、字段内 OR"), "列表 API 契约必须声明关键字多词 AND / 字段内 OR");
 assert(apiContract.includes("已废弃的状态快速筛选"), "列表 API 契约必须声明 status 顶部快捷筛选已废弃");
+assert(apiContract.includes("useSourceSelectorLifecycle"), "列表 API 契约必须登记选源单生命周期管线");
+assert(apiContract.includes("后端正式剩余量 - 当前单据本地已分配量"), "选源单契约必须声明本地分配扣减公式");
 assert(!apiContract.includes("dateFrom` | date | 否 | 操作日志专用"), "dateFrom 不得继续标注为操作日志专用");
 assert(protocol.includes("普通列表不得再显示顶部 `状态` 下拉"), "A128 协议必须禁止普通列表顶部状态下拉");
 assert(protocol.includes("旧 `status` 参数仅为兼容旧链接和旧预设保留"), "A128 协议必须说明旧 status 兼容边界");
 assert(protocol.includes("headerMatch=existsLine"), "A128 协议必须声明整单视图命中明细字段的 existsLine 口径");
 assert(protocol.includes("上季度"), "A128 协议必须登记常用过滤条件“上季度”");
+assert(protocol.includes("useSourceSelectorLifecycle"), "BLD 页面统一协议必须声明选源单生命周期");
 
 assert(!dataListPage.includes('data-testid="list-status"'), "DataListPage 不得渲染普通列表顶部状态下拉");
 assert(!dataListPage.includes("2026-06-01 至 2026-06-30"), "DataListPage 不得保留旧只读日期占位");
@@ -68,6 +84,23 @@ assert(!listQueryBar.includes('class="date-range-popover"'), "日期范围不得
 assert(listQueryBar.includes("column-filter-popover"), "常用过滤条件和日期范围必须复用列筛选 popover 体系");
 assert(!baseCss.includes(".date-filter-menu"), "不得保留私有 date-filter-menu 样式系统");
 assert(!baseCss.includes(".date-range-popover"), "不得保留私有 date-range-popover 样式系统");
+
+assert(sourceSelectorLifecycle.includes("allocatedQty"), "选源单生命周期必须支持当前单据本地分配量扣减");
+assert(sourceSelectorLifecycle.includes("officialAvailable - documentAllocated"), "选源单生命周期必须按后端正式剩余量减当前单据本地分配量计算");
+assert(sourceSelectorLifecycle.includes("selectionMode"), "选源单生命周期必须同时支持多选和单选语义");
+[
+  "filteredSourceSelectorLines",
+  "sourceLineSearchText",
+  "sourceSelectorSelectedRows",
+  "selectAllVisibleSourceLines",
+  "reloadSourceSelector",
+  "reloadSourcePicker",
+  "sourceSelectorOpen.value = false",
+  "sourcePickerOpen.value = false"
+].forEach((privateProtocol) => {
+  assert(!sourceSelectorModuleText.includes(privateProtocol), `单据页面不得保留选源单私有协议 ${privateProtocol}`);
+});
+assert((sourceSelectorModuleText.match(/useSourceSelectorLifecycle/g) ?? []).length >= 7, "销售、采购、委外选源单必须接入统一生命周期");
 
 assert(dataListDefinition.includes("searchFields:"), "ListDefinition 必须包含 searchFields 协议元数据");
 assert(dataListDefinition.includes("dateField:"), "ListDefinition 必须包含 dateField 协议元数据");

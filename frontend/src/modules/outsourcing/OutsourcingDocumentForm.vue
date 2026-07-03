@@ -151,9 +151,9 @@
         v-model:keyword="sourceSelectorKeyword"
         search-placeholder="搜索单据编号、供应商、物料"
         :loading="sourceSelectorLoading"
-        :rows="filteredSourceOptions"
+        :rows="sourceSelectorRows"
         :columns="sourceSelectorColumns"
-        :selected="selectedSourceMap"
+        :selected="sourceSelectorSelected"
         :count-label="selectedSourceCountLabel"
         :summary-items="sourceSelectorSummaryItems"
         :message="sourceSelectorMessage"
@@ -162,9 +162,9 @@
         :show-select-all="false"
         :show-column-settings="true"
         empty-text="暂无可选源单"
-        @query-change="reloadSourcePicker"
-        @toggle="toggleSourceSelectorRow"
-        @close="closeSourcePicker"
+        @query-change="sourceSelector.load"
+        @toggle="sourceSelector.toggleRow"
+        @close="sourceSelector.close"
         @confirm="confirmSourcePicker"
       />
     </div>
@@ -175,9 +175,10 @@
 import { computed, reactive, ref } from "vue";
 import type { EntryLine, MasterOption } from "../../components/EntryTable.vue";
 import EntryTable from "../../components/EntryTable.vue";
-import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange, type SourceSelectorSummaryItem } from "../../components/SourceSelectorDialog.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../components/SourceSelectorDialog.vue";
 import StandardDocument from "../../components/StandardDocument.vue";
 import TableCore, { type TableCoreColumn } from "../../components/table/TableCore.vue";
+import { useSourceSelectorLifecycle } from "../../app/sourceSelectorLifecycle";
 import { fetchListRows } from "../../services/listApi";
 import {
   auditOutsourcingIssue,
@@ -257,14 +258,6 @@ const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
 const knownProductOptions = ref<MasterOption[]>([]);
 const componentLines = reactive<ComponentDemandLine[]>([]);
-const sourcePickerOpen = ref(false);
-const sourceOptions = ref<SourceOption[]>([]);
-const sourceSelectorKeyword = ref("");
-const selectedSourceMap = reactive<Record<string, boolean>>({});
-const selectedSourceRows = reactive<Record<string, SourceOption>>({});
-const sourceSelectorMessage = ref("");
-const sourceSelectorLoading = ref(false);
-
 const testPrefix = computed(() => `outsourcing-${props.kind}`);
 const canSave = computed(() => statusLabel.value === "草稿" && (props.kind === "workOrder" || (!form.billNo && Boolean(form.sourceBillNo.trim()))));
 const showPrimaryPush = computed(() => props.kind === "workOrder" || props.kind === "receipt");
@@ -287,6 +280,38 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "unit", title: "单位", width: 70, visible: true },
   { key: "lineRemark", title: "行备注", width: 160, visible: true }
 ];
+const sourceSelector = useSourceSelectorLifecycle<SourceOption>({
+  rowKey: (row) => sourceSelectorRowKey(row),
+  fetchRows: async (query) => {
+    const result = await fetchSourceSelectorRows({
+      listKey: sourceSelectorListKey(),
+      keyword: query.keyword,
+      columnFilters: query.columnFilters
+    });
+    return {
+      ok: result.ok,
+      message: result.message || "可选源单加载失败。",
+      data: result.rows.map(sourceFromRow)
+    };
+  },
+  quantityField: "remainingQty",
+  quantityLabel: "剩余数量合计",
+  selectedQuantityLabel: "已选数量",
+  emptyMessage: "当前过滤条件下暂无可选源单。",
+  loadErrorMessage: "可选源单加载失败。",
+  formatQty: (value) => formatSummaryQty(Number(value ?? 0)),
+  allocatedQty: allocatedSourceQty,
+  selectionMode: "single",
+  countLabel: (count) => `已选中 ${count} 条`
+});
+const sourcePickerOpen = sourceSelector.open;
+const sourceSelectorKeyword = sourceSelector.keyword;
+const sourceSelectorLoading = sourceSelector.loading;
+const sourceSelectorMessage = sourceSelector.message;
+const sourceSelectorRows = sourceSelector.rows;
+const sourceSelectorSelected = sourceSelector.selected;
+const selectedSourceCountLabel = sourceSelector.countLabel;
+const sourceSelectorSummaryItems = sourceSelector.summaryItems;
 const componentDemandColumns = ref<TableCoreColumn[]>([
   { key: "lineNo", title: "序号", width: 48, minWidth: 48, align: "center", resizable: false, filterable: false, headerClass: "entry-row-no-cell entry-frozen-cell", cellClass: "entry-row-no-cell entry-frozen-cell" },
   { key: "productCode", title: "子件物料编码", width: 150, minWidth: 96, filterable: false },
@@ -298,32 +323,6 @@ const componentDemandColumns = ref<TableCoreColumn[]>([
   { key: "qty", title: "需求数量", width: 104, minWidth: 84, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
   { key: "issuedQty", title: "已发料数量", width: 112, minWidth: 84, align: "right", filterable: false, headerClass: "entry-number-cell", cellClass: "entry-number-cell" }
 ]);
-const filteredSourceOptions = computed(() => {
-  const keyword = sourceSelectorKeyword.value.trim().toLowerCase();
-  if (!keyword) {
-    return sourceOptions.value;
-  }
-  return sourceOptions.value.filter((source) => [
-    source.billNo,
-    source.supplierCode,
-    source.supplierName,
-    source.productCode,
-    source.productName,
-    source.spec,
-    source.lineRemark
-  ].some((value) => value.toLowerCase().includes(keyword)));
-});
-const selectedSourceCountLabel = computed(() => `已选中 ${Object.keys(selectedSourceRows).length} 条`);
-const sourceSelectorSummaryItems = computed<SourceSelectorSummaryItem[]>(() => {
-  const visibleSources = filteredSourceOptions.value;
-  const selectedSources = Object.values(selectedSourceRows);
-  return [
-    { key: "visibleRows", label: "当前明细", value: `${visibleSources.length} 行`, strong: true },
-    { key: "selectedRows", label: "已选", value: `${selectedSources.length} 行`, strong: true },
-    { key: "remainingQty", label: "剩余数量合计", value: formatSummaryQty(sumSources(visibleSources)) },
-    { key: "selectedQty", label: "已选数量", value: formatSummaryQty(sumSources(selectedSources)) }
-  ];
-});
 
 function resizeComponentDemandColumn(payload: { column: TableCoreColumn; width: number }) {
   payload.column.width = payload.width;
@@ -443,44 +442,25 @@ async function reverse() {
 }
 
 async function openSourcePicker() {
-  sourceSelectorKeyword.value = "";
-  sourceSelectorMessage.value = "";
-  clearSelectedSourceMap();
-  const ok = await reloadSourcePicker({ keyword: "", columnFilters: {} });
+  const ok = await sourceSelector.openAndLoad({ keyword: "", columnFilters: {} });
   if (!ok) {
     message.value = sourceSelectorMessage.value || "可选源单加载失败。";
+    sourceSelector.close();
     return;
   }
-  sourcePickerOpen.value = true;
 }
 
 function closeSourcePicker() {
-  sourcePickerOpen.value = false;
-  sourceSelectorMessage.value = "";
-}
-
-function toggleSourceSelectorRow(row: unknown, checked: boolean) {
-  clearSelectedSourceMap();
-  if (checked) {
-    const source = row as SourceOption;
-    const key = sourceSelectorRowKey(source);
-    selectedSourceMap[key] = true;
-    selectedSourceRows[key] = source;
-  }
+  sourceSelector.close();
 }
 
 async function confirmSourcePicker() {
-  const source = Object.values(selectedSourceRows)[0];
+  const source = sourceSelector.selectedRowList.value[0];
   if (!source) {
     sourceSelectorMessage.value = "请先选择一条源单。";
     return;
   }
   await selectSource(source);
-}
-
-function clearSelectedSourceMap() {
-  Object.keys(selectedSourceMap).forEach((key) => delete selectedSourceMap[key]);
-  Object.keys(selectedSourceRows).forEach((key) => delete selectedSourceRows[key]);
 }
 
 async function selectSource(source: SourceOption) {
@@ -596,25 +576,6 @@ async function fetchDetailByKind(billNo: string) {
     return fetchOutsourcingReturn(billNo);
   }
   return fetchOutsourcingScrap(billNo);
-}
-
-async function reloadSourcePicker(query: SourceSelectorQueryChange) {
-  sourceSelectorKeyword.value = query.keyword;
-  sourceSelectorLoading.value = true;
-  const result = await fetchSourceSelectorRows({
-    listKey: sourceSelectorListKey(),
-    keyword: query.keyword,
-    columnFilters: query.columnFilters
-  });
-  sourceSelectorLoading.value = false;
-  if (!result.ok) {
-    sourceOptions.value = [];
-    sourceSelectorMessage.value = result.message || "可选源单加载失败。";
-    return false;
-  }
-  sourceOptions.value = result.rows.map(sourceFromRow);
-  sourceSelectorMessage.value = sourceOptions.value.length ? "" : "当前过滤条件下暂无可选源单。";
-  return true;
 }
 
 function sourceSelectorListKey() {
@@ -847,10 +808,14 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
   return values[columnKey] ?? "";
 }
 
-function sumSources(sources: SourceOption[]) {
-  return sources.reduce((sum, source) => {
-    const value = Number(source.remainingQty || 0);
-    return Number.isFinite(value) ? sum + value : sum;
+function allocatedSourceQty(source: SourceOption) {
+  const sourceKey = sourceSelectorRowKey(source);
+  return lines.reduce((sum, line) => {
+    const lineKey = `${String(line.sourceOrderNo ?? "")}-${String(line.sourceLineNo ?? 0)}-${String(line.productCode ?? "")}`;
+    if (lineKey !== sourceKey) {
+      return sum;
+    }
+    return sum + numberValue(line.qty);
   }, 0);
 }
 

@@ -43,7 +43,6 @@ import {
 } from "../../../services/documentApi";
 import {
   fetchSalesOrderDetail,
-  fetchSelectableDeliveryNoticeLines,
   type SelectableDeliveryNoticeLine,
   type SalesOrderDetail
 } from "../../../services/salesOrderApi";
@@ -129,12 +128,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const lifecycleReason = ref("");
   const voidUsername = ref("");
   const voidPassword = ref("");
-  const sourceSelectorOpen = ref(false);
-  const sourceSelectorLoading = ref(false);
-  const sourceSelectorLines = ref<SelectableDeliveryNoticeLine[]>([]);
-  const sourceSelectorSelected = ref<Record<string, boolean>>({});
-  const sourceSelectorSelectedRows = ref<Record<string, SelectableDeliveryNoticeLine>>({});
-  const sourceSelectorMessage = ref("");
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
   let selectorRequestSeq = 0;
@@ -408,57 +401,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     appendSalesOrderLines(result.data.order, lines, `已从源订单 ${sourceOrderNo} 追加 ${lines.length} 行剩余可出明细`);
   }
 
-  async function openCustomerSourceSelector() {
-    if (!isDraft.value) {
-      return;
-    }
-    sourceSelectorMessage.value = "";
-    sourceSelectorSelected.value = {};
-    sourceSelectorSelectedRows.value = {};
-    const customerCode = form.partyCode.trim();
-    if (!customerCode) {
-      sourceSelectorLoading.value = false;
-      sourceSelectorLines.value = [];
-      message.value = "请先在单头选择客户，再从该客户的已审核发货通知单中选源单。";
-      return;
-    }
-    sourceSelectorOpen.value = true;
-    sourceSelectorLoading.value = true;
-    const result = await fetchSelectableDeliveryNoticeLines(customerCode);
-    sourceSelectorLoading.value = false;
-    if (!result.ok) {
-      sourceSelectorLines.value = [];
-      sourceSelectorMessage.value = result.message || "发货通知单选单列表加载失败。";
-      return;
-    }
-    sourceSelectorLines.value = result.data;
-    if (result.data.length === 0) {
-      sourceSelectorMessage.value = "该客户暂无已审核且有剩余可出数量的发货通知单。";
-    }
-  }
-
-  function closeCustomerSourceSelector() {
-    sourceSelectorOpen.value = false;
-    sourceSelectorMessage.value = "";
-  }
-
-  function toggleSourceSelectorLine(line: SelectableDeliveryNoticeLine, checked: boolean) {
-    const key = sourceSelectorLineKey(line);
-    if (checked) {
-      sourceSelectorSelected.value[key] = true;
-      sourceSelectorSelectedRows.value[key] = line;
-      return;
-    }
-    delete sourceSelectorSelected.value[key];
-    delete sourceSelectorSelectedRows.value[key];
-  }
-
-  async function confirmCustomerSourceSelector() {
-    const selectedLines = Object.values(sourceSelectorSelectedRows.value);
-    if (selectedLines.length === 0) {
-      sourceSelectorMessage.value = "请至少勾选一条发货通知明细。";
-      return;
-    }
+  function appendSourceSelectorLines(selectedLines: SelectableDeliveryNoticeLine[]) {
     const first = selectedLines[0];
     if (!first) {
       return;
@@ -469,8 +412,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = first.department || form.department || "销售部";
     form.isTaxInclusive = Boolean(first.isTaxInclusive);
     appendFormLines(selectedLines.map((line) => selectableLineToFormLine(line)));
-    sourceSelectorOpen.value = false;
-    sourceSelectorMessage.value = "";
     message.value = `已追加 ${selectedLines.length} 行发货通知剩余可出明细`;
     options.markDirty();
   }
@@ -1102,7 +1043,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     options.markDirty();
     void refreshSalesLinePrices();
     focusNextAfterSelector(selectorId);
-    void openCustomerSourceSelector();
   }
 
   function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "warehouse")) {
@@ -1205,12 +1145,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     masterSelectorDialogLoading,
     masterSelectorDialogMessage,
     draggingLineIndex,
-    sourceSelectorOpen,
-    sourceSelectorLoading,
-    sourceSelectorLines,
-    sourceSelectorSelected,
-    sourceSelectorSelectedRows,
-    sourceSelectorMessage,
     pendingZeroEntrySave,
     downstreamTrace,
     pendingRiskyDocumentAction,
@@ -1253,10 +1187,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     applyDetail,
     applyPushDownDraft,
     loadSourceOrderNo,
-    openCustomerSourceSelector,
-    closeCustomerSourceSelector,
-    toggleSourceSelectorLine,
-    confirmCustomerSourceSelector,
+    appendSourceSelectorLines,
     sourceSelectorLineKey,
     save,
     audit,
