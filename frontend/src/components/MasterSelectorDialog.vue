@@ -1,134 +1,290 @@
 <template>
-  <div v-if="open" class="modal-mask" data-testid="master-selector-dialog">
-    <div class="dialog master-selector-dialog">
-      <h3>{{ title }}</h3>
-      <div class="master-selector-dialog__toolbar">
-        <label>
-          搜索
-          <input
-            v-model="draftKeyword"
-            data-testid="master-selector-search"
-            :placeholder="`${label}编码、名称`"
-            @keydown.enter.prevent="emit('search', draftKeyword)"
-          />
-        </label>
-        <button type="button" data-testid="master-selector-search-button" @click="emit('search', draftKeyword)">搜索</button>
-        <button type="button" data-testid="master-selector-new" disabled>新增</button>
-      </div>
-      <div class="master-selector-dialog__body">
-        <aside class="master-selector-dialog__tree">
-          <strong>全部{{ label }}</strong>
-          <span>启用资料</span>
-          <span>最近使用</span>
-        </aside>
-        <div class="master-selector-dialog__table">
-          <TableCore
-            kind="list"
-            test-id="master-selector-table-core"
-            frame-class="vxe-wrap master-selector-table-core"
-            inner-class="table-core-vxe-inner"
-            table-class="vxe-table data-list-native-table"
-            header-wrapper-class="vxe-table--header-wrapper body--wrapper"
-            body-wrapper-class="vxe-table--body-wrapper body--wrapper"
-            header-row-class="vxe-header--row"
-            row-class="vxe-body--row"
-            :columns="selectorColumns"
-            :rows="rows"
-            :min-width="620"
-            :row-key="selectorRowKey"
-            :row-attrs="selectorRowAttrs"
-            :cell-title="selectorCellTitle"
-          >
-            <template #cell="{ row, column }">
-              <span v-if="column.key === 'selection'" class="selector-row-radio" />
-              <strong v-else-if="column.key === 'code'">{{ selectorCellValue(row, column.key) }}</strong>
-              <span v-else>{{ selectorCellValue(row, column.key) }}</span>
-            </template>
-            <template #overlay>
-              <div v-if="loading" class="list-state-panel">加载中...</div>
-              <div v-else-if="rows.length === 0" class="list-state-panel">暂无可选资料</div>
-            </template>
-          </TableCore>
-        </div>
-      </div>
-      <div class="master-selector-dialog__summary">
-        <span data-testid="master-selector-total">共 {{ total }} 条</span>
-        <span>点击行即回填当前字段</span>
-      </div>
-      <p v-if="message" class="form-error" data-testid="master-selector-message">{{ message }}</p>
-      <div class="dialog-actions">
-        <button type="button" data-testid="master-selector-cancel" @click="emit('close')">取消</button>
-        <button class="primary-action" type="button" data-testid="master-selector-confirm" @click="emit('close')">确定</button>
-      </div>
-    </div>
-  </div>
+  <SourceSelectorDialog
+    :open="open"
+    test-prefix="master-selector"
+    :title="title"
+    description="点击行即回填当前字段。"
+    :keyword="keyword"
+    :search-placeholder="`${label}编码、名称`"
+    :loading="loading"
+    :rows="rows"
+    :columns="selectorColumns"
+    :selected="selectedRows"
+    :count-label="`共 ${total} 条`"
+    :message="message"
+    :row-key="selectorRowKey"
+    :format-cell="formatSelectorCell"
+    empty-text="暂无可选资料"
+    :pagination="{ total, page, pageSize }"
+    :page-size-options="[100, 200, 500]"
+    :show-select-all="false"
+    row-clickable
+    @update:keyword="draftKeyword = $event"
+    @query-change="handleQueryChange"
+    @page-change="changePage"
+    @page-size-change="changePageSize"
+    @row-click="selectRow"
+    @toggle="selectRow"
+    @confirm="confirmSelected"
+    @close="emit('close')"
+  >
+    <template #sidebar>
+      <button
+        type="button"
+        class="master-selector-dialog__tree-item"
+        :class="{ active: selectedCategory === '' }"
+        data-testid="master-selector-category-all"
+        @click="changeCategory('')"
+      >
+        全部{{ label }}
+      </button>
+      <template v-if="type === 'product'">
+        <span class="master-selector-dialog__tree-title">物料类别</span>
+        <button
+          v-for="category in categories"
+          :key="category.code || category.name"
+          type="button"
+          class="master-selector-dialog__tree-item"
+          :class="{ active: selectedCategory === category.name }"
+          :data-testid="`master-selector-category-${category.code || category.name}`"
+          @click="changeCategory(category.name)"
+        >
+          <strong>{{ category.name }}</strong>
+          <small v-if="category.code">{{ category.code }}</small>
+        </button>
+        <span v-if="categories.length === 0 && !loadingCategories" class="master-selector-dialog__tree-empty">暂无类别</span>
+      </template>
+      <template v-else>
+        <span>启用资料</span>
+        <span>最近使用</span>
+      </template>
+    </template>
+  </SourceSelectorDialog>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { MasterOption } from "./EntryTable.vue";
-import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange } from "./SourceSelectorDialog.vue";
+import { masterDataDefinitions } from "../modules/master-data/registry";
+import { fetchListRows } from "../services/listApi";
+
+type SelectorRow = MasterOption;
 
 const props = defineProps<{
   open: boolean;
+  type: string;
   title: string;
   label: string;
   keyword: string;
-  rows: MasterOption[];
-  total: number;
-  loading: boolean;
-  message: string;
 }>();
 
 const emit = defineEmits<{
   close: [];
-  search: [keyword: string];
   select: [option: MasterOption];
 }>();
 
+const rows = ref<SelectorRow[]>([]);
+const categories = ref<SelectorRow[]>([]);
+const total = ref(0);
+const page = ref(1);
+const pageSize = ref(100);
+const loading = ref(false);
+const loadingCategories = ref(false);
+const message = ref("");
 const draftKeyword = ref(props.keyword);
-const selectorColumns: TableCoreColumn[] = [
-  { key: "selection", title: "选择", width: 48, minWidth: 48, align: "center", resizable: false, filterable: false, headerClass: "selector-pick-col", cellClass: "selector-pick-col" },
-  { key: "code", title: `${props.label}编码`, width: 150, minWidth: 96, filterable: false },
-  { key: "name", title: `${props.label}名称`, width: 180, minWidth: 120, filterable: false },
-  { key: "spec", title: "规格", width: 140, minWidth: 96, filterable: false },
-  { key: "unit", title: "单位", width: 80, minWidth: 64, filterable: false }
-];
+const selectedCategory = ref("");
+const selectedCode = ref("");
+const columnFilters = ref<Record<string, { operator: string; value: string }>>({});
+let requestSeq = 0;
+let categoryRequestSeq = 0;
 
-function selectorRowKey(row: MasterOption) {
-  return row.code;
+const listKey = computed(() => masterSelectorListKey(props.type));
+const selectorColumns = computed<SourceSelectorColumn[]>(() => [
+  { key: "selection", title: "", width: 48, visible: true, configurable: false, filterable: false, resizable: false },
+  ...(masterDataDefinitions[listKey.value]?.selectorColumns ?? fallbackColumns(props.label))
+    .filter((column) => column.visible !== false)
+    .map((column) => ({
+      key: column.field,
+      title: column.title,
+      width: column.width,
+      visible: true,
+      fixed: column.fixed ?? "",
+      align: column.align,
+      filterable: true,
+      resizable: true
+    }))
+]);
+const selectedRows = computed(() => selectedCode.value ? { [selectedCode.value]: true } : {});
+
+function selectorRowKey(row: unknown) {
+  return String((row as SelectorRow).code ?? "");
 }
 
-function selectorRowAttrs(row: MasterOption) {
-  return {
-    tabindex: 0,
-    "data-testid": `master-selector-row-${row.code}`,
-    onClick: () => emit("select", row),
-    onKeydown: (event: KeyboardEvent) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        emit("select", row);
-      }
-    }
-  };
-}
-
-function selectorCellTitle(row: MasterOption, column: TableCoreColumn) {
-  return selectorCellValue(row, column.key);
-}
-
-function selectorCellValue(row: MasterOption, key: string) {
-  const value = row[key as keyof MasterOption];
+function formatSelectorCell(row: unknown, columnKey: string) {
+  const value = (row as Record<string, unknown>)[columnKey];
   return value == null || value === "" ? "-" : String(value);
 }
 
-watch(() => props.keyword, (value) => {
-  draftKeyword.value = value;
-});
+function handleQueryChange(query: SourceSelectorQueryChange) {
+  draftKeyword.value = query.keyword;
+  columnFilters.value = query.columnFilters;
+  page.value = 1;
+  void loadRows();
+}
+
+function changePage(nextPage: number) {
+  page.value = nextPage;
+  void loadRows();
+}
+
+function changePageSize(nextPageSize: number) {
+  pageSize.value = nextPageSize;
+  page.value = 1;
+  void loadRows();
+}
+
+function changeCategory(category: string) {
+  selectedCategory.value = category;
+  selectedCode.value = "";
+  page.value = 1;
+  void loadRows();
+}
+
+function selectRow(row: unknown) {
+  const option = row as SelectorRow;
+  selectedCode.value = option.code;
+  emit("select", option);
+}
+
+function confirmSelected() {
+  const row = rows.value.find((item) => item.code === selectedCode.value);
+  if (row) {
+    emit("select", row);
+    return;
+  }
+  emit("close");
+}
+
+async function loadCategories() {
+  if (props.type !== "product") {
+    categories.value = [];
+    return;
+  }
+  const seq = categoryRequestSeq + 1;
+  categoryRequestSeq = seq;
+  loadingCategories.value = true;
+  const result = await fetchListRows("product-category-list", {
+    keyword: "",
+    status: "",
+    page: 1,
+    pageSize: 500,
+    columnFilters: {
+      auditStatus: { operator: "等于", value: "已审核" },
+      status: { operator: "等于", value: "启用" }
+    }
+  });
+  if (seq !== categoryRequestSeq) {
+    return;
+  }
+  loadingCategories.value = false;
+  categories.value = result.ok && result.data ? result.data.rows.map(masterRowToOption) : [];
+}
+
+async function loadRows() {
+  if (!props.open || !props.type) {
+    return;
+  }
+  const seq = requestSeq + 1;
+  requestSeq = seq;
+  loading.value = true;
+  message.value = "";
+  const filters = { ...columnFilters.value };
+  if (props.type === "product" && selectedCategory.value) {
+    filters.category = { operator: "等于", value: selectedCategory.value };
+  }
+  const result = await fetchListRows(listKey.value, {
+    keyword: draftKeyword.value,
+    status: "",
+    page: page.value,
+    pageSize: pageSize.value,
+    columnFilters: Object.keys(filters).length ? filters : undefined
+  });
+  if (seq !== requestSeq) {
+    return;
+  }
+  loading.value = false;
+  if (!result.ok || !result.data) {
+    rows.value = [];
+    total.value = 0;
+    message.value = result.message || "主数据列表加载失败。";
+    return;
+  }
+  rows.value = result.data.rows.map(masterRowToOption);
+  total.value = result.data.total;
+}
+
+function masterRowToOption(row: Record<string, unknown>): SelectorRow {
+  const option: SelectorRow = { code: "", name: "" };
+  Object.entries(row).forEach(([key, value]) => {
+    option[key] = value == null ? "" : String(value);
+  });
+  option.id = row.id ? String(row.id) : undefined;
+  option.code = String(row.code ?? "");
+  option.name = String(row.name ?? "");
+  option.spec = row.spec ? String(row.spec) : "";
+  option.unit = row.unit ? String(row.unit) : "";
+  option.category = row.category ? String(row.category) : "";
+  option.netWeight = row.netWeight ? String(row.netWeight) : "";
+  option.grossWeight = row.grossWeight ? String(row.grossWeight) : "";
+  return option;
+}
+
+function masterSelectorListKey(type: string) {
+  const listKeyByType: Record<string, string> = {
+    customer: "customer-master-list",
+    supplier: "supplier-master-list",
+    product: "product-master-list",
+    warehouse: "warehouse-master-list"
+  };
+  return listKeyByType[type] ?? "product-master-list";
+}
+
+function fallbackColumns(label: string): SourceSelectorColumn[] {
+  return [
+    { key: "code", title: `${label}编码`, width: 150, visible: true },
+    { key: "name", title: `${label}名称`, width: 180, visible: true },
+    { key: "spec", title: "规格", width: 140, visible: true },
+    { key: "unit", title: "单位", width: 80, visible: true }
+  ];
+}
 
 watch(() => props.open, (open) => {
-  if (open) {
-    draftKeyword.value = props.keyword;
+  if (!open) {
+    return;
+  }
+  rows.value = [];
+  total.value = 0;
+  message.value = "";
+  selectedCode.value = "";
+  selectedCategory.value = "";
+  columnFilters.value = {};
+  draftKeyword.value = props.keyword;
+  page.value = 1;
+  void loadCategories();
+  void loadRows();
+});
+
+watch(() => props.type, () => {
+  if (props.open) {
+    rows.value = [];
+    total.value = 0;
+    selectedCode.value = "";
+    selectedCategory.value = "";
+    columnFilters.value = {};
+    page.value = 1;
+    void loadCategories();
+    void loadRows();
   }
 });
 </script>

@@ -151,15 +151,11 @@
       />
       <MasterSelectorDialog
         :open="masterSelectorDialogOpen"
+        :type="masterSelectorDialogType"
         :title="masterSelectorDialogTitle"
         :label="masterSelectorDialogLabel"
         :keyword="masterSelectorDialogKeyword"
-        :rows="masterSelectorDialogRows"
-        :total="masterSelectorDialogTotal"
-        :loading="masterSelectorDialogLoading"
-        :message="masterSelectorDialogMessage"
         @close="emit('closeMasterSelectorDialog')"
-        @search="emit('searchMasterSelectorDialog', $event)"
         @select="emit('selectMasterSelectorDialogRow', $event)"
       />
     </div>
@@ -266,10 +262,6 @@ const props = withDefaults(defineProps<{
   masterSelectorDialogTitle: string;
   masterSelectorDialogLabel: string;
   masterSelectorDialogKeyword: string;
-  masterSelectorDialogRows: MasterOption[];
-  masterSelectorDialogTotal: number;
-  masterSelectorDialogLoading: boolean;
-  masterSelectorDialogMessage: string;
   knownProductOptions: MasterOption[];
   draggingLineIndex: number | null;
   highlightedSourceBillNo: string;
@@ -338,7 +330,6 @@ const emit = defineEmits<{
   handleSelectorKeydown: [event: KeyboardEvent, selectorId: string];
   openMasterSelectorDialog: [type: string, selectorId: string, keyword: string];
   closeMasterSelectorDialog: [];
-  searchMasterSelectorDialog: [keyword: string];
   selectMasterSelectorDialogRow: [option: MasterOption];
   selectPartyOption: [option: MasterOption];
   selectLineProduct: [option: MasterOption, lineIndex: number, selectorId: string];

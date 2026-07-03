@@ -33,12 +33,15 @@ export interface EntryLine {
 }
 
 export interface MasterOption {
+  id?: string;
   code: string;
   name: string;
   spec?: string;
   unit?: string;
+  category?: string;
   netWeight?: string;
   grossWeight?: string;
+  [key: string]: string | undefined;
 }
 
 export type EntryColumnKey =

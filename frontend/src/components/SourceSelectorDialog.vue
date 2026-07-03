@@ -16,65 +16,71 @@
         <button v-if="showColumnSettings" type="button" :data-testid="`${testPrefix}-source-selector-column-settings`" @click="columnDialogOpen = true">列设置</button>
         <strong :data-testid="`${testPrefix}-source-selector-count`">{{ countLabel }}</strong>
       </div>
-      <div class="source-selector-table">
-        <TableCore
-          kind="list"
-          :test-id="`${testPrefix}-source-selector-table-core`"
-          frame-class="vxe-wrap source-selector-table-core"
-          inner-class="table-core-vxe-inner"
-          table-class="vxe-table data-list-native-table"
-          header-wrapper-class="vxe-table--header-wrapper body--wrapper"
-          body-wrapper-class="vxe-table--body-wrapper body--wrapper"
-          header-row-class="vxe-header--row"
-          row-class="vxe-body--row"
-          :columns="tableColumns"
-          :rows="displayedRows"
-          :min-width="sourceSelectorMinWidth"
-          :row-key="rowKey"
-          :cell-title="sourceSelectorCellTitle"
-          @column-resize="resizeSourceColumn"
-          @column-resize-end="resizeSourceColumn"
-        >
-          <template #header-cell="{ column, startResize }">
-            <label v-if="column.key === selectionKey && showSelectAll" class="source-selector-select-all">
-              <input
-                type="checkbox"
-                :checked="visibleSelectionChecked"
-                :indeterminate.prop="visibleSelectionIndeterminate"
-                :data-testid="`${testPrefix}-source-selector-select-all`"
-                @change="toggleVisibleSelection(($event.target as HTMLInputElement).checked)"
+      <div class="source-selector-content" :class="{ 'has-sidebar': Boolean($slots.sidebar) }">
+        <aside v-if="$slots.sidebar" class="source-selector-sidebar">
+          <slot name="sidebar" />
+        </aside>
+        <div class="source-selector-table">
+          <TableCore
+            kind="list"
+            :test-id="`${testPrefix}-source-selector-table-core`"
+            frame-class="vxe-wrap source-selector-table-core"
+            inner-class="table-core-vxe-inner"
+            table-class="vxe-table data-list-native-table"
+            header-wrapper-class="vxe-table--header-wrapper body--wrapper"
+            body-wrapper-class="vxe-table--body-wrapper body--wrapper"
+            header-row-class="vxe-header--row"
+            row-class="vxe-body--row"
+            :columns="tableColumns"
+            :rows="displayedRows"
+            :min-width="sourceSelectorMinWidth"
+            :row-key="rowKey"
+            :row-attrs="sourceRowAttrs"
+            :cell-title="sourceSelectorCellTitle"
+            @column-resize="resizeSourceColumn"
+            @column-resize-end="resizeSourceColumn"
+          >
+            <template #header-cell="{ column, startResize }">
+              <label v-if="column.key === selectionKey && showSelectAll" class="source-selector-select-all">
+                <input
+                  type="checkbox"
+                  :checked="visibleSelectionChecked"
+                  :indeterminate.prop="visibleSelectionIndeterminate"
+                  :data-testid="`${testPrefix}-source-selector-select-all`"
+                  @change="toggleVisibleSelection(($event.target as HTMLInputElement).checked)"
+                />
+              </label>
+              <TableCoreHeaderCell
+                v-else-if="column.key !== selectionKey"
+                :title="column.title"
+                :column-key="column.key"
+                :filter-test-id="column.filterTestId"
+                :resize-test-id="column.resizeTestId"
+                :filterable="column.filterable !== false"
+                :resizable="column.resizable !== false"
+                :filter-active="Boolean(column.filterActive)"
+                @filter="openColumnFilter(column, $event)"
+                @resize-start="startResize(column, $event)"
               />
-            </label>
-            <TableCoreHeaderCell
-              v-else-if="column.key !== selectionKey"
-              :title="column.title"
-              :column-key="column.key"
-              :filter-test-id="column.filterTestId"
-              :resize-test-id="column.resizeTestId"
-              :filterable="column.filterable !== false"
-              :resizable="column.resizable !== false"
-              :filter-active="Boolean(column.filterActive)"
-              @filter="openColumnFilter(column, $event)"
-              @resize-start="startResize(column, $event)"
-            />
-          </template>
-          <template #cell="{ row, column }">
-            <input
-              v-if="column.key === selectionKey"
-              type="checkbox"
-              :checked="Boolean(selected[rowKey(row)])"
-              :data-testid="`${testPrefix}-source-line-${rowKey(row)}`"
-              @change="emit('toggle', row, ($event.target as HTMLInputElement).checked)"
-            />
-            <div v-else class="vxe-cell">
-              <span>{{ formatCell(row, column.key) }}</span>
-            </div>
-          </template>
-          <template #overlay>
-            <div v-if="loading" class="list-state-panel">加载中...</div>
-            <div v-else-if="displayedRows.length === 0" class="list-state-panel">{{ emptyText }}</div>
-          </template>
-        </TableCore>
+            </template>
+            <template #cell="{ row, column }">
+              <input
+                v-if="column.key === selectionKey"
+                type="checkbox"
+                :checked="Boolean(selected[rowKey(row)])"
+                :data-testid="`${testPrefix}-source-line-${rowKey(row)}`"
+                @change="emit('toggle', row, ($event.target as HTMLInputElement).checked)"
+              />
+              <div v-else class="vxe-cell">
+                <span>{{ formatCell(row, column.key) }}</span>
+              </div>
+            </template>
+            <template #overlay>
+              <div v-if="loading" class="list-state-panel">加载中...</div>
+              <div v-else-if="displayedRows.length === 0" class="list-state-panel">{{ emptyText }}</div>
+            </template>
+          </TableCore>
+        </div>
       </div>
       <div class="source-selector-footer">
         <div class="source-selector-summary" :data-testid="`${testPrefix}-source-selector-summary`">
@@ -190,6 +196,7 @@ const props = withDefaults(defineProps<{
   pageSizeOptions?: number[];
   showColumnSettings?: boolean;
   showSelectAll?: boolean;
+  rowClickable?: boolean;
 }>(), {
   emptyText: "暂无可选明细",
   selectionKey: "selection",
@@ -197,7 +204,8 @@ const props = withDefaults(defineProps<{
   pagination: null,
   pageSizeOptions: () => [200, 500, 1000],
   showColumnSettings: true,
-  showSelectAll: true
+  showSelectAll: true,
+  rowClickable: false
 });
 
 const emit = defineEmits<{
@@ -208,6 +216,7 @@ const emit = defineEmits<{
   pageChange: [page: number];
   pageSizeChange: [pageSize: number];
   toggle: [row: unknown, checked: boolean];
+  rowClick: [row: unknown];
   close: [];
   confirm: [];
   resetColumns: [];
@@ -284,6 +293,22 @@ function sourceSelectorCellTitle(row: unknown, column: TableCoreColumn) {
     return undefined;
   }
   return String(props.formatCell(row, column.key));
+}
+
+function sourceRowAttrs(row: unknown) {
+  if (!props.rowClickable) {
+    return {};
+  }
+  return {
+    tabindex: 0,
+    onClick: () => emit("rowClick", row),
+    onKeydown: (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        emit("rowClick", row);
+      }
+    }
+  };
 }
 
 function resetColumns() {

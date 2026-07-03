@@ -147,10 +147,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const masterSelectorDialogType = ref("");
   const masterSelectorDialogSelectorId = ref("");
   const masterSelectorDialogKeyword = ref("");
-  const masterSelectorDialogRows = ref<MasterOption[]>([]);
-  const masterSelectorDialogTotal = ref(0);
-  const masterSelectorDialogLoading = ref(false);
-  const masterSelectorDialogMessage = ref("");
   const draggingLineIndex = ref<number | null>(null);
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
@@ -859,40 +855,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     masterSelectorDialogType.value = type;
     masterSelectorDialogSelectorId.value = selectorId;
     masterSelectorDialogKeyword.value = keywordValue;
-    await loadMasterSelectorDialogRows(keywordValue);
   }
 
   function closeMasterSelectorDialog() {
     masterSelectorDialogOpen.value = false;
-    masterSelectorDialogMessage.value = "";
-  }
-
-  async function searchMasterSelectorDialog(keywordValue: string) {
-    masterSelectorDialogKeyword.value = keywordValue;
-    await loadMasterSelectorDialogRows(keywordValue);
-  }
-
-  async function loadMasterSelectorDialogRows(keywordValue: string) {
-    if (!masterSelectorDialogType.value) {
-      return;
-    }
-    masterSelectorDialogLoading.value = true;
-    masterSelectorDialogMessage.value = "";
-    const result = await fetchListRows(masterSelectorListKey(masterSelectorDialogType.value), {
-      keyword: keywordValue,
-      status: "",
-      page: 1,
-      pageSize: 100
-    });
-    masterSelectorDialogLoading.value = false;
-    if (!result.ok || !result.data) {
-      masterSelectorDialogRows.value = [];
-      masterSelectorDialogTotal.value = 0;
-      masterSelectorDialogMessage.value = result.message || "主数据列表加载失败。";
-      return;
-    }
-    masterSelectorDialogRows.value = result.data.rows.map(masterRowToOption);
-    masterSelectorDialogTotal.value = result.data.total;
   }
 
   function selectMasterSelectorDialogRow(option: MasterOption) {
@@ -1278,10 +1244,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     masterSelectorDialogTitle,
     masterSelectorDialogLabel,
     masterSelectorDialogKeyword,
-    masterSelectorDialogRows,
-    masterSelectorDialogTotal,
-    masterSelectorDialogLoading,
-    masterSelectorDialogMessage,
     draggingLineIndex,
     highlightedSourceBillNo,
     highlightedSourceLineNo,
@@ -1369,7 +1331,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     handleSelectorKeydown,
     openMasterSelectorDialog,
     closeMasterSelectorDialog,
-    searchMasterSelectorDialog,
     selectMasterSelectorDialogRow,
     selectPartyOption,
     selectWarehouseOption,

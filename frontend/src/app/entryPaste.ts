@@ -7,6 +7,7 @@ export function masterRowToOption(row: Record<string, unknown>): MasterOption {
     name: String(row.name ?? ""),
     spec: row.spec ? String(row.spec) : "",
     unit: row.unit ? String(row.unit) : "",
+    category: row.category ? String(row.category) : "",
     netWeight: row.netWeight ? String(row.netWeight) : "",
     grossWeight: row.grossWeight ? String(row.grossWeight) : ""
   };

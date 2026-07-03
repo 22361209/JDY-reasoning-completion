@@ -228,6 +228,26 @@ BOM、生产计划这类表体可以保留专用组件，但必须接入共享�
 
 专用表体不得成为“另一套 UI”。
 
+### 主数据选择弹窗
+
+分录表、单头字段和表单字段里的“整列表选择”属于共享选择器协议，不属于某个单据页面的局部 UI。
+
+必须支持：
+
+- 统一大弹窗结构：标题、搜索区、可选 facet 区、共享表格、分页/每页条数、底部操作区。
+- 表格能力复用共享选择弹窗表格合同：`TableCore`、`TableCoreHeaderCell`、`ColumnSettingsDialog`、`ColumnFilterPopover`、`useColumnFilters`、列宽调整、列设置、列筛选、空态、加载态和统一 `queryChange`。
+- 候选列来自主数据元数据 `MasterDataDefinition.selectorColumns`，不得在弹窗里硬编码商品、客户、仓库各自的列。
+- 候选行保留接口返回完整字段；选择器表格按列 key 取值，回填逻辑只在选中后抽取标准字段。
+- 商品类别、启用/审核状态、最近使用等筛选必须作为选择器协议的 facet/filter 输入，由选择器服务统一转成列表查询参数；单据模块不得直接加载类别或散写筛选参数。
+- 分页必须真实可操作。若接口返回 `total > rows.length`，弹窗必须显示分页控件或继续加载机制；不得只显示总数却只能访问第一页。
+- 异步查询必须防串场。关键词、类别、分页、选择器类型切换时，旧请求不得覆盖新弹窗状态。
+
+禁止：
+
+- 在 `MasterSelectorDialog` 内直接复制 `SourceSelectorDialog` 的表格、列宽、筛选、分页逻辑。
+- 为主数据选择器新建独立 localStorage 列宽键，绕开共享列设置/列偏好协议。
+- 在 `useDocumentModule`、`useSalesOutDocument` 等单据 composable 中维护商品类别列表或选择器查询细节。
+
 ## 字段渲染协议
 
 A123 已建立 FieldRenderer 第一阶段，让主数据建档/编辑类字段先由字段类型决定渲染方式；A124 已把 FieldRenderer 扩展到 `DocumentForm` 单据表头字段。后续单据表头新增字段时，应优先增加字段定义、选项、校验和 handler，不再直接手写一套 `<label><input>`。

@@ -6,8 +6,10 @@ export interface MasterOption {
   name: string;
   spec?: string;
   unit?: string;
+  category?: string;
   netWeight?: string;
   grossWeight?: string;
+  [key: string]: string | undefined;
 }
 
 export interface EntryPasteRefs {
