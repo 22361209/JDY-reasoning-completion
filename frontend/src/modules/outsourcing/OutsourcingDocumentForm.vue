@@ -473,6 +473,7 @@ async function selectSource(source: SourceOption) {
       : [];
     if (components.length) {
       lines.splice(0, lines.length, ...components.map((component) => lineFromComponentSource(source.billNo, component)));
+      sourceSelector.commitLocalAllocation();
       closeSourcePicker();
       markDirty();
       return;
@@ -489,6 +490,7 @@ async function selectSource(source: SourceOption) {
     sourceLineNo: source.sourceLineNo,
     qty: Number(source.remainingQty || 0)
   });
+  sourceSelector.commitLocalAllocation();
   closeSourcePicker();
   markDirty();
 }

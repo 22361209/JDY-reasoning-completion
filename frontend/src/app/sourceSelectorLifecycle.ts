@@ -128,6 +128,12 @@ export function useSourceSelectorLifecycle<T extends object>(options: SourceSele
     message.value = nextMessage;
   }
 
+  function commitLocalAllocation() {
+    clearSelection();
+    rawRows.value = rawRows.value.map((row) => ({ ...row } as T));
+    message.value = rows.value.length ? "" : options.emptyMessage;
+  }
+
   function adjustRowAvailability(row: T) {
     if (!options.quantityField) {
       return row;
@@ -155,7 +161,8 @@ export function useSourceSelectorLifecycle<T extends object>(options: SourceSele
     clearSelection,
     toggleRow,
     selectAll,
-    setMessage
+    setMessage,
+    commitLocalAllocation
   };
 }
 

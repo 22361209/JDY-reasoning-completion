@@ -84,6 +84,7 @@ SourceSelectorDialog -> fetchSourceSelectorRows -> ListQueryService -> ListQuery
 - 可选量统一按 `后端正式剩余量 - 当前单据本地已分配量` 计算。保存草稿不产生正式全局占用，但同一草稿再次打开选源单时，已拉入的源单行数量必须被扣减，扣完为 0 的候选行不再展示。
 - 页面只提供四类业务差异：`fetchRows`、`rowKey`、当前单据已分配量计算、源单行到当前单据分录的回填映射。
 - 多选弹窗列头复选框语义固定为：勾选当前过滤全集；取消清空全部已选行，包括当前页外和当前过滤外隐藏行。单选弹窗必须声明单选语义。
+- 确认选源并回填当前单据分录后，页面必须调用 `sourceSelector.commitLocalAllocation()`，由生命周期立即按当前表体重新扣减本地可选量；不得等保存后才依赖后端正式执行量刷新。
 - 关闭、取消和确认成功后的收口必须调用 `sourceSelector.close()`，不得由页面直接写 `sourceSelectorOpen.value = false` 或 `sourcePickerOpen.value = false`。
 
 ## 整单视图命中明细字段

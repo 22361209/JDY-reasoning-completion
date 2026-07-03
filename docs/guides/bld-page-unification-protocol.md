@@ -273,7 +273,7 @@ A123 已建立 FieldRenderer 第一阶段，让主数据建档/编辑类字段�
 - `SourceSelectorDialog` 已去掉旧 raw table 的局部 `th/td` 覆盖，外层只负责弹窗滚动，内部表格遵守共享表格合同。
 - `SourceSelectorDialog` 的查询只发出统一 `queryChange` 协议，由页面调用 `fetchSourceSelectorRows` 进入 `ListQueryService`；页面不得在弹窗外私自维护另一套源单查询协议。
 - 支持批量选择的选源单弹窗，列头复选框语义固定为：勾选时选择当前过滤结果内全部候选行；取消时清空全部已选行，包括当前页外和当前过滤外隐藏的已选行。`fetchSourceSelectorRows` 负责把当前过滤全集拉齐后交给弹窗本地分页，该语义不同于普通列表跨页选择，需要在弹窗协议内保持清晰。
-- 选源单生命周期统一由 `useSourceSelectorLifecycle` 承载：正式剩余量来自 `ListQueryService`，当前单据未保存前的本地分配量由生命周期按源单行扣减；再次打开选源单不得重复选到已被当前单据拉入的数量。页面只保留源单行到当前单据分录的业务映射。
+- 选源单生命周期统一由 `useSourceSelectorLifecycle` 承载：正式剩余量来自 `ListQueryService`，当前单据未保存前的本地分配量由生命周期按源单行扣减；确认回填分录后必须调用 `sourceSelector.commitLocalAllocation()` 立即刷新本地可选量，再次打开选源单不得重复选到已被当前单据拉入的数量。页面只保留源单行到当前单据分录的业务映射。
 
 当前允许保留的例外：
 

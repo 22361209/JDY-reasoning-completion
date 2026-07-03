@@ -103,7 +103,19 @@ async function dragColumnBoundary(page, headerLocator, dx) {
   await page.mouse.up();
 }
 
+async function openDeliveryNoticeSourceSelector(page) {
+  await page.getByTestId("delivery-notice-open-source-selector").click();
+  await page.getByTestId("delivery-notice-source-selector-dialog").waitFor({ state: "visible" });
+}
+
+async function confirmDeliveryNoticeSourceSelector(page) {
+  const dialog = page.getByTestId("delivery-notice-source-selector-dialog");
+  await page.getByTestId("delivery-notice-source-selector-ok").click();
+  await dialog.waitFor({ state: "hidden" }).catch(() => undefined);
+}
+
 const source = await createAuditedSalesOrder("SRC", true);
+const deliveryLocalSource = await createAuditedSalesOrder("DNLOCAL");
 const reverse = await createAuditedSalesOrder("REV");
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
@@ -111,6 +123,31 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
+
+  await page.getByTestId("module-销售管理").hover();
+  await page.getByTestId("entry-delivery-notice-form").click();
+  await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
+  await clickNewDocument(page);
+  await page.getByTestId("delivery-notice-party-code").fill("KH-001");
+  await openDeliveryNoticeSourceSelector(page);
+  await page.getByTestId("delivery-notice-source-selector-search").fill(deliveryLocalSource.orderNo);
+  await page.getByTestId("delivery-notice-source-selector-query").click();
+  await page.locator(".source-selector-table tbody tr", { hasText: deliveryLocalSource.orderNo }).first().waitFor({ state: "visible" });
+  await page.getByTestId("delivery-notice-source-selector-select-all").click();
+  const deliveryNoticeSelectedCount = await page.getByTestId("delivery-notice-source-selector-count").textContent();
+  assert(deliveryNoticeSelectedCount?.includes("2 行已选"), `delivery notice source selector should select source lines, got ${deliveryNoticeSelectedCount}`);
+  await confirmDeliveryNoticeSourceSelector(page);
+  await page.getByTestId("delivery-notice-line-source-order-no").filter({ hasText: deliveryLocalSource.orderNo }).first().waitFor({ state: "visible" });
+  const deliveryNoticeSourceOrderCell = (await page.getByTestId("delivery-notice-line-source-order-no").first().textContent())?.trim();
+  assert(deliveryNoticeSourceOrderCell === deliveryLocalSource.orderNo, `delivery notice source column should show selected sales order no, got ${deliveryNoticeSourceOrderCell}`);
+  await openDeliveryNoticeSourceSelector(page);
+  await page.getByTestId("delivery-notice-source-selector-search").fill(deliveryLocalSource.orderNo);
+  await page.getByTestId("delivery-notice-source-selector-query").click();
+  await page.getByTestId("delivery-notice-source-selector-message").filter({ hasText: "当前过滤条件下暂无可选销售订单明细。" }).waitFor({ state: "visible" });
+  const deliveryNoticeRepeatedSourceSummaryText = (await page.getByTestId("delivery-notice-source-selector-summary").textContent())?.replace(/\s+/g, " ").trim();
+  assert(deliveryNoticeRepeatedSourceSummaryText?.includes("当前明细：0 行"), `delivery notice reopened selector should deduct current document allocation, got ${deliveryNoticeRepeatedSourceSummaryText}`);
+  assert(deliveryNoticeRepeatedSourceSummaryText?.includes("已选：0 行"), `delivery notice reopened selector should start with empty basket, got ${deliveryNoticeRepeatedSourceSummaryText}`);
+  await page.getByTestId("delivery-notice-source-selector-cancel").click();
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
@@ -254,6 +291,7 @@ try {
     ok: true,
     sourceOrderNo: source.orderNo,
     sourceNoticeNo: source.noticeNo,
+    deliveryLocalSourceOrderNo: deliveryLocalSource.orderNo,
     reverseOrderNo: reverse.orderNo,
     reverseNoticeNo: reverse.noticeNo,
     checks: {
@@ -262,6 +300,9 @@ try {
       headerButtonStyle,
       sourceDialogMetrics,
       sourceTableScroll,
+      deliveryNoticeSelectedCount,
+      deliveryNoticeSourceOrderCell,
+      deliveryNoticeRepeatedSourceSummaryText,
       selectedCount,
       sourceOrderCell,
       sourceLineCell,

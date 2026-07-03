@@ -318,6 +318,7 @@ function confirmSourceSelector() {
     return;
   }
   document.appendSourceSelectorLines(selectedLines);
+  sourceSelector.commitLocalAllocation();
   sourceSelector.close();
 }
 

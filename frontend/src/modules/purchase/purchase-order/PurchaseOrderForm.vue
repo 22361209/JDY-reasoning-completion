@@ -292,6 +292,7 @@ function confirmSourceSelector() {
   document.form.department = first.department || document.form.department || "采购部";
   document.form.isTaxInclusive = Boolean(first.isTaxInclusive);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
+  sourceSelector.commitLocalAllocation();
   sourceSelector.close();
   document.message.value = `已追加 ${selectedLines.length} 行采购申请剩余可订明细`;
   document.markDirty();

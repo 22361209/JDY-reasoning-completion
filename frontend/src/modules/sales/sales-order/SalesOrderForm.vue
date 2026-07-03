@@ -320,6 +320,7 @@ function confirmSourceSelector() {
   document.form.department = first.department || document.form.department || "销售部";
   document.form.isTaxInclusive = Boolean(first.isTaxInclusive);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
+  sourceSelector.commitLocalAllocation();
   sourceSelector.close();
   document.message.value = `已追加 ${selectedLines.length} 行销售报价明细`;
   document.markDirty();

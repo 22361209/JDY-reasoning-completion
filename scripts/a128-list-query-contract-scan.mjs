@@ -87,6 +87,7 @@ assert(!baseCss.includes(".date-range-popover"), "不得保留私有 date-range-
 
 assert(sourceSelectorLifecycle.includes("allocatedQty"), "选源单生命周期必须支持当前单据本地分配量扣减");
 assert(sourceSelectorLifecycle.includes("officialAvailable - documentAllocated"), "选源单生命周期必须按后端正式剩余量减当前单据本地分配量计算");
+assert(sourceSelectorLifecycle.includes("commitLocalAllocation"), "选源单生命周期必须提供确认后本地分配刷新动作");
 assert(sourceSelectorLifecycle.includes("selectionMode"), "选源单生命周期必须同时支持多选和单选语义");
 [
   "filteredSourceSelectorLines",
@@ -101,6 +102,7 @@ assert(sourceSelectorLifecycle.includes("selectionMode"), "选源单生命周期
   assert(!sourceSelectorModuleText.includes(privateProtocol), `单据页面不得保留选源单私有协议 ${privateProtocol}`);
 });
 assert((sourceSelectorModuleText.match(/useSourceSelectorLifecycle/g) ?? []).length >= 7, "销售、采购、委外选源单必须接入统一生命周期");
+assert((sourceSelectorModuleText.match(/commitLocalAllocation/g) ?? []).length >= 7, "销售、采购、委外选源单确认后必须通过生命周期提交本地分配刷新");
 
 assert(dataListDefinition.includes("searchFields:"), "ListDefinition 必须包含 searchFields 协议元数据");
 assert(dataListDefinition.includes("dateField:"), "ListDefinition 必须包含 dateField 协议元数据");
