@@ -159,6 +159,12 @@ public class ProductionController {
         return materialIssueAppService.issue(billNo, request);
     }
 
+    @GetMapping("/tasks/{billNo}/material-issue-preview")
+    @RequirePermission("production.document.audit")
+    public Map<String, Object> materialIssuePreview(@PathVariable String billNo) {
+        return materialIssueAppService.previewFromTask(billNo);
+    }
+
     @PostMapping("/material-issues/draft")
     @RequirePermission("production.document.audit")
     @ResponseStatus(HttpStatus.CREATED)

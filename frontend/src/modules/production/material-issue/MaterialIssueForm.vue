@@ -13,6 +13,14 @@
     test-prefix="material-issue"
     party-label="来源"
     party-type="customer"
+    :show-party-head-fields="false"
+    :show-source-order-no-head-field="true"
+    :source-order-no-head-readonly="true"
+    :show-owner-name-head-field="false"
+    bill-date-label="单据日期"
+    department-label="领料车间"
+    source-order-no-label="选源单"
+    entry-section-title="子件信息"
     :is-document-form="true"
     :is-stock-document-form="false"
     :is-draft="document.isDraft.value"
@@ -29,13 +37,28 @@
     :show-freeze="document.showCloseFreezeActions.value"
     :show-unfreeze="document.showCloseFreezeActions.value"
     :can-delete="document.canDelete.value"
+    :show-source-select="true"
+    :can-source-select="document.isDraft.value"
+    source-select-label="选源单"
+    source-select-test-id="material-issue-open-source-selector"
     :show-push-down="true"
     :can-push-down="canPushDownProductIn"
     push-down-label="下推产品入库"
     push-down-test-id="push-product-in-from-material-issue"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
+    :show-party-code-column="false"
     :show-execution-columns="document.showExecutionColumns.value"
+    :show-executed-qty-column="document.showExecutedQtyColumn"
+    :execution-qty-label="document.executionQtyLabel"
+    :remaining-qty-label="document.remainingQtyLabel"
+    :qty-label="document.qtyLabel"
+    :show-stock-columns="document.showStockColumns.value"
+    :stock-column-mode="document.stockColumnMode"
+    :stock-available-label="document.stockAvailableLabel"
+    :show-price-amount-columns="document.showPriceAmountColumns"
+    :show-product-info-section="document.showProductInfoSection"
+    :show-section-titles="document.showProductInfoSection"
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
     :total-amount="document.totalAmount.value"
@@ -62,6 +85,7 @@
     @unclose-document="document.openLifecycleAction('unclose')"
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
+    @source-select="openSourceSelector"
     @push-down="pushDownProductIn"
     @delete-document="noop"
     @export-document="document.exportCurrent"
@@ -95,15 +119,48 @@
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
   />
+  <SourceSelectorDialog
+    :open="sourceSelectorOpen"
+    test-prefix="material-issue"
+    title="选择生产任务单"
+    description="已审核或已下达，且存在剩余可领子件的生产任务单。"
+    v-model:keyword="sourceSelectorKeyword"
+    search-placeholder="任务单号/计划单号/产品/车间"
+    :loading="sourceSelectorLoading"
+    :rows="sourceSelectorRows"
+    :columns="sourceSelectorColumns"
+    :selected="sourceSelectorSelected"
+    :count-label="selectedSourceLineCount"
+    :summary-items="sourceSelectorSummaryItems"
+    :message="sourceSelectorMessage"
+    :row-key="sourceSelectorRowKey"
+    :format-cell="formatSourceSelectorCell"
+    :show-column-settings="true"
+    :show-select-all="false"
+    @query-change="sourceSelector.load"
+    @toggle="sourceSelector.toggleRow"
+    @close="closeSourceSelector"
+    @confirm="confirmSourceSelector"
+    @reset-columns="resetSourceColumns"
+  />
   <DocumentDialogs v-bind="dialogBindings" v-on="dialogHandlers" />
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
+import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
-import { pushDownMaterialIssueProductIn } from "../../../services/productionApi";
+import {
+  fetchMaterialIssuePreviewFromTask,
+  fetchSelectableProductionTasks,
+  pushDownMaterialIssueProductIn,
+  type MaterialIssuePreview,
+  type MaterialIssuePreviewLine,
+  type SelectableProductionTaskLine
+} from "../../../services/productionApi";
 import { useMaterialIssueDocument } from "./useMaterialIssueDocument";
 
 const props = defineProps<{
@@ -133,6 +190,47 @@ const document = useMaterialIssueDocument({
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
+
+const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
+  { key: "selection", title: "选", width: 42, visible: true, configurable: false },
+  { key: "billNo", title: "生产任务单", width: 150, visible: true },
+  { key: "planNo", title: "生产计划单", width: 150, visible: true },
+  { key: "billDate", title: "单据日期", width: 120, visible: true },
+  { key: "department", title: "生产车间", width: 120, visible: true },
+  { key: "productCode", title: "产品编码", width: 130, visible: true },
+  { key: "productName", title: "产品名称", width: 180, visible: true },
+  { key: "spec", title: "规格型号", width: 140, visible: true },
+  { key: "unit", title: "单位", width: 80, visible: true },
+  { key: "warehouseCode", title: "入库仓库", width: 110, visible: true },
+  { key: "bomCode", title: "BOM", width: 120, visible: true },
+  { key: "bomVersionNo", title: "BOM 版本", width: 90, visible: true },
+  { key: "taskQty", title: "生产任务数量", width: 120, visible: true },
+  { key: "completedQty", title: "已完工数量", width: 110, visible: true },
+  { key: "remainingProductQty", title: "生产剩余数量", width: 120, visible: true },
+  { key: "requiredQty", title: "应领数量", width: 110, visible: true },
+  { key: "issuedQty", title: "已领数量", width: 110, visible: true },
+  { key: "remainingQty", title: "剩余可领", width: 110, visible: true }
+]);
+const sourceSelector = useSourceSelectorLifecycle<SelectableProductionTaskLine>({
+  rowKey: sourceSelectorRowKey,
+  fetchRows: fetchSelectableProductionTasks,
+  quantityField: "remainingQty",
+  countLabel: (count) => `${count} 张已选`,
+  quantityLabel: "剩余可领合计",
+  selectedQuantityLabel: "已选可领",
+  emptyMessage: "当前过滤条件下暂无可选生产任务单。",
+  loadErrorMessage: "生产任务选单列表加载失败。",
+  formatQty,
+  selectionMode: "single"
+});
+const sourceSelectorOpen = sourceSelector.open;
+const sourceSelectorLoading = sourceSelector.loading;
+const sourceSelectorMessage = sourceSelector.message;
+const sourceSelectorKeyword = sourceSelector.keyword;
+const sourceSelectorRows = sourceSelector.rows;
+const sourceSelectorSelected = sourceSelector.selected;
+const selectedSourceLineCount = sourceSelector.countLabel;
+const sourceSelectorSummaryItems = sourceSelector.summaryItems;
 
 const canPushDownProductIn = computed(() => (
   document.form.status === "AUDITED" &&
@@ -191,6 +289,86 @@ const dialogHandlers = {
 
 function noop() {}
 
+async function openSourceSelector() {
+  if (!document.isDraft.value) {
+    return;
+  }
+  await sourceSelector.openAndLoad({ keyword: document.form.sourceOrderNo || "", columnFilters: {} });
+}
+
+function closeSourceSelector() {
+  sourceSelector.close();
+}
+
+function resetSourceColumns() {
+  sourceSelectorColumns.value = sourceSelectorColumns.value.map((column) => ({ ...column, visible: true }));
+}
+
+async function confirmSourceSelector() {
+  const source = sourceSelector.selectedRowList.value[0];
+  if (!source?.billNo) {
+    sourceSelector.setMessage("请先选择一张生产任务单。");
+    return;
+  }
+  const result = await fetchMaterialIssuePreviewFromTask(source.billNo);
+  if (!result.ok) {
+    sourceSelector.setMessage(result.message || "生产任务领料预览加载失败。");
+    return;
+  }
+  applyMaterialIssuePreview(result.data as MaterialIssuePreview | undefined, source);
+  sourceSelector.close();
+}
+
+function applyMaterialIssuePreview(preview: MaterialIssuePreview | undefined, source: SelectableProductionTaskLine) {
+  const previewDocument = preview?.document ?? {};
+  document.form.sourceOrderNo = previewDocument.sourceOrderNo || source.billNo || "";
+  document.form.partyCode = "";
+  document.form.partyName = "";
+  document.form.billDate = previewDocument.billDate || document.form.billDate;
+  document.form.department = previewDocument.department || source.department || "生产部";
+  document.form.productInfo = preview?.productInfo ? { ...preview.productInfo } : {
+    productCode: source.productCode,
+    productName: source.productName,
+    spec: source.spec,
+    unit: source.unit,
+    warehouseCode: source.warehouseCode,
+    taskQty: source.taskQty,
+    remainingQty: source.remainingProductQty,
+    bomCode: source.bomCode,
+    bomVersionNo: source.bomVersionNo
+  };
+  const lines = preview?.lines ?? [];
+  document.form.lines = lines.length ? lines.map(previewLineToFormLine) : [];
+  document.batchWarehouseCode.value = document.form.lines[0]?.warehouseCode || document.batchWarehouseCode.value;
+  document.message.value = `已由生产任务单 ${document.form.sourceOrderNo} 回填领料分录`;
+  document.markDirty();
+}
+
+function previewLineToFormLine(line: MaterialIssuePreviewLine) {
+  const sourceLineNo = normalizedOptionalInt(line.sourceLineNo ?? line.lineNo);
+  return {
+    lineNo: sourceLineNo,
+    sourceOrderNo: document.form.sourceOrderNo,
+    sourceLineNo,
+    productId: String(line.productId ?? ""),
+    productCode: String(line.productCode ?? ""),
+    productName: String(line.productName ?? ""),
+    spec: String(line.spec ?? ""),
+    unit: String(line.unit ?? ""),
+    netWeight: String(line.netWeight ?? ""),
+    grossWeight: String(line.grossWeight ?? ""),
+    warehouseCode: String(line.warehouseCode ?? "") || "CK-001",
+    qty: numberValue(line.qty ?? line.remainingQty),
+    remainingQty: numberValue(line.remainingQty),
+    stockOnHand: line.stockOnHand,
+    stockReserved: line.stockReserved,
+    stockAvailable: line.stockAvailable,
+    stockInTransit: line.stockInTransit,
+    unitPrice: 0,
+    lineRemark: ""
+  };
+}
+
 async function pushDownProductIn() {
   if (!canPushDownProductIn.value) {
     return;
@@ -207,6 +385,34 @@ async function pushDownProductIn() {
   }
   document.message.value = `已下推生成产品入库单 ${billNo}`;
   emit("requestOpenDocument", { type: "productIn", billNo });
+}
+
+function sourceSelectorRowKey(row: SelectableProductionTaskLine | unknown) {
+  const typed = row as SelectableProductionTaskLine;
+  return String(typed.billNo ?? "");
+}
+
+function formatSourceSelectorCell(row: unknown, columnKey: string) {
+  const value = (row as Record<string, unknown>)[columnKey];
+  if (["taskQty", "completedQty", "remainingProductQty", "requiredQty", "issuedQty", "remainingQty"].includes(columnKey)) {
+    return formatQty(value);
+  }
+  return String(value ?? "");
+}
+
+function formatQty(value: unknown) {
+  const parsed = numberValue(value);
+  return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizedOptionalInt(value: unknown) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
 }
 
 async function loadByBillNo(billNo: string) {

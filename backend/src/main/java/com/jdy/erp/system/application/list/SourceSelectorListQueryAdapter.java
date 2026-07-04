@@ -70,6 +70,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             case "purchase-requisition-source-selector" -> purchaseRequisitionSpec();
             case "purchase-order-source-selector" -> purchaseOrderSpec();
             case "purchase-in-source-selector" -> purchaseInSpec();
+            case "production-task-source-selector" -> productionTaskSpec();
             case "outsourcing-work-order-issue-source-selector" -> outsourcingWorkOrderIssueSpec();
             case "outsourcing-work-order-receipt-source-selector" -> outsourcingWorkOrderReceiptSpec();
             case "outsourcing-receipt-return-source-selector" -> outsourcingReceiptSpec("return");
@@ -536,6 +537,40 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "returnedQty", "remainingQty", "unitPrice", "taxRate",
                 "taxAmount", "priceTaxTotal", "lineRemark"
+            ));
+    }
+
+    private SourceQuerySpec productionTaskSpec() {
+        return new SourceQuerySpec("""
+            SELECT t.bill_no AS "billNo",
+                   COALESCE(pl.bill_no, '') AS "planNo",
+                   to_char(t.created_at, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(t.department_code, '') AS department,
+                   COALESCE(t.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   w.code AS "warehouseCode",
+                   t.bom_code_snapshot AS "bomCode",
+                   t.bom_version_no AS "bomVersionNo",
+                   t.qty AS "taskQty",
+                   t.completed_qty AS "completedQty",
+                   GREATEST(t.qty - t.completed_qty, 0) AS "remainingProductQty",
+                   SUM(s.required_qty) AS "requiredQty",
+                   SUM(s.issued_qty) AS "issuedQty",
+                   SUM(s.required_qty - s.issued_qty) AS "remainingQty"
+            FROM production_task t
+            LEFT JOIN production_plan pl ON pl.id = t.plan_id
+            JOIN md_product p ON p.id = t.product_id
+            JOIN md_warehouse w ON w.id = t.warehouse_id
+            JOIN production_task_material_snapshot s ON s.task_id = t.id
+            WHERE t.status IN ('AUDITED', 'ISSUED')
+            GROUP BY t.id, pl.bill_no, p.code, p.name, p.spec, p.unit, w.code
+            HAVING SUM(s.required_qty - s.issued_qty) > 0
+            """, List.of(), sourceFields(
+                "billNo", "planNo", "billDate", "department", "productCode", "productName", "spec", "unit",
+                "warehouseCode", "bomCode", "bomVersionNo", "taskQty", "completedQty", "remainingProductQty",
+                "requiredQty", "issuedQty", "remainingQty"
             ));
     }
 

@@ -113,9 +113,14 @@ export interface EntryColumnOptions {
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
   showStockColumns?: boolean;
+  stockColumnMode?: "all" | "availableOnly";
   enableSalesPriceBulk?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
+  qtyLabel?: string;
+  stockAvailableLabel?: string;
+  showExecutedQtyColumn?: boolean;
+  showPriceAmountColumns?: boolean;
   showTaxColumns?: boolean;
   isDraft?: boolean;
 }

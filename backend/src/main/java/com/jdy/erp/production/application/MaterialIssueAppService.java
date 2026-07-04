@@ -13,6 +13,7 @@ import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class MaterialIssueAppService {
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
     private final BillLifecycleService lifecycleService;
+    private final TenantDataScopeService tenantDataScopeService;
 
     public MaterialIssueAppService(
         JdbcTemplate jdbcTemplate,
@@ -38,7 +40,8 @@ public class MaterialIssueAppService {
         PostingPipeline postingPipeline,
         OperationLogService operationLogService,
         NumberingService numberingService,
-        BillLifecycleService lifecycleService
+        BillLifecycleService lifecycleService,
+        TenantDataScopeService tenantDataScopeService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -47,6 +50,7 @@ public class MaterialIssueAppService {
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
         this.lifecycleService = lifecycleService;
+        this.tenantDataScopeService = tenantDataScopeService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -55,7 +59,7 @@ public class MaterialIssueAppService {
                    i.bill_no AS "billNo",
                    t.bill_no AS "sourceOrderNo",
                    'SC' AS "customerCode",
-                   '生产车间' AS customer,
+                   COALESCE(t.product_name_snapshot, task_product.name, '生产车间') AS customer,
                    to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
                    '生产部' AS department,
                    i.status,
@@ -68,9 +72,10 @@ public class MaterialIssueAppService {
                    ) AS "redSourceBillNo"
             FROM production_material_issue i
             JOIN production_task t ON t.id = i.task_id
+            JOIN md_product task_product ON task_product.id = t.product_id
             LEFT JOIN production_material_issue_line l ON l.issue_id = i.id
             WHERE i.bill_no = ?
-            GROUP BY i.id, t.bill_no
+            GROUP BY i.id, t.bill_no, t.product_name_snapshot, task_product.name
             """, billNo);
         if (billRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "生产领料单不存在");
@@ -85,6 +90,15 @@ public class MaterialIssueAppService {
                    trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
                    trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    w.code AS "warehouseCode",
+                   l.line_no AS "sourceLineNo",
+                   CASE
+                       WHEN i.status = 'DRAFT' THEN GREATEST(COALESCE(s.required_qty, l.qty) - COALESCE(s.issued_qty, 0), 0)
+                       ELSE l.qty
+                   END AS "remainingQty",
+                   COALESCE(stock.qty_on_hand, 0) AS "stockOnHand",
+                   COALESCE(stock.qty_reserved, 0) AS "stockReserved",
+                   COALESCE(stock.qty_available, 0) AS "stockAvailable",
+                   0 AS "stockInTransit",
                    l.qty,
                    l.unit_price AS "unitPrice",
                    l.amount
@@ -92,10 +106,33 @@ public class MaterialIssueAppService {
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
             JOIN production_material_issue i ON i.id = l.issue_id
+            LEFT JOIN production_task_material_snapshot s ON s.task_id = i.task_id AND s.line_no = l.line_no
+            LEFT JOIN inv_stock_balance stock ON stock.product_id = l.product_id AND stock.warehouse_id = l.warehouse_id AND stock.account_set_id = ?::uuid
             WHERE i.bill_no = ?
             ORDER BY l.line_no
+            """, inventoryScopeId(), billNo);
+        var productRows = jdbcTemplate.queryForList("""
+            SELECT COALESCE(t.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   w.code AS "warehouseCode",
+                   t.qty AS "taskQty",
+                   GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
+                   t.bom_code_snapshot AS "bomCode",
+                   t.bom_version_no AS "bomVersionNo"
+            FROM production_material_issue i
+            JOIN production_task t ON t.id = i.task_id
+            JOIN md_product p ON p.id = t.product_id
+            JOIN md_warehouse w ON w.id = t.warehouse_id
+            WHERE i.bill_no = ?
             """, billNo);
-        return Map.of("action", "DETAIL", "document", billRows.get(0), "lines", lines);
+        return Map.of(
+            "action", "DETAIL",
+            "document", billRows.get(0),
+            "productInfo", productRows.isEmpty() ? Map.of() : productRows.get(0),
+            "lines", lines
+        );
     }
 
     @Transactional
@@ -110,7 +147,6 @@ public class MaterialIssueAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务不存在或不能领料");
         }
         var materialWarehouseCode = resolveMaterialWarehouseCode(request);
-        var materialWarehouseId = lookupService.lookupEnabledId("md_warehouse", materialWarehouseCode, "领料仓库");
         var issueRows = jdbcTemplate.queryForList("""
             INSERT INTO production_material_issue (bill_no, task_id, status)
             VALUES (?, ?::uuid, ?)
@@ -126,9 +162,79 @@ public class MaterialIssueAppService {
         }
         var issueId = String.valueOf(issueRows.get(0).get("id"));
         jdbcTemplate.update("DELETE FROM production_material_issue_line WHERE issue_id = ?::uuid", issueId);
-        insertSnapshotIssueLines(issueId, taskRows.get(0).get("id"), materialWarehouseId);
+        insertSnapshotIssueLines(issueId, taskRows.get(0).get("id"), materialWarehouseCode, request.lines());
         operationLogService.log("PRODUCTION", "SAVE_ISSUE_DRAFT", "production_material_issue", issueId, true, null);
         return issueRows.get(0);
+    }
+
+    public Map<String, Object> previewFromTask(String taskBillNo) {
+        var taskRows = jdbcTemplate.queryForList("""
+            SELECT t.id::text AS id,
+                   t.bill_no AS "sourceOrderNo",
+                   to_char(CURRENT_DATE, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(t.department_code, '生产部') AS department
+            FROM production_task t
+            WHERE t.bill_no = ? AND t.status IN ('AUDITED', 'ISSUED')
+            """, validationService.required(taskBillNo, "生产任务单号"));
+        if (taskRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务不存在或不能领料");
+        }
+        var task = taskRows.get(0);
+        var productRows = jdbcTemplate.queryForList("""
+            SELECT COALESCE(t.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   w.code AS "warehouseCode",
+                   t.qty AS "taskQty",
+                   GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
+                   t.bom_code_snapshot AS "bomCode",
+                   t.bom_version_no AS "bomVersionNo"
+            FROM production_task t
+            JOIN md_product p ON p.id = t.product_id
+            JOIN md_warehouse w ON w.id = t.warehouse_id
+            WHERE t.id = ?::uuid
+            """, task.get("id"));
+        var lines = jdbcTemplate.queryForList("""
+            SELECT s.line_no AS "lineNo",
+                   s.line_no AS "sourceLineNo",
+                   s.product_id::text AS "productId",
+                   COALESCE(s.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(s.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(s.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(s.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(s.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(s.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                   COALESCE(w.code, '') AS "warehouseCode",
+                   GREATEST(s.required_qty - s.issued_qty, 0) AS "remainingQty",
+                   COALESCE(stock.qty_on_hand, 0) AS "stockOnHand",
+                   COALESCE(stock.qty_reserved, 0) AS "stockReserved",
+                   COALESCE(stock.qty_available, 0) AS "stockAvailable",
+                   0 AS "stockInTransit",
+                   GREATEST(s.required_qty - s.issued_qty, 0) AS qty
+            FROM production_task_material_snapshot s
+            JOIN md_product p ON p.id = s.product_id
+            LEFT JOIN prod_bom_line bom_line ON bom_line.id = s.source_bom_line_id
+            LEFT JOIN md_warehouse w ON w.id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+            LEFT JOIN inv_stock_balance stock ON stock.product_id = s.product_id
+                 AND stock.warehouse_id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+                 AND stock.account_set_id = ?::uuid
+            WHERE s.task_id = ?::uuid
+              AND s.required_qty - s.issued_qty > 0
+            ORDER BY s.line_no
+            """, inventoryScopeId(), task.get("id"));
+        if (lines.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务没有剩余可领子件");
+        }
+        if (lines.stream().anyMatch(line -> line.get("warehouseCode") == null || validationService.optionalText(String.valueOf(line.get("warehouseCode"))) == null)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "子件发料仓库未配置");
+        }
+        return Map.of(
+            "action", "PREVIEW",
+            "document", task,
+            "productInfo", productRows.isEmpty() ? Map.of() : productRows.get(0),
+            "lines", lines
+        );
     }
 
     @Transactional
@@ -251,7 +357,7 @@ public class MaterialIssueAppService {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "领料仓库不能为空");
     }
 
-    private void insertSnapshotIssueLines(String issueId, Object taskId, String materialWarehouseId) {
+    private void insertSnapshotIssueLines(String issueId, Object taskId, String fallbackWarehouseCode, List<IssueLineRequest> requestedLines) {
         var lines = jdbcTemplate.queryForList("""
             SELECT s.line_no AS "lineNo",
                    s.product_id::text AS "productId",
@@ -267,12 +373,50 @@ public class MaterialIssueAppService {
         if (lines.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务缺少用料快照，不能领料");
         }
-        for (var line : lines) {
+        for (var index = 0; index < lines.size(); index++) {
+            var line = lines.get(index);
             var remainingQty = (BigDecimal) line.get("remainingQty");
-            if (remainingQty.compareTo(BigDecimal.ZERO) > 0) {
-                insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), line.get("materialCode"), line.get("materialName"), line.get("spec"), materialWarehouseId, remainingQty, BigDecimal.ONE);
+            var requestLine = matchingRequestLine(requestedLines, line, index);
+            var requestedQty = requestedIssueQty(requestLine, remainingQty);
+            if (requestedQty.compareTo(BigDecimal.ZERO) > 0) {
+                var warehouseCode = requestLine == null ? fallbackWarehouseCode : validationService.optionalText(requestLine.warehouseCode());
+                var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode == null ? fallbackWarehouseCode : warehouseCode, "领料仓库");
+                insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), line.get("materialCode"), line.get("materialName"), line.get("spec"), warehouseId, requestedQty, BigDecimal.ONE);
             }
         }
+    }
+
+    private IssueLineRequest matchingRequestLine(List<IssueLineRequest> requestedLines, Map<String, Object> snapshotLine, int index) {
+        if (requestedLines == null || requestedLines.isEmpty()) {
+            return null;
+        }
+        var snapshotLineNo = Integer.parseInt(String.valueOf(snapshotLine.get("lineNo")));
+        for (var line : requestedLines) {
+            if (line == null) {
+                continue;
+            }
+            if (line.sourceLineNo() != null && line.sourceLineNo().intValue() == snapshotLineNo) {
+                return line;
+            }
+            if (line.lineNo() != null && line.lineNo().intValue() == snapshotLineNo) {
+                return line;
+            }
+        }
+        return index < requestedLines.size() ? requestedLines.get(index) : null;
+    }
+
+    private BigDecimal requestedIssueQty(IssueLineRequest requestLine, BigDecimal defaultQty) {
+        if (requestLine == null || requestLine.qty() == null) {
+            return defaultQty;
+        }
+        var qty = requestLine.qty();
+        if (qty.compareTo(BigDecimal.ZERO) < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "领料数量不能为负数");
+        }
+        if (qty.compareTo(defaultQty) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "领料数量不能超过生产任务剩余用料");
+        }
+        return qty;
     }
 
     private void validateIssueQtyWithinTask(String billNo, String taskId) {
@@ -296,6 +440,16 @@ public class MaterialIssueAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
+        var issueRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   task_id::text AS "taskId"
+            FROM production_material_issue
+            WHERE bill_no = ? AND status = ?
+            """, billNo, BillStatus.AUDITED.name());
+        if (issueRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在或不能反审核");
+        }
+        var issue = issueRows.get(0);
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
@@ -308,6 +462,37 @@ public class MaterialIssueAppService {
             "生产领料单不存在或不能反审核"
         );
         postIssueLines(billNo, BigDecimal.ONE, "PRODUCTION_ISSUE_REVERSE", "PRODUCTION_ISSUE_REVERSE:" + billNo);
+        jdbcTemplate.update("""
+            UPDATE production_task_material_snapshot s
+            SET issued_qty = GREATEST(s.issued_qty - issued.qty, 0)
+            FROM (
+                SELECT line_no, SUM(qty) AS qty
+                FROM production_material_issue_line
+                WHERE issue_id = ?::uuid
+                GROUP BY line_no
+            ) issued
+            WHERE s.task_id = ?::uuid
+              AND s.line_no = issued.line_no
+            """, issue.get("id"), issue.get("taskId"));
+        jdbcTemplate.update("""
+            UPDATE production_task
+            SET issued_qty = (
+                    SELECT COALESCE(SUM(issued_qty), 0)
+                    FROM production_task_material_snapshot
+                    WHERE task_id = ?::uuid
+                ),
+                status = CASE
+                    WHEN completed_qty >= qty THEN 'COMPLETED'
+                    WHEN completed_qty > 0 OR (
+                        SELECT COALESCE(SUM(issued_qty), 0)
+                        FROM production_task_material_snapshot
+                        WHERE task_id = ?::uuid
+                    ) > 0 THEN 'ISSUED'
+                    ELSE 'AUDITED'
+                END,
+                updated_at = now()
+            WHERE id = ?::uuid
+            """, issue.get("taskId"), issue.get("taskId"), issue.get("taskId"));
         return row;
     }
 
@@ -386,13 +571,17 @@ public class MaterialIssueAppService {
         postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, productCode, warehouseCode, qty, txnType, sourceBillType));
     }
 
+    private String inventoryScopeId() {
+        return tenantDataScopeService.currentScopeId("inventory");
+    }
+
     public record IssueRequest(String billNo, String materialWarehouseCode) {
     }
 
     public record IssueDraftRequest(String billNo, String sourceOrderNo, String materialWarehouseCode, List<IssueLineRequest> lines) {
     }
 
-    public record IssueLineRequest(String warehouseCode) {
+    public record IssueLineRequest(Integer lineNo, Integer sourceLineNo, String productCode, String warehouseCode, BigDecimal qty) {
     }
 
     public record RedReverseRequest(String redBillNo) {

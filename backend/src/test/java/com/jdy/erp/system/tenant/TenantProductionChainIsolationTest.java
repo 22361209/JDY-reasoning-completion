@@ -146,6 +146,99 @@ class TenantProductionChainIsolationTest {
         assertListContainsSingle("product-in-list", PRODUCT_IN_NO, PRODUCT_IN_NO);
     }
 
+    @Test
+    void materialIssueDraftKeepsRequestedQtyAndShowsTaskContext() {
+        var tenant = createManagedAccountSet("A119PRQ");
+        useTenant(tenant);
+        createProductionSetup("A119 数量母件", "A119 数量子件", "A119 数量供应商");
+        saveComponentOpeningStock(new BigDecimal("30"));
+        createAuditedBom();
+        createPlan(new BigDecimal("5"));
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition("A119 数量供应商", "A119 数量子件", "10.0000");
+
+        materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
+            ISSUE_NO,
+            taskBillNo,
+            WAREHOUSE_CODE,
+            List.of(new MaterialIssueAppService.IssueLineRequest(null, null, COMPONENT_CODE, WAREHOUSE_CODE, new BigDecimal("3")))
+        ));
+
+        var detail = materialIssueAppService.detail(ISSUE_NO);
+        @SuppressWarnings("unchecked")
+        var productInfo = (Map<String, Object>) detail.get("productInfo");
+        assertThat(productInfo.get("productCode")).isEqualTo(PARENT_CODE);
+        assertDecimal(productInfo.get("taskQty"), "5.0000");
+        assertDecimal(productInfo.get("remainingQty"), "5.0000");
+
+        @SuppressWarnings("unchecked")
+        var lines = (List<Map<String, Object>>) detail.get("lines");
+        assertThat(lines)
+            .singleElement()
+            .satisfies(row -> {
+                assertThat(row.get("productCode")).isEqualTo(COMPONENT_CODE);
+                assertDecimal(row.get("remainingQty"), "10.0000");
+                assertDecimal(row.get("stockAvailable"), "30.0000");
+                assertDecimal(row.get("qty"), "3.0000");
+            });
+    }
+
+    @Test
+    void materialIssueDraftMatchesRequestedQtyBySourceLineNoWhenComponentRepeats() {
+        var tenant = createManagedAccountSet("A119DUP");
+        useTenant(tenant);
+        createProductionSetup("A119 重复母件", "A119 重复子件", "A119 重复供应商");
+        saveComponentOpeningStock(new BigDecimal("30"));
+        createAuditedDuplicateBom();
+        createPlan(BigDecimal.ONE);
+        var result = productionTaskAppService.pushDownPlan(PLAN_NO);
+        @SuppressWarnings("unchecked")
+        var tasks = (List<Map<String, Object>>) result.get("productionTasks");
+        var taskBillNo = String.valueOf(tasks.get(0).get("billNo"));
+
+        materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
+            ISSUE_NO,
+            taskBillNo,
+            WAREHOUSE_CODE,
+            List.of(
+                new MaterialIssueAppService.IssueLineRequest(null, 1, COMPONENT_CODE, WAREHOUSE_CODE, new BigDecimal("1")),
+                new MaterialIssueAppService.IssueLineRequest(null, 2, COMPONENT_CODE, WAREHOUSE_CODE, new BigDecimal("2"))
+            )
+        ));
+
+        var detail = materialIssueAppService.detail(ISSUE_NO);
+        @SuppressWarnings("unchecked")
+        var lines = (List<Map<String, Object>>) detail.get("lines");
+        assertThat(lines).hasSize(2);
+        assertThat(lines).allSatisfy(row -> assertThat(row.get("productCode")).isEqualTo(COMPONENT_CODE));
+        assertThat(lines.get(0).get("sourceLineNo")).isEqualTo(1);
+        assertDecimal(lines.get(0).get("qty"), "1.0000");
+        assertThat(lines.get(1).get("sourceLineNo")).isEqualTo(2);
+        assertDecimal(lines.get(1).get("qty"), "2.0000");
+    }
+
+    @Test
+    void materialIssueReverseRestoresTaskIssuedQtyAndInventory() {
+        var tenant = createManagedAccountSet("A119RVI");
+        useTenant(tenant);
+        createProductionSetup("A119 反审母件", "A119 反审子件", "A119 反审供应商");
+        saveComponentOpeningStock(new BigDecimal("30"));
+        createAuditedBom();
+        createPlan(new BigDecimal("5"));
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition("A119 反审供应商", "A119 反审子件", "10.0000");
+
+        saveAndAuditIssue(taskBillNo);
+        assertTaskIssued(taskBillNo, "5.0000", "ISSUED");
+        assertTaskSnapshotIssued(taskBillNo, "10.0000");
+        assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
+
+        materialIssueAppService.reverse(ISSUE_NO);
+
+        assertTaskIssued(taskBillNo, "0.0000", "AUDITED");
+        assertTaskSnapshotIssued(taskBillNo, "0.0000");
+        assertBalance(COMPONENT_CODE, "30.0000", "0.0000", "30.0000");
+    }
+
+
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         createdCodes.add(code);
@@ -241,6 +334,43 @@ class TenantProductionChainIsolationTest {
         productionTaskAppService.auditBom(BOM_CODE);
     }
 
+    private void createAuditedDuplicateBom() {
+        productionTaskAppService.saveBom(new ProductionTaskAppService.BomRequest(
+            BOM_CODE,
+            PARENT_CODE,
+            BigDecimal.ONE,
+            "生产BOM",
+            "",
+            List.of(
+                new ProductionTaskAppService.BomLineRequest(
+                    COMPONENT_CODE,
+                    new BigDecimal("2"),
+                    BigDecimal.ONE,
+                    new BigDecimal("2"),
+                    new BigDecimal("2"),
+                    "按单领料",
+                    WAREHOUSE_CODE,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    null
+                ),
+                new ProductionTaskAppService.BomLineRequest(
+                    COMPONENT_CODE,
+                    new BigDecimal("4"),
+                    BigDecimal.ONE,
+                    new BigDecimal("4"),
+                    new BigDecimal("4"),
+                    "按单领料",
+                    WAREHOUSE_CODE,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    null
+                )
+            )
+        ));
+        productionTaskAppService.auditBom(BOM_CODE);
+    }
+
     private void createPlan(BigDecimal qty) {
         productionTaskAppService.createPlan(new ProductionTaskAppService.PlanRequest(
             PLAN_NO,
@@ -281,7 +411,7 @@ class TenantProductionChainIsolationTest {
             ISSUE_NO,
             taskBillNo,
             WAREHOUSE_CODE,
-            List.of(new MaterialIssueAppService.IssueLineRequest(WAREHOUSE_CODE))
+            List.of(new MaterialIssueAppService.IssueLineRequest(null, null, null, WAREHOUSE_CODE, null))
         ));
         materialIssueAppService.audit(ISSUE_NO);
     }
@@ -321,6 +451,26 @@ class TenantProductionChainIsolationTest {
         assertDecimal(row.get("onHand"), onHand);
         assertDecimal(row.get("reserved"), reserved);
         assertDecimal(row.get("available"), available);
+    }
+
+    private void assertTaskIssued(String taskBillNo, String issuedQty, String status) {
+        var row = jdbcTemplate.queryForMap("""
+            SELECT issued_qty AS "issuedQty", status
+            FROM production_task
+            WHERE bill_no = ?
+            """, taskBillNo);
+        assertDecimal(row.get("issuedQty"), issuedQty);
+        assertThat(row.get("status")).isEqualTo(status);
+    }
+
+    private void assertTaskSnapshotIssued(String taskBillNo, String issuedQty) {
+        var row = jdbcTemplate.queryForMap("""
+            SELECT COALESCE(SUM(snapshot.issued_qty), 0) AS "issuedQty"
+            FROM production_task_material_snapshot snapshot
+            JOIN production_task task ON task.id = snapshot.task_id
+            WHERE task.bill_no = ?
+            """, taskBillNo);
+        assertDecimal(row.get("issuedQty"), issuedQty);
     }
 
     private void assertListContainsSingle(String listKey, String keyword, String billNo) {

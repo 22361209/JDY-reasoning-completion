@@ -59,6 +59,9 @@
     @override-lock="emit('overrideLock')"
   >
     <div v-if="isDocumentForm" class="form-layout">
+      <section v-if="showSectionTitles" class="master-record-section">
+        <h3>表头</h3>
+      </section>
       <section class="form-head-fields">
         <div v-if="$slots.sourceActions || form.redReverseBillNo || form.redSourceBillNo" class="source-order-field">
           <slot name="sourceActions" />
@@ -88,6 +91,47 @@
         />
       </section>
 
+      <section v-if="showProductInfoSection" class="master-record-section">
+        <h3>产品信息</h3>
+        <div class="form-head-fields">
+          <label>
+            <span>产品编码</span>
+            <input :value="form.productInfo?.productCode || ''" disabled />
+          </label>
+          <label>
+            <span>产品名称</span>
+            <input :value="form.productInfo?.productName || ''" disabled />
+          </label>
+          <label>
+            <span>规格型号</span>
+            <input :value="form.productInfo?.spec || ''" disabled />
+          </label>
+          <label>
+            <span>单位</span>
+            <input :value="form.productInfo?.unit || ''" disabled />
+          </label>
+          <label>
+            <span>生产任务数量</span>
+            <input :value="form.productInfo?.taskQty ?? ''" disabled />
+          </label>
+          <label>
+            <span>生产剩余数量</span>
+            <input :value="form.productInfo?.remainingQty ?? ''" disabled />
+          </label>
+          <label>
+            <span>BOM</span>
+            <input :value="form.productInfo?.bomCode || ''" disabled />
+          </label>
+          <label>
+            <span>BOM 版本</span>
+            <input :value="form.productInfo?.bomVersionNo ?? ''" disabled />
+          </label>
+        </div>
+      </section>
+
+      <section v-if="showSectionTitles" class="master-record-section">
+        <h3>{{ entrySectionTitle }}</h3>
+      </section>
       <EntryTable
         :lines="form.lines"
         :test-prefix="testPrefix"
@@ -113,11 +157,16 @@
         :show-target-warehouse-column="showTargetWarehouseColumn"
         :show-plan-delivery-date-column="showPlanDeliveryDateColumn"
         :show-stock-columns="showStockColumns"
+        :stock-column-mode="stockColumnMode"
         :show-line-close-status="showLineCloseStatus"
         :enable-sales-price-bulk="enableSalesPriceBulk"
         :sales-price-customer-code="form.partyCode"
         :execution-qty-label="executionQtyLabel"
         :remaining-qty-label="remainingQtyLabel"
+        :qty-label="qtyLabel"
+        :stock-available-label="stockAvailableLabel"
+        :show-executed-qty-column="showExecutedQtyColumn"
+        :show-price-amount-columns="showPriceAmountColumns"
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
@@ -184,6 +233,17 @@ interface DocumentFormState {
   remark?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
   validUntil?: string;
+  productInfo?: {
+    productCode?: string;
+    productName?: string;
+    spec?: string;
+    unit?: string;
+    warehouseCode?: string;
+    taskQty?: number | string;
+    remainingQty?: number | string;
+    bomCode?: string;
+    bomVersionNo?: number | string;
+  };
   lines: EntryLine[];
 }
 
@@ -242,10 +302,25 @@ const props = withDefaults(defineProps<{
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
   showStockColumns?: boolean;
+  stockColumnMode?: "all" | "availableOnly";
   showLineCloseStatus?: boolean;
   enableSalesPriceBulk?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
+  qtyLabel?: string;
+  stockAvailableLabel?: string;
+  showExecutedQtyColumn?: boolean;
+  showPriceAmountColumns?: boolean;
+  showProductInfoSection?: boolean;
+  showSectionTitles?: boolean;
+  showPartyHeadFields?: boolean;
+  showSourceOrderNoHeadField?: boolean;
+  sourceOrderNoHeadReadonly?: boolean;
+  showOwnerNameHeadField?: boolean;
+  billDateLabel?: string;
+  departmentLabel?: string;
+  sourceOrderNoLabel?: string;
+  entrySectionTitle?: string;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
@@ -295,7 +370,17 @@ const props = withDefaults(defineProps<{
   extraActionTestId: "extra-document-action",
   showValidUntil: false,
   showLineCloseStatus: true,
-  enableSalesPriceBulk: false
+  enableSalesPriceBulk: false,
+  showProductInfoSection: false,
+  showSectionTitles: false,
+  showPartyHeadFields: true,
+  showSourceOrderNoHeadField: false,
+  sourceOrderNoHeadReadonly: false,
+  showOwnerNameHeadField: true,
+  billDateLabel: "业务日期",
+  departmentLabel: "部门",
+  sourceOrderNoLabel: "源单号",
+  entrySectionTitle: "分录表体"
 });
 
 const emit = defineEmits<{
@@ -360,6 +445,49 @@ const partyLookupOptions = computed<FieldLookupOption[]>(() => props.selectorOpt
 })));
 
 const documentHeadFields = computed<FieldDefinition[]>(() => {
+  if (!props.showPartyHeadFields) {
+    const sourceFields: FieldDefinition[] = [
+      {
+        name: "billNo",
+        label: "单据编号",
+        testId: `${props.testPrefix}-bill-no`
+      },
+      {
+        name: "billDate",
+        label: props.billDateLabel,
+        testId: `${props.testPrefix}-bill-date`
+      }
+    ];
+    if (props.showSourceOrderNoHeadField) {
+      sourceFields.push({
+        name: "sourceOrderNo",
+        label: props.sourceOrderNoLabel,
+        testId: `${props.testPrefix}-source-order-no`,
+        readonly: props.sourceOrderNoHeadReadonly
+      });
+    }
+    sourceFields.push({
+      name: "department",
+      label: props.departmentLabel,
+      testId: `${props.testPrefix}-department`
+    });
+    if (props.showOwnerNameHeadField) {
+      sourceFields.push({
+        name: "ownerName",
+        label: "录入人",
+        testId: `${props.testPrefix}-owner-name`,
+        readonly: true
+      });
+    }
+    sourceFields.push({
+      name: "remark",
+      label: "单据备注",
+      type: "textarea",
+      testId: `${props.testPrefix}-remark`,
+      span: 3
+    });
+    return sourceFields;
+  }
   const fields: FieldDefinition[] = [
     {
       name: "partyCode",
@@ -375,7 +503,7 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
     },
     {
       name: "billDate",
-      label: "业务日期",
+      label: props.billDateLabel,
       testId: `${props.testPrefix}-bill-date`
     }
   ];
@@ -394,16 +522,18 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
     },
     {
       name: "department",
-      label: "部门",
+      label: props.departmentLabel,
       testId: `${props.testPrefix}-department`
-    },
-    {
+    }
+  );
+  if (props.showOwnerNameHeadField) {
+    fields.push({
       name: "ownerName",
       label: "录入人",
       testId: `${props.testPrefix}-owner-name`,
       readonly: true
-    }
-  );
+    });
+  }
   if (props.showTaxMode) {
     fields.push({
       name: "taxMode",
@@ -429,6 +559,7 @@ function documentHeadFieldValue(name: string) {
   const values: Record<string, string> = {
     partyCode: props.form.partyCode ?? "",
     partyName: props.form.partyName ?? "",
+    sourceOrderNo: props.form.sourceOrderNo ?? "",
     billDate: props.form.billDate ?? "",
     validUntil: props.form.validUntil ?? "",
     billNo: props.form.billNo ?? "",
@@ -447,6 +578,8 @@ function updateDocumentHeadField(name: string, value: string) {
   }
   if (name === "billDate") {
     props.form.billDate = value;
+  } else if (name === "sourceOrderNo") {
+    props.form.sourceOrderNo = value;
   } else if (name === "validUntil") {
     props.form.validUntil = value;
   } else if (name === "billNo") {

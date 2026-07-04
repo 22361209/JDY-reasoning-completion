@@ -531,10 +531,15 @@ const props = defineProps<{
   showTargetWarehouseColumn?: boolean;
   showPlanDeliveryDateColumn?: boolean;
   showStockColumns?: boolean;
+  stockColumnMode?: "all" | "availableOnly";
   enableSalesPriceBulk?: boolean;
   salesPriceCustomerCode?: string;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
+  qtyLabel?: string;
+  stockAvailableLabel?: string;
+  showExecutedQtyColumn?: boolean;
+  showPriceAmountColumns?: boolean;
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
@@ -711,8 +716,13 @@ watch(() => [
   props.showPlanDeliveryDateColumn,
   props.showTaxColumns,
   props.showStockColumns,
+  props.stockColumnMode,
   props.executionQtyLabel,
-  props.remainingQtyLabel
+  props.remainingQtyLabel,
+  props.qtyLabel,
+  props.stockAvailableLabel,
+  props.showExecutedQtyColumn,
+  props.showPriceAmountColumns
 ], resetColumns, { immediate: true });
 
 onBeforeUnmount(() => {
@@ -1289,8 +1299,8 @@ function editableCellOrder(): EditableLineCell[] {
     "warehouse",
     props.showTargetWarehouseColumn ? "target-warehouse" : "",
     "qty",
-    "price",
-    props.showTaxColumns ? "taxRate" : "",
+    props.showPriceAmountColumns !== false ? "price" : "",
+    props.showTaxColumns && props.showPriceAmountColumns !== false ? "taxRate" : "",
     props.showPlanDeliveryDateColumn ? "planDeliveryDate" : "",
     "remark"
   ].filter(Boolean) as EditableLineCell[];

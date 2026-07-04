@@ -46,19 +46,19 @@ export function buildDefaultEntryColumns(options: EntryColumnOptions): EntryColu
     { key: "targetWarehouse", title: "目标仓库", width: 130, visible: Boolean(options.showTargetWarehouseColumn) },
     { key: "sourceOrderNo", title: "源单号", width: 142, visible: options.showSourceLineColumn },
     { key: "sourceLineNo", title: "源单行号", width: 86, visible: options.showSourceLineColumn },
-    { key: "qty", title: "数量", width: 104, visible: true, numeric: true, bulkFillable: true },
-    { key: "executedQty", title: options.executionQtyLabel || "已执行", width: 104, visible: options.showExecutionColumns, numeric: true },
+    { key: "qty", title: options.qtyLabel || "数量", width: 104, visible: true, numeric: true, bulkFillable: true },
+    { key: "executedQty", title: options.executionQtyLabel || "已执行", width: 104, visible: options.showExecutionColumns && options.showExecutedQtyColumn !== false, numeric: true },
     { key: "remainingQty", title: options.remainingQtyLabel || "剩余", width: 104, visible: options.showExecutionColumns, numeric: true },
     { key: "stockOnHand", title: "即时库存", width: 104, visible: Boolean(options.showStockColumns), numeric: true },
     { key: "stockReserved", title: "锁定库存", width: 104, visible: Boolean(options.showStockColumns), numeric: true },
-    { key: "stockAvailable", title: "可用库存", width: 104, visible: Boolean(options.showStockColumns), numeric: true },
+    { key: "stockAvailable", title: options.stockAvailableLabel || "可用库存", width: 104, visible: Boolean(options.showStockColumns), numeric: true },
     { key: "stockInTransit", title: "在途库存", width: 104, visible: Boolean(options.showStockColumns), numeric: true },
-    { key: "unitPrice", title: "单价", width: 112, visible: true, numeric: true, bulkFillable: Boolean(options.enableSalesPriceBulk) },
-    { key: "taxInclusiveUnitPrice", title: "含税单价", width: 112, visible: Boolean(options.showTaxColumns), numeric: true },
-    { key: "taxRate", title: "税率%", width: 88, visible: Boolean(options.showTaxColumns), numeric: true },
-    { key: "amount", title: "金额", width: 116, visible: true, numeric: true },
-    { key: "taxAmount", title: "税额", width: 104, visible: Boolean(options.showTaxColumns), numeric: true },
-    { key: "priceTaxTotal", title: "含税金额", width: 124, visible: Boolean(options.showTaxColumns), numeric: true },
+    { key: "unitPrice", title: "单价", width: 112, visible: options.showPriceAmountColumns !== false, numeric: true, bulkFillable: Boolean(options.enableSalesPriceBulk) },
+    { key: "taxInclusiveUnitPrice", title: "含税单价", width: 112, visible: Boolean(options.showTaxColumns && options.showPriceAmountColumns !== false), numeric: true },
+    { key: "taxRate", title: "税率%", width: 88, visible: Boolean(options.showTaxColumns && options.showPriceAmountColumns !== false), numeric: true },
+    { key: "amount", title: "金额", width: 116, visible: options.showPriceAmountColumns !== false, numeric: true },
+    { key: "taxAmount", title: "税额", width: 104, visible: Boolean(options.showTaxColumns && options.showPriceAmountColumns !== false), numeric: true },
+    { key: "priceTaxTotal", title: "含税金额", width: 124, visible: Boolean(options.showTaxColumns && options.showPriceAmountColumns !== false), numeric: true },
     { key: "planDeliveryDate", title: "预计交期", width: 142, visible: Boolean(options.showPlanDeliveryDateColumn), bulkFillable: true },
     { key: "remark", title: "行备注", width: 210, visible: true }
   ];
@@ -86,16 +86,25 @@ export function isColumnAvailable(column: EntryColumn, options: EntryColumnOptio
   if (column.key === "planDeliveryDate") {
     return Boolean(options.showPlanDeliveryDateColumn);
   }
+  if (column.key === "unitPrice" || column.key === "amount") {
+    return options.showPriceAmountColumns !== false;
+  }
   if (column.key === "taxInclusiveUnitPrice" || column.key === "taxRate" || column.key === "taxAmount" || column.key === "priceTaxTotal") {
-    return Boolean(options.showTaxColumns);
+    return Boolean(options.showTaxColumns && options.showPriceAmountColumns !== false);
   }
   if (column.key === "sourceLineNo" || column.key === "sourceOrderNo") {
     return options.showSourceLineColumn;
   }
-  if (column.key === "executedQty" || column.key === "remainingQty") {
+  if (column.key === "executedQty") {
+    return options.showExecutionColumns && options.showExecutedQtyColumn !== false;
+  }
+  if (column.key === "remainingQty") {
     return options.showExecutionColumns;
   }
   if (["stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"].includes(column.key)) {
+    if (options.stockColumnMode === "availableOnly") {
+      return column.key === "stockAvailable" && Boolean(options.showStockColumns);
+    }
     return Boolean(options.showStockColumns);
   }
   return true;

@@ -1,3 +1,5 @@
+import { fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
+
 export interface ProductionWriteResult {
   ok: boolean;
   status: number;
@@ -48,6 +50,70 @@ export interface ProductionTaskPayload {
   bomCode?: string;
   warehouseCode?: string;
   qty: number;
+}
+
+export interface SelectableProductionTaskLine {
+  billNo?: string;
+  planNo?: string;
+  billDate?: string;
+  department?: string;
+  productCode?: string;
+  productName?: string;
+  spec?: string;
+  unit?: string;
+  warehouseCode?: string;
+  bomCode?: string;
+  bomVersionNo?: number | string;
+  taskQty?: number | string;
+  completedQty?: number | string;
+  remainingProductQty?: number | string;
+  requiredQty?: number | string;
+  issuedQty?: number | string;
+  remainingQty?: number | string;
+}
+
+export interface MaterialIssuePreviewLine {
+  lineNo?: number | string;
+  sourceLineNo?: number | string;
+  productId?: string;
+  productCode?: string;
+  productName?: string;
+  spec?: string;
+  unit?: string;
+  netWeight?: number | string;
+  grossWeight?: number | string;
+  warehouseCode?: string;
+  remainingQty?: number | string;
+  stockOnHand?: number | string;
+  stockReserved?: number | string;
+  stockAvailable?: number | string;
+  stockInTransit?: number | string;
+  qty?: number | string;
+}
+
+export interface MaterialIssuePreview {
+  document?: {
+    sourceOrderNo?: string;
+    billDate?: string;
+    department?: string;
+  };
+  productInfo?: {
+    productCode?: string;
+    productName?: string;
+    spec?: string;
+    unit?: string;
+    warehouseCode?: string;
+    taskQty?: number | string;
+    remainingQty?: number | string;
+    bomCode?: string;
+    bomVersionNo?: number | string;
+  };
+  lines?: MaterialIssuePreviewLine[];
+}
+
+export interface ProductionSourceSelectorQuery {
+  keyword: string;
+  columnFilters?: SourceSelectorColumnFilters;
 }
 
 async function requestJson(path: string, method: "GET" | "POST" | "DELETE", payload?: Record<string, unknown>): Promise<ProductionWriteResult> {
@@ -156,6 +222,10 @@ export function pushDownMaterialIssueProductIn(billNo: string) {
   return postJson(`/api/production/material-issues/${encodeURIComponent(billNo)}/push-product-in`, {});
 }
 
+export function fetchMaterialIssuePreviewFromTask(taskBillNo: string) {
+  return requestJson(`/api/production/tasks/${encodeURIComponent(taskBillNo)}/material-issue-preview`, "GET");
+}
+
 export function createProductionTask(payload: ProductionTaskPayload) {
   const body = compactPayload(payload as unknown as Record<string, unknown>);
   const planNo = typeof payload.planNo === "string" ? payload.planNo.trim() : "";
@@ -163,4 +233,18 @@ export function createProductionTask(payload: ProductionTaskPayload) {
     return postJson(`/api/production/plans/${encodeURIComponent(planNo)}/tasks`, body);
   }
   return postJson("/api/production/tasks", body);
+}
+
+export async function fetchSelectableProductionTasks(query: ProductionSourceSelectorQuery) {
+  const result = await fetchSourceSelectorRows({
+    listKey: "production-task-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    pageSize: 1000
+  });
+  return {
+    ok: result.ok,
+    message: result.message,
+    data: result.rows as SelectableProductionTaskLine[]
+  };
 }

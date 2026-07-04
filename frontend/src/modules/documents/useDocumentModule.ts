@@ -63,7 +63,13 @@ export interface DocumentModuleOptions {
   remainingQtyLabel?: string;
   showTaxMode?: boolean;
   showStockColumns?: boolean;
+  stockColumnMode?: "all" | "availableOnly";
   defaultTargetWarehouseCode?: string;
+  qtyLabel?: string;
+  stockAvailableLabel?: string;
+  showExecutedQtyColumn?: boolean;
+  showPriceAmountColumns?: boolean;
+  showProductInfoSection?: boolean;
   sourceTraceType?: OpenableDocumentType;
   reversible?: boolean;
   initialForm: OrderForm;
@@ -85,6 +91,7 @@ interface RuntimeOptions {
 type PreparedEntryLines = {
   formLines: OrderLineForm[];
   documentLines: {
+    lineNo?: number;
     productId?: string;
     productCode: string;
     unit?: string;
@@ -197,7 +204,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const showTaxMode = computed(() => Boolean(config.showTaxMode));
   const showSupplierMaterialCodeColumn = computed(() => Boolean(config.showSupplierMaterialCodeColumn));
   const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder" || config.documentType === "deliveryNotice" || config.documentType === "purchaseOrder");
-  const entryTableColspan = computed(() => 9 + (showSourceLineColumn.value ? 1 : 0) + (showExecutionColumns.value ? 2 : 0) + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
+  const executionColumnCount = computed(() => showExecutionColumns.value ? (config.showExecutedQtyColumn === false ? 1 : 2) : 0);
+  const stockColumnCount = computed(() => config.showStockColumns ? (config.stockColumnMode === "availableOnly" ? 1 : 4) : 0);
+  const priceAmountColumnCount = computed(() => config.showPriceAmountColumns === false ? 0 : 2);
+  const entryTableColspan = computed(() => 7 + priceAmountColumnCount.value + (showSourceLineColumn.value ? 1 : 0) + executionColumnCount.value + stockColumnCount.value + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
@@ -241,6 +251,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.closeStatus = "OPEN";
     form.closeMode = null;
     form.frozenStatus = "NORMAL";
+    form.productInfo = undefined;
     form.lines = [blankLine()];
     hasPersistedDraft.value = false;
     const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
@@ -272,6 +283,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.closeStatus = document.closeStatus ?? "OPEN";
     form.closeMode = document.closeMode ?? null;
     form.frozenStatus = document.frozenStatus ?? "NORMAL";
+    form.productInfo = detail.productInfo ? { ...detail.productInfo } : undefined;
     form.lines = detail.lines.length
       ? detail.lines.map((line) => ({
         productCode: String(line.productCode ?? ""),
@@ -1278,8 +1290,14 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showTaxMode,
     showPlanDeliveryDateColumn,
     showStockColumns: computed(() => Boolean(config.showStockColumns)),
+    stockColumnMode: config.stockColumnMode ?? "all",
+    showProductInfoSection: config.showProductInfoSection ?? false,
     executionQtyLabel: config.executionQtyLabel ?? "已执行",
     remainingQtyLabel: config.remainingQtyLabel ?? "剩余",
+    qtyLabel: config.qtyLabel ?? "数量",
+    stockAvailableLabel: config.stockAvailableLabel ?? "可用库存",
+    showExecutedQtyColumn: config.showExecutedQtyColumn ?? true,
+    showPriceAmountColumns: config.showPriceAmountColumns ?? true,
     entryTableColspan,
     entryTotalColspan,
     totalAmount,
@@ -1444,6 +1462,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       ok: true,
       formLines,
       documentLines: formLines.map((line) => ({
+        lineNo: line.lineNo,
         productCode: line.productCode,
         productId: line.productId,
         unit: line.unit,

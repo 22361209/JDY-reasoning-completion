@@ -111,6 +111,17 @@ export interface OrderForm {
   closeStatus?: "OPEN" | "CLOSED" | string;
   closeMode?: "AUTO" | "MANUAL" | string | null;
   frozenStatus?: "NORMAL" | "FROZEN" | string;
+  productInfo?: {
+    productCode?: string;
+    productName?: string;
+    spec?: string;
+    unit?: string;
+    warehouseCode?: string;
+    taskQty?: number | string;
+    remainingQty?: number | string;
+    bomCode?: string;
+    bomVersionNo?: number | string;
+  };
   lines: OrderLineForm[];
 }
 
