@@ -421,24 +421,6 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "warehouse", title: "仓库", width: 140, visible: true }
     ]
   },
-  "outsourcing-surface-list": {
-    title: "委外表面处理",
-    subtitle: "委外表面处理只承接生产完工后的表面处理跟踪，第一版不进入请款、应付和成本核算。",
-    keywordPlaceholder: "委外单号、来源完工单、物料、供应商",
-    statuses: ["草稿", "已发出", "已完成"],
-    columns: [
-      { field: "billNo", title: "委外单号", width: 160, fixed: "left", visible: true },
-      { field: "sourceOrderNo", title: "来源完工单", width: 170, visible: true },
-      { field: "billDate", title: "单据日期", width: 120, visible: true },
-      { field: "productCode", title: "物料编码", width: 140, visible: true },
-      { field: "productName", title: "物料名称", width: 180, visible: true },
-      { field: "unit", title: "单位", width: 80, visible: true },
-      { field: "qty", title: "委外数量", width: 110, align: "right", visible: true },
-      { field: "surfaceTreatment", title: "表面处理", width: 130, visible: true },
-      { field: "supplier", title: "处理供应商", width: 180, visible: true },
-      { field: "status", title: "状态", width: 100, visible: true }
-    ]
-  },
   "outsourcing-work-order-list": {
     title: "委外加工单",
     subtitle: "委外加工单是 A118 委外闭环主单，后续将承载供应商、母件、BOM 子件需求和下推发料。",

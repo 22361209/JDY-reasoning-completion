@@ -5,16 +5,6 @@ export interface OutsourcingWriteResult {
   data?: Record<string, unknown>;
 }
 
-export interface OutsourcingSurfacePayload {
-  billNo?: string;
-  sourceBillNo?: string;
-  productCode?: string;
-  qty?: number;
-  processorSupplierCode?: string;
-  surfaceTreatment?: string;
-  remark?: string;
-}
-
 export interface OutsourcingWorkOrderPayload {
   billNo?: string;
   supplierCode?: string;
@@ -36,7 +26,7 @@ async function postJson(path: string, payload: Record<string, unknown>): Promise
       return {
         ok: false,
         status: response.status,
-        message: errorMessage(data) || "委外表面处理单提交失败。",
+        message: errorMessage(data) || "委外单据提交失败。",
         data
       };
     }
@@ -50,7 +40,7 @@ async function postJson(path: string, payload: Record<string, unknown>): Promise
     return {
       ok: false,
       status: 0,
-      message: "网络异常，委外表面处理单提交失败。"
+      message: "网络异常，委外单据提交失败。"
     };
   }
 }
@@ -99,18 +89,6 @@ function compactPayload(payload: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(payload).filter(([, value]) => value !== "" && value !== undefined && value !== null)
   );
-}
-
-export function saveOutsourcingSurface(payload: OutsourcingSurfacePayload) {
-  return postJson("/api/outsourcing/surface-processes/draft", payload as unknown as Record<string, unknown>);
-}
-
-export function auditOutsourcingSurface(billNo: string) {
-  return postJson(`/api/outsourcing/surface-processes/${encodeURIComponent(billNo)}/audit`, {});
-}
-
-export function completeOutsourcingSurface(billNo: string) {
-  return postJson(`/api/outsourcing/surface-processes/${encodeURIComponent(billNo)}/complete`, {});
 }
 
 export function saveOutsourcingWorkOrder(payload: OutsourcingWorkOrderPayload) {

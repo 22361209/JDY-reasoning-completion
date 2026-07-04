@@ -585,7 +585,6 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "outsourcing-receipt-list": "production.document.audit",
   "outsourcing-return-list": "production.document.audit",
   "outsourcing-scrap-list": "production.document.audit",
-  "outsourcing-surface-list": "production.document.audit",
   "sales-quote-form-list": "sales.order.audit",
   "sales-order-form-list": "sales.order.audit",
   "delivery-notice-form-list": "sales.out.audit",
@@ -1671,8 +1670,7 @@ function canCreateListRecord(listKey: string) {
     "outsourcing-issue-list",
     "outsourcing-receipt-list",
     "outsourcing-return-list",
-    "outsourcing-scrap-list",
-    "outsourcing-surface-list"
+    "outsourcing-scrap-list"
   ].includes(listKey);
 }
 

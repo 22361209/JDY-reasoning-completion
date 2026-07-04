@@ -612,15 +612,6 @@
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
         />
-        <OutsourcingSurfaceForm
-          v-else-if="tabs.activeTab.value.id === outsourcingSurfaceTabId"
-          ref="outsourcingSurfaceFormRef"
-          :title="tabs.activeTab.value.title"
-          :dirty="Boolean(tabs.activeTab.value.dirty)"
-          @mark-dirty="markActiveDirty"
-          @clear-dirty="clearActiveDirty"
-          @show-existing="tabs.activeTabId.value = 'outsourcing-surface-list'"
-        />
         <OtherStockInForm
           v-else-if="tabs.activeTab.value.id === otherStockInTabId"
           ref="otherStockInFormRef"
@@ -782,7 +773,6 @@ import ProductionPlanForm from "../modules/production/production-plan/Production
 import ProductionTaskForm from "../modules/production/production-task/ProductionTaskForm.vue";
 import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
 import OutsourcingDocumentForm from "../modules/outsourcing/OutsourcingDocumentForm.vue";
-import OutsourcingSurfaceForm from "../modules/outsourcing/surface/OutsourcingSurfaceForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
 import PurchaseReturnForm from "../modules/purchase/purchase-return/PurchaseReturnForm.vue";
@@ -863,7 +853,6 @@ const outsourcingIssueTabId = "outsourcing-issue-form";
 const outsourcingReceiptTabId = "outsourcing-receipt-form";
 const outsourcingReturnTabId = "outsourcing-return-form";
 const outsourcingScrapTabId = "outsourcing-scrap-form";
-const outsourcingSurfaceTabId = "outsourcing-surface-form";
 const otherStockInTabId = "other-in-form";
 const otherStockOutTabId = "other-out-form";
 const stockTransferTabId = "stock-transfer-form";
@@ -898,7 +887,6 @@ const outsourcingIssueFormRef = ref<InstanceType<typeof OutsourcingDocumentForm>
 const outsourcingReceiptFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
 const outsourcingReturnFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
 const outsourcingScrapFormRef = ref<InstanceType<typeof OutsourcingDocumentForm> | null>(null);
-const outsourcingSurfaceFormRef = ref<InstanceType<typeof OutsourcingSurfaceForm> | null>(null);
 const otherStockInFormRef = ref<InstanceType<typeof OtherStockInForm> | null>(null);
 const otherStockOutFormRef = ref<InstanceType<typeof OtherStockOutForm> | null>(null);
 const stockTransferFormRef = ref<InstanceType<typeof StockTransferForm> | null>(null);
@@ -1160,8 +1148,6 @@ function startNewModuleDocument(entryId: string) {
     outsourcingReturnFormRef.value?.startNew();
   } else if (entryId === outsourcingScrapTabId) {
     outsourcingScrapFormRef.value?.startNew();
-  } else if (entryId === outsourcingSurfaceTabId) {
-    outsourcingSurfaceFormRef.value?.startNew();
   } else if (entryId === otherStockInTabId) {
     otherStockInFormRef.value?.startNew();
   } else if (entryId === otherStockOutTabId) {
@@ -1258,14 +1244,6 @@ function createListRecordTarget(listKey: string) {
       title: "生产任务单",
       module: "生产管理",
       open: () => productionTaskFormRef.value?.startNew()
-    };
-  }
-  if (listKey === "outsourcing-surface-list") {
-    return {
-      tabId: outsourcingSurfaceTabId,
-      title: "委外表面处理",
-      module: "委外管理",
-      open: () => outsourcingSurfaceFormRef.value?.startNew()
     };
   }
   if (listKey === "outsourcing-work-order-list") {

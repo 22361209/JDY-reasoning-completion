@@ -192,7 +192,7 @@ const localActionFiles = frontendFiles.filter((file) => {
 });
 
 for (const file of localActionFiles) {
-  if (file.includes("modules/outsourcing/surface/") || file.includes("modules/production/production-task/")) {
+  if (file.includes("modules/production/production-task/")) {
     warnings.push(`${file} has local lifecycle-like actions and is an immature/boundary module to be reclaimed later`);
   }
 }
