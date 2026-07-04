@@ -1,0 +1,71 @@
+{
+  "productList": {
+    "sidebarVisible": 1,
+    "allTotal": "共 0 条200条/页500条/页1000条/页上一页第 1 页下一页",
+    "categoryTotal": "共 1026 条200条/页500条/页1000条/页上一页第 1 页下一页",
+    "firstRowHasCategory": true,
+    "bodyBackgroundImage": "none",
+    "bodyBackgroundColor": "rgb(255, 255, 255)",
+    "rowCount": 200
+  },
+  "quote": {
+    "label": "销售报价单",
+    "title": "选择商品",
+    "pagination": "共 0 条100条/页200条/页500条/页上一页第 1 / 1 页下一页",
+    "count": "共 0 条",
+    "afterCount": "共 1026 条",
+    "rowCountBefore": 0,
+    "rowCountAfter": 100,
+    "firstRowAfterHasCategory": true,
+    "firstRowCellsAfter": [
+      "",
+      "A23-A-20260624082922",
+      "A23候选商品20260624082922",
+      "粗牙 / 左",
+      "只",
+      "成品总成"
+    ],
+    "bodyBackgroundImage": "none",
+    "bodyBackgroundColor": "rgb(255, 255, 255)"
+  },
+  "order": {
+    "label": "销售订单",
+    "title": "选择商品",
+    "pagination": "共 0 条100条/页200条/页500条/页上一页第 1 / 1 页下一页",
+    "count": "共 0 条",
+    "afterCount": "共 1026 条",
+    "rowCountBefore": 0,
+    "rowCountAfter": 100,
+    "firstRowAfterHasCategory": true,
+    "firstRowCellsAfter": [
+      "",
+      "A23-A-20260624082922",
+      "A23候选商品20260624082922",
+      "粗牙 / 左",
+      "只",
+      "成品总成"
+    ],
+    "bodyBackgroundImage": "none",
+    "bodyBackgroundColor": "rgb(255, 255, 255)"
+  },
+  "salesOut": {
+    "label": "销售出库单",
+    "title": "选择商品",
+    "pagination": "共 0 条100条/页200条/页500条/页上一页第 1 / 1 页下一页",
+    "count": "共 0 条",
+    "afterCount": "共 1026 条",
+    "rowCountBefore": 0,
+    "rowCountAfter": 100,
+    "firstRowAfterHasCategory": true,
+    "firstRowCellsAfter": [
+      "",
+      "A23-A-20260624082922",
+      "A23候选商品20260624082922",
+      "粗牙 / 左",
+      "只",
+      "成品总成"
+    ],
+    "bodyBackgroundImage": "none",
+    "bodyBackgroundColor": "rgb(255, 255, 255)"
+  }
+}

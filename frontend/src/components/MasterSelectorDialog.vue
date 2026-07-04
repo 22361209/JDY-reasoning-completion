@@ -29,32 +29,22 @@
     @close="emit('close')"
   >
     <template #sidebar>
-      <button
-        type="button"
-        class="master-selector-dialog__tree-item"
-        :class="{ active: selectedCategory === '' }"
-        data-testid="master-selector-category-all"
-        @click="changeCategory('')"
-      >
-        全部{{ label }}
-      </button>
-      <template v-if="type === 'product'">
-        <span class="master-selector-dialog__tree-title">物料类别</span>
-        <button
-          v-for="category in categories"
-          :key="category.code || category.name"
-          type="button"
-          class="master-selector-dialog__tree-item"
-          :class="{ active: selectedCategory === category.name }"
-          :data-testid="`master-selector-category-${category.code || category.name}`"
-          @click="changeCategory(category.name)"
-        >
-          <strong>{{ category.name }}</strong>
-          <small v-if="category.code">{{ category.code }}</small>
-        </button>
-        <span v-if="categories.length === 0 && !loadingCategories" class="master-selector-dialog__tree-empty">暂无类别</span>
-      </template>
+      <ProductCategorySidebar
+        v-if="type === 'product'"
+        :categories="categories"
+        :selected-category="selectedCategory"
+        :loading="loadingCategories"
+        :message="categoryMessage"
+        @select="changeCategory"
+      />
       <template v-else>
+        <button
+          type="button"
+          class="product-category-sidebar__item active"
+          :data-testid="`master-selector-${type || 'master'}-all`"
+        >
+          全部{{ label }}
+        </button>
         <span>启用资料</span>
         <span>最近使用</span>
       </template>
@@ -65,7 +55,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { MasterOption } from "./EntryTable.vue";
+import ProductCategorySidebar from "./ProductCategorySidebar.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange } from "./SourceSelectorDialog.vue";
+import { useProductCategoryFacet } from "./useProductCategoryFacet";
 import { masterDataDefinitions } from "../modules/master-data/registry";
 import { fetchListRows } from "../services/listApi";
 
@@ -85,19 +77,22 @@ const emit = defineEmits<{
 }>();
 
 const rows = ref<SelectorRow[]>([]);
-const categories = ref<SelectorRow[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(100);
 const loading = ref(false);
-const loadingCategories = ref(false);
 const message = ref("");
 const draftKeyword = ref(props.keyword);
 const selectedCategory = ref("");
 const selectedCode = ref("");
 const columnFilters = ref<Record<string, { operator: string; value: string }>>({});
+const {
+  categories,
+  loadingCategories,
+  categoryMessage,
+  loadCategories: loadProductCategories
+} = useProductCategoryFacet();
 let requestSeq = 0;
-let categoryRequestSeq = 0;
 
 const listKey = computed(() => masterSelectorListKey(props.type));
 const selectorColumns = computed<SourceSelectorColumn[]>(() => [
@@ -168,27 +163,9 @@ function confirmSelected() {
 
 async function loadCategories() {
   if (props.type !== "product") {
-    categories.value = [];
     return;
   }
-  const seq = categoryRequestSeq + 1;
-  categoryRequestSeq = seq;
-  loadingCategories.value = true;
-  const result = await fetchListRows("product-category-list", {
-    keyword: "",
-    status: "",
-    page: 1,
-    pageSize: 500,
-    columnFilters: {
-      auditStatus: { operator: "等于", value: "已审核" },
-      status: { operator: "等于", value: "启用" }
-    }
-  });
-  if (seq !== categoryRequestSeq) {
-    return;
-  }
-  loadingCategories.value = false;
-  categories.value = result.ok && result.data ? result.data.rows.map(masterRowToOption) : [];
+  await loadProductCategories();
 }
 
 async function loadRows() {

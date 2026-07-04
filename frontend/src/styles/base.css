@@ -1929,6 +1929,42 @@ input:disabled {
   min-height: 0;
 }
 
+.data-list-content {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.data-list-content.has-product-category-sidebar {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid #d4dde8;
+  border-top: 0;
+  background: #ffffff;
+}
+
+.data-list-content.has-product-category-sidebar .table-core-frame {
+  border: 0;
+}
+
+.data-list-content.has-product-category-sidebar .data-list-native-table .vxe-table--body-wrapper {
+  background: #ffffff;
+}
+
+.data-list-content.has-product-category-sidebar .data-list-native-table .vxe-body--column {
+  border-bottom: 1px solid #e5ebf2;
+}
+
+.data-list-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .list-export-message {
   color: #2b6f4a;
   font-size: 13px;
@@ -3329,6 +3365,54 @@ input:disabled {
   color: #91a0af;
 }
 
+.product-category-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding: 8px;
+  border-right: 1px solid #d6e0ea;
+  background: #f8fafc;
+  color: #526273;
+  font-size: 12px;
+  overflow: auto;
+}
+
+.product-category-sidebar__title {
+  margin: 8px 0 2px;
+  color: #7a8796;
+  font-weight: 600;
+}
+
+.product-category-sidebar__item {
+  min-height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #405064;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.product-category-sidebar__item:hover,
+.product-category-sidebar__item.active {
+  background: #e6f0fb;
+  color: #1f5f99;
+}
+
+.product-category-sidebar__item small {
+  color: #8391a2;
+}
+
+.product-category-sidebar__empty {
+  color: #91a0ae;
+}
+
 .master-selector-dialog__table {
   overflow: auto;
   max-height: 560px;
@@ -4525,6 +4609,12 @@ th {
   color: #526273;
   font-size: 12px;
   overflow: auto;
+}
+
+.source-selector-sidebar > .product-category-sidebar {
+  flex: 1 1 auto;
+  margin: -8px;
+  border-right: 0;
 }
 
 .source-selector-table > .table-core-frame {

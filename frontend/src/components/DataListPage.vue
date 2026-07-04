@@ -94,152 +94,165 @@
       <button type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
     </div>
 
-    <TableCore
-      kind="list"
-      test-id="vxe-list-table"
-      frame-class="vxe-wrap"
-      inner-class="table-core-vxe-inner"
-      table-class="vxe-table data-list-native-table"
-      header-wrapper-class="vxe-table--header-wrapper body--wrapper"
-      body-wrapper-class="vxe-table--body-wrapper body--wrapper"
-      header-row-class="vxe-header--row"
-      row-class="vxe-body--row"
-      :columns="listCoreColumns"
-      :rows="displayedRows"
-      :min-width="listTableMinWidth"
-      :row-key="rowKey"
-      :cell-title="listCellTitle"
-      @column-drag-start="startListColumnMouseDrag"
-      @column-filter="openListColumnFilter"
-      @column-resize="resizeListColumn"
-      @column-resize-end="finishListColumnResize"
-    >
-      <template #header-cell="{ column, startResize }">
-        <template v-if="column.key === '__selection'">
-          <input
-            :checked="allDisplayedRowsSelected"
-            type="checkbox"
-            aria-label="全选列表行"
-            aria-hidden="true"
-            tabindex="-1"
-            data-testid="list-select-all"
-            @change="toggleAllDisplayedRows(($event.target as HTMLInputElement).checked)"
-          />
-          <span
-            class="vxe-checkbox--icon"
-            role="checkbox"
-            aria-label="全选列表行"
-            :aria-checked="allDisplayedRowsSelected"
-            tabindex="0"
-            data-testid="list-select-all-toggle"
-            @click="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
-            @keydown.enter.prevent="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
-            @keydown.space.prevent="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
-          />
-        </template>
-        <TableCoreHeaderCell
-          v-else
-          :title="column.title"
-          :column-key="column.key"
-          :test-id="column.dragTestId"
-          :filter-test-id="column.filterTestId"
-          :resize-test-id="column.resizeTestId"
-          :resizable="column.resizable !== false"
-          :filter-active="Boolean(column.filterActive)"
-          :dragging="Boolean(column.dragging)"
-          :drag-over="Boolean(column.dragOver)"
-          @drag-start="startListColumnMouseDrag(column, $event)"
-          @filter="openListColumnFilter(column, $event)"
-          @resize-start="startResize(column, $event)"
-        />
-      </template>
-      <template #cell="{ row, column }">
-        <template v-if="column.key === '__selection'">
-          <input
-            :checked="isRowSelected(row)"
-            type="checkbox"
-            aria-hidden="true"
-            tabindex="-1"
-            :data-testid="`list-select-${rowKey(row)}`"
-            @change="toggleRowSelection(row, ($event.target as HTMLInputElement).checked)"
-          />
-          <span
-            class="vxe-checkbox--icon"
-            role="checkbox"
-            aria-label="选择列表行"
-            :aria-checked="isRowSelected(row)"
-            tabindex="0"
-            :data-testid="`list-select-toggle-${rowKey(row)}`"
-            @click="toggleRowSelection(row, !isRowSelected(row))"
-            @keydown.enter.prevent="toggleRowSelection(row, !isRowSelected(row))"
-            @keydown.space.prevent="toggleRowSelection(row, !isRowSelected(row))"
-          />
-        </template>
-        <div v-else class="vxe-cell">
-          <span v-if="column.key === 'status'" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
-          <button
-            v-else-if="isOpenableListRecord && column.key === 'billNo'"
-            class="list-cell-link"
-            type="button"
-            :data-testid="`open-document-${cellValue(row, listColumnByKey(column.key))}`"
-            @click.stop="openDocument(row)"
-          >
-            {{ cellValue(row, listColumnByKey(column.key)) }}
-          </button>
-          <button
-            v-else-if="isOpenableMasterCodeColumn(column.key)"
-            class="list-cell-link"
-            type="button"
-            :data-testid="`open-master-${cellValue(row, listColumnByKey(column.key))}`"
-            @click.stop="openMasterRecord(row)"
-          >
-            {{ cellValue(row, listColumnByKey(column.key)) }}
-          </button>
-          <span v-else>{{ cellValue(row, listColumnByKey(column.key)) }}</span>
-        </div>
-      </template>
-      <template #overlay>
-      <div v-if="!loading && listState === 'empty'" class="list-state-panel" data-testid="list-empty-state">
-        <strong>暂无数据</strong>
-        <span>当前查询条件下没有匹配记录。</span>
-      </div>
-      <div v-if="!loading && listState === 'forbidden'" class="list-state-panel" data-testid="list-forbidden-state">
-        <strong>无权查看</strong>
-        <span>{{ stateMessage }}</span>
-      </div>
-      <div v-if="!loading && listState === 'error'" class="list-state-panel" data-testid="list-error-state">
-        <strong>加载失败</strong>
-        <span>{{ stateMessage }}</span>
-        <button type="button" @click="reload">重试</button>
-      </div>
-      </template>
-      <template v-if="hasListSummary" #footer>
-        <tr class="vxe-footer--row list-total-row" :data-testid="listSummaryRowTestId">
-          <td
-            v-for="column in listCoreColumns"
-            :key="column.key"
-            class="vxe-footer--column"
-            :class="`col--align-${column.align || 'left'}`"
-            :style="{ width: `${column.width ?? column.minWidth ?? 120}px`, minWidth: `${column.width ?? column.minWidth ?? 120}px`, maxWidth: `${column.width ?? column.minWidth ?? 120}px` }"
-            :data-testid="listSummaryCellTestId(column.key)"
-          >
-            <div class="vxe-cell">{{ listSummaryFooterValue(column.key) }}</div>
-          </td>
-        </tr>
-      </template>
-    </TableCore>
+    <div class="data-list-content" :class="{ 'has-product-category-sidebar': isProductMasterList }">
+      <ProductCategorySidebar
+        v-if="isProductMasterList"
+        :categories="productCategories"
+        :selected-category="selectedProductCategory"
+        :loading="loadingProductCategories"
+        :message="productCategoryMessage"
+        @select="selectProductCategory"
+      />
 
-    <footer class="list-pagination">
-      <span>共 {{ total }} 条</span>
-      <select v-model.number="query.pageSize" @change="reload">
-        <option :value="200">200条/页</option>
-        <option :value="500">500条/页</option>
-        <option :value="1000">1000条/页</option>
-      </select>
-      <button type="button" :disabled="query.page === 1" @click="goPage(query.page - 1)">上一页</button>
-      <span>第 {{ query.page }} 页</span>
-      <button type="button" :disabled="query.page * query.pageSize >= total" @click="goPage(query.page + 1)">下一页</button>
-    </footer>
+      <div class="data-list-main">
+        <TableCore
+          kind="list"
+          test-id="vxe-list-table"
+          frame-class="vxe-wrap"
+          inner-class="table-core-vxe-inner"
+          table-class="vxe-table data-list-native-table"
+          header-wrapper-class="vxe-table--header-wrapper body--wrapper"
+          body-wrapper-class="vxe-table--body-wrapper body--wrapper"
+          header-row-class="vxe-header--row"
+          row-class="vxe-body--row"
+          :columns="listCoreColumns"
+          :rows="displayedRows"
+          :min-width="listTableMinWidth"
+          :row-key="rowKey"
+          :cell-title="listCellTitle"
+          @column-drag-start="startListColumnMouseDrag"
+          @column-filter="openListColumnFilter"
+          @column-resize="resizeListColumn"
+          @column-resize-end="finishListColumnResize"
+        >
+          <template #header-cell="{ column, startResize }">
+            <template v-if="column.key === '__selection'">
+              <input
+                :checked="allDisplayedRowsSelected"
+                type="checkbox"
+                aria-label="全选列表行"
+                aria-hidden="true"
+                tabindex="-1"
+                data-testid="list-select-all"
+                @change="toggleAllDisplayedRows(($event.target as HTMLInputElement).checked)"
+              />
+              <span
+                class="vxe-checkbox--icon"
+                role="checkbox"
+                aria-label="全选列表行"
+                :aria-checked="allDisplayedRowsSelected"
+                tabindex="0"
+                data-testid="list-select-all-toggle"
+                @click="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
+                @keydown.enter.prevent="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
+                @keydown.space.prevent="toggleAllDisplayedRows(!allDisplayedRowsSelected)"
+              />
+            </template>
+            <TableCoreHeaderCell
+              v-else
+              :title="column.title"
+              :column-key="column.key"
+              :test-id="column.dragTestId"
+              :filter-test-id="column.filterTestId"
+              :resize-test-id="column.resizeTestId"
+              :resizable="column.resizable !== false"
+              :filter-active="Boolean(column.filterActive)"
+              :dragging="Boolean(column.dragging)"
+              :drag-over="Boolean(column.dragOver)"
+              @drag-start="startListColumnMouseDrag(column, $event)"
+              @filter="openListColumnFilter(column, $event)"
+              @resize-start="startResize(column, $event)"
+            />
+          </template>
+          <template #cell="{ row, column }">
+            <template v-if="column.key === '__selection'">
+              <input
+                :checked="isRowSelected(row)"
+                type="checkbox"
+                aria-hidden="true"
+                tabindex="-1"
+                :data-testid="`list-select-${rowKey(row)}`"
+                @change="toggleRowSelection(row, ($event.target as HTMLInputElement).checked)"
+              />
+              <span
+                class="vxe-checkbox--icon"
+                role="checkbox"
+                aria-label="选择列表行"
+                :aria-checked="isRowSelected(row)"
+                tabindex="0"
+                :data-testid="`list-select-toggle-${rowKey(row)}`"
+                @click="toggleRowSelection(row, !isRowSelected(row))"
+                @keydown.enter.prevent="toggleRowSelection(row, !isRowSelected(row))"
+                @keydown.space.prevent="toggleRowSelection(row, !isRowSelected(row))"
+              />
+            </template>
+            <div v-else class="vxe-cell">
+              <span v-if="column.key === 'status'" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
+              <button
+                v-else-if="isOpenableListRecord && column.key === 'billNo'"
+                class="list-cell-link"
+                type="button"
+                :data-testid="`open-document-${cellValue(row, listColumnByKey(column.key))}`"
+                @click.stop="openDocument(row)"
+              >
+                {{ cellValue(row, listColumnByKey(column.key)) }}
+              </button>
+              <button
+                v-else-if="isOpenableMasterCodeColumn(column.key)"
+                class="list-cell-link"
+                type="button"
+                :data-testid="`open-master-${cellValue(row, listColumnByKey(column.key))}`"
+                @click.stop="openMasterRecord(row)"
+              >
+                {{ cellValue(row, listColumnByKey(column.key)) }}
+              </button>
+              <span v-else>{{ cellValue(row, listColumnByKey(column.key)) }}</span>
+            </div>
+          </template>
+          <template #overlay>
+          <div v-if="!loading && listState === 'empty'" class="list-state-panel" data-testid="list-empty-state">
+            <strong>暂无数据</strong>
+            <span>当前查询条件下没有匹配记录。</span>
+          </div>
+          <div v-if="!loading && listState === 'forbidden'" class="list-state-panel" data-testid="list-forbidden-state">
+            <strong>无权查看</strong>
+            <span>{{ stateMessage }}</span>
+          </div>
+          <div v-if="!loading && listState === 'error'" class="list-state-panel" data-testid="list-error-state">
+            <strong>加载失败</strong>
+            <span>{{ stateMessage }}</span>
+            <button type="button" @click="reload">重试</button>
+          </div>
+          </template>
+          <template v-if="hasListSummary" #footer>
+            <tr class="vxe-footer--row list-total-row" :data-testid="listSummaryRowTestId">
+              <td
+                v-for="column in listCoreColumns"
+                :key="column.key"
+                class="vxe-footer--column"
+                :class="`col--align-${column.align || 'left'}`"
+                :style="{ width: `${column.width ?? column.minWidth ?? 120}px`, minWidth: `${column.width ?? column.minWidth ?? 120}px`, maxWidth: `${column.width ?? column.minWidth ?? 120}px` }"
+                :data-testid="listSummaryCellTestId(column.key)"
+              >
+                <div class="vxe-cell">{{ listSummaryFooterValue(column.key) }}</div>
+              </td>
+            </tr>
+          </template>
+        </TableCore>
+
+        <footer class="list-pagination">
+          <span>共 {{ total }} 条</span>
+          <select v-model.number="query.pageSize" @change="reload">
+            <option :value="200">200条/页</option>
+            <option :value="500">500条/页</option>
+            <option :value="1000">1000条/页</option>
+          </select>
+          <button type="button" :disabled="query.page === 1" @click="goPage(query.page - 1)">上一页</button>
+          <span>第 {{ query.page }} 页</span>
+          <button type="button" :disabled="query.page * query.pageSize >= total" @click="goPage(query.page + 1)">下一页</button>
+        </footer>
+      </div>
+    </div>
 
     <ColumnSettingsDialog
       :open="columnDialogOpen"
@@ -402,6 +415,8 @@ import {
 import { useDataListSelection } from "./list/useDataListSelection";
 import { useDataListSummary } from "./list/useDataListSummary";
 import ListQueryBar from "./list/ListQueryBar.vue";
+import ProductCategorySidebar from "./ProductCategorySidebar.vue";
+import { useProductCategoryFacet } from "./useProductCategoryFacet";
 
 const props = defineProps<{
   listKey: string;
@@ -427,6 +442,7 @@ const stateMessage = ref("");
 let reloadSerial = 0;
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
+const selectedProductCategory = ref("");
 const pendingAction = ref("");
 const pendingReason = ref("");
 const pendingVoidUsername = ref("");
@@ -523,6 +539,7 @@ const {
 const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
+const isProductMasterList = computed(() => props.listKey === "product-master-list");
 const canCopyMasterRecord = computed(() => props.listKey === "product-master-list");
 const isBomList = computed(() => props.listKey === "bom-list");
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
@@ -818,6 +835,12 @@ const listMoreActions = computed<ActionBarItem[]>(() => [
     testId: "batch-delete"
   })
 ]);
+const {
+  categories: productCategories,
+  loadingCategories: loadingProductCategories,
+  categoryMessage: productCategoryMessage,
+  loadCategories: loadProductCategories
+} = useProductCategoryFacet();
 const columnReorder = useColumnReorder<ListColumn>({
   getColumns: () => columns.value,
   setColumns: (nextColumns) => {
@@ -899,6 +922,7 @@ const deleteSupportedDocumentTypes = new Set<DocumentType>([
 
 watch(() => props.listKey, () => {
   loadDetailViewPreference();
+  selectedProductCategory.value = "";
   resetColumns();
   resetQuery(false);
   replaceColumnFilters({});
@@ -906,6 +930,9 @@ watch(() => props.listKey, () => {
   rows.value = [];
   total.value = 0;
   void loadOperationLogPresets(true);
+  if (isProductMasterList.value) {
+    void loadProductCategories();
+  }
   void reload();
 }, { immediate: false });
 
@@ -913,6 +940,9 @@ onMounted(() => {
   loadDetailViewPreference();
   resetColumns();
   resetQuery(false);
+  if (isProductMasterList.value) {
+    void loadProductCategories();
+  }
   void loadOperationLogPresets(true);
   reload();
 });
@@ -946,7 +976,7 @@ async function reload() {
   const serial = ++reloadSerial;
   const listKey = props.listKey;
   const view = isDetailView.value ? "detail" : "header";
-  const filters = snapshotColumnFilters();
+  const filters = productCategoryColumnFilters(snapshotColumnFilters());
   exportMessage.value = "";
   loading.value = true;
   listState.value = "ready";
@@ -973,9 +1003,19 @@ async function reload() {
   loading.value = false;
 }
 
+function productCategoryColumnFilters(filters: Record<string, TableColumnFilter>) {
+  if (!isProductMasterList.value || !selectedProductCategory.value) {
+    return filters;
+  }
+  return {
+    ...filters,
+    category: { operator: "等于", value: selectedProductCategory.value }
+  };
+}
+
 async function exportCurrentList() {
   exportMessage.value = "";
-  const result = await exportListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters });
+  const result = await exportListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters: productCategoryColumnFilters(snapshotColumnFilters()) });
   if (!result.ok || !result.blob) {
     exportMessage.value = result.message;
     return;
@@ -1216,6 +1256,7 @@ function operationLogPresetKey() {
 function resetQuery(shouldReload = true) {
   query.keyword = "";
   query.status = "";
+  selectedProductCategory.value = "";
   query.module = "";
   query.action = "";
   query.operator = "";
@@ -1228,6 +1269,12 @@ function resetQuery(shouldReload = true) {
   if (shouldReload) {
     reload();
   }
+}
+
+function selectProductCategory(category: string) {
+  selectedProductCategory.value = category;
+  query.page = 1;
+  reload();
 }
 
 function migratePresetStatusFilter(preset: ListFilterPreset) {
