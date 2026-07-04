@@ -9,6 +9,7 @@ import com.jdy.erp.production.application.MaterialIssueAppService.RedReverseRequ
 import com.jdy.erp.production.application.ProductInAppService;
 import com.jdy.erp.production.application.ProductInAppService.CompleteRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService;
+import com.jdy.erp.production.application.ProductionTaskAppService.BomAuditRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.BomRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.PlanRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.TaskRequest;
@@ -63,10 +64,16 @@ public class ProductionController {
         return taskAppService.bomDetail(code);
     }
 
+    @GetMapping("/boms/{code}/audit-preview")
+    @RequirePermission("master.data.manage")
+    public Map<String, Object> bomAuditPreview(@PathVariable String code) {
+        return taskAppService.bomAuditPreview(code);
+    }
+
     @PostMapping("/boms/{code}/audit")
     @RequirePermission("master.data.manage")
-    public Map<String, Object> auditBom(@PathVariable String code) {
-        return taskAppService.auditBom(code);
+    public Map<String, Object> auditBom(@PathVariable String code, @RequestBody(required = false) BomAuditRequest request) {
+        return taskAppService.auditBom(code, request);
     }
 
     @PostMapping("/boms/{code}/reverse")

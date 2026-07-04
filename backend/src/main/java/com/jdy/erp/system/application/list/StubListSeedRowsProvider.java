@@ -1671,11 +1671,14 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    b.version_no AS "versionNo",
                    CASE WHEN b.is_current THEN '是' ELSE '否' END AS "isCurrent",
                    CASE WHEN b.audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   b.enabled AS enabled,
                    CASE WHEN b.enabled THEN '启用' ELSE '禁用' END AS status,
                    COALESCE(b.remark, '') AS remark,
+                   COALESCE(u.display_name, u.username, '-') AS "updatedBy",
                    to_char(b.updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM prod_bom b
             JOIN md_product p ON p.id = b.product_id
+            LEFT JOIN sys_user u ON u.id = b.updated_by
             ORDER BY b.updated_at DESC, b.code
             """));
     }

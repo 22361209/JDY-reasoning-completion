@@ -397,6 +397,7 @@ import {
   type ListFilterPreset
 } from "../services/listApi";
 import { auditDocument, deleteDocument, lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
+import { setBomEnabled } from "../services/productionApi";
 import {
   isAuditedBillStatus,
   isDraftBillStatus,
@@ -428,7 +429,7 @@ const emit = defineEmits<{
   pushDownPurchaseIn: [row: Record<string, unknown>];
   openDocument: [payload: { type: OpenableDocumentType; row: Record<string, unknown> }];
   createDocument: [payload: { type: OpenableDocumentType }];
-  createListRecord: [payload: { listKey: string; row?: Record<string, unknown> }];
+  createListRecord: [payload: { listKey: string; row?: Record<string, unknown>; mode?: "copy" }];
   createMasterData: [payload: { listKey: string }];
   viewMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
   editMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
@@ -469,7 +470,7 @@ const columnFilterSnapshots = reactive<Record<string, Record<string, TableColumn
 const columnPreferenceVersion = "v3";
 const query = reactive({
   keyword: "",
-  status: "",
+  status: defaultListStatus(),
   page: 1,
   pageSize: 200,
   module: "",
@@ -542,6 +543,7 @@ const isMasterList = masterMaintenance.isMasterList;
 const isProductMasterList = computed(() => props.listKey === "product-master-list");
 const canCopyMasterRecord = computed(() => props.listKey === "product-master-list");
 const isBomList = computed(() => props.listKey === "bom-list");
+const canCopyCurrentRecord = computed(() => canCopyMasterRecord.value || isBomList.value);
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
@@ -672,6 +674,10 @@ const canBatchFreeze = computed(() => supportsBatchCloseFreeze.value && canOpera
 const canBatchUnfreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus === "FROZEN"));
 const canBatchVoid = computed(() => Boolean(currentLifecyclePolicy.value?.voidAllowed) && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
 const canBatchDelete = computed(() => supportsBatchDelete.value && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
+const selectedBomRows = computed(() => selectedRows.value.filter((row) => String(row.code ?? "").trim()));
+const canOperateBomStatus = computed(() => isBomList.value && canMaintainCurrentList.value && selectedBomRows.value.length === 1 && !selectedContainsLockedRow.value);
+const canEnableSelectedBom = computed(() => canOperateBomStatus.value && !isBomRowEnabled(selectedBomRows.value[0]));
+const canDisableSelectedBom = computed(() => canOperateBomStatus.value && isBomRowEnabled(selectedBomRows.value[0]));
 const pendingActionRequiresReason = computed(() => ["关闭", "冻结", "作废"].includes(pendingAction.value));
 const pendingActionTargetCount = computed(() => {
   if (pendingAction.value === "删除" && !isMasterList.value) {
@@ -737,9 +743,9 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   defineAction("copy", {
     label: "复制",
     order: 24,
-    visible: canCopyMasterRecord.value,
+    visible: canCopyCurrentRecord.value,
     enabled: canMaintainCurrentList.value && selectedRows.value.length === 1,
-    testId: "master-copy"
+    testId: isBomList.value ? "bom-copy" : "master-copy"
   }),
   defineAction("audit", {
     visible: isMasterList.value,
@@ -752,14 +758,21 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
     testId: "master-reverse-audit"
   }),
   defineAction("enable", {
-    visible: isMasterList.value,
-    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
-    testId: "master-enable"
+    visible: isMasterList.value || isBomList.value,
+    enabled: isBomList.value ? canEnableSelectedBom.value : canMaintainCurrentList.value && selectedRows.value.length > 0,
+    testId: isBomList.value ? "bom-enable" : "master-enable"
   }),
   defineAction("disable", {
-    visible: isMasterList.value,
-    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
-    testId: "master-disable"
+    visible: isMasterList.value || isBomList.value,
+    enabled: isBomList.value ? canDisableSelectedBom.value : canMaintainCurrentList.value && selectedRows.value.length > 0,
+    testId: isBomList.value ? "bom-disable" : "master-disable"
+  }),
+  defineAction("bomStatusFilter", {
+    label: query.status === "禁用" ? "只看启用" : "只看禁用",
+    order: 172,
+    visible: isBomList.value,
+    enabled: true,
+    testId: "bom-status-filter-toggle"
   }),
   defineAction("audit", {
     key: "batchAudit",
@@ -1255,7 +1268,7 @@ function operationLogPresetKey() {
 
 function resetQuery(shouldReload = true) {
   query.keyword = "";
-  query.status = "";
+  query.status = defaultListStatus();
   selectedProductCategory.value = "";
   query.module = "";
   query.action = "";
@@ -1269,6 +1282,10 @@ function resetQuery(shouldReload = true) {
   if (shouldReload) {
     reload();
   }
+}
+
+function defaultListStatus() {
+  return props.listKey === "bom-list" ? "启用" : "";
 }
 
 function selectProductCategory(category: string) {
@@ -1349,11 +1366,23 @@ function handleListAction(actionKey: string) {
     return;
   }
   if (actionKey === "enable") {
+    if (isBomList.value) {
+      void submitBomStatus(true);
+      return;
+    }
     void submitMasterStatus(true);
     return;
   }
   if (actionKey === "disable") {
+    if (isBomList.value) {
+      void submitBomStatus(false);
+      return;
+    }
     void submitMasterStatus(false);
+    return;
+  }
+  if (actionKey === "bomStatusFilter") {
+    toggleBomStatusFilter();
     return;
   }
   if (actionKey === "batchAudit") {
@@ -1666,6 +1695,10 @@ function openEditDialog() {
 
 function openCopyDialog() {
   const row = selectedRows.value[0];
+  if (isBomList.value && row) {
+    emit("createListRecord", { listKey: props.listKey, row, mode: "copy" });
+    return;
+  }
   if (canCopyMasterRecord.value && row) {
     emit("copyMasterData", { listKey: props.listKey, row });
   }
@@ -1679,8 +1712,42 @@ async function submitMasterStatus(enabled: boolean) {
   await masterMaintenance.submitStatus(enabled);
 }
 
+async function submitBomStatus(enabled: boolean) {
+  if (selectedBomRows.value.length !== 1) {
+    batchMessage.value = "BOM 启用/禁用一次只能操作一条。";
+    return;
+  }
+  const targets = selectedBomRows.value
+    .filter((row) => enabled ? !isBomRowEnabled(row) : isBomRowEnabled(row))
+    .map((row) => String(row.code ?? "").trim())
+    .filter(Boolean);
+  if (!targets.length) {
+    batchMessage.value = enabled ? "请选择禁用 BOM 再启用。" : "请选择启用 BOM 再禁用。";
+    return;
+  }
+  const results = await Promise.all(targets.map((code) => setBomEnabled(code, enabled)));
+  const failed = results.filter((result) => !result.ok);
+  batchMessage.value = failed.length
+    ? `${enabled ? "启用" : "禁用"}完成 ${targets.length - failed.length}/${targets.length}，失败：${failed[0]?.message || "请检查 BOM 状态"}`
+    : `已${enabled ? "启用" : "禁用"} ${targets.length} 条 BOM。`;
+  await reload();
+}
+
+function isBomRowEnabled(row: Record<string, unknown>) {
+  return row.enabled === true;
+}
+
 async function submitMasterDelete() {
   return masterMaintenance.submitDelete();
+}
+
+function toggleBomStatusFilter() {
+  if (!isBomList.value) {
+    return;
+  }
+  query.status = query.status === "禁用" ? "启用" : "禁用";
+  query.page = 1;
+  reload();
 }
 
 function listColumnByKey(key: string) {

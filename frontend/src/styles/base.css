@@ -3655,24 +3655,28 @@ td input {
   box-sizing: border-box;
 }
 
-.entry-table tbody tr[data-testid$="-entry-row"] {
+.entry-table tbody tr[data-testid$="-entry-row"],
+.entry-table tbody tr[data-entry-kind="bom"] {
   height: 32px;
 }
 
-.entry-table tbody tr[data-testid$="-entry-row"] td {
+.entry-table tbody tr[data-testid$="-entry-row"] td,
+.entry-table tbody tr[data-entry-kind="bom"] td {
   position: relative;
   height: 32px;
   padding: 2px;
   line-height: 20px;
 }
 
-.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) {
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)),
+.entry-table tbody tr[data-entry-kind="bom"] td:has(input:not(:disabled)) {
   height: 32px;
   padding-left: 2px;
   padding-right: 2px;
 }
 
-.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input {
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input,
+.entry-table tbody tr[data-entry-kind="bom"] td:has(input:not(:disabled)) input {
   height: 28px;
   border-color: transparent;
   background: transparent;
@@ -3680,7 +3684,9 @@ td input {
 }
 
 .entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input:hover,
-.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input:focus {
+.entry-table tbody tr[data-testid$="-entry-row"] td:has(input:not(:disabled)) input:focus,
+.entry-table tbody tr[data-entry-kind="bom"] td:has(input:not(:disabled)) input:hover,
+.entry-table tbody tr[data-entry-kind="bom"] td:has(input:not(:disabled)) input:focus {
   border-color: #cfd9e5;
   background: #ffffff;
   outline: 0;

@@ -674,6 +674,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "isCurrent", title: "当前版本", width: 90, visible: true },
       { field: "auditStatus", title: "审核状态", width: 100, visible: true },
       { field: "status", title: "启用状态", width: 100, visible: true },
+      { field: "updatedBy", title: "最后修改人", width: 120, visible: true },
       { field: "updatedAt", title: "最后修改时间", width: 150, visible: true },
       { field: "remark", title: "BOM备注", width: 220, visible: false }
     ]

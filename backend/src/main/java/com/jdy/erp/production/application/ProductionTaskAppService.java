@@ -13,6 +13,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,14 +29,16 @@ public class ProductionTaskAppService {
     private final OperationLogService operationLogService;
     private final NumberingService numberingService;
     private final TenantDataScopeService tenantDataScopeService;
+    private final CurrentSessionService currentSessionService;
 
-    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService, TenantDataScopeService tenantDataScopeService) {
+    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService, TenantDataScopeService tenantDataScopeService, CurrentSessionService currentSessionService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
         this.operationLogService = operationLogService;
         this.numberingService = numberingService;
         this.tenantDataScopeService = tenantDataScopeService;
+        this.currentSessionService = currentSessionService;
     }
 
     @Transactional
@@ -45,6 +48,7 @@ public class ProductionTaskAppService {
         var productId = String.valueOf(product.get("id"));
         var requestedCode = validationService.required(request.code(), "BOM 编码");
         var bomQty = positive(request.qty(), "母件数量");
+        var userId = currentSessionService.currentUserId();
         var existingDraft = jdbcTemplate.queryForList("""
             SELECT id::text AS id
             FROM prod_bom
@@ -60,8 +64,8 @@ public class ProductionTaskAppService {
         );
         var bomId = existingDraft.isEmpty()
             ? String.valueOf(jdbcTemplate.queryForMap("""
-                INSERT INTO prod_bom (code, product_id, qty, enabled, audit_status, version_no, is_current, bom_category, remark, updated_at)
-                VALUES (?, ?::uuid, ?, TRUE, 'DRAFT', ?, FALSE, ?, ?, now())
+                INSERT INTO prod_bom (code, product_id, qty, enabled, audit_status, version_no, is_current, bom_category, remark, updated_at, updated_by)
+                VALUES (?, ?::uuid, ?, TRUE, 'DRAFT', ?, FALSE, ?, ?, now(), ?::uuid)
                 RETURNING id::text AS id
                 """,
                 requestedCode,
@@ -69,7 +73,8 @@ public class ProductionTaskAppService {
                 bomQty,
                 versionNo == null ? 1 : versionNo,
                 validationService.optionalText(request.bomCategory()),
-                validationService.optionalText(request.remark())
+                validationService.optionalText(request.remark()),
+                userId
             ).get("id"))
             : String.valueOf(existingDraft.get(0).get("id"));
         if (!existingDraft.isEmpty()) {
@@ -81,6 +86,7 @@ public class ProductionTaskAppService {
                     is_current = FALSE,
                     bom_category = ?,
                     remark = ?,
+                    updated_by = ?::uuid,
                     updated_at = now()
                 WHERE id = ?::uuid
                 """,
@@ -88,6 +94,7 @@ public class ProductionTaskAppService {
                 bomQty,
                 validationService.optionalText(request.bomCategory()),
                 validationService.optionalText(request.remark()),
+                userId,
                 bomId
             );
         }
@@ -100,9 +107,7 @@ public class ProductionTaskAppService {
             var materialQty = line.materialQty() == null
                 ? positive(line.qty(), "材料用量")
                 : positive(line.materialQty(), "材料用量");
-            var unitQty = line.unitQty() == null
-                ? materialQty.divide(productQty, 6, RoundingMode.HALF_UP)
-                : positive(line.unitQty(), "单位用量");
+            var unitQty = materialQty.divide(productQty, 6, RoundingMode.HALF_UP);
             var issueWarehouseCode = validationService.optionalText(line.issueWarehouseCode());
             var issueWarehouseId = issueWarehouseCode == null
                 ? nullableText(material.get("defaultWarehouseId"))
@@ -146,48 +151,126 @@ public class ProductionTaskAppService {
         return bomDetailById(String.valueOf(bom.get("id")));
     }
 
+    public Map<String, Object> bomAuditPreview(String code) {
+        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bomId = String.valueOf(bom.get("id"));
+        return bomAuditPreviewForBom(bom, bomId);
+    }
+
+    private Map<String, Object> bomAuditPreviewForBom(Map<String, Object> bom, String bomId) {
+        var latestAuditedRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   version_no AS "versionNo"
+            FROM prod_bom
+            WHERE product_id = ?::uuid
+              AND id <> ?::uuid
+              AND audit_status = 'AUDITED'
+            ORDER BY version_no DESC, updated_at DESC, created_at DESC
+            LIMIT 1
+            """, bom.get("productId"), bomId);
+        if (latestAuditedRows.isEmpty()) {
+            return Map.of("requiresConfirmation", false);
+        }
+        var latestBom = latestAuditedRows.get(0);
+        var draftLineSignatures = bomLineSignatures(bomId);
+        var latestLineSignatures = bomLineSignatures(String.valueOf(latestBom.get("id")));
+        if (!draftLineSignatures.isEmpty() && draftLineSignatures.equals(latestLineSignatures)) {
+            var result = new LinkedHashMap<String, Object>();
+            result.put("blocked", true);
+            result.put("reason", "SAME_AS_LATEST_BOM");
+            result.put("latestBomCode", latestBom.get("code"));
+            result.put("latestVersionNo", latestBom.get("versionNo"));
+            result.put("message", "当前草稿的子件物料与当前版本 BOM 完全一致，请核对后重新提交或关闭。");
+            return result;
+        }
+        var draftMaterialCodes = bomMaterialCodes(bomId);
+        var latestMaterialCodes = bomMaterialCodes(String.valueOf(latestBom.get("id")));
+        if (draftMaterialCodes.isEmpty() || draftMaterialCodes.equals(latestMaterialCodes)) {
+            return Map.of("requiresConfirmation", false);
+        }
+        var result = new LinkedHashMap<String, Object>();
+        result.put("requiresConfirmation", true);
+        result.put("latestBomCode", latestBom.get("code"));
+        result.put("latestVersionNo", latestBom.get("versionNo"));
+        result.put("message", "该母件已有已审核 BOM，当前草稿的子件物料编码与当前版本不同。审核后会新增该母件的新版本，并禁用旧版本。");
+        return result;
+    }
+
     @Transactional
     public Map<String, Object> auditBom(String code) {
+        return auditBom(code, null);
+    }
+
+    @Transactional
+    public Map<String, Object> auditBom(String code, BomAuditRequest request) {
         var bom = findBomByCode(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
         var productId = String.valueOf(bom.get("productId"));
+        var userId = currentSessionService.currentUserId();
         var lineCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM prod_bom_line WHERE bom_id = ?::uuid", Integer.class, bomId);
         if (lineCount == null || lineCount == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 至少需要一条子件明细");
         }
+        enforceBomAuditPreview(bom, bomId, request);
         jdbcTemplate.update("""
             UPDATE prod_bom
             SET is_current = FALSE,
                 enabled = FALSE,
+                updated_by = ?::uuid,
                 updated_at = now()
             WHERE product_id = ?::uuid
               AND id <> ?::uuid
               AND is_current = TRUE
-            """, productId, bomId);
+            """, userId, productId, bomId);
         jdbcTemplate.update("""
             UPDATE prod_bom
             SET audit_status = 'AUDITED',
                 enabled = TRUE,
                 is_current = TRUE,
+                updated_by = ?::uuid,
                 updated_at = now()
             WHERE id = ?::uuid
-            """, bomId);
+            """, userId, bomId);
         operationLogService.log("PRODUCTION", "AUDIT_BOM", "prod_bom", bomId, true, null);
         return bomDetailById(bomId);
+    }
+
+    private void enforceBomAuditPreview(Map<String, Object> bom, String bomId, BomAuditRequest request) {
+        var preview = bomAuditPreviewForBom(bom, bomId);
+        var message = String.valueOf(preview.getOrDefault("message", ""));
+        if (Boolean.TRUE.equals(preview.get("blocked"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+        if (!Boolean.TRUE.equals(preview.get("requiresConfirmation"))) {
+            return;
+        }
+        if (request == null || !Boolean.TRUE.equals(request.confirmNewVersion())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+        }
+        var latestBomCode = String.valueOf(preview.getOrDefault("latestBomCode", ""));
+        var latestVersionNo = String.valueOf(preview.getOrDefault("latestVersionNo", ""));
+        var confirmedBomCode = validationService.optionalText(request.latestBomCode());
+        var confirmedVersionNo = validationService.optionalText(request.latestVersionNo());
+        if (!latestBomCode.equals(confirmedBomCode) || !latestVersionNo.equals(confirmedVersionNo)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "当前母件最新 BOM 已变化，请重新审核。");
+        }
     }
 
     @Transactional
     public Map<String, Object> reverseBom(String code) {
         var bom = findBomByCode(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
+        var userId = currentSessionService.currentUserId();
         ensureBomNotReferenced(bomId, "反审核");
         jdbcTemplate.update("""
             UPDATE prod_bom
             SET audit_status = 'DRAFT',
                 is_current = FALSE,
+                updated_by = ?::uuid,
                 updated_at = now()
             WHERE id = ?::uuid
-            """, bomId);
+            """, userId, bomId);
         operationLogService.log("PRODUCTION", "REVERSE_BOM", "prod_bom", bomId, true, null);
         return bomDetailById(bomId);
     }
@@ -196,6 +279,7 @@ public class ProductionTaskAppService {
     public Map<String, Object> setBomEnabled(String code, boolean enabled) {
         var bom = findBomByCode(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
+        var userId = currentSessionService.currentUserId();
         if (enabled && !"AUDITED".equals(String.valueOf(bom.get("auditStatus")))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 未审核，不能启用为当前版本");
         }
@@ -204,19 +288,21 @@ public class ProductionTaskAppService {
                 UPDATE prod_bom
                 SET enabled = FALSE,
                     is_current = FALSE,
+                    updated_by = ?::uuid,
                     updated_at = now()
                 WHERE product_id = ?::uuid
                   AND id <> ?::uuid
                   AND is_current = TRUE
-                """, bom.get("productId"), bomId);
+                """, userId, bom.get("productId"), bomId);
         }
         jdbcTemplate.update("""
             UPDATE prod_bom
             SET enabled = ?,
                 is_current = ?,
+                updated_by = ?::uuid,
                 updated_at = now()
             WHERE id = ?::uuid
-            """, enabled, enabled, bomId);
+            """, enabled, enabled, userId, bomId);
         operationLogService.log("PRODUCTION", enabled ? "ENABLE_BOM" : "DISABLE_BOM", "prod_bom", bomId, true, null);
         return bomDetailById(bomId);
     }
@@ -303,6 +389,63 @@ public class ProductionTaskAppService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "BOM 不存在");
         }
         return rows.get(0);
+    }
+
+    private List<String> bomMaterialCodes(String bomId) {
+        return jdbcTemplate.queryForList("""
+            SELECT material.code
+            FROM prod_bom_line line
+            JOIN md_product material ON material.id = line.material_id
+            WHERE line.bom_id = ?::uuid
+            ORDER BY line.line_no
+            """, String.class, bomId);
+    }
+
+    private List<String> bomLineSignatures(String bomId) {
+        return jdbcTemplate.queryForList("""
+            SELECT material.code AS "materialCode",
+                   line.product_qty AS "productQty",
+                   COALESCE(line.material_qty, line.qty) AS "materialQty",
+                   line.issue_method AS "issueMethod",
+                   COALESCE(line.issue_warehouse_code, '') AS "issueWarehouseCode",
+                   line.fixed_loss_qty AS "fixedLossQty",
+                   line.loss_rate AS "lossRate",
+                   COALESCE(line.child_bom_code_snapshot, '') AS "childBomCode"
+            FROM prod_bom_line line
+            JOIN md_product material ON material.id = line.material_id
+            WHERE line.bom_id = ?::uuid
+            ORDER BY line.line_no
+            """, bomId).stream()
+            .map(this::bomLineSignature)
+            .toList();
+    }
+
+    private String bomLineSignature(Map<String, Object> line) {
+        return String.join("|",
+            signatureText(line.get("materialCode")),
+            normalizedDecimal(line.get("productQty")),
+            normalizedDecimal(line.get("materialQty")),
+            signatureText(line.get("issueMethod")),
+            signatureText(line.get("issueWarehouseCode")),
+            normalizedDecimal(line.get("fixedLossQty")),
+            normalizedDecimal(line.get("lossRate")),
+            signatureText(line.get("childBomCode"))
+        );
+    }
+
+    private String normalizedDecimal(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof BigDecimal decimal) {
+            return decimal.stripTrailingZeros().toPlainString();
+        }
+        return signatureText(value);
+    }
+
+    private String signatureText(Object value) {
+        var text = nullableText(value);
+        return text == null ? "" : text;
     }
 
     private Map<String, Object> lookupAuditedMaterial(String code, String label) {
@@ -919,6 +1062,9 @@ public class ProductionTaskAppService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 至少需要一条物料");
             }
         }
+    }
+
+    public record BomAuditRequest(Boolean confirmNewVersion, String latestBomCode, String latestVersionNo) {
     }
 
     public record BomLineRequest(

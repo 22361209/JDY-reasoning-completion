@@ -25,6 +25,12 @@ export interface BomPayload {
   }>;
 }
 
+export interface BomAuditConfirmation {
+  confirmNewVersion?: boolean;
+  latestBomCode?: string;
+  latestVersionNo?: string | number;
+}
+
 export interface ProductionPlanPayload {
   billNo?: string;
   productCode?: string;
@@ -106,8 +112,12 @@ export function fetchBomDetail(code: string) {
   return requestJson(`/api/production/boms/${encodeURIComponent(code)}`, "GET");
 }
 
-export function auditBom(code: string) {
-  return postJson(`/api/production/boms/${encodeURIComponent(code)}/audit`, {});
+export function fetchBomAuditPreview(code: string) {
+  return requestJson(`/api/production/boms/${encodeURIComponent(code)}/audit-preview`, "GET");
+}
+
+export function auditBom(code: string, confirmation: BomAuditConfirmation = {}) {
+  return postJson(`/api/production/boms/${encodeURIComponent(code)}/audit`, compactPayload(confirmation as Record<string, unknown>));
 }
 
 export function reverseBom(code: string) {

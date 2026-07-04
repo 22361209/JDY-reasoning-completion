@@ -7,7 +7,7 @@
     test-id="bom-entry-table-core"
     frame-class="entry-table bom-entry-table"
     table-class="entry-native-table"
-    :columns="visibleBomEntryColumns"
+    :columns="bomEntryCoreColumns"
     :rows="lines"
     :min-width="1280"
     :max-resize-width="420"
@@ -15,7 +15,9 @@
     :row-attrs="bomRowAttrs"
     :cell-attrs="bomCellAttrs"
     :row-draggable="false"
+    @column-drag-start="startBomColumnMouseDrag"
     @column-resize="resizeBomColumn"
+    @column-resize-end="finishBomColumnResize"
   >
     <template #header-cell="{ column, startResize }">
       <TableCoreHeaderCell
@@ -27,6 +29,9 @@
         :filterable="column.key !== 'rowNo'"
         :filter-active="isFilterActive(column.key)"
         :resizable="column.resizable !== false"
+        :dragging="Boolean(column.dragging)"
+        :drag-over="Boolean(column.dragOver)"
+        @drag-start="startBomColumnMouseDrag(column, $event)"
         @filter="openBomColumnFilter(column, $event)"
         @resize-start="startResize(column, $event)"
       />
@@ -63,6 +68,16 @@
           @keydown.enter.prevent="confirmMaterialLookup(line, rowIndex)"
           @blur="closeMaterialLookupLater"
         />
+        <button
+          class="master-selector__open"
+          type="button"
+          :disabled="!isDraft"
+          :data-testid="`bom-line-material-${rowIndex + 1}-open-selector`"
+          title="整列表选择"
+          aria-label="整列表选择"
+          @mousedown.prevent
+          @click="emit('openMaterialSelector', rowIndex, line.materialCode)"
+        >...</button>
         <span v-if="activeMaterialLookupIndex === rowIndex" class="master-selector__menu">
           <button
             v-for="(option, optionIndex) in filteredMaterialOptions(line.materialCode)"
@@ -82,7 +97,7 @@
       <span v-else-if="column.key === 'unit'" class="entry-cell-value">{{ line.unit }}</span>
       <input v-else-if="column.key === 'productQty'" v-model.number="line.productQty" :disabled="!isDraft" type="number" min="0" step="0.01" @input="updateUnitQty(line)" />
       <input v-else-if="column.key === 'materialQty'" v-model.number="line.materialQty" :disabled="!isDraft" :data-testid="`bom-line-qty-${rowIndex + 1}`" type="number" min="0" step="0.01" @input="updateUnitQty(line)" />
-      <input v-else-if="column.key === 'unitQty'" v-model.number="line.unitQty" :disabled="!isDraft" type="number" min="0" step="0.0001" @input="emit('markDirty')" />
+      <input v-else-if="column.key === 'unitQty'" :value="formatUnitQty(line.unitQty)" disabled type="number" min="0" step="0.0001" />
       <select v-else-if="column.key === 'issueMethod'" v-model="line.issueMethod" :disabled="!isDraft" @change="emit('markDirty')">
         <option>按单领料</option>
         <option>倒冲领料</option>
@@ -102,7 +117,7 @@
     dialog-test-id="bom-entry-column-settings-dialog"
     ok-test-id="bom-entry-column-settings-ok"
     @reset="resetBomColumns"
-    @confirm="columnDialogOpen = false"
+    @confirm="closeColumnSettings"
   />
 
   <ColumnFilterPopover
@@ -118,6 +133,15 @@
     @apply="applyColumnFilter"
     @clear="clearColumnFilter"
   />
+
+  <div
+    v-if="columnReorder.draggingKey.value"
+    class="column-drag-ghost"
+    :style="{ left: `${columnReorder.dragGhostLeft.value}px`, top: `${columnReorder.dragGhostTop.value}px` }"
+    data-testid="bom-entry-column-drag-ghost"
+  >
+    {{ draggingColumnTitle }}
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -127,6 +151,7 @@ import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
 import TableCoreHeaderCell from "./table/TableCoreHeaderCell.vue";
 import { tableFilterOperators, useColumnFilters } from "./table/useColumnFilters";
+import { canReorderColumn, useColumnReorder } from "./table/useColumnReorder";
 
 export interface BomEntryLine {
   localId: string;
@@ -169,6 +194,7 @@ const emit = defineEmits<{
   markDirty: [];
   insertLineAfter: [index: number];
   removeLine: [index: number];
+  openMaterialSelector: [index: number, keyword: string];
 }>();
 
 const activeMaterialLookupIndex = ref<number | null>(null);
@@ -176,14 +202,15 @@ const materialLookupCursor = ref(0);
 const columnDialogOpen = ref(false);
 const lines = computed(() => props.lines);
 const isDraft = computed(() => props.isDraft);
+const bomEntryColumnPreferenceKey = "jdy:bom-entry-columns:v1";
 const defaultBomEntryColumns: BomEntryColumn[] = [
   { key: "rowNo", title: "序号", width: 48, minWidth: 48, fixed: "left", align: "center", resizable: false, visible: true, configurable: false, headerClass: "entry-row-no-cell entry-frozen-cell", cellClass: "entry-row-no-cell entry-frozen-cell" },
   { key: "materialCode", title: "子件物料编码", width: 150, minWidth: 96, visible: true },
   { key: "materialName", title: "物料名称", width: 170, minWidth: 96, visible: true },
   { key: "spec", title: "规格型号", width: 150, minWidth: 96, visible: true },
   { key: "unit", title: "单位", width: 76, minWidth: 64, visible: true },
-  { key: "productQty", title: "母件数量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
-  { key: "materialQty", title: "子件数量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "productQty", title: "产品产量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "materialQty", title: "材料用量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
   { key: "unitQty", title: "单位用量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
   { key: "issueMethod", title: "领料方式", width: 118, minWidth: 96, visible: true },
   { key: "issueWarehouseCode", title: "发料仓库", width: 130, minWidth: 96, visible: true },
@@ -191,9 +218,37 @@ const defaultBomEntryColumns: BomEntryColumn[] = [
   { key: "lossRate", title: "损耗率%", width: 98, minWidth: 80, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
   { key: "childBomCode", title: "子件BOM", width: 136, minWidth: 96, visible: true }
 ];
-const bomEntryColumns = ref<BomEntryColumn[]>(defaultBomEntryColumns.map((column) => ({ ...column })));
+const bomEntryColumns = ref<BomEntryColumn[]>(loadBomColumnPreferences());
 const visibleBomEntryColumns = computed(() => bomEntryColumns.value.filter((column) => column.visible));
 const configurableBomEntryColumns = computed(() => bomEntryColumns.value.filter((column) => column.configurable !== false));
+const columnReorder = useColumnReorder<BomEntryColumn>({
+  getColumns: () => bomEntryColumns.value,
+  setColumns: (nextColumns) => { bomEntryColumns.value = nextColumns; },
+  getKey: (column) => column.key,
+  getTitle: (column) => column.title,
+  normalize: normalizeBomEntryColumns,
+  canReorder: (column) => column.configurable !== false && canReorderColumn(column),
+  onReorder: persistBomColumnPreferences
+});
+const bomEntryCoreColumns = computed<TableCoreColumn[]>(() => visibleBomEntryColumns.value.map((column) => ({
+  key: column.key,
+  title: column.title,
+  width: column.width,
+  minWidth: column.minWidth,
+  align: column.align,
+  fixed: column.fixed,
+  filterable: column.key !== "rowNo",
+  resizable: column.resizable !== false,
+  filterActive: isFilterActive(column.key),
+  dragging: columnReorder.draggingKey.value === column.key,
+  dragOver: columnReorder.dragOverKey.value === column.key,
+  dragTestId: `bom-column-drag-${column.key}`,
+  filterTestId: `bom-column-filter-${column.key}`,
+  resizeTestId: `bom-column-resize-${column.key}`,
+  headerClass: column.headerClass,
+  cellClass: column.cellClass
+})));
+const draggingColumnTitle = columnReorder.draggingTitle;
 const {
   activeFilterColumn,
   filterDialogOpen,
@@ -209,11 +264,34 @@ const {
 } = useColumnFilters<BomEntryColumn>(bomEntryColumnValue);
 
 function resizeBomColumn(payload: { column: TableCoreColumn; width: number }) {
-  payload.column.width = payload.width;
+  const target = bomEntryColumnByKey(payload.column.key);
+  if (target) {
+    target.width = Math.max(target.minWidth ?? 64, Math.min(420, payload.width));
+  }
+}
+
+function finishBomColumnResize(payload: { column: TableCoreColumn; width: number }) {
+  resizeBomColumn(payload);
+  if (bomEntryColumnByKey(payload.column.key)) {
+    persistBomColumnPreferences();
+  }
 }
 
 function resetBomColumns() {
-  bomEntryColumns.value = defaultBomEntryColumns.map((column) => ({ ...column }));
+  localStorage.removeItem(bomEntryColumnPreferenceKey);
+  bomEntryColumns.value = normalizeBomEntryColumns(defaultBomEntryColumns.map((column) => ({ ...column })));
+}
+
+function closeColumnSettings() {
+  persistBomColumnPreferences();
+  columnDialogOpen.value = false;
+}
+
+function startBomColumnMouseDrag(column: TableCoreColumn, event: MouseEvent) {
+  const target = bomEntryColumnByKey(column.key);
+  if (target) {
+    columnReorder.start(target, event);
+  }
 }
 
 function openBomColumnFilter(column: TableCoreColumn, event: MouseEvent) {
@@ -224,7 +302,10 @@ function openBomColumnFilter(column: TableCoreColumn, event: MouseEvent) {
 }
 
 function bomRowAttrs(_line: BomEntryLine, index: number) {
-  return { "data-testid": `bom-entry-row-${index + 1}` };
+  return {
+    "data-entry-kind": "bom",
+    "data-testid": `bom-entry-row-${index + 1}`
+  };
 }
 
 function bomCellAttrs(_line: BomEntryLine, column: TableCoreColumn) {
@@ -254,6 +335,59 @@ function bomEntryColumnValue(row: unknown, rowIndex: number, key: string) {
     childBomCode: line.childBomCode
   };
   return values[key] ?? "";
+}
+
+function bomEntryColumnByKey(key: string) {
+  return bomEntryColumns.value.find((column) => column.key === key);
+}
+
+function normalizeBomEntryColumns(nextColumns: BomEntryColumn[]) {
+  const frozen = nextColumns
+    .filter((column) => column.key === "rowNo")
+    .map((column) => ({ ...column, fixed: "left" as const, visible: true, configurable: false }));
+  const regular = nextColumns
+    .filter((column) => column.key !== "rowNo")
+    .map((column) => ({ ...column, fixed: "" as const }));
+  return [...frozen, ...regular];
+}
+
+function loadBomColumnPreferences() {
+  const defaults = defaultBomEntryColumns.map((column) => ({ ...column }));
+  try {
+    const saved = JSON.parse(localStorage.getItem(bomEntryColumnPreferenceKey) || "[]") as Partial<BomEntryColumn>[];
+    if (!Array.isArray(saved) || !saved.length) {
+      return normalizeBomEntryColumns(defaults);
+    }
+    const defaultsByKey = new Map(defaults.map((column) => [column.key, column]));
+    const restored: BomEntryColumn[] = [];
+    saved.forEach((savedColumn) => {
+      const key = typeof savedColumn.key === "string" ? savedColumn.key : "";
+      const current = defaultsByKey.get(key);
+      if (!current || restored.some((column) => column.key === key)) {
+        return;
+      }
+      restored.push({
+        ...current,
+        width: Number.isFinite(savedColumn.width) ? Number(savedColumn.width) : current.width,
+        visible: current.configurable === false ? true : savedColumn.visible !== false
+      });
+    });
+    const restoredKeys = new Set(restored.map((column) => column.key));
+    return normalizeBomEntryColumns([
+      ...restored,
+      ...defaults.filter((column) => !restoredKeys.has(column.key))
+    ]);
+  } catch {
+    return normalizeBomEntryColumns(defaults);
+  }
+}
+
+function persistBomColumnPreferences() {
+  localStorage.setItem(bomEntryColumnPreferenceKey, JSON.stringify(bomEntryColumns.value.map((column) => ({
+    key: column.key,
+    width: column.width,
+    visible: column.configurable === false ? true : column.visible
+  }))));
 }
 
 function openMaterialLookup(index: number) {
@@ -334,10 +468,14 @@ function normalizeLookupText(value: string) {
 function updateUnitQty(line: BomEntryLine) {
   const productQty = Number(line.productQty) || 0;
   const materialQty = Number(line.materialQty) || 0;
-  if (productQty > 0 && materialQty > 0) {
-    line.unitQty = Number((materialQty / productQty).toFixed(6));
-  }
+  line.unitQty = productQty > 0 && materialQty > 0
+    ? Number((materialQty / productQty).toFixed(6))
+    : 0;
   emit("markDirty");
+}
+
+function formatUnitQty(value: number) {
+  return Number.isFinite(Number(value)) ? String(value) : "0";
 }
 
 </script>

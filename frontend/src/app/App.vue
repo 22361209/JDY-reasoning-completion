@@ -1202,7 +1202,7 @@ async function openCreateDocumentFromList(payload: { type: OpenableDocumentType 
   }
 }
 
-async function openCreateListRecord(payload: { listKey: string; row?: Record<string, unknown> }) {
+async function openCreateListRecord(payload: { listKey: string; row?: Record<string, unknown>; mode?: "copy" }) {
   const target = createListRecordTarget(payload.listKey);
   if (!target) {
     return;
@@ -1217,7 +1217,7 @@ async function openCreateListRecord(payload: { listKey: string; row?: Record<str
   activeModuleName.value = target.module;
   if (opened) {
     await nextTick();
-    target.open(payload.row);
+    target.open(payload.row, payload.mode);
     if (!payload.row) {
       markActiveDirty();
     }
@@ -1230,8 +1230,12 @@ function createListRecordTarget(listKey: string) {
       tabId: bomFormTabId,
       title: "BOM维护",
       module: "生产管理",
-      open: (row?: Record<string, unknown>) => {
+      open: (row?: Record<string, unknown>, mode?: "copy") => {
         const code = row?.code == null ? "" : String(row.code);
+        if (mode === "copy" && code) {
+          void bomFormRef.value?.copyFromBom(code);
+          return;
+        }
         if (code) {
           void bomFormRef.value?.loadBom(code);
           return;

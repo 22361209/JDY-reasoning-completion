@@ -60,16 +60,22 @@
             <span>状态</span>
             <input :value="statusText" disabled />
           </label>
+          <label class="wide">
+            <span>BOM 备注</span>
+            <textarea v-model.trim="form.remark" data-testid="bom-remark" :readonly="isAudited" @input="markDirty" />
+          </label>
+        </div>
+      </section>
+
+      <section class="master-record-section bom-product-section">
+        <h3>产品信息</h3>
+        <div class="form-head-fields bom-product-fields">
           <label class="required">
             <span>母件物料编码</span>
             <input v-model.trim="form.productCode" data-testid="bom-product-code" placeholder="录入已审核母件物料" :readonly="isAudited" @input="markDirty" />
           </label>
-          <label class="required">
-            <span>母件数量</span>
-            <input v-model.number="form.qty" data-testid="bom-qty" type="number" min="0" step="0.01" :readonly="isAudited" @input="markDirty" />
-          </label>
           <label>
-            <span>物料名称</span>
+            <span>母件名称</span>
             <input v-model="form.productName" disabled />
           </label>
           <label>
@@ -80,13 +86,13 @@
             <span>单位</span>
             <input v-model="form.unit" disabled />
           </label>
+          <label class="required">
+            <span>母件数量</span>
+            <input v-model.number="form.qty" data-testid="bom-qty" type="number" min="0" step="0.01" :readonly="isAudited" @input="markDirty" />
+          </label>
           <label>
             <span>默认仓库</span>
             <input v-model="form.warehouseCode" disabled />
-          </label>
-          <label class="wide">
-            <span>BOM 备注</span>
-            <textarea v-model.trim="form.remark" data-testid="bom-remark" :readonly="isAudited" @input="markDirty" />
           </label>
         </div>
       </section>
@@ -102,18 +108,52 @@
           @mark-dirty="markDirty"
           @insert-line-after="insertLineAfter"
           @remove-line="removeLine"
+          @open-material-selector="openMaterialSelector"
         />
       </section>
     </div>
   </StandardDocument>
+
+  <MasterSelectorDialog
+    :open="materialSelectorDialogOpen"
+    type="product"
+    title="选择子件物料"
+    label="物料"
+    :keyword="materialSelectorKeyword"
+    @close="closeMaterialSelector"
+    @select="selectMaterialSelectorRow"
+  />
+
+  <div v-if="pendingCopiedAuditConfirm" class="modal-mask" data-testid="bom-copy-audit-confirm-dialog">
+    <div class="dialog risky-action-dialog">
+      <h3>BOM 版本确认</h3>
+      <p>{{ pendingAuditPreviewMessage || "该母件已有已审核 BOM，当前草稿的子件物料编码与当前版本不同。审核后会新增该母件的新版本，并禁用旧版本。" }}</p>
+      <div class="dialog-actions">
+        <button type="button" data-testid="bom-copy-audit-cancel" @click="cancelAuditConfirm">取消</button>
+        <button class="primary-action" type="button" data-testid="bom-copy-audit-confirm" @click="confirmCopiedAudit">继续审核</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="pendingAuditBlocked" class="modal-mask" data-testid="bom-audit-block-dialog">
+    <div class="dialog risky-action-dialog">
+      <h3>BOM 审核提示</h3>
+      <p>{{ pendingAuditBlockMessage || "当前草稿的子件物料与当前版本 BOM 完全一致，请核对后重新提交或关闭。" }}</p>
+      <div class="dialog-actions">
+        <button class="primary-action" type="button" data-testid="bom-audit-block-ok" @click="closeAuditBlock">确定</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import BomEntryTable, { type BomEntryLine, type BomMaterialOption } from "../../../components/BomEntryTable.vue";
+import type { MasterOption } from "../../../components/entry-table/types";
+import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
 import { fetchListRows } from "../../../services/listApi";
-import { auditBom, deleteBom, fetchBomDetail, reverseBom, saveBom, setBomEnabled } from "../../../services/productionApi";
+import { auditBom, deleteBom, fetchBomAuditPreview, fetchBomDetail, reverseBom, saveBom, setBomEnabled, type BomAuditConfirmation } from "../../../services/productionApi";
 
 defineProps<{
   title: string;
@@ -129,6 +169,15 @@ const emit = defineEmits<{
 const message = ref("");
 const hasError = ref(false);
 const materialOptions = ref<BomMaterialOption[]>([]);
+const pendingCopiedAuditConfirm = ref(false);
+const pendingAuditPreviewMessage = ref("");
+const pendingAuditLatestBomCode = ref("");
+const pendingAuditLatestVersionNo = ref("");
+const pendingAuditBlocked = ref(false);
+const pendingAuditBlockMessage = ref("");
+const materialSelectorDialogOpen = ref(false);
+const materialSelectorLineIndex = ref<number | null>(null);
+const materialSelectorKeyword = ref("");
 const form = reactive({
   code: "",
   bomCategory: "",
@@ -184,6 +233,13 @@ function markDirty() {
 }
 
 function startNew() {
+  pendingCopiedAuditConfirm.value = false;
+  pendingAuditPreviewMessage.value = "";
+  pendingAuditLatestBomCode.value = "";
+  pendingAuditLatestVersionNo.value = "";
+  pendingAuditBlocked.value = false;
+  pendingAuditBlockMessage.value = "";
+  closeMaterialSelector();
   form.code = "";
   form.bomCategory = "";
   form.productCode = "";
@@ -204,6 +260,13 @@ function startNew() {
 }
 
 async function loadBom(code: string) {
+  pendingCopiedAuditConfirm.value = false;
+  pendingAuditPreviewMessage.value = "";
+  pendingAuditLatestBomCode.value = "";
+  pendingAuditLatestVersionNo.value = "";
+  pendingAuditBlocked.value = false;
+  pendingAuditBlockMessage.value = "";
+  closeMaterialSelector();
   const result = await fetchBomDetail(code);
   if (!result.ok || !result.data) {
     hasError.value = true;
@@ -214,6 +277,30 @@ async function loadBom(code: string) {
   hasError.value = false;
   message.value = "";
   emit("clearDirty");
+}
+
+async function copyFromBom(code: string) {
+  pendingCopiedAuditConfirm.value = false;
+  pendingAuditPreviewMessage.value = "";
+  pendingAuditLatestBomCode.value = "";
+  pendingAuditLatestVersionNo.value = "";
+  pendingAuditBlocked.value = false;
+  pendingAuditBlockMessage.value = "";
+  closeMaterialSelector();
+  const result = await fetchBomDetail(code);
+  if (!result.ok || !result.data) {
+    hasError.value = true;
+    message.value = result.message || "BOM 复制失败。";
+    return;
+  }
+  applyBomData(result.data);
+  form.auditStatus = "DRAFT";
+  form.enabled = true;
+  form.isCurrent = false;
+  form.versionNo = "";
+  hasError.value = false;
+  message.value = "已复制 BOM 信息，请修改后保存。";
+  emit("markDirty");
 }
 
 function insertLineAfter(index: number) {
@@ -269,10 +356,9 @@ async function save() {
     .filter((line) => line.materialCode.trim())
     .map((line) => ({
       materialCode: line.materialCode.trim(),
-      qty: Number(line.unitQty) || 0,
+      qty: calculatedUnitQty(line),
       productQty: Number(line.productQty) || 0,
       materialQty: Number(line.materialQty) || 0,
-      unitQty: Number(line.unitQty) || 0,
       issueMethod: line.issueMethod,
       issueWarehouseCode: line.issueWarehouseCode.trim(),
       fixedLossQty: Number(line.fixedLossQty) || 0,
@@ -291,7 +377,56 @@ async function save() {
 }
 
 async function audit() {
-  const result = await auditBom(form.code);
+  const preview = await fetchBomAuditPreview(form.code);
+  if (!preview.ok) {
+    hasError.value = true;
+    message.value = preview.message || "BOM 审核预检失败。";
+    return;
+  }
+  if (Boolean(preview.data?.blocked)) {
+    pendingAuditBlockMessage.value = text(preview.data?.message) || "当前草稿的子件物料与当前版本 BOM 完全一致，请核对后重新提交或关闭。";
+    pendingAuditLatestBomCode.value = "";
+    pendingAuditLatestVersionNo.value = "";
+    pendingAuditBlocked.value = true;
+    return;
+  }
+  if (Boolean(preview.data?.requiresConfirmation)) {
+    pendingAuditPreviewMessage.value = text(preview.data?.message) || "该母件已有已审核 BOM，当前草稿的子件物料编码与当前版本不同。审核后会新增该母件的新版本，并禁用旧版本。";
+    pendingAuditLatestBomCode.value = text(preview.data?.latestBomCode);
+    pendingAuditLatestVersionNo.value = text(preview.data?.latestVersionNo);
+    pendingCopiedAuditConfirm.value = true;
+    return;
+  }
+  await performAudit();
+}
+
+function cancelAuditConfirm() {
+  pendingCopiedAuditConfirm.value = false;
+  pendingAuditPreviewMessage.value = "";
+  pendingAuditLatestBomCode.value = "";
+  pendingAuditLatestVersionNo.value = "";
+}
+
+function closeAuditBlock() {
+  pendingAuditBlocked.value = false;
+  pendingAuditBlockMessage.value = "";
+}
+
+async function confirmCopiedAudit() {
+  const confirmation: BomAuditConfirmation = {
+    confirmNewVersion: true,
+    latestBomCode: pendingAuditLatestBomCode.value,
+    latestVersionNo: pendingAuditLatestVersionNo.value
+  };
+  pendingCopiedAuditConfirm.value = false;
+  pendingAuditPreviewMessage.value = "";
+  pendingAuditLatestBomCode.value = "";
+  pendingAuditLatestVersionNo.value = "";
+  await performAudit(confirmation);
+}
+
+async function performAudit(confirmation?: BomAuditConfirmation) {
+  const result = await auditBom(form.code, confirmation);
   handleWriteResult(result, "BOM 已审核并设为当前可用版本。");
 }
 
@@ -332,6 +467,12 @@ function handleWriteResult(result: { ok: boolean; message: string; data?: Record
   applyBomData(result.data);
   hasError.value = false;
   message.value = successMessage;
+  pendingCopiedAuditConfirm.value = false;
+  pendingAuditPreviewMessage.value = "";
+  pendingAuditLatestBomCode.value = "";
+  pendingAuditLatestVersionNo.value = "";
+  pendingAuditBlocked.value = false;
+  pendingAuditBlockMessage.value = "";
   emit("clearDirty");
 }
 
@@ -354,15 +495,17 @@ function applyBomData(data: Record<string, unknown>) {
 }
 
 function lineFromData(data: Record<string, unknown>): BomEntryLine {
+  const productQty = numberValue(data.productQty, 1);
+  const materialQty = numberValue(data.materialQty, 1);
   return {
     localId: crypto.randomUUID(),
     materialCode: text(data.materialCode),
     materialName: text(data.materialName),
     spec: text(data.spec),
     unit: text(data.unit),
-    productQty: numberValue(data.productQty, 1),
-    materialQty: numberValue(data.materialQty, 1),
-    unitQty: numberValue(data.unitQty, 1),
+    productQty,
+    materialQty,
+    unitQty: calculatedUnitQty({ productQty, materialQty }),
     issueMethod: text(data.issueMethod) || "按单领料",
     issueWarehouseCode: text(data.issueWarehouseCode),
     fixedLossQty: numberValue(data.fixedLossQty, 0),
@@ -381,7 +524,46 @@ function numberValue(value: unknown, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-defineExpose({ startNew, loadBom });
+function calculatedUnitQty(line: Pick<BomEntryLine, "productQty" | "materialQty">) {
+  const productQty = Number(line.productQty) || 0;
+  const materialQty = Number(line.materialQty) || 0;
+  return productQty > 0 && materialQty > 0 ? Number((materialQty / productQty).toFixed(6)) : 0;
+}
+
+function openMaterialSelector(index: number, keyword: string) {
+  if (isAudited.value) {
+    return;
+  }
+  materialSelectorLineIndex.value = index;
+  materialSelectorKeyword.value = keyword;
+  materialSelectorDialogOpen.value = true;
+}
+
+function closeMaterialSelector() {
+  materialSelectorDialogOpen.value = false;
+  materialSelectorLineIndex.value = null;
+  materialSelectorKeyword.value = "";
+}
+
+function selectMaterialSelectorRow(option: MasterOption) {
+  const index = materialSelectorLineIndex.value;
+  const line = index == null ? null : form.lines[index];
+  if (!line) {
+    closeMaterialSelector();
+    return;
+  }
+  line.materialCode = text(option.code);
+  line.materialName = text(option.name);
+  line.spec = text(option.spec);
+  line.unit = text(option.unit);
+  if (!line.issueWarehouseCode && option.defaultWarehouseCode) {
+    line.issueWarehouseCode = text(option.defaultWarehouseCode);
+  }
+  closeMaterialSelector();
+  markDirty();
+}
+
+defineExpose({ startNew, loadBom, copyFromBom });
 </script>
 
 <style scoped>
@@ -391,13 +573,22 @@ defineExpose({ startNew, loadBom });
 
 .bom-fields {
   display: grid;
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 10px 14px;
   border: 0;
   padding: 10px;
 }
 
-.bom-fields label {
+.bom-product-fields {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px 14px;
+  border: 0;
+  padding: 10px;
+}
+
+.bom-fields label,
+.bom-product-fields label {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -406,7 +597,8 @@ defineExpose({ startNew, loadBom });
   font-size: 12px;
 }
 
-.bom-fields label.required span::before {
+.bom-fields label.required span::before,
+.bom-product-fields label.required span::before {
   content: "*";
   margin-right: 2px;
   color: #d1412f;
@@ -417,7 +609,11 @@ defineExpose({ startNew, loadBom });
 }
 
 .bom-fields .wide {
-  grid-column: span 2;
+  grid-column: span 4;
+}
+
+.bom-product-section {
+  border-top: 1px solid #e6edf5;
 }
 
 .section-title-row {
