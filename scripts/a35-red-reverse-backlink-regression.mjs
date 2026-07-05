@@ -59,7 +59,6 @@ async function seedStock() {
 async function createSalesOutPair() {
   const orderNo = `XSDD-A35-${batch}`;
   const billNo = `XSCK-A35-${batch}`;
-  const redBillNo = `HC-${billNo}`;
   await requireApi("/api/sales-orders/draft", {
     body: {
       billNo: orderNo,
@@ -81,15 +80,15 @@ async function createSalesOutPair() {
     lines
   }, `FHTZ-A35-${batch}`);
   await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
-  await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
-    body: { redBillNo, billDate, ownerName: "本地管理员" }
+  const redDraft = await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
+    body: { billDate, ownerName: "本地管理员" }
   });
+  const redBillNo = redDraft.billNo;
   return { orderNo, billNo, redBillNo };
 }
 
 async function createPurchaseInPair() {
   const billNo = `CGRK-A35-${batch}`;
-  const redBillNo = `HC-${billNo}`;
   await requireApi("/api/purchase-ins/draft", {
     body: {
       billNo,
@@ -101,9 +100,10 @@ async function createPurchaseInPair() {
     }
   });
   await requireApi(`/api/purchase-ins/${encodeURIComponent(billNo)}/audit`);
-  await requireApi(`/api/purchase-ins/${encodeURIComponent(billNo)}/red-reverse`, {
-    body: { redBillNo, billDate, ownerName: "本地管理员" }
+  const redDraft = await requireApi(`/api/purchase-ins/${encodeURIComponent(billNo)}/red-reverse`, {
+    body: { billDate, ownerName: "本地管理员" }
   });
+  const redBillNo = redDraft.billNo;
   return { billNo, redBillNo };
 }
 
@@ -153,9 +153,9 @@ try {
   const salesOriginalScreenshot = `a35-sales-original-red-link-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesOriginalScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesOriginalScreenshot}`);
-  await page.getByTestId("open-red-reverse-bill").click();
-  await waitInputValue(page, "sales-out-bill-no", sales.redBillNo);
-  await page.waitForFunction(() => document.querySelector('[data-testid="document-status"]')?.textContent?.trim() === "已红冲");
+	  await page.getByTestId("open-red-reverse-bill").click();
+	  await waitInputValue(page, "sales-out-bill-no", sales.redBillNo);
+	  await page.waitForFunction(() => document.querySelector('[data-testid="document-status"]')?.textContent?.trim() === "草稿");
   const salesScreenshot = `a35-sales-red-reverse-backlink-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
@@ -167,9 +167,9 @@ try {
   const purchaseOriginalScreenshot = `a35-purchase-original-red-link-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseOriginalScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseOriginalScreenshot}`);
-  await page.getByTestId("open-red-reverse-bill").click();
-  await waitInputValue(page, "purchase-in-bill-no", purchase.redBillNo);
-  await page.waitForFunction(() => document.querySelector('[data-testid="document-status"]')?.textContent?.trim() === "已红冲");
+	  await page.getByTestId("open-red-reverse-bill").click();
+	  await waitInputValue(page, "purchase-in-bill-no", purchase.redBillNo);
+	  await page.waitForFunction(() => document.querySelector('[data-testid="document-status"]')?.textContent?.trim() === "草稿");
   const purchaseScreenshot = `a35-purchase-red-reverse-backlink-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);

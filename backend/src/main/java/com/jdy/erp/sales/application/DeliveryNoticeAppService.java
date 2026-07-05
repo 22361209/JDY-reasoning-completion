@@ -97,7 +97,6 @@ public class DeliveryNoticeAppService {
                    dn.close_status AS "closeStatus",
                    dn.frozen_status AS "frozenStatus",
                    dn.total_amount AS "totalAmount",
-                   dn.is_tax_inclusive AS "isTaxInclusive",
                    dn.owner_name AS "ownerName",
                    COALESCE(creator.display_name, dn.owner_name, '') AS "createdByName",
                    COALESCE(dn.remark, '') AS remark
@@ -116,20 +115,18 @@ public class DeliveryNoticeAppService {
     public Map<String, Object> saveDraft(DeliveryNoticeDraftRequest request) {
         var billNo = numberingService.assignBillNo("deliveryNotice", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
-        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO delivery_notice (bill_no, customer_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO delivery_notice (bill_no, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
-                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
@@ -142,14 +139,13 @@ public class DeliveryNoticeAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            isTaxInclusive,
             currentSessionService.currentDisplayName(),
             validationService.optionalText(request.remark()),
             currentSessionService.currentUserId()
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM delivery_notice_line WHERE bill_id = ?::uuid", billId);
-        insertLines(billId, request.sourceOrderNo(), request.lines(), isTaxInclusive);
+        insertLines(billId, request.sourceOrderNo(), request.lines());
         return bill;
     }
 
@@ -216,7 +212,6 @@ public class DeliveryNoticeAppService {
                    to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
                    dn.department,
                    dn.owner_name AS "ownerName",
-                   dn.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
@@ -232,6 +227,7 @@ public class DeliveryNoticeAppService {
                    COALESCE(out_qty.shipped_qty, 0) AS "shippedQty",
                    GREATEST(0, l.qty - COALESCE(out_qty.shipped_qty, 0)) AS "remainingQty",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
                    COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                    COALESCE(l.customer_order_no, '') AS "customerOrderNo",
@@ -279,12 +275,12 @@ public class DeliveryNoticeAppService {
         return Map.of("billNo", billNo, "lines", stockRowsForBill(billNo));
     }
 
-    private void insertLines(Object billId, String defaultSourceOrderNo, List<DeliveryNoticeLineRequest> lines, boolean isTaxInclusive) {
+    private void insertLines(Object billId, String defaultSourceOrderNo, List<DeliveryNoticeLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
             var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
             var sourceLineNo = line.sourceLineNo() == null && sourceOrderNo != null ? lineNo : line.sourceLineNo();
             jdbcTemplate.update("""
@@ -334,6 +330,7 @@ public class DeliveryNoticeAppService {
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
@@ -456,7 +453,7 @@ public class DeliveryNoticeAppService {
         return tenantDataScopeService.currentScopeId("inventory");
     }
 
-    public record DeliveryNoticeDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, Boolean isTaxInclusive, List<DeliveryNoticeLineRequest> lines) {
+    public record DeliveryNoticeDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<DeliveryNoticeLineRequest> lines) {
         public DeliveryNoticeDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");

@@ -8,6 +8,7 @@ import com.jdy.erp.production.application.MaterialIssueAppService.IssueRequest;
 import com.jdy.erp.production.application.MaterialIssueAppService.RedReverseRequest;
 import com.jdy.erp.production.application.ProductInAppService;
 import com.jdy.erp.production.application.ProductInAppService.CompleteRequest;
+import com.jdy.erp.production.application.ProductInAppService.ProductInDraftRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.production.application.ProductionTaskAppService.BomAuditRequest;
 import com.jdy.erp.production.application.ProductionTaskAppService.BomRequest;
@@ -107,6 +108,24 @@ public class ProductionController {
         return taskAppService.createTask(request);
     }
 
+    @GetMapping("/tasks/{billNo}")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> taskDetail(@PathVariable String billNo) {
+        return taskAppService.taskDetail(billNo);
+    }
+
+    @PostMapping("/tasks/{billNo}/audit")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> auditTask(@PathVariable String billNo) {
+        return taskAppService.auditTask(billNo);
+    }
+
+    @PostMapping("/tasks/{billNo}/reverse")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> reverseTask(@PathVariable String billNo) {
+        return taskAppService.reverseTask(billNo);
+    }
+
     @PostMapping("/plans")
     @RequirePermission("production.task.audit")
     @ResponseStatus(HttpStatus.CREATED)
@@ -124,12 +143,6 @@ public class ProductionController {
     @RequirePermission("production.task.audit")
     public Map<String, Object> reversePlan(@PathVariable String billNo) {
         return taskAppService.reversePlan(billNo);
-    }
-
-    @PostMapping("/plans/next-number")
-    @RequirePermission("production.task.audit")
-    public Map<String, Object> nextPlanNumber() {
-        return taskAppService.nextPlanNumber();
     }
 
     @PostMapping("/plans/{billNo}/push-down")
@@ -196,6 +209,19 @@ public class ProductionController {
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> pushProductInFromIssue(@PathVariable String billNo, @RequestBody(required = false) CompleteRequest request) {
         return productInAppService.completeFromIssue(billNo, request);
+    }
+
+    @PostMapping("/product-ins/draft")
+    @RequirePermission("production.document.audit")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> saveProductInDraft(@RequestBody ProductInDraftRequest request) {
+        return productInAppService.saveDraft(request);
+    }
+
+    @PostMapping("/product-ins/{billNo}/audit")
+    @RequirePermission("production.document.audit")
+    public Map<String, Object> auditCompletion(@PathVariable String billNo) {
+        return productInAppService.audit(billNo);
     }
 
     @PostMapping("/tasks/{billNo}/complete")

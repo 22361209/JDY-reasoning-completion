@@ -51,13 +51,17 @@ public class OutsourcingDocumentAppService {
         var bom = currentBomForProduct(request.productCode());
         var qty = positive(request.qty(), "委外数量");
         var planDeliveryDate = parseOptionalDate(request.planDeliveryDate());
+        var sourceCompletion = sourceCompletion(request.sourceCompletionId(), request.sourceBillNo());
         var headerRows = jdbcTemplate.queryForList("""
             INSERT INTO outsourcing_work_order (
-                bill_no, supplier_id, supplier_code_snapshot, supplier_name_snapshot, bill_date, status, remark
+                bill_no, source_completion_id, source_bill_no,
+                supplier_id, supplier_code_snapshot, supplier_name_snapshot, bill_date, status, remark
             )
-            VALUES (?, ?::uuid, ?, ?, CURRENT_DATE, ?, ?)
+            VALUES (?, ?::uuid, ?, ?::uuid, ?, ?, CURRENT_DATE, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
-            SET supplier_id = EXCLUDED.supplier_id,
+            SET source_completion_id = EXCLUDED.source_completion_id,
+                source_bill_no = EXCLUDED.source_bill_no,
+                supplier_id = EXCLUDED.supplier_id,
                 supplier_code_snapshot = EXCLUDED.supplier_code_snapshot,
                 supplier_name_snapshot = EXCLUDED.supplier_name_snapshot,
                 remark = EXCLUDED.remark,
@@ -67,6 +71,8 @@ public class OutsourcingDocumentAppService {
             RETURNING id::text AS id, bill_no AS "billNo", status
             """,
             billNo,
+            sourceCompletion == null ? null : sourceCompletion.id(),
+            sourceCompletion == null ? null : sourceCompletion.billNo(),
             supplier.id(),
             supplier.code(),
             supplier.name(),
@@ -718,6 +724,8 @@ public class OutsourcingDocumentAppService {
     private Map<String, Object> detailForWorkOrder(String workOrderId) {
         var row = jdbcTemplate.queryForMap("""
             SELECT h.id::text AS id, h.bill_no AS "billNo", h.status,
+                   COALESCE(h.source_bill_no, '') AS "sourceBillNo",
+                   COALESCE(h.source_completion_id::text, '') AS "sourceCompletionId",
                    h.supplier_code_snapshot AS "supplierCode",
                    h.supplier_name_snapshot AS "supplierName",
                    to_char(h.bill_date, 'YYYY-MM-DD') AS "billDate",
@@ -757,6 +765,32 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """, workOrderId));
         return row;
+    }
+
+    private SourceCompletion sourceCompletion(String sourceCompletionId, String sourceBillNo) {
+        var idText = validationService.optionalText(sourceCompletionId);
+        var billNoText = validationService.optionalText(sourceBillNo);
+        if (idText == null && billNoText == null) {
+            return null;
+        }
+        var rows = idText != null
+            ? jdbcTemplate.queryForList("""
+                SELECT id::text AS id, bill_no AS "billNo"
+                FROM production_completion
+                WHERE id = ?::uuid
+                  AND status = 'AUDITED'
+                """, idText)
+            : jdbcTemplate.queryForList("""
+                SELECT id::text AS id, bill_no AS "billNo"
+                FROM production_completion
+                WHERE bill_no = ?
+                  AND status = 'AUDITED'
+                """, billNoText);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "来源产品入库单不存在或不可下推委外加工");
+        }
+        var row = rows.get(0);
+        return new SourceCompletion(String.valueOf(row.get("id")), String.valueOf(row.get("billNo")));
     }
 
     private Map<String, Object> detailForLineDocument(
@@ -949,7 +983,19 @@ public class OutsourcingDocumentAppService {
     private record Supplier(String id, String code, String name) {
     }
 
-    public record WorkOrderRequest(String billNo, String supplierCode, String productCode, BigDecimal qty, String planDeliveryDate, String remark) {
+    private record SourceCompletion(String id, String billNo) {
+    }
+
+    public record WorkOrderRequest(
+        String billNo,
+        String supplierCode,
+        String productCode,
+        BigDecimal qty,
+        String planDeliveryDate,
+        String remark,
+        String sourceBillNo,
+        String sourceCompletionId
+    ) {
     }
 
     public record QtyRequest(BigDecimal qty) {

@@ -10,21 +10,14 @@ public class TaxAmountCalculator {
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final BigDecimal DEFAULT_TAX_RATE = new BigDecimal("13");
 
-    public TaxAmounts calculate(BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, boolean taxInclusive) {
+    public TaxAmounts calculate(BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate) {
         var safeQty = valueOrZero(qty);
         var safeUnitPrice = valueOrZero(unitPrice);
         var safeTaxRate = taxRate == null ? DEFAULT_TAX_RATE : taxRate;
-        var grossLineAmount = safeQty.multiply(safeUnitPrice);
+        var netLineAmount = safeQty.multiply(safeUnitPrice);
         var rateRatio = safeTaxRate.divide(ONE_HUNDRED, 8, RoundingMode.HALF_UP);
-        BigDecimal netAmount;
-        BigDecimal priceTaxTotal;
-        if (taxInclusive) {
-            priceTaxTotal = scaleMoney(grossLineAmount);
-            netAmount = scaleMoney(grossLineAmount.divide(BigDecimal.ONE.add(rateRatio), 8, RoundingMode.HALF_UP));
-        } else {
-            netAmount = scaleMoney(grossLineAmount);
-            priceTaxTotal = scaleMoney(netAmount.multiply(BigDecimal.ONE.add(rateRatio)));
-        }
+        var netAmount = scaleMoney(netLineAmount);
+        var priceTaxTotal = scaleMoney(netAmount.multiply(BigDecimal.ONE.add(rateRatio)));
         var taxAmount = scaleMoney(priceTaxTotal.subtract(netAmount));
         return new TaxAmounts(safeTaxRate, netAmount, taxAmount, priceTaxTotal);
     }

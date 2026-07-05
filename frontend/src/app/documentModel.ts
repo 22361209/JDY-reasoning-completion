@@ -50,6 +50,8 @@ export interface OrderLineForm {
   lineCloseStatus?: "OPEN" | "CLOSED" | string;
   lineFrozenStatus?: "NORMAL" | "FROZEN" | string;
   unitPrice: number;
+  amount?: number | string;
+  taxInclusiveUnitPrice?: number | string;
   taxRate?: number;
   taxAmount?: number | string;
   priceTaxTotal?: number | string;
@@ -104,7 +106,6 @@ export interface OrderForm {
   department: string;
   ownerName: string;
   remark?: string;
-  isTaxInclusive?: boolean;
   enabled?: boolean;
   validUntil?: string;
   status: "DRAFT" | "AUDITED" | "REVERSED" | "VOIDED" | "RED_REVERSED";
@@ -181,7 +182,6 @@ export const initialSalesOrderForm: OrderForm = {
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 20, unitPrice: 86, taxRate: 13 }]
 };
@@ -193,7 +193,6 @@ export const initialSalesQuoteForm: OrderForm = {
   validUntil: "2026-07-23",
   department: "销售部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 0, unitPrice: 86, taxRate: 13 }]
 };
@@ -204,7 +203,6 @@ export const initialPurchaseOrderForm: OrderForm = {
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 50, unitPrice: 72, taxRate: 13 }]
 };
@@ -216,7 +214,6 @@ export const initialPurchaseInForm: OrderForm = {
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 72, taxRate: 13 }]
 };
@@ -228,7 +225,6 @@ export const initialPurchaseReturnForm: OrderForm = {
   billDate: "2026-06-23",
   department: "采购部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13 }]
 };
@@ -240,7 +236,6 @@ export const initialSalesOutForm: OrderForm = {
   billDate: "2026-06-23",
   department: "销售部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86, taxRate: 13 }]
 };
@@ -252,7 +247,6 @@ export const initialDeliveryNoticeForm: OrderForm = {
   billDate: "2026-06-26",
   department: "销售部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   status: "DRAFT",
   lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 86, taxRate: 13 }]
 };

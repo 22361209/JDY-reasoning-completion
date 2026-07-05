@@ -39,8 +39,7 @@
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
     :total-amount="document.totalAmount.value"
-    :show-tax-mode="document.showTaxMode.value"
-    :is-tax-inclusive="Boolean(document.form.isTaxInclusive)"
+    :show-tax-columns="document.showTaxColumns.value"
     :batch-warehouse-code="document.batchWarehouseCode.value"
     :active-selector="document.activeSelector.value"
     :selector-options="document.selectorOptions.value"
@@ -73,7 +72,6 @@
     @open-red-reverse-bill="document.openRedReverseBill"
     @open-red-source-bill="document.openRedSourceBill"
     @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
-    @update:is-tax-inclusive="document.form.isTaxInclusive = $event; document.markDirty()"
     @apply-batch-warehouse="document.applyBatchWarehouse"
     @mark-dirty="document.markDirty"
     @search-master-options="document.searchMasterOptions"
@@ -285,7 +283,6 @@ function confirmSourceSelector() {
   document.form.partyCode = first.supplierCode;
   document.form.partyName = first.supplier || document.form.partyName || "";
   document.form.department = first.department || document.form.department || "采购部";
-  document.form.isTaxInclusive = Boolean(first.isTaxInclusive);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
   sourceSelector.commitLocalAllocation();
   sourceSelector.close();
@@ -314,6 +311,8 @@ function selectableLineToFormLine(line: SelectablePurchaseOrderLine): OrderLineF
     supplierMaterialCode: String(line.supplierMaterialCode ?? ""),
     qty: normalizedQty(line.remainingQty),
     unitPrice: Number(line.unitPrice ?? 0),
+    amount: line.amount,
+    taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
     taxRate: Number(line.taxRate ?? 13),
     taxAmount: line.taxAmount,
     priceTaxTotal: line.priceTaxTotal,

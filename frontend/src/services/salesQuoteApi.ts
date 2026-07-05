@@ -8,7 +8,6 @@ export interface SelectableSalesQuoteLine {
   validUntil?: string;
   department?: string;
   ownerName?: string;
-  isTaxInclusive?: boolean;
   lineNo: number | string;
   productId?: string;
   productCode: string;
@@ -20,6 +19,8 @@ export interface SelectableSalesQuoteLine {
   warehouseCode: string;
   sourceQty?: number | string;
   unitPrice: number | string;
+  amount?: number | string;
+  taxInclusiveUnitPrice?: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;
 	  priceTaxTotal?: number | string;

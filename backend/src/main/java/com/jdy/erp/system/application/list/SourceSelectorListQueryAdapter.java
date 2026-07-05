@@ -207,7 +207,6 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(sq.valid_until, 'YYYY-MM-DD') AS "validUntil",
                    sq.department,
                    sq.owner_name AS "ownerName",
-                   sq.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -219,7 +218,9 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    COALESCE(w.code, 'CK-001') AS "warehouseCode",
                    l.qty AS "sourceQty",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
+                   l.amount,
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
@@ -245,7 +246,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             """, List.of(), sourceFields(
                 "billNo", "customerCode", "customer", "billDate", "validUntil", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
-                "warehouseCode", "sourceQty", "unitPrice", "taxRate", "taxAmount", "priceTaxTotal",
+                "warehouseCode", "sourceQty", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal",
                 "customerMaterialCode", "customerOrderNo", "lineRemark", "planDeliveryDate"
             ));
     }
@@ -258,7 +259,6 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    so.department,
                    so.owner_name AS "ownerName",
-                   so.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -275,7 +275,11 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
+                   l.amount,
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                    COALESCE(l.customer_order_no, '') AS "customerOrderNo",
                    COALESCE(l.line_remark, '') AS "lineRemark",
@@ -316,7 +320,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "billNo", "customerCode", "customer", "billDate", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "shippedQty", "remainingQty", "availableNoticeQty",
-                "lineCloseStatus", "lineFrozenStatus", "unitPrice", "taxRate", "customerMaterialCode",
+                "lineCloseStatus", "lineFrozenStatus", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal", "customerMaterialCode",
                 "customerOrderNo", "lineRemark", "planDeliveryDate", "stockOnHand", "stockReserved",
                 "stockAvailable", "stockInTransit"
             ));
@@ -330,7 +334,6 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
                    dn.department,
                    dn.owner_name AS "ownerName",
-                   dn.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
@@ -346,7 +349,11 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    COALESCE(out_qty.shipped_qty, 0) AS "shippedQty",
                    GREATEST(0, l.qty - COALESCE(out_qty.shipped_qty, 0)) AS "remainingQty",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
+                   l.amount,
+                   l.tax_amount AS "taxAmount",
+                   l.price_tax_total AS "priceTaxTotal",
                    COALESCE(l.customer_material_code, '') AS "customerMaterialCode",
                    COALESCE(l.customer_order_no, '') AS "customerOrderNo",
                    COALESCE(l.line_remark, '') AS "lineRemark",
@@ -383,7 +390,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "billNo", "customerCode", "customer", "billDate", "department", "ownerName",
                 "lineNo", "sourceOrderNo", "sourceLineNo", "productId", "productCode", "productName", "spec",
                 "unit", "netWeight", "grossWeight", "warehouseCode", "sourceQty", "shippedQty", "remainingQty",
-                "unitPrice", "taxRate", "customerMaterialCode", "customerOrderNo", "lineRemark",
+                "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal", "customerMaterialCode", "customerOrderNo", "lineRemark",
                 "planDeliveryDate", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"
             ));
     }
@@ -396,7 +403,6 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
                    pr.department,
                    pr.owner_name AS "ownerName",
-                   FALSE AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -429,7 +435,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "billNo", "supplierCode", "supplier", "billDate", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "receivedQty", "remainingQty", "supplierMaterialCode",
-                "unitPrice", "taxRate", "taxAmount", "priceTaxTotal", "lineRemark", "planDeliveryDate"
+                "unitPrice", "taxInclusiveUnitPrice", "taxRate", "taxAmount", "priceTaxTotal", "lineRemark", "planDeliveryDate"
             ));
     }
 
@@ -441,7 +447,6 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
                    po.department,
                    po.owner_name AS "ownerName",
-                   po.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -458,6 +463,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    l.line_frozen_status AS "lineFrozenStatus",
                    COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
@@ -487,7 +493,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "billNo", "supplierCode", "supplier", "billDate", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "receivedQty", "remainingQty", "lineCloseStatus",
-                "lineFrozenStatus", "supplierMaterialCode", "unitPrice", "taxRate", "taxAmount",
+                "lineFrozenStatus", "supplierMaterialCode", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "taxAmount",
                 "priceTaxTotal", "lineRemark", "planDeliveryDate"
             ));
     }
@@ -500,7 +506,6 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
                    pi.department,
                    pi.owner_name AS "ownerName",
-                   pi.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -514,6 +519,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    COALESCE(returned.returned_qty, 0) AS "returnedQty",
                    GREATEST(0, l.qty - COALESCE(returned.returned_qty, 0)) AS "remainingQty",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
@@ -535,7 +541,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             """, List.of(), sourceFields(
                 "billNo", "supplierCode", "supplier", "billDate", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
-                "warehouseCode", "sourceQty", "returnedQty", "remainingQty", "unitPrice", "taxRate",
+                "warehouseCode", "sourceQty", "returnedQty", "remainingQty", "unitPrice", "taxInclusiveUnitPrice", "taxRate",
                 "taxAmount", "priceTaxTotal", "lineRemark"
             ));
     }
@@ -564,7 +570,11 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
             JOIN production_task_material_snapshot s ON s.task_id = t.id
-            WHERE t.status IN ('AUDITED', 'ISSUED')
+            WHERE t.status = 'AUDITED'
+              AND t.close_status = 'OPEN'
+              AND t.frozen_status = 'NORMAL'
+              AND s.line_close_status = 'OPEN'
+              AND s.line_frozen_status = 'NORMAL'
             GROUP BY t.id, pl.bill_no, p.code, p.name, p.spec, p.unit, w.code
             HAVING SUM(s.required_qty - s.issued_qty) > 0
             """, List.of(), sourceFields(

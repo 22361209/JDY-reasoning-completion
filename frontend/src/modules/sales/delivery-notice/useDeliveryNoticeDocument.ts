@@ -15,7 +15,7 @@ export function useDeliveryNoticeDocument(options: Parameters<typeof useDocument
     defaultDepartment: "销售部",
     defaultPartyCode: "",
     defaultUnitPrice: 86,
-    showTaxMode: true,
+    showTaxColumns: true,
     showStockColumns: true,
     sourceTraceType: "salesOrder",
     reversible: true,

@@ -20,6 +20,8 @@ export interface EntryLine {
   lineCloseStatus?: string;
   lineFrozenStatus?: string;
   unitPrice: number;
+  amount?: number | string;
+  taxInclusiveUnitPrice?: number | string;
   taxRate?: number;
   taxAmount?: number | string;
   priceTaxTotal?: number | string;

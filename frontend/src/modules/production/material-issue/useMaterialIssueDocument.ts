@@ -26,7 +26,7 @@ export function useMaterialIssueDocument(options: Parameters<typeof useDocumentM
     reversible: true,
     initialForm: initialMaterialIssueForm,
     riskySummaryTitle: "生产领料单",
-    redReverseImpact: "红冲将生成负数生产领料单，原单标记已红冲，并回写生产领料库存流水。",
+	    redReverseImpact: "红冲将生成负数生产领料草稿，在原单关联红字单；审核红字单后才回写库存流水和生产任务已领套数。",
     reverseImpact: "反审核将冲销生产领料库存流水，并保留生产任务执行链路。"
   }, options);
 }

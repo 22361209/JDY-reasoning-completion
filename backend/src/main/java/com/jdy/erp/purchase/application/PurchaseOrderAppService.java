@@ -62,7 +62,6 @@ public class PurchaseOrderAppService {
                    po.frozen_status AS "frozenStatus",
                    po.in_status AS "inStatus",
                    po.total_amount AS "totalAmount",
-                   po.is_tax_inclusive AS "isTaxInclusive",
                    po.owner_name AS "ownerName"
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
@@ -90,6 +89,7 @@ public class PurchaseOrderAppService {
                    COALESCE(l.source_requisition_no, '') AS "sourceOrderNo",
                    l.source_requisition_line_no AS "sourceLineNo",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
@@ -137,7 +137,7 @@ public class PurchaseOrderAppService {
             copy.put("riskLevel", "HIGH");
             copy.put("reverseImpact", "反审核将冲销采购入库库存流水，并把源采购订单第 "
                 + doc.get("sourceLineNo") + " 行已入库数量减少 " + doc.get("qty") + "，随后重算入库状态。");
-            copy.put("redReverseImpact", "红冲将生成负数采购入库单，原单标记已红冲，并同样回退源采购订单第 "
+            copy.put("redReverseImpact", "红冲将生成负数采购入库单，在原单关联红字单，并同样回退源采购订单第 "
                 + doc.get("sourceLineNo") + " 行已入库数量。");
             return copy;
         }).toList();
@@ -151,7 +151,6 @@ public class PurchaseOrderAppService {
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
                    po.department,
                    po.owner_name AS "ownerName",
-                   po.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -168,6 +167,7 @@ public class PurchaseOrderAppService {
                    l.line_frozen_status AS "lineFrozenStatus",
                    COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
@@ -207,7 +207,6 @@ public class PurchaseOrderAppService {
                    to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
                    pr.department,
                    pr.owner_name AS "ownerName",
-                   FALSE AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -246,13 +245,12 @@ public class PurchaseOrderAppService {
     public Map<String, Object> saveDraft(PurchaseOrderDraftRequest request) {
         var billNo = numberingService.assignBillNo("purchaseOrder", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
-        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var order = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, is_tax_inclusive, owner_name)
-            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?, ?)
+            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET supplier_id = EXCLUDED.supplier_id,
                 bill_date = EXCLUDED.bill_date,
@@ -268,7 +266,6 @@ public class PurchaseOrderAppService {
                 frozen_by = NULL,
                 frozen_at = NULL,
                 total_amount = EXCLUDED.total_amount,
-                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_order.version + 1
@@ -280,7 +277,6 @@ public class PurchaseOrderAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            isTaxInclusive,
             request.ownerName()
         );
         var orderId = order.get("id");
@@ -290,7 +286,7 @@ public class PurchaseOrderAppService {
         for (var line : request.lines()) {
             var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""
                 INSERT INTO purchase_order_line (order_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, supplier_material_code, source_requisition_no, source_requisition_line_no, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
                 VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -339,7 +335,6 @@ public class PurchaseOrderAppService {
         String billDate,
         String department,
         String ownerName,
-        Boolean isTaxInclusive,
         List<PurchaseOrderLineRequest> lines
     ) {
         public PurchaseOrderDraftRequest {

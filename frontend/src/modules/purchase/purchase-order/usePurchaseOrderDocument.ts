@@ -16,7 +16,7 @@ export function usePurchaseOrderDocument(options: Parameters<typeof useDocumentM
     defaultPartyCode: "",
     defaultUnitPrice: 72,
     showSupplierMaterialCodeColumn: true,
-    showTaxMode: true,
+    showTaxColumns: true,
     initialForm: initialPurchaseOrderForm
   }, options);
 }

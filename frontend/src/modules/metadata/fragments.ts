@@ -22,7 +22,6 @@ export const commonDocumentHeaderFields: FieldDefinition[] = [
   { key: "billNo", label: "单据编号", renderer: "text", readonly: true },
   { key: "department", label: "部门", renderer: "text" },
   { key: "ownerName", label: "录入人", renderer: "text", readonly: true },
-  { key: "isTaxInclusive", label: "价格口径", renderer: "enum" },
   { key: "remark", label: "单据备注", renderer: "textarea", span: 4 }
 ];
 
@@ -33,7 +32,6 @@ export const quoteHeaderFields: FieldDefinition[] = [
   { key: "billNo", label: "单据编号", renderer: "text", readonly: true },
   { key: "department", label: "部门", renderer: "text" },
   { key: "ownerName", label: "录入人", renderer: "text", readonly: true },
-  { key: "isTaxInclusive", label: "价格口径", renderer: "enum" },
   { key: "remark", label: "单据备注", renderer: "textarea", span: 4 }
 ];
 

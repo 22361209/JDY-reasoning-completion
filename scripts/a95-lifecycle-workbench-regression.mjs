@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
-import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -24,6 +24,14 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 async function api(pathname, options = {}) {
@@ -82,7 +90,7 @@ async function seedStock() {
 
 function salesOrderPayload(billNo, remark) {
   return {
-    billNo,
+    ...(billNo ? { billNo } : {}),
     customerCode: "KH-001",
     billDate,
     department: "销售部",
@@ -94,7 +102,7 @@ function salesOrderPayload(billNo, remark) {
 
 function salesOutPayload(billNo, remark) {
   return {
-    billNo,
+    ...(billNo ? { billNo } : {}),
     customerCode: "KH-001",
     billDate,
     department: "销售部",
@@ -105,8 +113,7 @@ function salesOutPayload(billNo, remark) {
 }
 
 async function verifyReverseBackToEditableDraft() {
-  const salesOrderNo = `XSDD-A95-R-${batch}`;
-  await api("/api/sales-orders/draft", { body: salesOrderPayload(salesOrderNo, "A95反审核前") });
+  const salesOrderNo = generatedBillNo(await api("/api/sales-orders/draft", { body: salesOrderPayload(null, "A95反审核前") }), "A95销售订单反审核样本");
   await api(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
   const reversed = await api(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/reverse`);
   const afterReverse = await api(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}`, { method: "GET" });
@@ -120,11 +127,8 @@ async function verifyReverseBackToEditableDraft() {
   const reaudited = await api(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
   assert(reaudited.status === "AUDITED", `sales order should re-audit to AUDITED, got ${reaudited.status}`);
 
-  const salesOutNo = `XSCK-A95-R-${batch}`;
-  const salesFlow = salesOutPayloadViaDeliveryNotice(salesOutPayload(salesOutNo, "A95出库反审核"), `FHTZ-A95-R-${batch}`);
-  await api("/api/delivery-notices/draft", { body: salesFlow.noticePayload });
-  await api(`/api/delivery-notices/${encodeURIComponent(salesFlow.noticeNo)}/audit`);
-  await api("/api/sales-outs/draft", { body: salesFlow.outPayload });
+  const salesFlow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => api(pathname, { body }), salesOutPayload(null, "A95出库反审核"));
+  const salesOutNo = salesFlow.salesOutNo;
   await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
   const outReversed = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/reverse`);
   const outAfterReverse = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
@@ -132,7 +136,7 @@ async function verifyReverseBackToEditableDraft() {
   assert(outAfterReverse.document.status === "DRAFT", `sales out after reverse should be DRAFT, got ${outAfterReverse.document.status}`);
   assert(txnCount("SALES_OUT_REVERSE", salesOutNo) === 1, "sales out reverse should keep inventory reversal txn");
 
-  await api("/api/sales-outs/draft", { body: { ...salesFlow.outPayload, remark: "A95出库反审核后可编辑" } });
+  await api("/api/sales-outs/draft", { body: { ...salesFlow.outPayload, billNo: salesOutNo, remark: "A95出库反审核后可编辑" } });
   const outAfterEdit = await api(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
   assert(outAfterEdit.document.status === "DRAFT", `edited sales out should stay DRAFT, got ${outAfterEdit.document.status}`);
   assert(outAfterEdit.document.remark === "A95出库反审核后可编辑", `edited sales out remark should persist, got ${outAfterEdit.document.remark}`);
@@ -148,7 +152,7 @@ async function verifyReverseBackToEditableDraft() {
   };
 }
 
-async function verifyWorkbenchNumbering() {
+async function verifyWorkbenchBlankNumbering() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   const screenshots = [];
@@ -160,7 +164,7 @@ async function verifyWorkbenchNumbering() {
     await page.getByTestId("tab-sales-order-form").waitFor({ state: "visible" });
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="sales-bill-no"]');
-      return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+      return input instanceof HTMLInputElement && input.value === "";
     });
     const salesOrderBillNo = await page.getByTestId("sales-bill-no").inputValue();
     const salesOrderShot = `a95-workbench-sales-order-numbering-${batch}.png`;
@@ -172,7 +176,7 @@ async function verifyWorkbenchNumbering() {
     await page.getByTestId("tab-sales-out-form").waitFor({ state: "visible" });
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="sales-out-bill-no"]');
-      return input instanceof HTMLInputElement && /^XSCKD\d{6}$/.test(input.value);
+      return input instanceof HTMLInputElement && input.value === "";
     });
     const salesOutBillNo = await page.getByTestId("sales-out-bill-no").inputValue();
     const salesOutShot = `a95-workbench-sales-out-numbering-${batch}.png`;
@@ -187,7 +191,7 @@ async function verifyWorkbenchNumbering() {
 
 await seedStock();
 const lifecycle = await verifyReverseBackToEditableDraft();
-const workbench = await verifyWorkbenchNumbering();
+const workbench = await verifyWorkbenchBlankNumbering();
 
 const result = {
   batch,

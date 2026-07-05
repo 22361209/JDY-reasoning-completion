@@ -25,6 +25,7 @@ public class BillLifecycleService {
         "purchase_order",
         "purchase_in",
         "purchase_return",
+        "production_task",
         "production_material_issue",
         "production_completion",
         "other_stock_in",
@@ -33,6 +34,12 @@ public class BillLifecycleService {
         "stock_count",
         "stock_count_gain",
         "stock_count_loss"
+    );
+    private static final Set<String> RED_REVERSE_SOURCE_TABLES = Set.of(
+        "sales_out",
+        "purchase_in",
+        "production_material_issue",
+        "production_completion"
     );
 
     private final JdbcTemplate jdbcTemplate;
@@ -422,6 +429,9 @@ public class BillLifecycleService {
                 || demand.sourceLineNo() == null || demand.qty() == null) {
                 continue;
             }
+            if (demand.qty().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "下推或执行数量必须大于 0");
+            }
             var sourceBillNo = demand.sourceBillNo().trim();
             var key = sourceBillNo + "\u0000" + demand.sourceLineNo();
             var existing = grouped.get(key);
@@ -577,6 +587,16 @@ public class BillLifecycleService {
         if (hasFinancePosting(billNo)) {
             impacts.add("已生应收应付");
         }
+        if (RED_REVERSE_SOURCE_TABLES.contains(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM %s WHERE red_source_bill_id = ?::uuid AND status <> 'VOID'
+            """.formatted(target.headerTable()), id) > 0) {
+            impacts.add("已关联红字单");
+        }
+        if ("sales_quote".equals(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM sales_order_line l JOIN sales_order h ON h.id = l.order_id WHERE l.source_order_no = ? AND h.status <> 'VOID'
+            """, billNo) > 0) {
+            impacts.add("已下推");
+        }
         if ("sales_order".equals(target.headerTable()) && count("""
             SELECT COUNT(*) FROM delivery_notice_line l JOIN delivery_notice h ON h.id = l.bill_id WHERE l.source_order_no = ? AND h.status <> 'VOID'
             """, billNo) > 0) {
@@ -590,6 +610,34 @@ public class BillLifecycleService {
         if ("purchase_order".equals(target.headerTable()) && count("""
             SELECT COUNT(*) FROM purchase_in_line l JOIN purchase_in h ON h.id = l.bill_id WHERE l.source_order_no = ? AND h.status <> 'VOID'
             """, billNo) > 0) {
+            impacts.add("已下推");
+        }
+        if ("delivery_notice".equals(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM sales_out_line l JOIN sales_out h ON h.id = l.bill_id WHERE l.source_delivery_notice_no = ? AND h.status <> 'VOID'
+            """, billNo) > 0) {
+            impacts.add("已下推");
+        }
+        if ("purchase_in".equals(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM purchase_return_line l JOIN purchase_return h ON h.id = l.bill_id WHERE l.source_in_no = ? AND h.status <> 'VOID'
+            """, billNo) > 0) {
+            impacts.add("已下推");
+        }
+        if ("production_task".equals(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM production_material_issue WHERE task_id = ?::uuid AND status <> 'VOID'
+            """, id) > 0) {
+            impacts.add("已下推");
+        }
+        if ("production_task".equals(target.headerTable()) && count("""
+            SELECT COUNT(*) FROM production_completion WHERE task_id = ?::uuid AND status <> 'VOID'
+            """, id) > 0) {
+            impacts.add("已下推");
+        }
+        if ("production_completion".equals(target.headerTable()) && count("""
+            SELECT COUNT(*)
+            FROM outsourcing_work_order
+            WHERE (source_completion_id = ?::uuid OR source_bill_no = ?)
+              AND status <> 'VOID'
+            """, id, billNo) > 0) {
             impacts.add("已下推");
         }
         if (count("SELECT COUNT(*) FROM stock_count_gain WHERE source_bill_id = ?::uuid AND status <> 'VOID'", id) > 0

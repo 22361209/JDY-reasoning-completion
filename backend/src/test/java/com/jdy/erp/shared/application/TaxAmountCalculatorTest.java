@@ -11,7 +11,7 @@ class TaxAmountCalculatorTest {
 
     @Test
     void calculatesExclusiveTaxAmounts() {
-        var amounts = calculator.calculate(new BigDecimal("2"), new BigDecimal("100"), new BigDecimal("13"), false);
+        var amounts = calculator.calculate(new BigDecimal("2"), new BigDecimal("100"), new BigDecimal("13"));
 
         assertThat(amounts.amount()).isEqualByComparingTo("200.00");
         assertThat(amounts.taxAmount()).isEqualByComparingTo("26.00");
@@ -19,17 +19,17 @@ class TaxAmountCalculatorTest {
     }
 
     @Test
-    void calculatesInclusiveTaxAmounts() {
-        var amounts = calculator.calculate(new BigDecimal("1"), new BigDecimal("113"), new BigDecimal("13"), true);
+    void treatsUnitPriceAsExclusiveTaxPrice() {
+        var amounts = calculator.calculate(new BigDecimal("1"), new BigDecimal("113"), new BigDecimal("13"));
 
-        assertThat(amounts.amount()).isEqualByComparingTo("100.00");
-        assertThat(amounts.taxAmount()).isEqualByComparingTo("13.00");
-        assertThat(amounts.priceTaxTotal()).isEqualByComparingTo("113.00");
+        assertThat(amounts.amount()).isEqualByComparingTo("113.00");
+        assertThat(amounts.taxAmount()).isEqualByComparingTo("14.69");
+        assertThat(amounts.priceTaxTotal()).isEqualByComparingTo("127.69");
     }
 
     @Test
     void defaultsNullValuesSafely() {
-        var amounts = calculator.calculate(null, null, null, false);
+        var amounts = calculator.calculate(null, null, null);
 
         assertThat(amounts.taxRate()).isEqualByComparingTo("13");
         assertThat(amounts.amount()).isEqualByComparingTo("0.00");

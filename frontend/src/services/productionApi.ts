@@ -96,6 +96,9 @@ export interface MaterialIssuePreview {
     sourceOrderNo?: string;
     billDate?: string;
     department?: string;
+    status?: string;
+    closeStatus?: string;
+    frozenStatus?: string;
   };
   productInfo?: {
     productCode?: string;
@@ -210,10 +213,6 @@ export function reverseProductionPlan(billNo: string) {
   return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/reverse`, {});
 }
 
-export function nextProductionPlanNumber() {
-  return postJson("/api/production/plans/next-number", {});
-}
-
 export function pushDownProductionPlan(billNo: string) {
   return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/push-down`, {});
 }
@@ -224,6 +223,30 @@ export function pushDownMaterialIssueProductIn(billNo: string) {
 
 export function fetchMaterialIssuePreviewFromTask(taskBillNo: string) {
   return requestJson(`/api/production/tasks/${encodeURIComponent(taskBillNo)}/material-issue-preview`, "GET");
+}
+
+export function pushDownProductionTaskMaterialIssue(taskBillNo: string, payload: { billNo?: string; materialWarehouseCode: string }) {
+  return postJson(`/api/production/tasks/${encodeURIComponent(taskBillNo)}/issue`, compactPayload(payload));
+}
+
+export function fetchProductionTaskDetail(billNo: string) {
+  return requestJson(`/api/production/tasks/${encodeURIComponent(billNo)}`, "GET");
+}
+
+export function auditProductionTask(billNo: string) {
+  return postJson(`/api/production/tasks/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function reverseProductionTask(billNo: string) {
+  return postJson(`/api/production/tasks/${encodeURIComponent(billNo)}/reverse`, {});
+}
+
+export function lifecycleProductionTask(billNo: string, action: "close" | "unclose" | "freeze" | "unfreeze", reason: string) {
+  return postJson(`/api/document-lifecycle/productionTask/${encodeURIComponent(billNo)}/${action}`, { reason });
+}
+
+export function voidProductionTask(billNo: string, payload: { reason: string; username: string; password: string }) {
+  return postJson(`/api/document-lifecycle/productionTask/${encodeURIComponent(billNo)}/void`, payload);
 }
 
 export function createProductionTask(payload: ProductionTaskPayload) {

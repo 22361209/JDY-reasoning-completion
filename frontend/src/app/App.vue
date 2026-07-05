@@ -564,8 +564,10 @@
           ref="productionTaskFormRef"
           :title="tabs.activeTab.value.title"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
+          @request-open-document="openDocumentFromModule"
         />
         <OutsourcingDocumentForm
           v-else-if="tabs.activeTab.value.id === outsourcingWorkOrderTabId"
@@ -794,7 +796,7 @@ import OpeningStockPage from "../modules/inventory/opening-stock/OpeningStockPag
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
-import { acquireDocumentLock, fetchDocumentDetail, fetchNextBillNo, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
+import { acquireDocumentLock, fetchDocumentDetail, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
 import { auditMasterData, createMasterData, deleteMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { switchCurrentAccountSet, type SystemAccountSet } from "../services/systemApi";
@@ -995,9 +997,9 @@ function downstreamReverseImpact(doc: DownstreamDocumentRef) {
 function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
   if (doc.type === "purchaseIn") {
-    return `红冲将生成负数${"采购"}${"入库"}单，并回退源${"采购"}${"订单"}已入库数量 ${qty}。`;
+    return `红冲将生成负数${"采购"}${"入库"}草稿；审核红字单后回退源${"采购"}${"订单"}已入库数量 ${qty}。`;
   }
-  return `红冲将生成负数销售${"出库"}单，并回退源销售订单已${"出库"}数量 ${qty}。`;
+  return `红冲将生成负数销售${"出库"}草稿；审核红字单后回退源销售订单已${"出库"}数量 ${qty}。`;
 }
 function scrollHighlightedSourceLineIntoView() {
   if (!highlightedSourceLineNo.value) {
@@ -1198,7 +1200,7 @@ async function openCreateListRecord(payload: { listKey: string; row?: Record<str
     title: target.title,
     module: target.module,
     kind: "form",
-    dirty: true
+    dirty: !payload.row
   });
   activeModuleName.value = target.module;
   if (opened) {
@@ -1243,7 +1245,14 @@ function createListRecordTarget(listKey: string) {
       tabId: productionTaskTabId,
       title: "生产任务单",
       module: "生产管理",
-      open: () => productionTaskFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => {
+        const billNo = row?.billNo == null ? "" : String(row.billNo);
+        if (billNo) {
+          void productionTaskFormRef.value?.loadByBillNo(billNo);
+          return;
+        }
+        productionTaskFormRef.value?.startNew();
+      }
     };
   }
   if (listKey === "outsourcing-work-order-list") {
@@ -1726,11 +1735,6 @@ async function openDeliveryNoticeFromSalesOrder(row: Record<string, unknown>) {
     formMessage.value = `销售订单 ${sourceBillNo} 已无剩余可通知数量`;
     return;
   }
-  const nextBillNo = await fetchNextBillNo("deliveryNotice");
-  if (!nextBillNo.ok || !nextBillNo.billNo) {
-    formMessage.value = nextBillNo.message || "发货通知单号生成失败。";
-    return;
-  }
   tabs.openTab({
     id: deliveryNoticeTabId,
     title: "发货通知单",
@@ -1741,7 +1745,7 @@ async function openDeliveryNoticeFromSalesOrder(row: Record<string, unknown>) {
   activeModuleName.value = "销售管理";
   await nextTick();
   deliveryNoticeFormRef.value?.applyPushDownDraft({
-    billNo: nextBillNo.billNo,
+    billNo: "",
     sourceOrderNo: sourceBillNo,
     partyCode: result.data.order.customerCode || "",
     partyName: result.data.order.customer || "",
@@ -1798,11 +1802,6 @@ async function openOutboundFromDeliveryNotice(row: Record<string, unknown>) {
     formMessage.value = `发货通知单 ${sourceBillNo} 已无剩余可出数量`;
     return;
   }
-  const nextBillNo = await fetchNextBillNo("salesOut");
-  if (!nextBillNo.ok || !nextBillNo.billNo) {
-    formMessage.value = nextBillNo.message || "销售出库单号生成失败。";
-    return;
-  }
   tabs.openTab({
     id: outboundTabId,
     title: "销售" + "出库单",
@@ -1813,7 +1812,7 @@ async function openOutboundFromDeliveryNotice(row: Record<string, unknown>) {
   activeModuleName.value = "销售管理";
   await nextTick();
   outboundFormRef.value?.applyPushDownDraft({
-    billNo: nextBillNo.billNo,
+    billNo: "",
     sourceOrderNo: sourceBillNo,
     partyCode: result.data.document.customerCode || "",
     partyName: result.data.document.customer || "",
@@ -1852,11 +1851,6 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     formMessage.value = `${"采购"}${"订单"} ${sourceBillNo} 已无剩余可入数量`;
     return;
   }
-  const nextBillNo = await fetchNextBillNo("purchaseIn");
-  if (!nextBillNo.ok || !nextBillNo.billNo) {
-    formMessage.value = nextBillNo.message || "采购入库单号生成失败。";
-    return;
-  }
   tabs.openTab({
     id: purchaseInTabId,
     title: "采购入库单",
@@ -1867,7 +1861,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   activeModuleName.value = "采购管理";
   await nextTick();
   purchaseInFormRef.value?.applyPushDownDraft({
-    billNo: nextBillNo.billNo,
+    billNo: "",
     sourceOrderNo: sourceBillNo,
     partyCode: result.data.document.supplierCode || "",
     billDate: dateText,

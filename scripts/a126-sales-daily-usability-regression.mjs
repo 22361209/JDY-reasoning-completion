@@ -442,26 +442,55 @@ async function runRedReverseFlow() {
   const orderNo = `XSDDA126R${batch}`;
   const noticeNo = `FHTZA126R${batch}`;
   const outNo = `XSCKA126R${batch}`;
-  const redNo = `XSCKA126RED${batch}`;
-  await seedInventory(100, "red");
+	  await seedInventory(100, "red");
   await createOrder(orderNo, 10);
   await createNotice(noticeNo, orderNo, 10);
   const beforeOut = stock();
   await createSalesOut(outNo, noticeNo, 10);
   const afterOut = stock();
-  await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/red-reverse`, {
-    body: { redBillNo: redNo, billDate, ownerName: "仓库操作员" }
-  });
-  const afterRed = stock();
+	  const redDraft = await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/red-reverse`, {
+	    body: { billDate, ownerName: "仓库操作员" }
+	  });
+	  const redNo = redDraft.billNo;
+	  const afterRedDraft = stock();
+	  await expectApiFailure(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/reverse`, 409);
+	  await requireApi(warehouseCookie, "/api/sales-outs/draft", {
+	    body: {
+	      billNo: redNo,
+	      customerCode,
+	      billDate,
+	      department: "仓储部",
+	      ownerName: "仓库操作员",
+	      remark: "A126 篡改红字草稿",
+	      lines: [line(-20, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
+	    }
+	  });
+	  await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`, 409);
+	  const afterTamperedAuditBlocked = stock();
+	  await requireApi(warehouseCookie, "/api/sales-outs/draft", {
+	    body: {
+	      billNo: redNo,
+	      customerCode,
+	      billDate,
+	      department: "仓储部",
+	      ownerName: "仓库操作员",
+	      remark: "A126 恢复红字草稿",
+	      lines: [line(-10, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
+	    }
+	  });
+	  await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`);
+	  const afterRed = stock();
   const original = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}`, { method: "GET" });
   const red = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(redNo)}`, { method: "GET" });
-  assert(afterOut.onHand === beforeOut.onHand - 10, "错发场景原销售出库扣减库存", { beforeOut, afterOut });
-  assert(afterRed.onHand === beforeOut.onHand, "红冲后库存回退到出库前", { beforeOut, afterRed });
-  assert(original.document?.redReverseBillNo === redNo, "原销售出库能看到红字单", original.document);
-  assert(red.document?.redSourceBillNo === outNo && red.document?.status === "RED_REVERSED", "红字单能追溯原销售出库", red.document);
+	  assert(afterOut.onHand === beforeOut.onHand - 10, "错发场景原销售出库扣减库存", { beforeOut, afterOut });
+	  assert(afterRedDraft.onHand === afterOut.onHand, "红字草稿保存不动库存", { afterOut, afterRedDraft });
+	  assert(afterTamperedAuditBlocked.onHand === afterRedDraft.onHand, "篡改红字草稿审核失败不动库存", { afterRedDraft, afterTamperedAuditBlocked });
+	  assert(afterRed.onHand === beforeOut.onHand, "红冲后库存回退到出库前", { beforeOut, afterRed });
+	  assert(original.document?.redReverseBillNo === redNo, "原销售出库能看到红字单", original.document);
+	  assert(red.document?.redSourceBillNo === outNo && red.document?.status === "AUDITED", "红字单能追溯原销售出库且审核后生效", red.document);
   const afterRedOrder = orderStats(orderNo);
   assert(afterRedOrder.closeStatus === "OPEN" && afterRedOrder.closeMode === null && afterRedOrder.remainingQty === 10, "红冲导致未出库数量回升后自动关闭订单恢复未关闭", afterRedOrder);
-  evidence.data.redReverse = { orderNo, noticeNo, outNo, redNo, beforeOut, afterOut, afterRed, afterRedOrder };
+		  evidence.data.redReverse = { orderNo, noticeNo, outNo, redNo, beforeOut, afterOut, afterRedDraft, afterTamperedAuditBlocked, afterRed, afterRedOrder };
   return evidence.data.redReverse;
 }
 

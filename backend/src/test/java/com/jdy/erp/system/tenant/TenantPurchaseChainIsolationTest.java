@@ -217,7 +217,6 @@ class TenantPurchaseChainIsolationTest {
             "2026-06-30",
             "采购部",
             "admin",
-            false,
             List.of(new PurchaseOrderAppService.PurchaseOrderLineRequest(
                 null,
                 PRODUCT_CODE,
@@ -243,7 +242,6 @@ class TenantPurchaseChainIsolationTest {
             "2026-06-30",
             "采购部",
             "admin",
-            false,
             List.of(new PurchaseInAppService.PurchaseInLineRequest(
                 null,
                 PRODUCT_CODE,
@@ -267,7 +265,6 @@ class TenantPurchaseChainIsolationTest {
             "采购部",
             "admin",
             "A119 return",
-            false,
             List.of(new PurchaseReturnAppService.PurchaseReturnLineRequest(
                 null,
                 PRODUCT_CODE,

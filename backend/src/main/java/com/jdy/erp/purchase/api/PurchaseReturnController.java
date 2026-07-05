@@ -4,6 +4,7 @@ import java.util.Map;
 
 import com.jdy.erp.purchase.application.PurchaseReturnAppService;
 import com.jdy.erp.purchase.application.PurchaseReturnAppService.PurchaseReturnDraftRequest;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
@@ -67,7 +68,7 @@ public class PurchaseReturnController {
 
     @PostMapping("/{billNo}/void")
     @RequirePermission("purchase.return.audit")
-    public Map<String, Object> voidBill(@PathVariable String billNo) {
-        return appService.voidBill(billNo);
+    public Map<String, Object> voidBill(@PathVariable String billNo, @RequestBody VoidRequest request) {
+        return appService.voidBill(billNo, request);
     }
 }

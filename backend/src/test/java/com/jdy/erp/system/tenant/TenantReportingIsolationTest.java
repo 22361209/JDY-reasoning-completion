@@ -312,7 +312,6 @@ class TenantReportingIsolationTest {
             "销售部",
             "admin",
             "A119 reporting sales order",
-            false,
             List.of(new SalesOrderAppService.SalesOrderLineRequest(
                 null,
                 PARENT_CODE,
@@ -340,7 +339,6 @@ class TenantReportingIsolationTest {
             "销售部",
             "admin",
             "A119 reporting delivery notice",
-            false,
             List.of(new DeliveryNoticeAppService.DeliveryNoticeLineRequest(
                 null,
                 PARENT_CODE,
@@ -368,7 +366,6 @@ class TenantReportingIsolationTest {
             "销售部",
             "admin",
             "A119 reporting sales out",
-            false,
             List.of(new SalesOutAppService.SalesOutLineRequest(
                 null,
                 PARENT_CODE,
@@ -396,7 +393,6 @@ class TenantReportingIsolationTest {
             "2026-06-30",
             "采购部",
             "admin",
-            false,
             List.of(new PurchaseOrderAppService.PurchaseOrderLineRequest(
                 null,
                 COMPONENT_CODE,
@@ -422,7 +418,6 @@ class TenantReportingIsolationTest {
             "2026-06-30",
             "采购部",
             "admin",
-            false,
             List.of(new PurchaseInAppService.PurchaseInLineRequest(
                 null,
                 COMPONENT_CODE,

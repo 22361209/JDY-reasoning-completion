@@ -63,11 +63,9 @@ async function upsertProduct(code, payload) {
 }
 
 async function seedStock(lines) {
-  const billNo = `QTRK-A116B-${batch}`;
-  await requireJson("/api/other-stock-ins/draft", {
+  const draft = await requireJson("/api/other-stock-ins/draft", {
     method: "POST",
     body: {
-      billNo,
       supplierCode: "GYS-001",
       billDate: "2026-06-29",
       department: "仓储部",
@@ -75,7 +73,7 @@ async function seedStock(lines) {
       lines
     }
   });
-  return requireJson(`/api/other-stock-ins/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
+  return requireJson(`/api/other-stock-ins/${encodeURIComponent(draft.billNo)}/audit`, { method: "POST" });
 }
 
 async function selectableRequisitionLines(supplierCode) {
@@ -142,17 +140,16 @@ const bomV1 = await requireJson("/api/production/boms", {
 });
 await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
-const planNoResult = await requireJson("/api/production/plans/next-number", { method: "POST" });
 const plan = await requireJson("/api/production/plans", {
   method: "POST",
   body: {
-    billNo: planNoResult.billNo,
     productCode: parentCode,
     qty: 5,
     planDeliveryDate: "2026-07-15",
     sourceType: "SELF"
   }
 });
+await requireJson(`/api/production/plans/${encodeURIComponent(plan.billNo)}/audit`, { method: "POST" });
 
 const bomV2 = await requireJson("/api/production/boms", {
   method: "POST",
@@ -165,7 +162,14 @@ const bomV2 = await requireJson("/api/production/boms", {
     ]
   }
 });
-await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
+await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, {
+  method: "POST",
+  body: {
+    confirmNewVersion: true,
+    latestBomCode: bomCode,
+    latestVersionNo: bomV1.versionNo
+  }
+});
 
 assert(Number(bomV2.versionNo) > Number(bomV1.versionNo), "second BOM save should create a newer history version");
 assert(Number(plan.bomVersionNo) === Number(bomV1.versionNo), "production plan should snapshot BOM version before later BOM edits");
@@ -183,21 +187,19 @@ assert(Array.isArray(pushDown.purchaseRequisitions) && pushDown.purchaseRequisit
 const task = pushDown.productionTasks[0];
 assert(task.departmentCode === "HJ", "production task should keep production plan workshop snapshot");
 assert(Number(task.bomVersionNo) === Number(bomV1.versionNo), "production task should use the plan BOM history version, not the newer current BOM");
+await requireJson(`/api/production/tasks/${encodeURIComponent(task.billNo)}/audit`, { method: "POST" });
 
 const supplierOneLines = await selectableRequisitionLines("GYS-001");
 const sourceLine = supplierOneLines.find((line) => line.productCode === materialA && Number(line.remainingQty) === 10);
 assert(sourceLine, "supplier GYS-001 should expose a selectable purchase requisition line with BOM V1 quantity");
 
-const purchaseOrderNo = `CGDD-A116B-${batch}`;
-await requireJson("/api/purchase-orders/draft", {
+const purchaseOrder = await requireJson("/api/purchase-orders/draft", {
   method: "POST",
   body: {
-    billNo: purchaseOrderNo,
     supplierCode: "GYS-001",
     billDate: "2026-06-29",
     department: "采购部",
     ownerName: "A116B回归",
-    isTaxInclusive: false,
     lines: [
       {
         productCode: sourceLine.productCode,
@@ -213,6 +215,7 @@ await requireJson("/api/purchase-orders/draft", {
     ]
   }
 });
+const purchaseOrderNo = purchaseOrder.billNo;
 await requireJson(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`, { method: "POST" });
 const afterOrderLines = await selectableRequisitionLines("GYS-001");
 const consumedLine = afterOrderLines.find((line) => line.billNo === sourceLine.billNo && Number(line.lineNo) === Number(sourceLine.lineNo));
@@ -220,14 +223,17 @@ assert(!consumedLine, "audited purchase order should consume the selected purcha
 
 const issue = await requireJson(`/api/production/tasks/${encodeURIComponent(task.billNo)}/issue`, {
   method: "POST",
-  body: { billNo: `SCLL-A116B-${batch}`, materialWarehouseCode: "CK-002" }
+  body: { materialWarehouseCode: "CK-002" }
 });
-assert(issue.status === "AUDITED", "task issue should create an audited material issue");
+assert(issue.status === "DRAFT", "task issue pushdown should create a draft material issue");
+await requireJson(`/api/production/material-issues/${encodeURIComponent(issue.billNo)}/audit`, { method: "POST" });
 
 const completion = await requireJson(`/api/production/material-issues/${encodeURIComponent(issue.billNo)}/push-product-in`, { method: "POST" });
 assert(completion.billNo, "material issue pushdown should return product-in bill number");
 assert(completion.sourceOrderNo === task.billNo, "product-in should keep source production task number");
 assert(completion.sourceIssueNo === issue.billNo, "product-in pushdown should keep source material issue number");
+assert(completion.status === "DRAFT", "material issue pushdown should create a draft product-in");
+await requireJson(`/api/production/product-ins/${encodeURIComponent(completion.billNo)}/audit`, { method: "POST" });
 
 const productInDetail = await requireJson(`/api/production/product-ins/${encodeURIComponent(completion.billNo)}`);
 assert(productInDetail.document.status === "AUDITED", "generated product-in should be audited");

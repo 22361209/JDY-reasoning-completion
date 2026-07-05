@@ -1,32 +1,62 @@
 import { taxAmounts } from "../../app/taxAmounts";
 import type { EntryLine, MasterOption } from "./types";
 
-export function entryLineAmount(line: EntryLine, isTaxInclusive = false) {
-  return taxForEntryLine(line, isTaxInclusive).amount.toFixed(2);
+export function entryLineAmount(line: EntryLine, preview = true) {
+  return formatEntryPrice(entryLineAmountValue(line, preview));
 }
 
-export function entryLineTaxAmount(line: EntryLine, isTaxInclusive = false) {
-  return taxForEntryLine(line, isTaxInclusive).taxAmount.toFixed(2);
+export function entryLineTaxAmount(line: EntryLine, preview = true) {
+  return formatEntryPrice(entryLineTaxAmountValue(line, preview));
 }
 
-export function entryLinePriceTaxTotal(line: EntryLine, isTaxInclusive = false) {
-  return taxForEntryLine(line, isTaxInclusive).priceTaxTotal.toFixed(2);
+export function entryLinePriceTaxTotal(line: EntryLine, preview = true) {
+  return formatEntryPrice(entryLinePriceTaxTotalValue(line, preview));
 }
 
-export function entryLineTaxInclusiveUnitPrice(line: EntryLine, isTaxInclusive = false) {
+export function entryLineTaxInclusiveUnitPrice(line: EntryLine, preview = true) {
+  return formatEntryPrice(entryLineTaxInclusiveUnitPriceValue(line, preview));
+}
+
+export function entryLineAmountValue(line: EntryLine, preview = true) {
+  const persisted = preview ? undefined : numericOrUndefined(line.amount);
+  return persisted ?? taxForEntryLine(line).amount;
+}
+
+export function entryLineTaxAmountValue(line: EntryLine, preview = true) {
+  const persisted = preview ? undefined : numericOrUndefined(line.taxAmount);
+  return persisted ?? taxForEntryLine(line).taxAmount;
+}
+
+export function entryLinePriceTaxTotalValue(line: EntryLine, preview = true) {
+  const persisted = preview ? undefined : numericOrUndefined(line.priceTaxTotal);
+  return persisted ?? taxForEntryLine(line).priceTaxTotal;
+}
+
+export function entryLineTaxInclusiveUnitPriceValue(line: EntryLine, preview = true) {
+  const persisted = preview ? undefined : numericOrUndefined(line.taxInclusiveUnitPrice);
+  if (persisted !== undefined) {
+    return persisted;
+  }
   const qty = Number(line.qty || 0);
-  const priceTaxTotal = taxForEntryLine(line, isTaxInclusive).priceTaxTotal;
+  const priceTaxTotal = entryLinePriceTaxTotalValue(line, preview);
   if (!qty || !Number.isFinite(qty)) {
     const unitPrice = Number(line.unitPrice || 0);
     const taxRate = Number(line.taxRate ?? 0);
-    const grossUnitPrice = isTaxInclusive ? unitPrice : unitPrice * (1 + taxRate / 100);
-    return formatEntryPrice(grossUnitPrice);
+    return unitPrice * (1 + taxRate / 100);
   }
-  return formatEntryPrice(priceTaxTotal / qty);
+  return priceTaxTotal / qty;
 }
 
-export function taxForEntryLine(line: EntryLine, isTaxInclusive = false) {
-  return taxAmounts(line.qty, line.unitPrice, line.taxRate, isTaxInclusive);
+export function taxForEntryLine(line: EntryLine) {
+  return taxAmounts(line.qty, line.unitPrice, line.taxRate);
+}
+
+function numericOrUndefined(value: number | string | undefined) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return undefined;
+  }
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
 export function entryLineExecutedQty(line: EntryLine) {

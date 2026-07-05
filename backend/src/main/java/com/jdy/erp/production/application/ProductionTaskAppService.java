@@ -539,11 +539,6 @@ public class ProductionTaskAppService {
     }
 
     @Transactional
-    public Map<String, Object> nextPlanNumber() {
-        return Map.of("billNo", numberingService.nextBillNo("productionPlan"));
-    }
-
-    @Transactional
     public Map<String, Object> pushDownPlan(String planNo) {
         var source = resolvePlanForTask(planNo, null);
         var task = createTask(new TaskRequest(null, planNo, null, null, (BigDecimal) source.get("taskQty")));
@@ -590,7 +585,7 @@ public class ProductionTaskAppService {
             source.get("bomCode"),
             source.get("bomVersionNo"),
             source.get("taskQty"),
-            BillStatus.AUDITED.name()
+            BillStatus.DRAFT.name()
         );
         var taskId = String.valueOf(rows.get(0).get("id"));
         rebuildTaskMaterialSnapshot(taskId);
@@ -598,9 +593,143 @@ public class ProductionTaskAppService {
         return rows.get(0);
     }
 
+    public Map<String, Object> taskDetail(String taskNo) {
+        var taskRows = jdbcTemplate.queryForList("""
+            SELECT t.id::text AS id,
+                   t.bill_no AS "billNo",
+                   COALESCE(pl.bill_no, '') AS "planNo",
+                   to_char(t.created_at, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(t.department_code, '生产部') AS department,
+                   t.status,
+                   t.close_status AS "closeStatus",
+                   t.frozen_status AS "frozenStatus"
+            FROM production_task t
+            LEFT JOIN production_plan pl ON pl.id = t.plan_id
+            WHERE t.bill_no = ?
+            """, validationService.required(taskNo, "生产任务单号"));
+        if (taskRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "生产任务单不存在");
+        }
+        var task = taskRows.get(0);
+        var productRows = jdbcTemplate.queryForList("""
+            SELECT COALESCE(t.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(t.product_unit_snapshot, p.unit, '') AS unit,
+                   w.code AS "warehouseCode",
+                   t.qty AS "taskQty",
+                   GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
+                   t.bom_code_snapshot AS "bomCode",
+                   t.bom_version_no AS "bomVersionNo"
+            FROM production_task t
+            JOIN md_product p ON p.id = t.product_id
+            JOIN md_warehouse w ON w.id = t.warehouse_id
+            WHERE t.id = ?::uuid
+            """, task.get("id"));
+        var lines = jdbcTemplate.queryForList("""
+            SELECT s.line_no AS "lineNo",
+                   s.line_no AS "sourceLineNo",
+                   s.product_id::text AS "productId",
+                   COALESCE(s.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(s.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(s.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(s.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(s.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(s.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                   COALESCE(w.code, '') AS "warehouseCode",
+                   s.required_qty AS qty,
+                   GREATEST(s.required_qty - s.issued_qty, 0) AS "remainingQty",
+                   s.issued_qty AS "issuedQty",
+                   COALESCE(stock.qty_on_hand, 0) AS "stockOnHand",
+                   COALESCE(stock.qty_reserved, 0) AS "stockReserved",
+                   COALESCE(stock.qty_available, 0) AS "stockAvailable",
+                   0 AS "stockInTransit"
+            FROM production_task_material_snapshot s
+            JOIN md_product p ON p.id = s.product_id
+            LEFT JOIN prod_bom_line bom_line ON bom_line.id = s.source_bom_line_id
+            LEFT JOIN md_warehouse w ON w.id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+            LEFT JOIN inv_stock_balance stock ON stock.product_id = s.product_id
+                 AND stock.warehouse_id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+                 AND stock.account_set_id = ?::uuid
+            WHERE s.task_id = ?::uuid
+            ORDER BY s.line_no
+            """, inventoryScopeId(), task.get("id"));
+        return Map.of(
+            "action", "DETAIL",
+            "document", task,
+            "productInfo", productRows.isEmpty() ? Map.of() : productRows.get(0),
+            "lines", lines
+        );
+    }
+
     @Transactional
     public Map<String, Object> createTaskFromPlan(String planNo, TaskRequest request) {
         return createTask(new TaskRequest(request.billNo(), planNo, request.bomCode(), request.warehouseCode(), request.qty()));
+    }
+
+    @Transactional
+    public Map<String, Object> auditTask(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE production_task
+            SET status = ?,
+                close_status = 'OPEN',
+                frozen_status = 'NORMAL',
+                updated_at = now(),
+                version = version + 1
+            WHERE bill_no = ?
+              AND status = ?
+            RETURNING id::text AS id,
+                      bill_no AS "billNo",
+                      status,
+                      close_status AS "closeStatus",
+                      frozen_status AS "frozenStatus"
+            """, BillStatus.AUDITED.name(), validationService.required(billNo, "生产任务单号"), BillStatus.DRAFT.name());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿生产任务单可以审核");
+        }
+        operationLogService.log("PRODUCTION", "AUDIT_TASK", "production_task", String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
+    }
+
+    @Transactional
+    public Map<String, Object> reverseTask(String billNo) {
+        guardTaskHasNoDownstream(billNo);
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE production_task
+            SET status = ?,
+                close_status = 'OPEN',
+                close_reason = NULL,
+                closed_by = NULL,
+                closed_at = NULL,
+                frozen_status = 'NORMAL',
+                frozen_reason = NULL,
+                frozen_by = NULL,
+                frozen_at = NULL,
+                updated_at = now(),
+                version = version + 1
+            WHERE bill_no = ?
+              AND status = ?
+              AND COALESCE(issued_qty, 0) = 0
+              AND COALESCE(completed_qty, 0) = 0
+            RETURNING id::text AS id,
+                      bill_no AS "billNo",
+                      status,
+                      close_status AS "closeStatus",
+                      frozen_status AS "frozenStatus"
+            """, BillStatus.DRAFT.name(), validationService.required(billNo, "生产任务单号"), BillStatus.AUDITED.name());
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核且未领料、未完工的生产任务单可以反审核");
+        }
+        jdbcTemplate.update("""
+            UPDATE production_task_material_snapshot
+            SET line_close_status = 'OPEN',
+                line_close_reason = NULL,
+                line_frozen_status = 'NORMAL',
+                line_frozen_reason = NULL
+            WHERE task_id = ?::uuid
+            """, rows.get(0).get("id"));
+        operationLogService.log("PRODUCTION", "REVERSE_TASK", "production_task", String.valueOf(rows.get(0).get("id")), true, null);
+        return rows.get(0);
     }
 
     public List<Map<String, Object>> kitAnalysis(String planNo) {
@@ -665,6 +794,7 @@ public class ProductionTaskAppService {
                     SELECT plan_id, SUM(qty) AS assigned_qty
                     FROM production_task
                     WHERE plan_id IS NOT NULL
+                      AND status <> 'VOID'
                     GROUP BY plan_id
                 ) task_qty ON task_qty.plan_id = p.id
                 WHERE p.bill_no = ?
@@ -822,6 +952,7 @@ public class ProductionTaskAppService {
                 FROM production_task task
                 JOIN production_plan plan ON plan.id = task.plan_id
                 WHERE plan.bill_no = ?
+                  AND task.status <> 'VOID'
                 UNION ALL
                 SELECT 1
                 FROM purchase_requisition requisition
@@ -831,6 +962,28 @@ public class ProductionTaskAppService {
             """, Integer.class, planNo, planNo);
         if (count != null && count > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产计划已下推，不能反审核");
+        }
+    }
+
+    private void guardTaskHasNoDownstream(String taskNo) {
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM (
+                SELECT 1
+                FROM production_material_issue issue
+                JOIN production_task task ON task.id = issue.task_id
+                WHERE task.bill_no = ?
+                  AND issue.status <> 'VOID'
+                UNION ALL
+                SELECT 1
+                FROM production_completion completion
+                JOIN production_task task ON task.id = completion.task_id
+                WHERE task.bill_no = ?
+                  AND completion.status <> 'VOID'
+            ) refs
+            """, Integer.class, taskNo, taskNo);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务已产生领料或完工单据，不能反审核");
         }
     }
 

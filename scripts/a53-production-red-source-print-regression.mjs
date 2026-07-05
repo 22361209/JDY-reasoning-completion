@@ -10,6 +10,7 @@ const resultPath = path.join(verificationDir, "a53-production-red-source-print-r
 const apiBase = "http://127.0.0.1:8080";
 const apiCookie = await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const bomIssueMethod = `A53-${batch}`;
 
 await mkdir(screenshotDir, { recursive: true });
 
@@ -17,6 +18,14 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 async function request(pathname, options = {}) {
@@ -34,6 +43,18 @@ async function requireJson(pathname, options = {}) {
     throw new Error(`${options.method ?? "GET"} ${pathname} failed ${response.status}: ${text}`);
   }
   return text ? JSON.parse(text) : {};
+}
+
+async function auditBomAllowNewVersion(code) {
+  const preview = await requireJson(`/api/production/boms/${encodeURIComponent(code)}/audit-preview`);
+  const body = preview.requiresConfirmation
+    ? {
+        confirmNewVersion: true,
+        latestBomCode: preview.latestBomCode,
+        latestVersionNo: preview.latestVersionNo
+      }
+    : undefined;
+  return requireJson(`/api/production/boms/${encodeURIComponent(code)}/audit`, { method: "POST", body });
 }
 
 function utf16beHex(value) {
@@ -71,12 +92,6 @@ async function seedStock() {
 async function createProductionPairs() {
   await seedStock();
   const bomCode = `BOM-A53-${batch}`;
-  const issueTaskNo = `SCRW-A53-I-${batch}`;
-  const completeTaskNo = `SCRW-A53-C-${batch}`;
-  const issueNo = `SCLL-A53-${batch}`;
-  const redIssueNo = `RED-A53-SCLL-${batch}`;
-  const productInNo = `CPRK-A53-${batch}`;
-  const redProductInNo = `RED-A53-CPRK-${batch}`;
 
   await requireJson("/api/production/boms", {
     method: "POST",
@@ -87,57 +102,65 @@ async function createProductionPairs() {
       lines: [
         { materialCode: "CP-001", qty: 1 },
         { materialCode: "PJ-014", qty: 2 },
-        { materialCode: "CP-T413874", qty: 3 }
+        { materialCode: "CP-T413874", qty: 3, issueWarehouseCode: "CK-001", issueMethod: bomIssueMethod }
       ]
     }
   });
-  await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
-  await requireJson("/api/production/tasks", {
+  await auditBomAllowNewVersion(bomCode);
+  const issueTaskNo = generatedBillNo(await requireJson("/api/production/tasks", {
     method: "POST",
-    body: { billNo: issueTaskNo, bomCode, warehouseCode: "CK-001", qty: 3 }
-  });
-  await requireJson("/api/production/tasks", {
+    body: { bomCode, warehouseCode: "CK-001", qty: 3 }
+  }), "生产任务领料红冲打印样本");
+  const completeTaskNo = generatedBillNo(await requireJson("/api/production/tasks", {
     method: "POST",
-    body: { billNo: completeTaskNo, bomCode, warehouseCode: "CK-001", qty: 10 }
-  });
-  await requireJson(`/api/production/tasks/${encodeURIComponent(issueTaskNo)}/issue`, {
+    body: { bomCode, warehouseCode: "CK-001", qty: 10 }
+  }), "生产任务完工红冲打印样本");
+  await requireJson(`/api/production/tasks/${encodeURIComponent(issueTaskNo)}/audit`, { method: "POST" });
+  await requireJson(`/api/production/tasks/${encodeURIComponent(completeTaskNo)}/audit`, { method: "POST" });
+  const issueNo = generatedBillNo(await requireJson(`/api/production/tasks/${encodeURIComponent(issueTaskNo)}/issue`, {
     method: "POST",
-    body: { billNo: issueNo, materialWarehouseCode: "CK-002" }
-  });
-  await requireJson(`/api/production/material-issues/${encodeURIComponent(issueNo)}/red-reverse`, {
+    body: { materialWarehouseCode: "CK-002" }
+  }), "生产领料红冲打印来源");
+  await requireJson(`/api/production/material-issues/${encodeURIComponent(issueNo)}/audit`, { method: "POST" });
+  const redIssue = await requireJson(`/api/production/material-issues/${encodeURIComponent(issueNo)}/red-reverse`, {
     method: "POST",
-    body: { redBillNo: redIssueNo }
+    body: {}
   });
-  await requireJson(`/api/production/tasks/${encodeURIComponent(completeTaskNo)}/complete`, {
+  const completeIssueNo = generatedBillNo(await requireJson(`/api/production/tasks/${encodeURIComponent(completeTaskNo)}/issue`, {
+    method: "POST",
+    body: { materialWarehouseCode: "CK-002" }
+  }), "完工任务领料红冲打印样本");
+  await requireJson(`/api/production/material-issues/${encodeURIComponent(completeIssueNo)}/audit`, { method: "POST" });
+  const productInNo = generatedBillNo(await requireJson(`/api/production/tasks/${encodeURIComponent(completeTaskNo)}/complete`, {
     method: "POST",
     body: {
-      billNo: productInNo,
       lines: [
         { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
         { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
         { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 20 }
       ]
     }
-  });
-  await requireJson(`/api/production/product-ins/${encodeURIComponent(productInNo)}/red-reverse`, {
+  }), "产品入库红冲打印来源");
+  await requireJson(`/api/production/product-ins/${encodeURIComponent(productInNo)}/audit`, { method: "POST" });
+  const redProductIn = await requireJson(`/api/production/product-ins/${encodeURIComponent(productInNo)}/red-reverse`, {
     method: "POST",
-    body: { redBillNo: redProductInNo }
+    body: {}
   });
 
   return [
     {
       name: "生产领料单",
       documentType: "material-issue",
-      detailPath: `/api/production/material-issues/${encodeURIComponent(redIssueNo)}`,
+      detailPath: `/api/production/material-issues/${encodeURIComponent(redIssue.billNo)}`,
       sourceBillNo: issueNo,
-      redBillNo: redIssueNo
+      redBillNo: redIssue.billNo
     },
     {
       name: "产品入库单",
       documentType: "product-in",
-      detailPath: `/api/production/product-ins/${encodeURIComponent(redProductInNo)}`,
+      detailPath: `/api/production/product-ins/${encodeURIComponent(redProductIn.billNo)}`,
       sourceBillNo: productInNo,
-      redBillNo: redProductInNo
+      redBillNo: redProductIn.billNo
     }
   ];
 }

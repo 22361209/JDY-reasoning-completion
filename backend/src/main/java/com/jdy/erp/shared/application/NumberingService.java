@@ -18,9 +18,11 @@ public class NumberingService {
         Map.entry("salesQuote", new NumberingRule("XSBJ", "sales_quote", "销售报价单")),
         Map.entry("deliveryNotice", new NumberingRule("FHTZD", "delivery_notice", "发货通知单")),
         Map.entry("salesOut", new NumberingRule("XSCKD", "sales_out", "销售出库单")),
+        Map.entry("arReceipt", new NumberingRule("SKD", "ar_receipt", "收款单")),
         Map.entry("purchaseOrder", new NumberingRule("CGDD", "purchase_order", "采购订单")),
         Map.entry("purchaseRequisition", new NumberingRule("CGSQ", "purchase_requisition", "采购申请单")),
         Map.entry("purchaseIn", new NumberingRule("CGRK", "purchase_in", "采购入库单")),
+        Map.entry("apPayment", new NumberingRule("FKD", "ap_payment", "付款单")),
         Map.entry("purchaseReturn", new NumberingRule("CGTH", "purchase_return", "采购退货单")),
         Map.entry("materialIssue", new NumberingRule("SOUT", "production_material_issue", "生产领料单")),
         Map.entry("productIn", new NumberingRule("SCRK", "production_completion", "产品入库单")),
@@ -32,7 +34,6 @@ public class NumberingService {
         Map.entry("stockCountLoss", new NumberingRule("PK", "stock_count_loss", "盘亏单")),
         Map.entry("productionPlan", new NumberingRule("SCJH", "production_plan", "生产计划")),
         Map.entry("productionTask", new NumberingRule("SCRW", "production_task", "生产任务单")),
-        Map.entry("outsourcingSurface", new NumberingRule("WWBM", "outsourcing_surface_process", "委外表面处理")),
         Map.entry("outsourcingWorkOrder", new NumberingRule("WWJG", "outsourcing_work_order", "委外加工单")),
         Map.entry("outsourcingIssue", new NumberingRule("WWFL", "outsourcing_material_issue", "委外发料单")),
         Map.entry("outsourcingReceipt", new NumberingRule("WWRK", "outsourcing_receipt", "委外产品入库单")),
@@ -135,9 +136,12 @@ public class NumberingService {
             requested
         );
         if (statuses.isEmpty()) {
-            return requested;
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据编号只能由系统自动生成，不能手工指定");
         }
-        return "DRAFT".equals(statuses.get(0)) ? requested : nextBillNo(documentType);
+        if (!"DRAFT".equals(statuses.get(0))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿单据可以保存覆盖，已审核或已进入生命周期的单据不能通过保存修改");
+        }
+        return requested;
     }
 
     private NumberingRule ruleFor(String documentType) {

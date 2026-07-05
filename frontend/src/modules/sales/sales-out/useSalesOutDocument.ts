@@ -28,7 +28,6 @@ import {
   deleteDocument,
   exportDocument,
   fetchDocumentDetail,
-  fetchNextBillNo,
   fetchSalesUnitPriceQuote,
   lifecycleDocument,
   lifecycleLine,
@@ -133,8 +132,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const lifecyclePolicy = computed(() => lifecyclePolicyFor("salesOut"));
   const showCloseFreezeActions = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed));
   const canAudit = computed(() => isDraft.value && options.hasPermission("sales.out.audit"));
-  const canReverse = computed(() => form.status === "AUDITED");
-  const canRedReverse = computed(() => Boolean(lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED"));
+  const canReverse = computed(() => form.status === "AUDITED" && !form.redReverseBillNo);
+  const canRedReverse = computed(() => Boolean(lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED" && !form.redReverseBillNo && !form.redSourceBillNo));
   const canVoid = computed(() => Boolean(lifecyclePolicy.value?.voidAllowed && form.status === "DRAFT"));
   const canClose = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN"));
   const canUnclose = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus === "CLOSED"));
@@ -144,18 +143,18 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const canDelete = computed(() => Boolean(options.hasPermission("sales.out.audit") && form.status === "DRAFT" && hasPersistedDraft.value && form.billNo));
   const canTraceSourceOrder = computed(() => Boolean(form.lines.some((line) => line.sourceOrderNo?.trim())));
   const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus));
-  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
+  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
   const showSourceLineColumn = computed(() => Boolean(form.lines.some((line) => line.sourceOrderNo?.trim())));
   const entryTableColspan = computed(() => 11 + (showSourceLineColumn.value ? 1 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
-  const redReverseBillNo = computed(() => `HC-${form.billNo}`);
+  const redReverseBillNo = computed(() => "系统自动生成");
   const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
   const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
-  const riskyActionSummary = computed(() => `即将${riskyActionVerb.value}销售出库单 ${form.billNo}。`);
-  const riskyActionImpact = computed(() => pendingRiskyDocumentAction.value === "redReverse"
-    ? "红冲将生成负数销售出库单，原单标记已红冲，并回退销售订单已出库数量、重算出库状态。"
+	  const riskyActionSummary = computed(() => `即将${riskyActionVerb.value}销售出库单 ${form.billNo}。`);
+	  const riskyActionImpact = computed(() => pendingRiskyDocumentAction.value === "redReverse"
+	    ? "红冲将生成负数销售出库草稿，在原单关联红字单；审核红字单后才回退销售订单已出库数量、重算出库状态。"
     : "反审核将冲销销售出库库存流水，回退销售订单已出库数量，并重算出库状态。");
   const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 
@@ -175,15 +174,12 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = "销售部";
     form.ownerName = options.userName() || "本地管理员";
     form.remark = "";
-    form.isTaxInclusive = false;
     form.status = "DRAFT";
     form.closeStatus = "OPEN";
     form.frozenStatus = "NORMAL";
     form.lines = [blankLine()];
     hasPersistedDraft.value = false;
-    const billNoResult = await fetchNextBillNo("salesOut");
-    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
-    message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
+    message.value = "新单据将在首次保存时生成编号";
     options.markDirty();
   }
 
@@ -199,7 +195,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = document.department || "销售部";
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
-    form.isTaxInclusive = Boolean(document.isTaxInclusive);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.closeStatus = document.closeStatus ?? "OPEN";
     form.frozenStatus = document.frozenStatus ?? "NORMAL";
@@ -224,6 +219,8 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
         lineCloseStatus: line.lineCloseStatus ?? "OPEN",
         lineFrozenStatus: line.lineFrozenStatus ?? "NORMAL",
         unitPrice: Number(line.unitPrice ?? 0),
+        amount: line.amount,
+        taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
         taxRate: Number(line.taxRate ?? 13),
         taxAmount: line.taxAmount,
         priceTaxTotal: line.priceTaxTotal,
@@ -235,7 +232,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     hasPersistedDraft.value = true;
   }
 
-  async function loadByBillNo(billNo: string) {
+  async function loadByBillNo(billNo: string, loadedMessage = "") {
     form.lines = [];
     const result = await fetchDocumentDetail("salesOut", billNo);
     if (!result.ok || !result.data) {
@@ -243,7 +240,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       return;
     }
     fillFromDetail(result.data);
-    message.value = `已打开销售出库单 ${billNo}`;
+    message.value = loadedMessage || `已打开销售出库单 ${billNo}`;
     options.clearDirty();
   }
 
@@ -269,7 +266,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.department = draft.department;
     form.ownerName = draft.ownerName;
     form.remark = "";
-    form.isTaxInclusive = false;
     form.status = "DRAFT";
     hasPersistedDraft.value = false;
     form.lines = draft.lines.map((line) => ({
@@ -287,6 +283,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceDeliveryLineNo: line.sourceDeliveryLineNo ?? line.sourceLineNo,
       qty: normalizedQty(line.qty),
       unitPrice: Number(line.unitPrice ?? 0),
+      amount: line.amount,
+      taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
+      taxAmount: line.taxAmount,
+      priceTaxTotal: line.priceTaxTotal,
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
@@ -307,7 +307,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     ].join("-");
     form.department = order.department || "销售部";
     form.ownerName = options.userName() || order.ownerName || "本地管理员";
-    form.isTaxInclusive = Boolean(order.isTaxInclusive);
     form.lines = lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
       productId: String(line.productId ?? ""),
@@ -321,6 +320,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0),
+      amount: line.amount,
+      taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
+      taxAmount: line.taxAmount,
+      priceTaxTotal: line.priceTaxTotal,
       taxRate: Number(line.taxRate ?? 13),
       lineRemark: String(line.lineRemark ?? ""),
       planDeliveryDate: String(line.planDeliveryDate ?? "") || todayText()
@@ -342,7 +345,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     ].join("-");
     form.department = order.department || form.department || "销售部";
     form.ownerName = options.userName() || order.ownerName || "本地管理员";
-    form.isTaxInclusive = Boolean(order.isTaxInclusive);
     appendFormLines(lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
       productId: String(line.productId ?? ""),
@@ -356,6 +358,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceLineNo: line.sourceLineNo,
       qty: normalizedQty(line.remainingQty),
       unitPrice: Number(line.unitPrice ?? 0),
+      amount: line.amount,
+      taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
+      taxAmount: line.taxAmount,
+      priceTaxTotal: line.priceTaxTotal,
       taxRate: Number(line.taxRate ?? 13),
       customerMaterialCode: String(line.customerMaterialCode ?? ""),
       customerOrderNo: String(line.customerOrderNo ?? ""),
@@ -406,7 +412,6 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyCode = first.customerCode;
     form.partyName = first.customer || form.partyName || "";
     form.department = first.department || form.department || "销售部";
-    form.isTaxInclusive = Boolean(first.isTaxInclusive);
     appendFormLines(selectedLines.map((line) => selectableLineToFormLine(line)));
     message.value = `已追加 ${selectedLines.length} 行发货通知剩余可出明细`;
     options.markDirty();
@@ -436,18 +441,20 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       department: form.department,
       ownerName: form.ownerName,
       remark: form.remark,
-      isTaxInclusive: Boolean(form.isTaxInclusive),
       lines: preparedLines.documentLines
     });
-    message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
+    const successMessage = saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0);
+    message.value = result.ok ? successMessage : result.message;
     if (result.ok) {
       const saved = result.data as { billNo?: unknown } | undefined;
-      if (typeof saved?.billNo === "string") {
-        form.billNo = saved.billNo;
+      const savedBillNo = typeof saved?.billNo === "string" ? saved.billNo : form.billNo;
+      if (savedBillNo) {
+        await loadByBillNo(savedBillNo, successMessage);
+      } else {
+        form.status = "DRAFT";
+        hasPersistedDraft.value = true;
+        options.clearDirty();
       }
-      form.status = "DRAFT";
-      hasPersistedDraft.value = true;
-      options.clearDirty();
     }
   }
 
@@ -571,20 +578,22 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   async function redReverse() {
-    const redBillNo = redReverseBillNo.value;
     const result = await redReverseDocument("salesOut", form.billNo, {
-      redBillNo,
       billDate: form.billDate,
       ownerName: form.ownerName
     });
-    message.value = result.ok ? `红冲成功：${redBillNo}` : result.message;
+    const saved = result.data as { billNo?: unknown } | undefined;
+    const generatedBillNo = String(saved?.billNo ?? "");
+	    message.value = result.ok && generatedBillNo ? `红字草稿已生成：${generatedBillNo}，审核后生效` : result.ok ? "红字草稿已生成，请刷新列表查看系统生成的红字单。" : result.message;
     if (result.ok) {
-      const detail = await fetchDocumentDetail("salesOut", redBillNo);
-      if (detail.ok && detail.data) {
-        fillFromDetail(detail.data);
-      } else {
-        form.billNo = redBillNo;
-        form.status = "RED_REVERSED";
+      if (generatedBillNo) {
+        const detail = await fetchDocumentDetail("salesOut", generatedBillNo);
+        if (detail.ok && detail.data) {
+          fillFromDetail(detail.data);
+	        } else {
+	          form.billNo = generatedBillNo;
+	          form.status = "DRAFT";
+	        }
       }
       options.clearDirty();
     }
@@ -1139,7 +1148,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     canTraceSourceOrder,
     statusLabel,
     totalAmount,
-    showTaxMode: computed(() => true),
+    showTaxColumns: computed(() => true),
     showSourceLineColumn,
     entryTableColspan,
     entryTotalColspan,
@@ -1291,11 +1300,11 @@ function downstreamReverseImpact(doc: DownstreamDocumentRef) {
 
 function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
-  if (doc.type === "purchaseIn") {
-    return `红冲将生成负数采购入库单，并回退源采购订单已入库数量 ${qty}。`;
-  }
-  return `红冲将生成负数销售出库单，并回退源销售订单已出库数量 ${qty}。`;
-}
+	  if (doc.type === "purchaseIn") {
+	    return `红冲将生成负数采购入库草稿；审核红字单后回退源采购订单已入库数量 ${qty}。`;
+	  }
+	  return `红冲将生成负数销售出库草稿；审核红字单后回退源销售订单已出库数量 ${qty}。`;
+	}
 
 function lineLineNo(line: OrderLineForm, index: number) {
   return line.lineNo ?? index + 1;
@@ -1324,6 +1333,10 @@ function salesOrderLineToPendingPushLine(line: SalesOrderDetail["lines"][number]
     remainingQty,
     qty: remainingQty,
     unitPrice: Number(line.unitPrice ?? 0),
+    amount: line.amount,
+    taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
+    taxAmount: line.taxAmount,
+    priceTaxTotal: line.priceTaxTotal,
     taxRate: Number(line.taxRate ?? 13),
     customerMaterialCode: String(line.customerMaterialCode ?? ""),
     customerOrderNo: String(line.customerOrderNo ?? ""),
@@ -1348,6 +1361,10 @@ function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLine
     sourceDeliveryLineNo: normalizedOptionalInt(line.lineNo),
     qty: normalizedQty(line.remainingQty),
     unitPrice: Number(line.unitPrice ?? 0),
+    amount: line.amount,
+    taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
+    taxAmount: line.taxAmount,
+    priceTaxTotal: line.priceTaxTotal,
     taxRate: Number(line.taxRate ?? 13),
     customerMaterialCode: String(line.customerMaterialCode ?? ""),
     customerOrderNo: String(line.customerOrderNo ?? ""),
@@ -1384,6 +1401,10 @@ function toDocumentLines(lines: OrderLineForm[]) {
     sourceDeliveryLineNo: line.sourceDeliveryLineNo,
     qty: Number(line.qty || 0),
     unitPrice: Number(line.unitPrice || 0),
+    amount: line.amount,
+    taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
+    taxAmount: line.taxAmount,
+    priceTaxTotal: line.priceTaxTotal,
     taxRate: Number(line.taxRate ?? 13),
     customerMaterialCode: String(line.customerMaterialCode ?? "").trim(),
     customerOrderNo: String(line.customerOrderNo ?? "").trim(),

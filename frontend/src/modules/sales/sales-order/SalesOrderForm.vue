@@ -51,8 +51,7 @@
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
     :total-amount="document.totalAmount.value"
-    :show-tax-mode="document.showTaxMode.value"
-    :is-tax-inclusive="Boolean(document.form.isTaxInclusive)"
+    :show-tax-columns="document.showTaxColumns.value"
     :batch-warehouse-code="document.batchWarehouseCode.value"
     :batch-plan-delivery-date="document.batchPlanDeliveryDate.value"
     :active-selector="document.activeSelector.value"
@@ -88,7 +87,6 @@
     @open-red-source-bill="document.openRedSourceBill"
     @update:batch-warehouse-code="document.batchWarehouseCode.value = $event"
     @update:batch-plan-delivery-date="document.batchPlanDeliveryDate.value = $event"
-    @update:is-tax-inclusive="document.form.isTaxInclusive = $event; document.markDirty()"
     @apply-batch-warehouse="document.applyBatchWarehouse"
     @apply-batch-plan-delivery-date="document.applyBatchPlanDeliveryDate"
     @mark-dirty="document.markDirty"
@@ -313,7 +311,6 @@ function confirmSourceSelector() {
   document.form.partyCode = first.customerCode;
   document.form.partyName = first.customer || document.form.partyName || "";
   document.form.department = first.department || document.form.department || "销售部";
-  document.form.isTaxInclusive = Boolean(first.isTaxInclusive);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
   sourceSelector.commitLocalAllocation();
   sourceSelector.close();
@@ -341,6 +338,8 @@ function selectableLineToFormLine(line: SelectableSalesQuoteLine): OrderLineForm
     sourceLineNo: normalizedOptionalInt(line.lineNo),
     qty: normalizedQty(line.sourceQty),
     unitPrice: Number(line.unitPrice ?? 0),
+    amount: line.amount,
+    taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
     taxRate: Number(line.taxRate ?? 13),
     taxAmount: line.taxAmount,
 	    priceTaxTotal: line.priceTaxTotal,

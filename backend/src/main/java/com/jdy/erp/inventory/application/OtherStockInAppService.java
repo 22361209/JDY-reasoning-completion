@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
+import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
@@ -23,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class OtherStockInAppService {
     private static final String BILL_TABLE = "other_stock_in";
+    private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "other_stock_in_line", "bill_id", "INVENTORY", "other_stock_in");
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -179,18 +182,8 @@ public class OtherStockInAppService {
     }
 
     @Transactional
-    public Map<String, Object> voidBill(String billNo) {
-        return lifecycleService.transition(
-            BILL_TABLE,
-            billNo,
-            BillStatus.DRAFT,
-            BillStatus.VOID,
-            "id::text AS id, bill_no AS \"billNo\", status",
-            "INVENTORY",
-            "VOID",
-            "other_stock_in",
-            "只有草稿其他入库单可以作废"
-        );
+    public Map<String, Object> voidBill(String billNo, VoidRequest request) {
+        return lifecycleService.voidBill(LIFECYCLE_TARGET, billNo, request);
     }
 
     private void insertLines(Object billId, List<OtherStockInLineRequest> lines) {

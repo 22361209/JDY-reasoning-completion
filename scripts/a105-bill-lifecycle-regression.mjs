@@ -2,8 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
-import { clickNewDocument } from "./helpers/document-actions.mjs";
-import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -21,6 +20,14 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 async function api(pathname, options = {}) {
@@ -45,7 +52,7 @@ async function requireApi(pathname, options = {}) {
 
 async function verifyLifecycleCodeContracts() {
   const dataListPage = await readFile(path.join(rootDir, "frontend/src/components/DataListPage.vue"), "utf8");
-  const listStubController = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/system/api/ListStubController.java"), "utf8");
+  const listRowsProvider = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java"), "utf8");
   const lifecyclePolicy = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/BillLifecyclePolicy.java"), "utf8");
   const lifecycleService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/BillLifecycleService.java"), "utf8");
   const deliveryNoticeService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/DeliveryNoticeAppService.java"), "utf8");
@@ -75,8 +82,8 @@ async function verifyLifecycleCodeContracts() {
   assert(dataListPage.includes("const isLifecycleDocumentList = computed(() => Boolean(currentLifecyclePolicy.value));"), "header and detail views must share document lifecycle action visibility");
   assert(!dataListPage.includes('outStatus !== "全部出库"'), "sales pushdown must not depend on outStatus display text");
   assert(!dataListPage.includes('inStatus !== "全部入库"'), "purchase pushdown must not depend on inStatus display text");
-  assert(listStubController.includes('dn.close_status AS "closeStatus"'), "delivery notice list must return closeStatus");
-  assert(listStubController.includes('dn.frozen_status AS "frozenStatus"'), "delivery notice list must return frozenStatus");
+  assert(listRowsProvider.includes('dn.close_status AS "closeStatus"'), "delivery notice list must return closeStatus");
+  assert(listRowsProvider.includes('dn.frozen_status AS "frozenStatus"'), "delivery notice list must return frozenStatus");
   assert(lifecyclePolicy.includes("boolean voidAllowed"), "backend lifecycle policy must include voidAllowed");
   assert(lifecycleService.includes("BillLifecyclePolicy.requireVoidAllowed(target);"), "voidBill must enforce backend voidAllowed policy");
   assert(lifecycleService.includes("销售订单新业务不支持行关闭/反关闭"), "sales order line close API must be disabled for new business");
@@ -127,10 +134,8 @@ async function createSalesOrder(suffix, qtys = [6, 4]) {
 }
 
 async function createSalesOrderDraft(suffix, qtys = [6, 4]) {
-  const billNo = `XSDD-A105-${suffix}-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  return generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -145,14 +150,11 @@ async function createSalesOrderDraft(suffix, qtys = [6, 4]) {
         planDeliveryDate: `2026-07-0${index + 1}`
       }))
     }
-  });
-  return billNo;
+  }), `A105销售订单${suffix}`);
 }
 
 async function createSalesOutFromOrder(salesOrderNo, suffix, qty = 1) {
-  const billNo = `XSCK-A105-${suffix}-${batch}`;
   const payload = {
-    billNo,
     sourceOrderNo: salesOrderNo,
     customerCode: "KH-001",
     billDate,
@@ -160,19 +162,15 @@ async function createSalesOutFromOrder(salesOrderNo, suffix, qty = 1) {
     ownerName: "本地管理员",
     lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: salesOrderNo, sourceLineNo: 1, qty, unitPrice: 86 }]
   };
-  const flow = salesOutPayloadViaDeliveryNotice(payload, `FHTZ-A105-${suffix}-${batch}`);
-  await requireApi("/api/delivery-notices/draft", { body: flow.noticePayload });
-  await requireApi(`/api/delivery-notices/${encodeURIComponent(flow.noticeNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", { body: flow.outPayload });
+  const flow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), payload);
+  const billNo = flow.salesOutNo;
   await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }
 
 async function createDeliveryNoticeFromOrder(salesOrderNo, suffix, qty = 1) {
-  const noticeNo = `FHTZ-A105-${suffix}-${batch}`;
-  await requireApi("/api/delivery-notices/draft", {
+  const notice = await requireApi("/api/delivery-notices/draft", {
     body: {
-      billNo: noticeNo,
       sourceOrderNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
@@ -181,15 +179,14 @@ async function createDeliveryNoticeFromOrder(salesOrderNo, suffix, qty = 1) {
       lines: [{ productCode: "CP-001", warehouseCode: "CK-001", sourceOrderNo: salesOrderNo, sourceLineNo: 1, qty, unitPrice: 86 }]
     }
   });
+  const noticeNo = generatedBillNo(notice, `A105发货通知${suffix}`);
   await requireApi(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
   return noticeNo;
 }
 
 async function createSalesOutDraftFromNotice(noticeNo, suffix, qty = 1) {
-  const billNo = `XSCK-A105-${suffix}-${batch}`;
-  await requireApi("/api/sales-outs/draft", {
+  return generatedBillNo(await requireApi("/api/sales-outs/draft", {
     body: {
-      billNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -205,8 +202,7 @@ async function createSalesOutDraftFromNotice(noticeNo, suffix, qty = 1) {
         unitPrice: 86
       }]
     }
-  });
-  return billNo;
+  }), `A105销售出库${suffix}`);
 }
 
 async function verifyLifecycleApi() {
@@ -250,17 +246,15 @@ async function verifyLifecycleApi() {
   const sourceLines = selectable.lines.filter((line) => line.billNo === lineBlockNo);
   assert(sourceLines.length === 1 && Number(sourceLines[0].lineNo) === 2, "selectable lines should skip frozen line and keep normal line");
 
-  const voidNo = `XSDD-A105-VOID-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const voidNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: voidNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
       lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 }]
     }
-  });
+  }), "A105作废草稿");
   const wrongPassword = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
     body: { reason: "A105 错密", username: "admin", password: "bad" },
     expectFailure: true
@@ -284,6 +278,7 @@ async function verifyLifecycleApi() {
 
 async function verifyUi() {
   const uiNo = await createSalesOrder("UI", [3]);
+  const dangerDraftNo = await createSalesOrderDraft("UIDANGER", [1]);
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   const screenshots = [];
@@ -305,11 +300,18 @@ async function verifyUi() {
     await page.getByText("已审核").waitFor({ state: "visible" });
     assert(await page.getByTestId("close-document").isEnabled(), "close button should be enabled for audited document");
     assert(await page.getByTestId("freeze-document").isEnabled(), "freeze button should be enabled for audited document");
-    await clickNewDocument(page);
-    await page.waitForFunction(() => {
+    await page.getByTestId("module-销售管理").hover();
+    await page.getByTestId("query-sales-order-form").click();
+    await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
+    await page.getByTestId("list-keyword").fill(dangerDraftNo);
+    await page.getByTestId("list-query").click();
+    await page.getByTestId(`open-document-${dangerDraftNo}`).waitFor({ state: "visible", timeout: 10000 });
+    await page.getByTestId(`open-document-${dangerDraftNo}`).click();
+    await page.waitForFunction((billNo) => {
       const input = document.querySelector('[data-testid="sales-bill-no"]');
-      return input instanceof HTMLInputElement && input.value.trim().length > 0;
-    });
+      return input instanceof HTMLInputElement && input.value === billNo;
+    }, dangerDraftNo, { timeout: 15000 });
+    assert(await page.getByTestId("void-document").isEnabled(), "void button should be enabled for saved draft document");
     await page.getByTestId("void-document").click();
     await page.getByTestId("lifecycle-action-dialog").waitFor({ state: "visible" });
     await page.getByText("作废后单据将不再作为有效业务事实").waitFor({ state: "visible" });
@@ -319,7 +321,7 @@ async function verifyUi() {
     await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
     screenshots.push(`verification/playwright/${shot}`);
     await page.getByTestId("lifecycle-action-cancel").click();
-    return { uiNo, screenshots };
+    return { uiNo, dangerDraftNo, screenshots };
   } finally {
     await browser.close();
   }

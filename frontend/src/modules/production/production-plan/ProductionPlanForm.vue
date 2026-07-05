@@ -72,7 +72,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import ProductionPlanEntryTable, { type ProductionPlanEntryLine } from "../../../components/ProductionPlanEntryTable.vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
-import { auditProductionPlan, createProductionPlan, nextProductionPlanNumber, pushDownProductionPlan, reverseProductionPlan } from "../../../services/productionApi";
+import { auditProductionPlan, createProductionPlan, pushDownProductionPlan, reverseProductionPlan } from "../../../services/productionApi";
 
 const props = defineProps<{
   title: string;
@@ -135,13 +135,8 @@ async function startNew() {
   status.value = "DRAFT";
   message.value = "";
   hasError.value = false;
-  const result = await nextProductionPlanNumber();
-  form.billNo = result.ok ? String(result.data?.billNo ?? "") : "";
-  if (!result.ok) {
-    hasError.value = true;
-    message.value = result.message;
-    return;
-  }
+  form.billNo = "";
+  message.value = "生产计划将在首次保存时生成编号";
   emit("markDirty");
 }
 

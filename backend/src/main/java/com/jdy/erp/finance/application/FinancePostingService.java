@@ -30,11 +30,13 @@ public class FinancePostingService implements FinancePosting {
         validate(context);
         switch (context.txnType()) {
             case "SALES_OUT" -> postReceivable(context, "YS-" + context.sourceBillNo(), context.amount());
-            case "SALES_OUT_REVERSE" -> postReceivable(context, "YS-CX-" + context.sourceBillNo(), context.amount().negate());
-            case "SALES_OUT_RED" -> postReceivable(context, "YS-HC-" + shortHash(context.sourceBillNo()), context.amount());
-            case "PURCHASE_IN" -> postPayable(context, "YF-" + context.sourceBillNo(), context.amount());
-            case "PURCHASE_IN_REVERSE" -> postPayable(context, "YF-CX-" + context.sourceBillNo(), context.amount().negate());
-            case "PURCHASE_IN_RED" -> postPayable(context, "YF-HC-" + shortHash(context.sourceBillNo()), context.amount());
+	            case "SALES_OUT_REVERSE" -> postReceivable(context, "YS-CX-" + context.sourceBillNo(), context.amount().negate());
+	            case "SALES_OUT_RED" -> postReceivable(context, "YS-HC-" + shortHash(context.sourceBillNo()), context.amount());
+	            case "SALES_OUT_RED_REVERSE" -> postReceivable(context, "YS-HC-CX-" + shortHash(context.sourceBillNo()), context.amount().negate());
+	            case "PURCHASE_IN" -> postPayable(context, "YF-" + context.sourceBillNo(), context.amount());
+	            case "PURCHASE_IN_REVERSE" -> postPayable(context, "YF-CX-" + context.sourceBillNo(), context.amount().negate());
+	            case "PURCHASE_IN_RED" -> postPayable(context, "YF-HC-" + shortHash(context.sourceBillNo()), context.amount());
+	            case "PURCHASE_IN_RED_REVERSE" -> postPayable(context, "YF-HC-CX-" + shortHash(context.sourceBillNo()), context.amount().negate());
             case "PURCHASE_RETURN" -> postPayable(context, "YF-TH-" + context.sourceBillNo(), context.amount());
             case "PURCHASE_RETURN_REVERSE" -> postPayable(context, "YF-TH-CX-" + context.sourceBillNo(), context.amount());
             default -> throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "不支持的财务过账类型");

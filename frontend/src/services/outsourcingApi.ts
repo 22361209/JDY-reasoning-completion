@@ -7,6 +7,7 @@ export interface OutsourcingWriteResult {
 
 export interface OutsourcingWorkOrderPayload {
   billNo?: string;
+  sourceBillNo?: string;
   supplierCode?: string;
   productCode?: string;
   qty?: number;

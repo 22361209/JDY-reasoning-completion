@@ -107,11 +107,11 @@
         <div>
           <dt>当前状态</dt>
           <dd>{{ currentOrderStatusLabel }}</dd>
-        </div>
-        <div v-if="pendingRiskyDocumentAction === 'redReverse'">
-          <dt>红冲单号</dt>
-          <dd>{{ redReverseBillNo }}</dd>
-        </div>
+	        </div>
+	        <div v-if="pendingRiskyDocumentAction === 'redReverse'">
+	          <dt>红字草稿单号</dt>
+	          <dd>{{ redReverseBillNo }}</dd>
+	        </div>
       </dl>
       <div class="dialog-actions">
         <button type="button" data-testid="risky-action-cancel" @click="emit('cancelRiskyDocumentAction')">取消</button>

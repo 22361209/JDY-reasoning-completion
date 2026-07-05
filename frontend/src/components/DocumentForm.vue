@@ -9,7 +9,7 @@
     :can-override-lock="canOverrideLock"
     :dirty="dirty"
     :message="message"
-    :can-save="isDraft"
+    :can-save="isDraft && !form.redSourceBillNo"
     :can-audit="canAudit"
     :can-reverse="canReverse"
     :can-red-reverse="canRedReverse"
@@ -32,7 +32,7 @@
     :push-down-label="pushDownLabel"
     :push-down-test-id="pushDownTestId"
     :show-source-select="showSourceSelect"
-    :can-source-select="canSourceSelect"
+    :can-source-select="canSourceSelect && !form.redSourceBillNo"
     :source-select-label="sourceSelectLabel"
     :source-select-test-id="sourceSelectTestId"
     :show-extra-action="showExtraAction"
@@ -135,7 +135,7 @@
       <EntryTable
         :lines="form.lines"
         :test-prefix="testPrefix"
-        :is-draft="isDraft && !locked"
+        :is-draft="isDraft && !locked && !form.redSourceBillNo"
         :batch-warehouse-code="batchWarehouseCode"
         :batch-plan-delivery-date="batchPlanDeliveryDate"
         :active-selector="activeSelector"
@@ -143,6 +143,7 @@
         :selector-cursor-index="selectorCursorIndex"
         :known-product-options="knownProductOptions"
         :dragging-line-index="draggingLineIndex"
+        :dirty="dirty"
         :highlighted-source-bill-no="highlightedSourceBillNo"
         :highlighted-source-line-no="highlightedSourceLineNo"
         :current-bill-no="form.billNo"
@@ -170,8 +171,7 @@
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
-        :is-tax-inclusive="isTaxInclusive"
-        :show-tax-columns="showTaxMode"
+        :show-tax-columns="showTaxColumns"
         @update:batch-warehouse-code="emit('update:batchWarehouseCode', $event)"
         @update:batch-plan-delivery-date="emit('update:batchPlanDeliveryDate', $event)"
         @apply-batch-warehouse="emit('applyBatchWarehouse')"
@@ -324,9 +324,8 @@ const props = withDefaults(defineProps<{
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
-  showTaxMode?: boolean;
+  showTaxColumns?: boolean;
   showValidUntil?: boolean;
-  isTaxInclusive?: boolean;
   batchWarehouseCode: string;
   batchPlanDeliveryDate?: string;
   activeSelector: string;
@@ -377,6 +376,7 @@ const props = withDefaults(defineProps<{
   showSourceOrderNoHeadField: false,
   sourceOrderNoHeadReadonly: false,
   showOwnerNameHeadField: true,
+  showPriceAmountColumns: true,
   billDateLabel: "业务日期",
   departmentLabel: "部门",
   sourceOrderNoLabel: "源单号",
@@ -406,7 +406,6 @@ const emit = defineEmits<{
   openRedSourceBill: [];
   "update:batchWarehouseCode": [value: string];
   "update:batchPlanDeliveryDate": [value: string];
-  "update:isTaxInclusive": [value: boolean];
   applyBatchWarehouse: [];
   applyBatchPlanDeliveryDate: [lineIndexes: number[]];
   markDirty: [];
@@ -450,7 +449,8 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
       {
         name: "billNo",
         label: "单据编号",
-        testId: `${props.testPrefix}-bill-no`
+        testId: `${props.testPrefix}-bill-no`,
+        readonly: true
       },
       {
         name: "billDate",
@@ -518,7 +518,8 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
     {
       name: "billNo",
       label: "单据编号",
-      testId: `${props.testPrefix}-bill-no`
+      testId: `${props.testPrefix}-bill-no`,
+      readonly: true
     },
     {
       name: "department",
@@ -532,17 +533,6 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
       label: "录入人",
       testId: `${props.testPrefix}-owner-name`,
       readonly: true
-    });
-  }
-  if (props.showTaxMode) {
-    fields.push({
-      name: "taxMode",
-      label: "价格口径",
-      testId: `${props.testPrefix}-tax-mode`,
-      options: [
-        { value: "net", label: "不含税" },
-        { value: "tax", label: "含税" }
-      ]
     });
   }
   fields.push({
@@ -565,25 +555,18 @@ function documentHeadFieldValue(name: string) {
     billNo: props.form.billNo ?? "",
     department: props.form.department ?? "",
     ownerName: props.form.ownerName ?? "",
-    taxMode: props.isTaxInclusive ? "tax" : "net",
     remark: props.form.remark ?? ""
   };
   return values[name] ?? "";
 }
 
 function updateDocumentHeadField(name: string, value: string) {
-  if (name === "taxMode") {
-    emit("update:isTaxInclusive", value === "tax");
-    return;
-  }
   if (name === "billDate") {
     props.form.billDate = value;
   } else if (name === "sourceOrderNo") {
     props.form.sourceOrderNo = value;
   } else if (name === "validUntil") {
     props.form.validUntil = value;
-  } else if (name === "billNo") {
-    props.form.billNo = value;
   } else if (name === "department") {
     props.form.department = value;
   } else if (name === "remark") {

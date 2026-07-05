@@ -7,7 +7,6 @@ export interface SelectablePurchaseOrderLine {
   billDate: string;
   department?: string;
   ownerName?: string;
-  isTaxInclusive?: boolean;
   lineNo: number | string;
   productId?: string;
   productCode: string;
@@ -23,6 +22,8 @@ export interface SelectablePurchaseOrderLine {
   receivedQty?: number | string;
   remainingQty: number | string;
   unitPrice: number | string;
+  amount?: number | string;
+  taxInclusiveUnitPrice?: number | string;
   priceTaxTotal?: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;

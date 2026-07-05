@@ -31,6 +31,27 @@ type RawListDefinition = Omit<ListDefinition, "searchFields" | "dateField" | "su
 
 export type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
+const voidableDocumentListKeys = new Set([
+  "sales-quote-form-list",
+  "sales-order-form-list",
+  "delivery-notice-form-list",
+  "sales-out-list",
+  "sales-out-form-list",
+  "purchase-order-form-list",
+  "purchase-in-list",
+  "purchase-in-form-list",
+  "purchase-return-form-list",
+  "production-task-form-list",
+  "material-issue-form-list",
+  "product-in-form-list",
+  "other-in-form-list",
+  "other-out-form-list",
+  "stock-transfer-form-list",
+  "stock-count-form-list",
+  "stock-count-gain-form-list",
+  "stock-count-loss-form-list"
+]);
+
 const masterListDefinitions = Object.fromEntries(
   Object.entries(masterDataDefinitions).map(([listKey, masterDefinition]) => [
     listKey,
@@ -229,7 +250,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
     title: "销售出库单",
     subtitle: "销售出库单读取真实单据，审核后减少库存。",
     keywordPlaceholder: "单据编号、客户、仓库",
-    statuses: ["草稿", "已审核", "已反审核", "已红冲"],
+    statuses: ["草稿", "已审核", "已反审核", "已红冲", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
       { field: "customerCode", title: "客户编码", width: 120, visible: true },
@@ -374,9 +395,9 @@ const rawDefinitions: Record<string, RawListDefinition> = {
   },
   "production-task-form-list": {
     title: "生产任务单",
-    subtitle: "生产任务展示 BOM、计划数、已领料数、完工数和执行状态。",
+    subtitle: "生产任务展示 BOM、计划数、已领套数、完工数和执行状态。",
     keywordPlaceholder: "任务单号、生产计划、BOM、物料",
-    statuses: ["已审核", "已领料", "已完工"],
+    statuses: ["草稿", "未领料", "部分领料", "完全领料", "已完工", "已关闭", "已冻结", "已作废"],
     columns: [
       { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
       { field: "planNo", title: "来源计划", width: 160, visible: true },
@@ -388,7 +409,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "warehouse", title: "完工仓库", width: 130, visible: true },
       { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
-      { field: "issuedQty", title: "已领料数", width: 110, align: "right", visible: true },
+      { field: "issuedQty", title: "已领套数", width: 110, align: "right", visible: true },
       { field: "completedQty", title: "完工数", width: 100, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
@@ -411,7 +432,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
     title: "产品入库单",
     subtitle: "产品入库单展示来源任务、入库仓库、金额和审核/冲销状态。",
     keywordPlaceholder: "入库单号、生产任务单、仓库",
-    statuses: ["已审核", "已反审核", "已红冲"],
+    statuses: ["草稿", "已审核", "已反审核", "已红冲", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 160, fixed: "left", visible: true },
       { field: "sourceOrderNo", title: "生产任务单", width: 170, visible: true },
@@ -428,6 +449,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
     statuses: ["草稿", "已审核", "已关闭", "已作废"],
     columns: [
       { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+      { field: "sourceBillNo", title: "源产品入库单", width: 170, visible: true },
       { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
       { field: "supplierName", title: "供应商名称", width: 180, visible: true },
       { field: "productCode", title: "母件物料编码", width: 150, visible: true },
@@ -694,9 +716,9 @@ const rawDefinitions: Record<string, RawListDefinition> = {
   },
   "task-track-report": {
     title: "生产任务跟踪表",
-    subtitle: "生产任务跟踪表只读展示任务来源、BOM、计划数、已领料数、完工数和状态。",
+    subtitle: "生产任务跟踪表只读展示任务来源、BOM、计划数、已领套数、完工数和状态。",
     keywordPlaceholder: "任务单号、生产计划、BOM、物料",
-    statuses: ["已审核", "已领料", "已完工"],
+    statuses: ["未领料", "部分领料", "完全领料", "已完工"],
     columns: [
       { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
       { field: "planNo", title: "来源计划", width: 160, visible: true },
@@ -706,7 +728,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "unit", title: "单位", width: 80, visible: true },
       { field: "warehouse", title: "完工仓库", width: 130, visible: true },
       { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
-      { field: "issuedQty", title: "已领料数", width: 110, align: "right", visible: true },
+      { field: "issuedQty", title: "已领套数", width: 110, align: "right", visible: true },
       { field: "completedQty", title: "完工数", width: 100, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
@@ -730,14 +752,45 @@ const definitions: Record<string, ListDefinition> = Object.fromEntries(
 );
 
 function normalizeListDefinition(listKey: string, definition: RawListDefinition): ListDefinition {
-  const fields = definition.columns.map((column) => column.field);
+  const columns = withLifecycleDisplayColumns(listKey, definition);
+  const fields = columns.map((column) => column.field);
   return {
     ...definition,
+    columns,
     searchFields: definition.searchFields?.length ? definition.searchFields : searchFieldsFromPlaceholder(definition.keywordPlaceholder, fields),
     dateField: definition.dateField ?? defaultDateField(listKey, fields),
     supportsQuickDateFilter: definition.supportsQuickDateFilter ?? defaultSupportsDateFilter(listKey, fields),
     lifecycleColumns: definition.lifecycleColumns ?? defaultLifecycleColumns(fields)
   };
+}
+
+function withLifecycleDisplayColumns(listKey: string, definition: RawListDefinition): ListColumn[] {
+  const columns = definition.columns.map((column) => (
+    listKey === "production-task-form-list" && column.field === "status"
+      ? { ...column, title: "领料状态" }
+      : { ...column }
+  ));
+  const hasColumn = (field: string) => columns.some((column) => column.field === field);
+  const insertAfterStatus = (column: ListColumn) => {
+    if (hasColumn(column.field)) {
+      return;
+    }
+    const statusIndex = columns.findIndex((item) => item.field === "status");
+    columns.splice(statusIndex >= 0 ? statusIndex + 1 : columns.length, 0, column);
+  };
+  if (listKey === "production-task-form-list") {
+    [
+      { field: "auditStatus", title: "审核状态", width: 100, visible: true },
+      { field: "closeStatusLabel", title: "关闭状态", width: 100, visible: true },
+      { field: "frozenStatusLabel", title: "冻结状态", width: 100, visible: true },
+      { field: "voidStatus", title: "作废状态", width: 100, visible: true }
+    ].reverse().forEach(insertAfterStatus);
+    return columns;
+  }
+  if (definition.statuses.includes("已作废") || voidableDocumentListKeys.has(listKey)) {
+    insertAfterStatus({ field: "voidStatus", title: "作废状态", width: 100, visible: true });
+  }
+  return columns;
 }
 
 function searchFieldsFromPlaceholder(placeholder: string, fields: string[]) {
@@ -795,7 +848,7 @@ function defaultSupportsDateFilter(listKey: string, fields: string[]) {
 }
 
 function defaultLifecycleColumns(fields: string[]) {
-  return ["status", "closeStatusLabel", "frozenStatusLabel", "auditStatus"].filter((field) => fields.includes(field));
+  return ["status", "auditStatus", "closeStatusLabel", "frozenStatusLabel", "voidStatus"].filter((field) => fields.includes(field));
 }
 
 export function useDataListDefinition(listKey: () => string) {

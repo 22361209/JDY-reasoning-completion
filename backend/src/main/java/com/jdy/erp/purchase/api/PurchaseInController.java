@@ -3,6 +3,7 @@ package com.jdy.erp.purchase.api;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.DocumentLockService;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.purchase.application.PurchaseInAppService;
 import com.jdy.erp.purchase.application.PurchaseInAppService.PurchaseInDraftRequest;
 import com.jdy.erp.purchase.application.PurchaseInAppService.RedReverseRequest;
@@ -62,8 +63,8 @@ public class PurchaseInController {
 
     @PostMapping("/{billNo}/void")
     @RequirePermission("purchase.in.audit")
-    public Map<String, Object> voidBill(@PathVariable String billNo) {
-        return appService.voidBill(billNo);
+    public Map<String, Object> voidBill(@PathVariable String billNo, @RequestBody VoidRequest request) {
+        return appService.voidBill(billNo, request);
     }
 
     @PostMapping("/{billNo}/red-reverse")

@@ -2,6 +2,7 @@ package com.jdy.erp.inventory.api;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.inventory.application.OtherStockOutAppService;
 import com.jdy.erp.inventory.application.OtherStockOutAppService.OtherStockOutDraftRequest;
@@ -54,7 +55,7 @@ public class OtherStockOutController {
 
     @PostMapping("/{billNo}/void")
     @RequirePermission("inventory.other_stock_out.audit")
-    public Map<String, Object> voidBill(@PathVariable String billNo) {
-        return appService.voidBill(billNo);
+    public Map<String, Object> voidBill(@PathVariable String billNo, @RequestBody VoidRequest request) {
+        return appService.voidBill(billNo, request);
     }
 }

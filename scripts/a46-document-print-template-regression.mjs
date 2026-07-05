@@ -12,6 +12,7 @@ const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const bomIssueMethod = `A46-${batch}`;
 const billDate = "2026-06-24";
 const companyName = "博莱德机械测试账套";
 const templateName = "标准套打模板";
@@ -43,6 +44,18 @@ async function requireJson(pathname, options = {}) {
   return text ? JSON.parse(text) : {};
 }
 
+async function auditBomAllowNewVersion(code) {
+  const preview = await requireJson(`/api/production/boms/${encodeURIComponent(code)}/audit-preview`);
+  const body = preview.requiresConfirmation
+    ? {
+        confirmNewVersion: true,
+        latestBomCode: preview.latestBomCode,
+        latestVersionNo: preview.latestVersionNo
+      }
+    : undefined;
+  return requireJson(`/api/production/boms/${encodeURIComponent(code)}/audit`, { method: "POST", body });
+}
+
 async function requireText(pathname) {
   const response = await request(pathname);
   const text = await response.text();
@@ -56,6 +69,14 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 function utf16beHex(value) {
@@ -91,25 +112,19 @@ async function seedStock() {
 }
 
 async function createCoreDocuments() {
-  const salesOrderNo = `XSDD-A46-${batch}`;
-  const purchaseOrderNo = `CGDD-A46-${batch}`;
-  const salesOutNo = `XSCK-A46-${batch}`;
-  const purchaseInNo = `CGRK-A46-${batch}`;
-
-  await requireJson("/api/sales-orders/draft", {
+  const salesOrderNo = generatedBillNo(await requireJson("/api/sales-orders/draft", {
     method: "POST",
-    body: { billNo: salesOrderNo, customerCode: "KH-001", billDate, department: "销售部", ownerName: "本地管理员", lines }
-  });
+    body: { customerCode: "KH-001", billDate, department: "销售部", ownerName: "本地管理员", lines }
+  }), "销售订单套打样本");
   await requireJson(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`, { method: "POST" });
 
-  await requireJson("/api/purchase-orders/draft", {
+  const purchaseOrderNo = generatedBillNo(await requireJson("/api/purchase-orders/draft", {
     method: "POST",
-    body: { billNo: purchaseOrderNo, supplierCode: "GYS-001", billDate, department: "采购部", ownerName: "本地管理员", lines }
-  });
+    body: { supplierCode: "GYS-001", billDate, department: "采购部", ownerName: "本地管理员", lines }
+  }), "采购订单套打样本");
   await requireJson(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`, { method: "POST" });
 
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireJson(pathname, { method: "POST", body }), {
-    billNo: salesOutNo,
+  const salesOutFlow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireJson(pathname, { method: "POST", body }), {
     sourceOrderNo: salesOrderNo,
     customerCode: "KH-001",
     billDate,
@@ -117,12 +132,13 @@ async function createCoreDocuments() {
     ownerName: "本地管理员",
     lines
   });
+  const salesOutNo = salesOutFlow.salesOutNo;
   await requireJson(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`, { method: "POST" });
 
-  await requireJson("/api/purchase-ins/draft", {
+  const purchaseInNo = generatedBillNo(await requireJson("/api/purchase-ins/draft", {
     method: "POST",
-    body: { billNo: purchaseInNo, supplierCode: "GYS-001", billDate, department: "采购部", ownerName: "本地管理员", lines }
-  });
+    body: { supplierCode: "GYS-001", billDate, department: "采购部", ownerName: "本地管理员", lines }
+  }), "采购入库套打样本");
   await requireJson(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`, { method: "POST" });
 
   return [
@@ -135,10 +151,6 @@ async function createCoreDocuments() {
 
 async function createProductionDocuments() {
   const bomCode = `BOM-A46-${batch}`;
-  const taskIssue = `SCRW-A46-I-${batch}`;
-  const taskComplete = `SCRW-A46-C-${batch}`;
-  const issueNo = `SCLL-A46-${batch}`;
-  const productInNo = `CPRK-A46-${batch}`;
 
   await requireJson("/api/production/boms", {
     method: "POST",
@@ -148,35 +160,43 @@ async function createProductionDocuments() {
       qty: 1,
       lines: [
         { materialCode: "CP-001", qty: 1 },
-        { materialCode: "PJ-014", qty: 2 },
-        { materialCode: "CP-T413874", qty: 3 }
+        { materialCode: "PJ-014", qty: 2, issueWarehouseCode: "CK-001" },
+        { materialCode: "CP-T413874", qty: 3, issueMethod: bomIssueMethod }
       ]
     }
   });
-  await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
-  await requireJson("/api/production/tasks", {
+  await auditBomAllowNewVersion(bomCode);
+  const taskIssue = generatedBillNo(await requireJson("/api/production/tasks", {
     method: "POST",
-    body: { billNo: taskIssue, bomCode, warehouseCode: "CK-001", qty: 3 }
-  });
-  await requireJson("/api/production/tasks", {
+    body: { bomCode, warehouseCode: "CK-001", qty: 3 }
+  }), "生产任务领料套打样本");
+  const taskComplete = generatedBillNo(await requireJson("/api/production/tasks", {
     method: "POST",
-    body: { billNo: taskComplete, bomCode, warehouseCode: "CK-001", qty: 10 }
-  });
-  await requireJson(`/api/production/tasks/${encodeURIComponent(taskIssue)}/issue`, {
+    body: { bomCode, warehouseCode: "CK-001", qty: 10 }
+  }), "生产任务完工套打样本");
+  await requireJson(`/api/production/tasks/${encodeURIComponent(taskIssue)}/audit`, { method: "POST" });
+  await requireJson(`/api/production/tasks/${encodeURIComponent(taskComplete)}/audit`, { method: "POST" });
+  const issueNo = generatedBillNo(await requireJson(`/api/production/tasks/${encodeURIComponent(taskIssue)}/issue`, {
     method: "POST",
-    body: { billNo: issueNo, materialWarehouseCode: "CK-002" }
-  });
-  await requireJson(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, {
+    body: { materialWarehouseCode: "CK-002" }
+  }), "生产领料套打样本");
+  await requireJson(`/api/production/material-issues/${encodeURIComponent(issueNo)}/audit`, { method: "POST" });
+  const completeIssueNo = generatedBillNo(await requireJson(`/api/production/tasks/${encodeURIComponent(taskComplete)}/issue`, {
+    method: "POST",
+    body: { materialWarehouseCode: "CK-002" }
+  }), "完工任务领料套打样本");
+  await requireJson(`/api/production/material-issues/${encodeURIComponent(completeIssueNo)}/audit`, { method: "POST" });
+  const productInNo = generatedBillNo(await requireJson(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, {
     method: "POST",
     body: {
-      billNo: productInNo,
       lines: [
         { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
         { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
         { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 20 }
       ]
     }
-  });
+  }), "产品入库套打样本");
+  await requireJson(`/api/production/product-ins/${encodeURIComponent(productInNo)}/audit`, { method: "POST" });
 
   return [
     { name: "生产领料单", documentType: "material-issue", frontendType: "material-issue", module: "生产管理", entry: "material-issue-form", list: "material-issue-form-list", billNo: issueNo, expectedTotal: "18.00" },

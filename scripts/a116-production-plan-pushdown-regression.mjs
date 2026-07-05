@@ -10,6 +10,7 @@ await installApiSession(apiBase);
 await mkdir(verificationDir, { recursive: true });
 
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const parentCode = `CP-A116-${batch}`;
 const bomCode = `BOM-A116-${batch}`;
 
 function assert(condition, message) {
@@ -58,11 +59,11 @@ async function upsertProduct(code, payload) {
   await requireJson(`/api/master-data/product/${encodeURIComponent(code)}/audit`, { method: "POST" });
 }
 
-await upsertProduct("CP-001", {
-  name: "控制臂总成",
+await upsertProduct(parentCode, {
+  name: "A116计划下推总成",
   category: "成品总成",
   unit: "只",
-  spec: "左前 / 黑色",
+  spec: "A116 / 当前BOM",
   defaultWarehouseCode: "CK-001",
   defaultWorkshop: "SCB",
   isSale: "true",
@@ -92,7 +93,7 @@ const bom = await requireJson("/api/production/boms", {
   method: "POST",
   body: {
     code: bomCode,
-    productCode: "CP-001",
+    productCode: parentCode,
     qty: 1,
     lines: [
       { materialCode: "PJ-014", qty: 2 }
@@ -101,21 +102,17 @@ const bom = await requireJson("/api/production/boms", {
 });
 await requireJson(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
 
-const number = await requireJson("/api/production/plans/next-number", { method: "POST" });
-assert(/^SCJH\d{6}$/.test(number.billNo), "production plan should pre-generate SCJH number");
-
 const plan = await requireJson("/api/production/plans", {
   method: "POST",
   body: {
-    billNo: number.billNo,
-    productCode: "CP-001",
+    productCode: parentCode,
     qty: 5,
     planDeliveryDate: "2026-07-15",
     sourceType: "SELF"
   }
 });
 
-assert(plan.billNo === number.billNo, "saved plan should keep pre-generated bill number");
+assert(/^SCJH\d{6}$/.test(plan.billNo), "production plan should generate SCJH number on first save");
 assert(plan.bomCode === bomCode, "plan should resolve current BOM from product code");
 assert(String(plan.departmentCode ?? "") === "SCB", "plan should inherit default workshop code");
 assert(plan.status === "DRAFT", "saved production plan should stay draft before audit");
@@ -145,13 +142,14 @@ assert(reverseAfterPushdown.response.status === 409, "pushed-down production pla
 const result = {
   ok: true,
   batch,
+  parentCode,
   bomCode: bom.code,
   bomVersionNo: bom.versionNo,
   planNo: plan.billNo,
   productionTaskNo: pushDown.productionTasks[0].billNo,
   purchaseRequisitionNo: requisitionNo,
   checks: {
-    preGeneratedPlanNo: /^SCJH\d{6}$/.test(number.billNo),
+    generatedPlanNo: /^SCJH\d{6}$/.test(plan.billNo),
     draftBeforeAudit: plan.status === "DRAFT",
     draftPushdownBlocked: draftPushDown.response.status === 400,
     auditedBeforePushdown: auditedPlan.status === "AUDITED",

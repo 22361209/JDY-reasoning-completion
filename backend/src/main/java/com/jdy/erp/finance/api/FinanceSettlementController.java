@@ -2,8 +2,10 @@ package com.jdy.erp.finance.api;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,9 +22,11 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/finance")
 public class FinanceSettlementController {
     private final JdbcTemplate jdbcTemplate;
+    private final NumberingService numberingService;
 
-    public FinanceSettlementController(JdbcTemplate jdbcTemplate) {
+    public FinanceSettlementController(JdbcTemplate jdbcTemplate, NumberingService numberingService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.numberingService = numberingService;
     }
 
     @PostMapping("/receivables/{billNo}/receipt")
@@ -38,13 +42,15 @@ public class FinanceSettlementController {
         if (receivableRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "应收单不存在");
         }
+        rejectManualBillNo(request.billNo());
         var amount = positive(request.amount(), "收款金额");
+        var receiptBillNo = numberingService.nextBillNo("arReceipt");
         var receivable = receivableRows.get(0);
         jdbcTemplate.update("""
             INSERT INTO ar_receipt (bill_no, receivable_id, receipt_date, amount)
             VALUES (?, ?::uuid, ?, ?)
             """,
-            required(request.billNo(), "收款单号"),
+            receiptBillNo,
             receivable.get("id"),
             LocalDate.parse(required(request.date(), "收款日期")),
             amount
@@ -65,7 +71,9 @@ public class FinanceSettlementController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "收款金额不能超过应收金额");
         }
         log("FINANCE", "RECEIVE", "ar_receivable", String.valueOf(receivable.get("id")), true, null);
-        return rows.get(0);
+        var result = new LinkedHashMap<String, Object>(rows.get(0));
+        result.put("receiptBillNo", receiptBillNo);
+        return result;
     }
 
     @PostMapping("/payables/{billNo}/payment")
@@ -81,13 +89,15 @@ public class FinanceSettlementController {
         if (payableRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "应付单不存在");
         }
+        rejectManualBillNo(request.billNo());
         var amount = positive(request.amount(), "付款金额");
+        var paymentBillNo = numberingService.nextBillNo("apPayment");
         var payable = payableRows.get(0);
         jdbcTemplate.update("""
             INSERT INTO ap_payment (bill_no, payable_id, payment_date, amount)
             VALUES (?, ?::uuid, ?, ?)
             """,
-            required(request.billNo(), "付款单号"),
+            paymentBillNo,
             payable.get("id"),
             LocalDate.parse(required(request.date(), "付款日期")),
             amount
@@ -108,7 +118,15 @@ public class FinanceSettlementController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "付款金额不能超过应付金额");
         }
         log("FINANCE", "PAY", "ap_payable", String.valueOf(payable.get("id")), true, null);
-        return rows.get(0);
+        var result = new LinkedHashMap<String, Object>(rows.get(0));
+        result.put("paymentBillNo", paymentBillNo);
+        return result;
+    }
+
+    private void rejectManualBillNo(String billNo) {
+        if (billNo != null && !billNo.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据编号只能由系统自动生成，不能手工指定");
+        }
     }
 
     private BigDecimal positive(BigDecimal value, String label) {

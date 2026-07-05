@@ -4,7 +4,7 @@ import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
 import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
-import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -22,6 +22,14 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 async function api(pathname, options = {}) {
@@ -81,11 +89,31 @@ async function upsertCustomer(payload) {
 }
 
 async function selectMasterRow(page, openerTestId, rowCode) {
+  await closeUnexpectedSourceSelector(page);
   await page.getByTestId(openerTestId).click();
-  await page.getByTestId("master-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("master-selector-search").fill(rowCode);
-  await page.getByTestId("master-selector-search-button").click();
-  await page.getByTestId(`master-selector-row-${rowCode}`).click();
+  const dialog = page.getByTestId("master-selector-dialog");
+  const opened = await dialog.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
+  if (opened) {
+    await page.getByTestId("master-selector-search").fill(rowCode);
+    await page.getByTestId("master-selector-search-button").click();
+    await page.getByTestId(`master-selector-row-${rowCode}`).click();
+    return;
+  }
+  await closeUnexpectedSourceSelector(page);
+  const inputTestId = openerTestId.includes("-party-")
+    ? openerTestId.replace("-party-open-selector", "-party-code")
+    : openerTestId.replace("-open-selector", "");
+  await page.getByTestId(inputTestId).fill(rowCode);
+  await page.waitForTimeout(300);
+  await page.getByTestId(inputTestId).press("Enter");
+}
+
+async function closeUnexpectedSourceSelector(page) {
+  const dialog = page.getByTestId("master-selector-source-selector-dialog");
+  if (await dialog.isVisible().catch(() => false)) {
+    await page.getByTestId("master-selector-source-selector-cancel").click();
+    await dialog.waitFor({ state: "hidden" }).catch(() => undefined);
+  }
 }
 
 async function assertPriceInput(page, testId, expected, label) {
@@ -102,8 +130,6 @@ const customerCode = `KH-A103-${batch}`;
 const historyProductCode = `CP-A103-H-${batch}`;
 const defaultProductCode = `CP-A103-D-${batch}`;
 const zeroProductCode = `CP-A103-Z-${batch}`;
-const olderOrderNo = `XSDD-A103-OLD-${batch}`;
-const newerOutNo = `XSCK-A103-NEW-${batch}`;
 const expectedHistoryPrice = 222;
 const expectedDefaultPrice = 333;
 
@@ -149,29 +175,23 @@ await post("/api/inventory/adjustments", {
   sourceBillType: `A103:${batch}`
 });
 
-await post("/api/sales-orders/draft", {
-  billNo: olderOrderNo,
+const olderOrderNo = generatedBillNo(await post("/api/sales-orders/draft", {
   customerCode,
   billDate: "2026-06-20",
   department: "销售部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   lines: [{ productCode: historyProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: 111, taxRate: 13 }]
-});
+}), "历史销售订单样本");
 await post(`/api/sales-orders/${encodeURIComponent(olderOrderNo)}/audit`);
 const newerOutPayload = {
-  billNo: newerOutNo,
   customerCode,
   billDate: "2026-06-25",
   department: "销售部",
   ownerName: "本地管理员",
-  isTaxInclusive: false,
   lines: [{ productCode: historyProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: expectedHistoryPrice, taxRate: 13 }]
 };
-const newerOutFlow = salesOutPayloadViaDeliveryNotice(newerOutPayload, `FHTZ-A103-NEW-${batch}`);
-await post("/api/delivery-notices/draft", newerOutFlow.noticePayload);
-await post(`/api/delivery-notices/${encodeURIComponent(newerOutFlow.noticeNo)}/audit`);
-await post("/api/sales-outs/draft", newerOutFlow.outPayload);
+const newerOutFlow = await createSalesOutDraftViaDeliveryNotice(post, newerOutPayload);
+const newerOutNo = newerOutFlow.salesOutNo;
 await post(`/api/sales-outs/${encodeURIComponent(newerOutNo)}/audit`);
 
 const historyQuote = await api(`/api/sales-prices/unit-price?${new URLSearchParams({ customerCode, productCode: historyProductCode })}`, { method: "GET" });

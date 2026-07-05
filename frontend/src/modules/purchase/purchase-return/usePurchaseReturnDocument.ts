@@ -15,7 +15,7 @@ export function usePurchaseReturnDocument(options: Parameters<typeof useDocument
     defaultDepartment: "采购部",
     defaultPartyCode: "",
     defaultUnitPrice: 72,
-    showTaxMode: true,
+    showTaxColumns: true,
     sourceTraceType: "purchaseIn",
     reversible: true,
     allowDraftDelete: true,

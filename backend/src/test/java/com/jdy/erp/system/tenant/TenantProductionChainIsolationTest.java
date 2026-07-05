@@ -227,7 +227,7 @@ class TenantProductionChainIsolationTest {
         var taskBillNo = pushDownPlanAndAssertPurchaseRequisition("A119 反审供应商", "A119 反审子件", "10.0000");
 
         saveAndAuditIssue(taskBillNo);
-        assertTaskIssued(taskBillNo, "5.0000", "ISSUED");
+        assertTaskIssued(taskBillNo, "5.0000", "AUDITED");
         assertTaskSnapshotIssued(taskBillNo, "10.0000");
         assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
 
@@ -422,6 +422,7 @@ class TenantProductionChainIsolationTest {
             qty,
             null
         ));
+        productInAppService.audit(PRODUCT_IN_NO);
     }
 
     private void assertKitAnalysis(String productName, String requiredQty, String availableQty, String shortageQty) {

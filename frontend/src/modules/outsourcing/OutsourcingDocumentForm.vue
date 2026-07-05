@@ -49,9 +49,9 @@
       <section class="form-head-fields outsourcing-head-fields">
         <label>
           单据编号
-          <input v-model.trim="form.billNo" :data-testid="`${testPrefix}-bill-no`" placeholder="保存/生成后返回" @input="markDirty" />
+          <input v-model.trim="form.billNo" :data-testid="`${testPrefix}-bill-no`" placeholder="保存/生成后返回" readonly />
         </label>
-        <label v-if="kind !== 'workOrder'">
+        <label>
           {{ sourceLabel }}
           <input v-model.trim="form.sourceBillNo" :data-testid="`${testPrefix}-source-bill-no`" :placeholder="sourcePlaceholder" @input="markDirty" />
         </label>
@@ -91,6 +91,7 @@
         :show-target-warehouse-column="false"
         :show-plan-delivery-date-column="kind === 'workOrder'"
         :show-stock-columns="false"
+        :show-price-amount-columns="false"
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
         total-amount="0.00"
@@ -266,8 +267,18 @@ const showSecondaryPush = computed(() => props.kind === "workOrder" || props.kin
 const canSecondaryPush = computed(() => statusLabel.value === "已审核" && Boolean(form.billNo.trim()));
 const primaryPushLabel = computed(() => props.kind === "receipt" ? "下推退货" : "下推发料");
 const secondaryPushLabel = computed(() => props.kind === "receipt" ? "下推报废" : "下推入库");
-const sourceLabel = computed(() => props.kind === "return" || props.kind === "scrap" ? "来源委外入库单" : "来源委外加工单");
-const sourcePlaceholder = computed(() => props.kind === "return" || props.kind === "scrap" ? "如 WWRK000001" : "如 WWJG000001");
+const sourceLabel = computed(() => {
+  if (props.kind === "workOrder") {
+    return "来源产品入库单";
+  }
+  return props.kind === "return" || props.kind === "scrap" ? "来源委外入库单" : "来源委外加工单";
+});
+const sourcePlaceholder = computed(() => {
+  if (props.kind === "workOrder") {
+    return "如 CPRK000001，可空";
+  }
+  return props.kind === "return" || props.kind === "scrap" ? "如 WWRK000001" : "如 WWJG000001";
+});
 const entryTableColspan = computed(() => props.kind === "workOrder" ? 8 : 9);
 const entryTotalColspan = computed(() => props.kind === "workOrder" ? 7 : 8);
 const sourceSelectorColumns: SourceSelectorColumn[] = [
@@ -390,6 +401,7 @@ async function save() {
   const result = props.kind === "workOrder"
     ? await saveOutsourcingWorkOrder({
       billNo: form.billNo.trim(),
+      sourceBillNo: form.sourceBillNo.trim(),
       supplierCode: form.supplierCode.trim(),
       productCode: lines[0]?.productCode.trim(),
       qty: Number(lines[0]?.qty || 0),

@@ -34,6 +34,15 @@ async function api(pathname, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+async function apiStatus(pathname, options = {}) {
+  const response = await fetch(`${apiBase}${pathname}`, {
+    method: options.method ?? "POST",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  return { status: response.status, text: await response.text() };
+}
+
 function seq(billNo, prefix) {
   return Number(billNo.slice(prefix.length));
 }
@@ -62,28 +71,29 @@ function salesOrderPayload(billNo) {
 }
 
 async function verifyBackendNumbering() {
-  const preview = await api("/api/numbering/salesOrder/next", { method: "GET" });
-  assert(/^XSDD\d{6}$/.test(preview.billNo), `sales order preview should be XSDD000001 style, got ${preview.billNo}`);
+  const preview = await apiStatus("/api/numbering/salesOrder/next", { method: "GET" });
+  assert(preview.status === 410, `sales order next-number preview should be disabled, got ${preview.status}: ${preview.text}`);
 
   const first = await api("/api/sales-orders/draft", { body: salesOrderPayload("") });
   const second = await api("/api/sales-orders/draft", { body: salesOrderPayload("") });
   await api(`/api/sales-orders/${encodeURIComponent(first.billNo)}/audit`);
-  const collision = await api("/api/sales-orders/draft", { body: salesOrderPayload(first.billNo) });
+  const collision = await apiStatus("/api/sales-orders/draft", { body: salesOrderPayload(first.billNo) });
+  const manual = await apiStatus("/api/sales-orders/draft", { body: salesOrderPayload(`MANUAL-${batch}`) });
   const deleteCandidate = await api("/api/sales-orders/draft", { body: salesOrderPayload("") });
   await api(`/api/sales-orders/${encodeURIComponent(deleteCandidate.billNo)}`, { method: "DELETE" });
-  const afterDeletePreview = await api("/api/numbering/salesOrder/next", { method: "GET" });
+  const afterDelete = await api("/api/sales-orders/draft", { body: salesOrderPayload("") });
 
   assert(/^XSDD\d{6}$/.test(first.billNo), `first sales order bill no format invalid: ${first.billNo}`);
   assert(/^XSDD\d{6}$/.test(second.billNo), `second sales order bill no format invalid: ${second.billNo}`);
-  assert(/^XSDD\d{6}$/.test(collision.billNo), `collision fallback bill no format invalid: ${collision.billNo}`);
   assert(/^XSDD\d{6}$/.test(deleteCandidate.billNo), `delete candidate bill no format invalid: ${deleteCandidate.billNo}`);
-  assert(/^XSDD\d{6}$/.test(afterDeletePreview.billNo), `after delete preview bill no format invalid: ${afterDeletePreview.billNo}`);
+  assert(/^XSDD\d{6}$/.test(afterDelete.billNo), `after delete bill no format invalid: ${afterDelete.billNo}`);
   assert(seq(second.billNo, "XSDD") === seq(first.billNo, "XSDD") + 1, `sales order sequence should increment: ${first.billNo}, ${second.billNo}`);
-  assert(collision.billNo !== first.billNo, `collision fallback should not reuse ${first.billNo}`);
-  assert(afterDeletePreview.billNo !== deleteCandidate.billNo, `numbering should not reuse deleted draft ${deleteCandidate.billNo}`);
-  assert(seq(afterDeletePreview.billNo, "XSDD") > seq(deleteCandidate.billNo, "XSDD"), `numbering should advance after deleting ${deleteCandidate.billNo}, got ${afterDeletePreview.billNo}`);
+  assert(collision.status === 409, `saving over audited bill no should be rejected, got ${collision.status}`);
+  assert(manual.status === 409, `manual bill no should be rejected, got ${manual.status}`);
+  assert(afterDelete.billNo !== deleteCandidate.billNo, `numbering should not reuse deleted draft ${deleteCandidate.billNo}`);
+  assert(seq(afterDelete.billNo, "XSDD") > seq(deleteCandidate.billNo, "XSDD"), `numbering should advance after deleting ${deleteCandidate.billNo}, got ${afterDelete.billNo}`);
 
-  return { preview: preview.billNo, first: first.billNo, second: second.billNo, collision: collision.billNo, deleteCandidate: deleteCandidate.billNo, afterDeletePreview: afterDeletePreview.billNo };
+  return { previewStatus: preview.status, first: first.billNo, second: second.billNo, collisionStatus: collision.status, manualStatus: manual.status, deleteCandidate: deleteCandidate.billNo, afterDelete: afterDelete.billNo };
 }
 
 async function verifyDirectSalesOutNewForm() {
@@ -97,10 +107,7 @@ async function verifyDirectSalesOutNewForm() {
     await page.getByTestId("entry-sales-out-form").click();
     await page.getByTestId("tab-sales-out-form").waitFor({ state: "visible" });
     await clickNewDocument(page, { confirmUnsaved: true });
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="sales-out-bill-no"]');
-      return input instanceof HTMLInputElement && /^XSCKD\d{6}$/.test(input.value);
-    });
+    await page.getByTestId("sales-out-bill-no").waitFor({ state: "visible" });
     const billNo = await page.getByTestId("sales-out-bill-no").inputValue();
     const sourceOrderNo = await page.getByTestId("sales-out-source-order-no").count() === 0
       ? ""
@@ -112,7 +119,7 @@ async function verifyDirectSalesOutNewForm() {
     const unitPrice = await page.getByTestId("sales-out-line-price").inputValue();
     await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
 
-    assert(/^XSCKD\d{6}$/.test(billNo), `sales out bill no format invalid: ${billNo}`);
+    assert(billNo === "", `sales out bill no should be blank before first save, got ${billNo}`);
     assert(sourceOrderNo === "", `direct sales out source order should be empty, got ${sourceOrderNo}`);
     assert(partyCode === "", `direct sales out customer should be empty, got ${partyCode}`);
     assert(productCode === "", `direct sales out first product should be blank, got ${productCode}`);
@@ -137,10 +144,7 @@ async function verifySalesOrderNewFormBlankLine() {
     await page.getByTestId("entry-sales-order-form").click();
     await page.getByTestId("tab-sales-order-form").waitFor({ state: "visible" });
     await clickNewDocument(page, { confirmUnsaved: true });
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="sales-bill-no"]');
-      return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
-    });
+    await page.getByTestId("sales-bill-no").waitFor({ state: "visible" });
     const billNo = await page.getByTestId("sales-bill-no").inputValue();
     const productCode = await page.getByTestId("sales-line-product").inputValue();
     const warehouseCode = await page.getByTestId("sales-line-warehouse").inputValue();
@@ -157,10 +161,10 @@ async function verifySalesOrderNewFormBlankLine() {
     await unsavedDialog.waitFor({ state: "visible" });
     await page.getByTestId("new-document-unsaved-confirm").click();
     await unsavedDialog.waitFor({ state: "hidden" });
-    await page.waitForFunction((previousBillNo) => {
+    await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="sales-bill-no"]');
-      return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value) && input.value !== previousBillNo;
-    }, billNo);
+      return input instanceof HTMLInputElement && input.value === "";
+    });
     const billNoAfterConfirm = await page.getByTestId("sales-bill-no").inputValue();
     const partyAfterConfirm = await page.getByTestId("sales-party-code").inputValue();
     await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
@@ -170,7 +174,8 @@ async function verifySalesOrderNewFormBlankLine() {
     assert(["", "0"].includes(qty), `sales order first qty should be blank/zero, got ${qty}`);
     assert(["", "0"].includes(unitPrice), `sales order first unit price should be blank/zero, got ${unitPrice}`);
     assert(partyAfterCancel === "KH-001", `canceling unsaved new should keep current form, got party ${partyAfterCancel}`);
-    assert(billNoAfterConfirm !== billNo, `confirming unsaved new should create new bill no, still ${billNoAfterConfirm}`);
+    assert(billNo === "", `sales order bill no should be blank before first save, got ${billNo}`);
+    assert(billNoAfterConfirm === "", `confirming unsaved new should keep bill no blank before save, got ${billNoAfterConfirm}`);
     assert(partyAfterConfirm === "", `confirming unsaved new should clear party, got ${partyAfterConfirm}`);
 
     return { billNo, productCode, warehouseCode, qty, unitPrice, partyAfterCancel, billNoAfterConfirm, partyAfterConfirm, screenshot: `verification/playwright/${shot}` };

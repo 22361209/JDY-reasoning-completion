@@ -383,7 +383,7 @@ async function pushDownProductIn() {
     document.message.value = "产品入库单已生成，但返回单号为空。";
     return;
   }
-  document.message.value = `已下推生成产品入库单 ${billNo}`;
+  document.message.value = `已下推生成产品入库单草稿 ${billNo}`;
   emit("requestOpenDocument", { type: "productIn", billNo });
 }
 

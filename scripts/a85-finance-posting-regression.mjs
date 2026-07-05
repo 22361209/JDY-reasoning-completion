@@ -65,6 +65,25 @@ function rowBySource(rows, sourceBillNo) {
   return rows.find((row) => row.sourceBillNo === sourceBillNo);
 }
 
+async function collectListRows(listKey, keywords) {
+  const rowsByKey = new Map();
+  for (const keyword of keywords) {
+    const rows = (await getList(listKey, keyword)).rows ?? [];
+    for (const row of rows) {
+      rowsByKey.set(`${row.billNo}|${row.sourceBillNo ?? ""}`, row);
+    }
+  }
+  return [...rowsByKey.values()];
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014"]) {
     for (const warehouseCode of ["CK-001", "CK-002"]) {
@@ -79,9 +98,8 @@ async function seedStock() {
   }
 }
 
-function salesOutPayload(billNo) {
+function salesOutPayload() {
   return {
-    billNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
@@ -93,9 +111,8 @@ function salesOutPayload(billNo) {
   };
 }
 
-function purchaseInPayload(billNo) {
+function purchaseInPayload() {
   return {
-    billNo,
     supplierCode: "GYS-001",
     billDate,
     department: "采购部",
@@ -110,41 +127,36 @@ function purchaseInPayload(billNo) {
 async function createFinanceData() {
   await seedStock();
 
-  const salesOutAudited = `XSCK-A85-A-${batch}`;
-  const salesOutReverse = `XSCK-A85-R-${batch}`;
-  const salesOutRedSource = `XSCK-A85-RS-${batch}`;
-  const salesOutRed = `XSCK-A85-HC-${batch}`;
-  for (const billNo of [salesOutAudited, salesOutReverse, salesOutRedSource]) {
-    const orderNo = billNo.replace("XSCK", "XSDD");
-    await post("/api/sales-orders/draft", { ...salesOutPayload(orderNo), billNo: orderNo });
+  const salesOutNos = [];
+  for (const label of ["审核", "反审核", "红冲来源"]) {
+    const orderNo = generatedBillNo(await post("/api/sales-orders/draft", salesOutPayload()), `A85销售订单${label}`);
     await post(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
-    await createSalesOutDraftViaDeliveryNotice((pathname, body) => post(pathname, body), {
-      ...salesOutPayload(billNo),
+    const flow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => post(pathname, body), {
+      ...salesOutPayload(),
       sourceOrderNo: orderNo
-    }, billNo.replace("XSCK", "FHTZ"));
-    await post(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
+    });
+    await post(`/api/sales-outs/${encodeURIComponent(flow.salesOutNo)}/audit`);
+    salesOutNos.push(flow.salesOutNo);
   }
+  const [salesOutAudited, salesOutReverse, salesOutRedSource] = salesOutNos;
   await post(`/api/sales-outs/${encodeURIComponent(salesOutReverse)}/reverse`);
-  await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/red-reverse`, {
-    redBillNo: salesOutRed,
+  const salesOutRed = generatedBillNo(await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/red-reverse`, {
     billDate,
     ownerName: "本地管理员"
-  });
+  }), "A85销售出库红冲");
 
-  const purchaseInAudited = `CGRK-A85-A-${batch}`;
-  const purchaseInReverse = `CGRK-A85-R-${batch}`;
-  const purchaseInRedSource = `CGRK-A85-RS-${batch}`;
-  const purchaseInRed = `CGRK-A85-HC-${batch}`;
-  for (const billNo of [purchaseInAudited, purchaseInReverse, purchaseInRedSource]) {
-    await post("/api/purchase-ins/draft", purchaseInPayload(billNo));
+  const purchaseInNos = [];
+  for (const label of ["审核", "反审核", "红冲来源"]) {
+    const billNo = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), `A85采购入库${label}`);
     await post(`/api/purchase-ins/${encodeURIComponent(billNo)}/audit`);
+    purchaseInNos.push(billNo);
   }
+  const [purchaseInAudited, purchaseInReverse, purchaseInRedSource] = purchaseInNos;
   await post(`/api/purchase-ins/${encodeURIComponent(purchaseInReverse)}/reverse`);
-  await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/red-reverse`, {
-    redBillNo: purchaseInRed,
+  const purchaseInRed = generatedBillNo(await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/red-reverse`, {
     billDate,
     ownerName: "本地管理员"
-  });
+  }), "A85采购入库红冲");
 
   return {
     salesOutAudited,
@@ -172,19 +184,39 @@ async function assertRetiredEndpoints(data) {
 }
 
 async function assertFinanceRows(data) {
-  await post(`/api/finance/receivables/${encodeURIComponent(`YS-${data.salesOutAudited}`)}/receipt`, {
-    billNo: `SK-A85-${batch}`,
+  const manualReceipt = await request(`/api/finance/receivables/${encodeURIComponent(`YS-${data.salesOutAudited}`)}/receipt`, {
+    body: {
+      billNo: `SK-A85-${batch}`,
+      date: billDate,
+      amount: 1
+    }
+  });
+  assert(manualReceipt.response.status === 409, `manual receipt bill no should be rejected, got ${manualReceipt.response.status}`);
+  const receipt = await post(`/api/finance/receivables/${encodeURIComponent(`YS-${data.salesOutAudited}`)}/receipt`, {
     date: billDate,
     amount: 50
   });
-  await post(`/api/finance/payables/${encodeURIComponent(`YF-${data.purchaseInAudited}`)}/payment`, {
-    billNo: `FK-A85-${batch}`,
+  const payment = await post(`/api/finance/payables/${encodeURIComponent(`YF-${data.purchaseInAudited}`)}/payment`, {
     date: billDate,
     amount: 60
   });
+  assert(/^SKD\d{6}$/.test(String(receipt.receiptBillNo ?? "")), `receipt bill no should be generated, got ${JSON.stringify(receipt)}`);
+  assert(/^FKD\d{6}$/.test(String(payment.paymentBillNo ?? "")), `payment bill no should be generated, got ${JSON.stringify(payment)}`);
 
-  const receivables = (await getList("receivable-list", "A85")).rows;
-  const payables = (await getList("payable-list", "A85")).rows;
+  const receivables = await collectListRows("receivable-list", [
+    `YS-${data.salesOutAudited}`,
+    data.salesOutAudited,
+    `YS-CX-${data.salesOutReverse}`,
+    data.salesOutReverse,
+    data.salesOutRed
+  ]);
+  const payables = await collectListRows("payable-list", [
+    `YF-${data.purchaseInAudited}`,
+    data.purchaseInAudited,
+    `YF-CX-${data.purchaseInReverse}`,
+    data.purchaseInReverse,
+    data.purchaseInRed
+  ]);
   const auditedAr = rowByBill(receivables, `YS-${data.salesOutAudited}`);
   const reversedAr = rowByBill(receivables, `YS-CX-${data.salesOutReverse}`);
   const redAr = rowBySource(receivables, data.salesOutRed);
@@ -206,7 +238,7 @@ async function assertFinanceRows(data) {
   assert(reversedAp && amountOf(reversedAp) === -data.expectedPayableAmount, "purchase in reverse should create negative payable reversal");
   assert(redAp && amountOf(redAp) === -data.expectedPayableAmount, "purchase in red reverse should create negative payable");
 
-  return { receivables, payables };
+  return { receivables, payables, receiptBillNo: receipt.receiptBillNo, paymentBillNo: payment.paymentBillNo };
 }
 
 async function assertFrontendHasNoManualOrderGeneration() {
@@ -228,7 +260,7 @@ async function captureFinanceLists(data) {
     await page.getByTestId("module-应收应付").hover();
     await page.getByTestId("query-receivable-list").click();
     await page.getByTestId("tab-receivable-list").waitFor({ state: "visible" });
-    await page.getByTestId("list-keyword").fill(data.salesOutAudited);
+    await page.getByTestId("list-keyword").fill(`YS-${data.salesOutAudited}`);
     await page.getByTestId("list-keyword").press("Enter");
     await page.getByText(`YS-${data.salesOutAudited}`).waitFor({ state: "visible" });
     const receivableShot = `a85-receivable-list-${batch}.png`;
@@ -238,7 +270,7 @@ async function captureFinanceLists(data) {
     await page.getByTestId("module-应收应付").hover();
     await page.getByTestId("query-payable-list").click();
     await page.getByTestId("tab-payable-list").waitFor({ state: "visible" });
-    await page.getByTestId("list-keyword").fill(data.purchaseInAudited);
+    await page.getByTestId("list-keyword").fill(`YF-${data.purchaseInAudited}`);
     await page.getByTestId("list-keyword").press("Enter");
     await page.getByText(`YF-${data.purchaseInAudited}`).waitFor({ state: "visible" });
     const payableShot = `a85-payable-list-${batch}.png`;
@@ -263,6 +295,7 @@ const result = {
   retiredEndpoints,
   receivableBills: financeRows.receivables.map((row) => ({ billNo: row.billNo, sourceBillNo: row.sourceBillNo, amount: row.amount, status: row.status })),
   payableBills: financeRows.payables.map((row) => ({ billNo: row.billNo, sourceBillNo: row.sourceBillNo, amount: row.amount, status: row.status })),
+  settlementBills: { receiptBillNo: financeRows.receiptBillNo, paymentBillNo: financeRows.paymentBillNo },
   screenshots
 };
 await writeFile(resultPath, JSON.stringify(result, null, 2));

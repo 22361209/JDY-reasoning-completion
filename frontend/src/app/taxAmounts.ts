@@ -1,19 +1,8 @@
-export function taxAmounts(qty: number | string | undefined, unitPrice: number | string | undefined, taxRate: number | string | undefined, isTaxInclusive: boolean) {
+export function taxAmounts(qty: number | string | undefined, unitPrice: number | string | undefined, taxRate: number | string | undefined) {
   const safeQty = numeric(qty);
   const safeUnitPrice = numeric(unitPrice);
   const safeTaxRate = taxRate === undefined || taxRate === null || String(taxRate).trim() === "" ? 13 : numeric(taxRate);
-  const gross = safeQty * safeUnitPrice;
-  if (isTaxInclusive) {
-    const priceTaxTotal = roundMoney(gross);
-    const amount = roundMoney(gross / (1 + safeTaxRate / 100));
-    return {
-      taxRate: safeTaxRate,
-      amount,
-      taxAmount: roundMoney(priceTaxTotal - amount),
-      priceTaxTotal
-    };
-  }
-  const amount = roundMoney(gross);
+  const amount = roundMoney(safeQty * safeUnitPrice);
   const taxAmount = roundMoney(amount * safeTaxRate / 100);
   return {
     taxRate: safeTaxRate,

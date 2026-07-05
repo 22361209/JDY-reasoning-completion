@@ -28,7 +28,6 @@ import {
   deleteDocument,
   exportDocument,
   fetchDocumentDetail,
-  fetchNextBillNo,
   fetchSalesUnitPriceQuote,
   lifecycleDocument,
   lifecycleLine,
@@ -61,7 +60,7 @@ export interface DocumentModuleOptions {
   showSupplierMaterialCodeColumn?: boolean;
   executionQtyLabel?: string;
   remainingQtyLabel?: string;
-  showTaxMode?: boolean;
+  showTaxColumns?: boolean;
   showStockColumns?: boolean;
   stockColumnMode?: "all" | "availableOnly";
   defaultTargetWarehouseCode?: string;
@@ -175,8 +174,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const lifecyclePolicy = computed(() => lifecyclePolicyFor(config.saveType ?? null));
   const showCloseFreezeActions = computed(() => Boolean(lifecyclePolicy.value?.closeFreezeAllowed));
   const canAudit = computed(() => Boolean(config.saveType) && isDraft.value && runtime.hasPermission(config.auditPermission));
-  const canReverse = computed(() => Boolean(config.reversible && config.saveType && form.status === "AUDITED"));
-  const canRedReverse = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED"));
+  const canReverse = computed(() => Boolean(config.reversible && config.saveType && form.status === "AUDITED" && !form.redReverseBillNo));
+  const canRedReverse = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.redReverseAllowed && form.status === "AUDITED" && !form.redReverseBillNo && !form.redSourceBillNo));
   const canVoid = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.voidAllowed && form.status === "DRAFT"));
   const canClose = computed(() => Boolean(config.saveType && lifecyclePolicy.value?.closeFreezeAllowed && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN"));
   const canUnclose = computed(() => Boolean(
@@ -201,7 +200,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
   const showExecutionColumns = computed(() => Boolean(config.executionQtyLabel || config.remainingQtyLabel) || form.lines.some((line) => line.executedQty !== undefined || line.remainingQty !== undefined));
   const showTargetWarehouseColumn = computed(() => Boolean(config.showTargetWarehouseColumn));
-  const showTaxMode = computed(() => Boolean(config.showTaxMode));
+  const showTaxColumns = computed(() => Boolean(config.showTaxColumns));
   const showSupplierMaterialCodeColumn = computed(() => Boolean(config.showSupplierMaterialCodeColumn));
   const showPlanDeliveryDateColumn = computed(() => config.documentType === "salesOrder" || config.documentType === "deliveryNotice" || config.documentType === "purchaseOrder");
   const executionColumnCount = computed(() => showExecutionColumns.value ? (config.showExecutedQtyColumn === false ? 1 : 2) : 0);
@@ -209,16 +208,16 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const priceAmountColumnCount = computed(() => config.showPriceAmountColumns === false ? 0 : 2);
   const entryTableColspan = computed(() => 7 + priceAmountColumnCount.value + (showSourceLineColumn.value ? 1 : 0) + executionColumnCount.value + stockColumnCount.value + (showTargetWarehouseColumn.value ? 1 : 0) + (showPlanDeliveryDateColumn.value ? 2 : 0));
   const entryTotalColspan = computed(() => entryTableColspan.value - 1);
-  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate, Boolean(form.isTaxInclusive)).priceTaxTotal, 0).toFixed(2));
+  const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
   const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus, form.closeMode));
-  const redReverseBillNo = computed(() => `HC-${form.billNo}`);
+  const redReverseBillNo = computed(() => "系统自动生成");
   const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
   const riskyActionTitle = computed(() => `${riskyActionVerb.value}确认`);
   const riskyActionSummary = computed(() => `即将${riskyActionVerb.value}${config.riskySummaryTitle ?? config.title} ${form.billNo}。`);
-  const riskyActionImpact = computed(() => pendingRiskyDocumentAction.value === "redReverse"
-    ? config.redReverseImpact ?? `红冲将生成负数${config.title}，原单标记已红冲。`
+	  const riskyActionImpact = computed(() => pendingRiskyDocumentAction.value === "redReverse"
+	    ? config.redReverseImpact ?? `红冲将生成负数${config.title}草稿，并在原单关联红字单；审核红字单后才产生反向业务事实。`
     : config.reverseImpact ?? `反审核将冲销${config.title}相关库存流水。`);
   const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 
@@ -245,7 +244,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.department = config.defaultDepartment;
     form.ownerName = runtime.userName() || "本地管理员";
     form.remark = "";
-    form.isTaxInclusive = false;
     form.validUntil = config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined;
     form.status = "DRAFT";
     form.closeStatus = "OPEN";
@@ -254,9 +252,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.productInfo = undefined;
     form.lines = [blankLine()];
     hasPersistedDraft.value = false;
-    const billNoResult = config.saveType ? await fetchNextBillNo(config.saveType) : { ok: false, message: "当前单据不能直接新建。", billNo: "" };
-    form.billNo = billNoResult.ok && billNoResult.billNo ? billNoResult.billNo : "";
-    message.value = billNoResult.ok ? "已生成新单据草稿号" : billNoResult.message || "单据编号生成失败。";
+    message.value = "新单据将在首次保存时生成编号";
     runtime.markDirty();
   }
 
@@ -276,7 +272,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.department = document.department || config.defaultDepartment;
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
-    form.isTaxInclusive = Boolean(document.isTaxInclusive);
     form.enabled = document.enabled ?? true;
     form.validUntil = document.validUntil || (config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined);
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
@@ -308,6 +303,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         lineCloseStatus: line.lineCloseStatus ?? "OPEN",
         lineFrozenStatus: line.lineFrozenStatus ?? "NORMAL",
         unitPrice: Number(line.unitPrice ?? 0),
+        amount: line.amount,
+        taxInclusiveUnitPrice: line.taxInclusiveUnitPrice,
         taxRate: Number(line.taxRate ?? 13),
         taxAmount: line.taxAmount,
         priceTaxTotal: line.priceTaxTotal,
@@ -394,7 +391,6 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.department = draft.department;
     form.ownerName = draft.ownerName;
     form.remark = "";
-    form.isTaxInclusive = false;
     form.validUntil = config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined;
     form.status = "DRAFT";
     hasPersistedDraft.value = false;
@@ -454,19 +450,21 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       department: form.department,
       ownerName: form.ownerName,
       remark: form.remark,
-      isTaxInclusive: Boolean(form.isTaxInclusive),
       validUntil: form.validUntil,
       lines: preparedLines.documentLines
     });
-    message.value = result.ok ? saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0) : result.message;
+    const successMessage = saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0);
+    message.value = result.ok ? successMessage : result.message;
     if (result.ok) {
       const saved = result.data as { billNo?: unknown } | undefined;
-      if (typeof saved?.billNo === "string") {
-        form.billNo = saved.billNo;
+      const savedBillNo = typeof saved?.billNo === "string" ? saved.billNo : form.billNo;
+      if (savedBillNo) {
+        await loadByBillNo(savedBillNo, successMessage);
+      } else {
+        form.status = "DRAFT";
+        hasPersistedDraft.value = true;
+        runtime.clearDirty();
       }
-      form.status = "DRAFT";
-      hasPersistedDraft.value = true;
-      runtime.clearDirty();
     }
   }
 
@@ -605,16 +603,18 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!config.saveType) {
       return;
     }
-    const redBillNo = redReverseBillNo.value;
     const result = await redReverseDocument(config.saveType, form.billNo, {
-      redBillNo,
       billDate: form.billDate,
       ownerName: form.ownerName
     });
-    message.value = result.ok ? `红冲成功：${redBillNo}` : result.message;
-    if (result.ok) {
-      await loadByBillNo(redBillNo, `红冲成功：${redBillNo}`);
-    }
+    const saved = result.data as { billNo?: unknown } | undefined;
+    const generatedBillNo = String(saved?.billNo ?? "");
+	    message.value = result.ok && generatedBillNo ? `红字草稿已生成：${generatedBillNo}，审核后生效` : result.ok ? "红字草稿已生成，请刷新列表查看系统生成的红字单。" : result.message;
+	    if (result.ok) {
+	      if (generatedBillNo) {
+	        await loadByBillNo(generatedBillNo, `红字草稿已生成：${generatedBillNo}，审核后生效`);
+	      }
+	    }
   }
 
   async function exportCurrent() {
@@ -1287,7 +1287,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showExecutionColumns,
     showTargetWarehouseColumn,
     showSupplierMaterialCodeColumn,
-    showTaxMode,
+    showTaxColumns,
     showPlanDeliveryDateColumn,
     showStockColumns: computed(() => Boolean(config.showStockColumns)),
     stockColumnMode: config.stockColumnMode ?? "all",
@@ -1638,11 +1638,11 @@ function downstreamReverseImpact(doc: DownstreamDocumentRef) {
 
 function downstreamRedReverseImpact(doc: DownstreamDocumentRef) {
   const qty = formatQty(doc.qty);
-  if (doc.type === "purchaseIn") {
-    return `红冲将生成负数采购入库单，并回退源采购订单已入库数量 ${qty}。`;
-  }
-  return `红冲将生成负数销售出库单，并回退源销售订单已出库数量 ${qty}。`;
-}
+	  if (doc.type === "purchaseIn") {
+	    return `红冲将生成负数采购入库草稿；审核红字单后回退源采购订单已入库数量 ${qty}。`;
+	  }
+	  return `红冲将生成负数销售出库草稿；审核红字单后回退源销售订单已出库数量 ${qty}。`;
+	}
 
 function isBlankEntryLine(line: OrderLineForm) {
   return !entryLineProductCode(line)

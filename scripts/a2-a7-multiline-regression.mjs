@@ -12,6 +12,7 @@ const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
+const bomVariantQty = 2 + (Number(batch.slice(-2)) || 1) / 100;
 
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
@@ -48,12 +49,47 @@ async function api(pathname, options = {}) {
   return response.json();
 }
 
+async function apiStatus(pathname, options = {}) {
+  const response = await fetch(`${apiBase}${pathname}`, {
+    method: options.method ?? "POST",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  return { status: response.status, text: await response.text() };
+}
+
 async function get(pathname) {
   return api(pathname, { method: "GET" });
 }
 
 async function post(pathname, body) {
   return api(pathname, { method: "POST", body });
+}
+
+async function auditBomAllowNewVersion(bomCode) {
+  const preview = await get(`/api/production/boms/${encodeURIComponent(bomCode)}/audit-preview`);
+  const body = preview.requiresConfirmation
+    ? {
+        confirmNewVersion: true,
+        latestBomCode: preview.latestBomCode,
+        latestVersionNo: preview.latestVersionNo
+      }
+    : undefined;
+  return api(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST", body });
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} save did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
 }
 
 async function seedStock() {
@@ -73,128 +109,127 @@ async function seedStock() {
 async function createBusinessData() {
   await seedStock();
 
-  const salesOrderDraft = `XSDD-A2A7-D-${batch}`;
-  const salesOrderAudited = `XSDD-A2A7-A-${batch}`;
-  await post("/api/sales-orders/draft", salesOrderPayload(salesOrderDraft));
-  await post("/api/sales-orders/draft", salesOrderPayload(salesOrderAudited));
+  const salesOrderDraft = generatedBillNo(await post("/api/sales-orders/draft", salesOrderPayload()), "销售订单草稿");
+  const salesOrderAudited = generatedBillNo(await post("/api/sales-orders/draft", salesOrderPayload()), "销售订单审核样本");
   await post(`/api/sales-orders/${encodeURIComponent(salesOrderAudited)}/audit`);
   stateCoverage.push(["销售订单", "草稿", salesOrderDraft], ["销售订单", "已审核", salesOrderAudited]);
 
-  const salesOutDraft = `XSCK-A2A7-D-${batch}`;
-  const salesOutAudited = `XSCK-A2A7-A-${batch}`;
-  const salesOutReverse = `XSCK-A2A7-R-${batch}`;
-  const salesOutRedSource = `XSCK-A2A7-RS-${batch}`;
-  const salesOutRed = `XSCK-A2A7-HC-${batch}`;
-  for (const billNo of [salesOutDraft, salesOutAudited, salesOutReverse, salesOutRedSource]) {
-    await createSalesOutDraftViaDeliveryNotice(post, stockPayload(billNo, "KH-001", lines, "销售部"));
-  }
+  const salesOutDraft = (await createSalesOutDraftViaDeliveryNotice(post, stockPayload("KH-001", lines, "销售部"))).salesOutNo;
+  const salesOutAudited = (await createSalesOutDraftViaDeliveryNotice(post, stockPayload("KH-001", lines, "销售部"))).salesOutNo;
+  const salesOutReverse = (await createSalesOutDraftViaDeliveryNotice(post, stockPayload("KH-001", lines, "销售部"))).salesOutNo;
+  const salesOutRedSource = (await createSalesOutDraftViaDeliveryNotice(post, stockPayload("KH-001", lines, "销售部"))).salesOutNo;
   await post(`/api/sales-outs/${encodeURIComponent(salesOutAudited)}/audit`);
   await post(`/api/sales-outs/${encodeURIComponent(salesOutReverse)}/audit`);
   await post(`/api/sales-outs/${encodeURIComponent(salesOutReverse)}/reverse`);
   await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/audit`);
-  await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/red-reverse`, {
-    redBillNo: salesOutRed,
-    billDate,
-    ownerName: "本地管理员"
-  });
-  stateCoverage.push(
-    ["销售出库", "草稿", salesOutDraft],
-    ["销售出库", "已审核", salesOutAudited],
-    ["销售出库", "草稿", salesOutReverse],
-    ["销售出库", "已红冲", salesOutRed]
-  );
+	  const salesOutRed = generatedBillNo(await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/red-reverse`, {
+	    billDate,
+	    ownerName: "本地管理员"
+	  }), "销售出库红冲");
+	  await post(`/api/sales-outs/${encodeURIComponent(salesOutRed)}/audit`);
+	  stateCoverage.push(
+	    ["销售出库", "草稿", salesOutDraft],
+	    ["销售出库", "已审核", salesOutAudited],
+	    ["销售出库", "草稿", salesOutReverse],
+	    ["销售出库", "已审核", salesOutRed]
+	  );
 
-  const purchaseOrderDraft = `CGDD-A2A7-D-${batch}`;
-  const purchaseOrderAudited = `CGDD-A2A7-A-${batch}`;
-  await post("/api/purchase-orders/draft", purchaseOrderPayload(purchaseOrderDraft));
-  await post("/api/purchase-orders/draft", purchaseOrderPayload(purchaseOrderAudited));
+  const purchaseOrderDraft = generatedBillNo(await post("/api/purchase-orders/draft", purchaseOrderPayload()), "采购订单草稿");
+  const purchaseOrderAudited = generatedBillNo(await post("/api/purchase-orders/draft", purchaseOrderPayload()), "采购订单审核样本");
   await post(`/api/purchase-orders/${encodeURIComponent(purchaseOrderAudited)}/audit`);
   stateCoverage.push(["采购订单", "草稿", purchaseOrderDraft], ["采购订单", "已审核", purchaseOrderAudited]);
 
-  const purchaseInDraft = `CGRK-A2A7-D-${batch}`;
-  const purchaseInAudited = `CGRK-A2A7-A-${batch}`;
-  const purchaseInReverse = `CGRK-A2A7-R-${batch}`;
-  const purchaseInRedSource = `CGRK-A2A7-RS-${batch}`;
-  const purchaseInRed = `CGRK-A2A7-HC-${batch}`;
-  for (const billNo of [purchaseInDraft, purchaseInAudited, purchaseInReverse, purchaseInRedSource]) {
-    await post("/api/purchase-ins/draft", purchaseInPayload(billNo));
-  }
+  const purchaseInDraft = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), "采购入库草稿");
+  const purchaseInAudited = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), "采购入库审核样本");
+  const purchaseInReverse = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), "采购入库反审核样本");
+  const purchaseInRedSource = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), "采购入库红冲来源");
   await post(`/api/purchase-ins/${encodeURIComponent(purchaseInAudited)}/audit`);
   await post(`/api/purchase-ins/${encodeURIComponent(purchaseInReverse)}/audit`);
   await post(`/api/purchase-ins/${encodeURIComponent(purchaseInReverse)}/reverse`);
   await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/audit`);
-  await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/red-reverse`, {
-    redBillNo: purchaseInRed,
-    billDate,
-    ownerName: "本地管理员"
-  });
-  stateCoverage.push(
-    ["采购入库", "草稿", purchaseInDraft],
-    ["采购入库", "已审核", purchaseInAudited],
-    ["采购入库", "草稿", purchaseInReverse],
-    ["采购入库", "已红冲", purchaseInRed]
-  );
+	  const purchaseInRed = generatedBillNo(await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/red-reverse`, {
+	    billDate,
+	    ownerName: "本地管理员"
+	  }), "采购入库红冲");
+	  await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRed)}/audit`);
+	  stateCoverage.push(
+	    ["采购入库", "草稿", purchaseInDraft],
+	    ["采购入库", "已审核", purchaseInAudited],
+	    ["采购入库", "草稿", purchaseInReverse],
+	    ["采购入库", "已审核", purchaseInRed]
+	  );
 
   const bomCode = `BOM-A2A7-${batch}`;
-  const taskIssue = `SCRW-A2A7-I-${batch}`;
-  const taskComplete = `SCRW-A2A7-C-${batch}`;
   await post("/api/production/boms", {
     code: bomCode,
     productCode: "CP-001",
     qty: 1,
     lines: [
       { materialCode: "CP-001", qty: 1 },
-      { materialCode: "CP-T413874", qty: 2 },
+      { materialCode: "CP-T413874", qty: bomVariantQty },
       { materialCode: "PJ-014", qty: 3 }
     ]
   });
-  await post(`/api/production/boms/${encodeURIComponent(bomCode)}/audit`);
-  await post("/api/production/tasks", { billNo: taskIssue, bomCode, warehouseCode: "CK-001", qty: 2 });
-  await post("/api/production/tasks", { billNo: taskComplete, bomCode, warehouseCode: "CK-001", qty: 30 });
+  await auditBomAllowNewVersion(bomCode);
+  const taskIssueAudited = generatedBillNo(await post("/api/production/tasks", { bomCode, warehouseCode: "CK-001", qty: 2 }), "生产任务领料审核样本");
+  const taskIssueReverse = generatedBillNo(await post("/api/production/tasks", { bomCode, warehouseCode: "CK-001", qty: 2 }), "生产任务领料反审核样本");
+  const taskIssueRed = generatedBillNo(await post("/api/production/tasks", { bomCode, warehouseCode: "CK-001", qty: 2 }), "生产任务领料红冲样本");
+  const taskComplete = generatedBillNo(await post("/api/production/tasks", { bomCode, warehouseCode: "CK-001", qty: 30 }), "生产任务完工样本");
+  await post(`/api/production/tasks/${encodeURIComponent(taskIssueAudited)}/audit`);
+  await post(`/api/production/tasks/${encodeURIComponent(taskIssueReverse)}/audit`);
+  await post(`/api/production/tasks/${encodeURIComponent(taskIssueRed)}/audit`);
+  await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/audit`);
 
-  const issueAudited = `SCLL-A2A7-A-${batch}`;
-  const issueReverse = `SCLL-A2A7-R-${batch}`;
-  const issueRedSource = `SCLL-A2A7-RS-${batch}`;
-  const issueRed = `SCLL-A2A7-HC-${batch}`;
-  await post(`/api/production/tasks/${encodeURIComponent(taskIssue)}/issue`, { billNo: issueAudited, materialWarehouseCode: "CK-002" });
-  await post(`/api/production/tasks/${encodeURIComponent(taskIssue)}/issue`, { billNo: issueReverse, materialWarehouseCode: "CK-002" });
+  const issueAudited = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskIssueAudited)}/issue`, { materialWarehouseCode: "CK-002" }), "生产领料审核样本");
+  await post(`/api/production/material-issues/${encodeURIComponent(issueAudited)}/audit`);
+  const issueReverse = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskIssueReverse)}/issue`, { materialWarehouseCode: "CK-002" }), "生产领料反审核样本");
+  await post(`/api/production/material-issues/${encodeURIComponent(issueReverse)}/audit`);
   await post(`/api/production/material-issues/${encodeURIComponent(issueReverse)}/reverse`);
-  await post(`/api/production/tasks/${encodeURIComponent(taskIssue)}/issue`, { billNo: issueRedSource, materialWarehouseCode: "CK-002" });
-  await post(`/api/production/material-issues/${encodeURIComponent(issueRedSource)}/red-reverse`, { redBillNo: issueRed });
-  stateCoverage.push(
-    ["生产领料", "已审核", issueAudited],
-    ["生产领料", "草稿", issueReverse],
-    ["生产领料", "已红冲", issueRed]
-  );
+  const issueRedSource = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskIssueRed)}/issue`, { materialWarehouseCode: "CK-002" }), "生产领料红冲来源");
+	  await post(`/api/production/material-issues/${encodeURIComponent(issueRedSource)}/audit`);
+	  const issueRed = generatedBillNo(await post(`/api/production/material-issues/${encodeURIComponent(issueRedSource)}/red-reverse`, {}), "生产领料红冲");
+	  await post(`/api/production/material-issues/${encodeURIComponent(issueRed)}/audit`);
+	  const duplicateIssueRed = await apiStatus(`/api/production/material-issues/${encodeURIComponent(issueRedSource)}/red-reverse`, { body: {} });
+	  assert(duplicateIssueRed.status === 409, `生产领料重复红冲应被拒绝，got ${duplicateIssueRed.status}: ${duplicateIssueRed.text}`);
+  const taskRedRows = await get(`/api/lists/production-task-form-list?keyword=${encodeURIComponent(taskIssueRed)}&pageSize=50`);
+  const taskRedRow = taskRedRows.rows.find((row) => row.billNo === taskIssueRed);
+  assert(taskRedRow?.status === "未领料", `生产领料红冲后任务应回到未领料，got ${JSON.stringify(taskRedRow)}`);
+  assert(Number(taskRedRow?.issuedQty ?? 1) === 0, `生产领料红冲后已领套数应为0，got ${JSON.stringify(taskRedRow)}`);
+	  stateCoverage.push(
+	    ["生产领料", "已审核", issueAudited],
+	    ["生产领料", "草稿", issueReverse],
+	    ["生产领料", "已审核", issueRed]
+	  );
 
-  const productInAudited = `CPRK-A2A7-A-${batch}`;
-  const productInReverse = `CPRK-A2A7-R-${batch}`;
-  const productInRedSource = `CPRK-A2A7-RS-${batch}`;
-  const productInRed = `CPRK-A2A7-HC-${batch}`;
-  await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, { billNo: productInAudited, lines: completeLines });
-  await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, { billNo: productInReverse, lines: completeLines });
+  const taskCompleteIssue = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/issue`, { materialWarehouseCode: "CK-002" }), "完工任务领料");
+  await post(`/api/production/material-issues/${encodeURIComponent(taskCompleteIssue)}/audit`);
+  const productInAudited = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, { lines: completeLines }), "产品入库审核样本");
+  await post(`/api/production/product-ins/${encodeURIComponent(productInAudited)}/audit`);
+  const productInReverse = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, { lines: completeLines }), "产品入库反审核样本");
+  await post(`/api/production/product-ins/${encodeURIComponent(productInReverse)}/audit`);
   await post(`/api/production/product-ins/${encodeURIComponent(productInReverse)}/reverse`);
-  await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, { billNo: productInRedSource, lines: completeLines });
-  await post(`/api/production/product-ins/${encodeURIComponent(productInRedSource)}/red-reverse`, { redBillNo: productInRed });
-  stateCoverage.push(
-    ["产品入库", "已审核", productInAudited],
-    ["产品入库", "草稿", productInReverse],
-    ["产品入库", "已红冲", productInRed]
-  );
+	  const productInRedSource = generatedBillNo(await post(`/api/production/tasks/${encodeURIComponent(taskComplete)}/complete`, { lines: completeLines }), "产品入库红冲来源");
+	  await post(`/api/production/product-ins/${encodeURIComponent(productInRedSource)}/audit`);
+	  const productInRed = generatedBillNo(await post(`/api/production/product-ins/${encodeURIComponent(productInRedSource)}/red-reverse`, {}), "产品入库红冲");
+	  await post(`/api/production/product-ins/${encodeURIComponent(productInRed)}/audit`);
+	  stateCoverage.push(
+	    ["产品入库", "已审核", productInAudited],
+	    ["产品入库", "草稿", productInReverse],
+	    ["产品入库", "已审核", productInRed]
+	  );
 
   return [
     { name: "销售订单", module: "销售管理", entry: "sales-order-form", list: "sales-order-form-list", type: "sales", billNo: salesOrderAudited, expectedStatus: "已审核" },
-    { name: "销售出库", module: "销售管理", entry: "sales-out-form", list: "sales-out-form-list", type: "sales-out", billNo: salesOutRed, expectedStatus: "已红冲" },
+	    { name: "销售出库", module: "销售管理", entry: "sales-out-form", list: "sales-out-form-list", type: "sales-out", billNo: salesOutRed, expectedStatus: "已审核" },
     { name: "采购订单", module: "采购管理", entry: "purchase-order-form", list: "purchase-order-form-list", type: "purchase", billNo: purchaseOrderAudited, expectedStatus: "已审核" },
     { name: "采购入库", module: "采购管理", entry: "purchase-in-form", list: "purchase-in-form-list", type: "purchase-in", billNo: purchaseInReverse, expectedStatus: "草稿" },
-    { name: "生产领料", module: "生产管理", entry: "material-issue-form", list: "material-issue-form-list", type: "material-issue", billNo: issueRed, expectedStatus: "已红冲" },
+	    { name: "生产领料", module: "生产管理", entry: "material-issue-form", list: "material-issue-form-list", type: "material-issue", billNo: issueRed, expectedStatus: "已审核" },
     { name: "产品入库", module: "生产管理", entry: "product-in-form", list: "product-in-form-list", type: "product-in", billNo: productInReverse, expectedStatus: "草稿" }
   ];
 }
 
-function salesOrderPayload(billNo) {
+function salesOrderPayload() {
   return {
-    billNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
@@ -203,9 +238,8 @@ function salesOrderPayload(billNo) {
   };
 }
 
-function purchaseOrderPayload(billNo) {
+function purchaseOrderPayload() {
   return {
-    billNo,
     supplierCode: "GYS-001",
     billDate,
     department: "采购部",
@@ -214,9 +248,8 @@ function purchaseOrderPayload(billNo) {
   };
 }
 
-function stockPayload(billNo, partyCode, sourceLines, department) {
+function stockPayload(partyCode, sourceLines, department) {
   return {
-    billNo,
     partyCode,
     customerCode: partyCode,
     billDate,
@@ -226,9 +259,8 @@ function stockPayload(billNo, partyCode, sourceLines, department) {
   };
 }
 
-function purchaseInPayload(billNo) {
+function purchaseInPayload() {
   return {
-    billNo,
     supplierCode: "GYS-001",
     billDate,
     department: "采购部",
@@ -260,20 +292,26 @@ async function assertDetail(page, item) {
   const taxTotals = [];
   for (let index = 0; index < rowCount; index += 1) {
     const suffix = index === 0 ? "" : `-${index + 1}`;
-    const text = await page.getByTestId(`${item.type}-line-amount${suffix}`).innerText();
-    amounts.push(Number(text.replace(/,/g, "")));
+    const amountCell = page.getByTestId(`${item.type}-line-amount${suffix}`);
+    if (await amountCell.count()) {
+      const text = await amountCell.innerText();
+      amounts.push(Number(text.replace(/,/g, "")));
+    }
     const taxTotalCell = page.getByTestId(`${item.type}-line-price-tax-total${suffix}`);
     if (await taxTotalCell.count()) {
       const taxTotalText = await taxTotalCell.innerText();
       taxTotals.push(Number(taxTotalText.replace(/,/g, "")));
     }
   }
-  const totalText = await page.getByTestId("document-total-amount").innerText();
-  const total = Number(totalText.replace(/,/g, ""));
+  let total = null;
   const sumSource = taxTotals.length === rowCount ? taxTotals : amounts;
-  const sum = Number(sumSource.reduce((value, amount) => value + amount, 0).toFixed(2));
-  if (Math.abs(total - sum) > 0.001) {
-    throw new Error(`${item.name} ${item.billNo} total expected ${sum}, got ${total}`);
+  if (sumSource.length === rowCount && await page.getByTestId("document-total-amount").count()) {
+    const totalText = await page.getByTestId("document-total-amount").innerText();
+    total = Number(totalText.replace(/,/g, ""));
+    const sum = Number(sumSource.reduce((value, amount) => value + amount, 0).toFixed(2));
+    if (Math.abs(total - sum) > 0.001) {
+      throw new Error(`${item.name} ${item.billNo} total expected ${sum}, got ${total}`);
+    }
   }
   const status = (await page.getByTestId("document-status").innerText()).trim();
   if (status !== item.expectedStatus) {

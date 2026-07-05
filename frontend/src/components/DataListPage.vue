@@ -90,7 +90,7 @@
       <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
         {{ isDetailView ? "整单视图" : "明细视图" }}
       </button>
-      <button type="button" data-testid="column-settings" @click="columnDialogOpen = true">列设置</button>
+      <button type="button" data-testid="column-settings" @click="openColumnSettings">列设置</button>
       <button type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
     </div>
 
@@ -187,7 +187,7 @@
               />
             </template>
             <div v-else class="vxe-cell">
-              <span v-if="column.key === 'status'" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
+              <span v-if="isStatusColumn(column.key)" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
               <button
                 v-else-if="isOpenableListRecord && column.key === 'billNo'"
                 class="list-cell-link"
@@ -914,6 +914,7 @@ const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
   "purchase-in-list": "purchaseIn",
   "purchase-in-form-list": "purchaseIn",
   "purchase-return-form-list": "purchaseReturn",
+  "production-task-form-list": "productionTask",
   "material-issue-form-list": "materialIssue",
   "product-in-form-list": "productIn",
   "other-in-form-list": "otherStockIn",
@@ -960,7 +961,7 @@ onMounted(() => {
 });
 
 function resetColumns() {
-  const defaults = (isDetailView.value ? detailColumnsForList() : definition.value.columns).map((column) => ({ ...column }));
+  const defaults = defaultColumnsForCurrentView();
   const saved = loadColumnPreferences();
   if (!saved.length || !isValidStoredColumnPreference(saved, defaults)) {
     columns.value = normalizeListColumns(defaults);
@@ -982,6 +983,15 @@ function resetColumns() {
     });
   });
   columns.value = normalizeListColumns(mergeSavedColumnsWithDefaults(restored, defaults));
+}
+
+function defaultColumnsForCurrentView() {
+  return (isDetailView.value ? detailColumnsForList() : definition.value.columns).map((column) => ({ ...column }));
+}
+
+function openColumnSettings() {
+  columns.value = normalizeListColumns(mergeSavedColumnsWithDefaults(columns.value, defaultColumnsForCurrentView()));
+  columnDialogOpen.value = true;
 }
 
 async function reload() {
@@ -1437,12 +1447,16 @@ function handleListAction(actionKey: string) {
 function statusClass(value: unknown) {
   const status = String(value ?? "");
   return {
-    draft: status === "草稿",
-    audited: ["已审核", "成功", "启用", "正常", "已核销"].includes(status),
-    reversed: ["已反审核", "部分核销"].includes(status),
-    warning: ["低库存", "未核销", "高于库存上限"].includes(status),
+    draft: ["草稿", "未审核", "未领料", "未关闭", "未冻结", "未作废"].includes(status),
+    audited: ["已审核", "成功", "启用", "正常", "已核销", "完全领料", "已完工"].includes(status),
+    reversed: ["已反审核", "部分核销", "已关闭"].includes(status),
+    warning: ["低库存", "未核销", "高于库存上限", "部分领料", "已冻结"].includes(status),
     danger: ["已作废", "已红冲", "失败", "禁用", "低于安全库存"].includes(status)
   };
+}
+
+function isStatusColumn(key: string) {
+  return ["status", "auditStatus", "closeStatusLabel", "frozenStatusLabel", "voidStatus"].includes(key);
 }
 
 function confirmAction(action: string) {
@@ -1676,6 +1690,7 @@ function canCreateListRecord(listKey: string) {
 
 function canOpenListRecord(listKey: string) {
   return [
+    "production-task-form-list",
     "outsourcing-work-order-list",
     "outsourcing-issue-list",
     "outsourcing-receipt-list",

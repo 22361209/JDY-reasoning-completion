@@ -9,6 +9,7 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
@@ -19,6 +20,7 @@ import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
 import com.jdy.erp.shared.application.ProductSnapshotService;
+import com.jdy.erp.shared.application.RedReverseGuardService;
 import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -65,6 +67,7 @@ public class PurchaseInAppService {
     private final NumberingService numberingService;
     private final TaxAmountCalculator taxAmountCalculator;
     private final ProductSnapshotService productSnapshotService;
+    private final RedReverseGuardService redReverseGuardService;
 
     public PurchaseInAppService(
         JdbcTemplate jdbcTemplate,
@@ -76,7 +79,8 @@ public class PurchaseInAppService {
         OperationLogService operationLogService,
         NumberingService numberingService,
         TaxAmountCalculator taxAmountCalculator,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        RedReverseGuardService redReverseGuardService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -88,6 +92,7 @@ public class PurchaseInAppService {
         this.numberingService = numberingService;
         this.taxAmountCalculator = taxAmountCalculator;
         this.productSnapshotService = productSnapshotService;
+        this.redReverseGuardService = redReverseGuardService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -101,26 +106,24 @@ public class PurchaseInAppService {
                    pi.department,
                    pi.status,
                    pi.total_amount AS "totalAmount",
-                   pi.is_tax_inclusive AS "isTaxInclusive",
                    pi.owner_name AS "ownerName",
-                   (
-                       SELECT red.bill_no
-                       FROM purchase_in red
-                       WHERE red.red_source_bill_id = pi.id
-                         AND red.status = ?
-                       LIMIT 1
-                   ) AS "redReverseBillNo",
-                   (
-                       SELECT original.bill_no
-                       FROM purchase_in original
-                       WHERE original.id = pi.red_source_bill_id
-                         AND pi.status = ?
-                       LIMIT 1
-                   ) AS "redSourceBillNo"
+	                   (
+	                       SELECT red.bill_no
+	                       FROM purchase_in red
+	                       WHERE red.red_source_bill_id = pi.id
+	                         AND red.status <> 'VOID'
+	                       LIMIT 1
+	                   ) AS "redReverseBillNo",
+	                   (
+	                       SELECT original.bill_no
+	                       FROM purchase_in original
+	                       WHERE original.id = pi.red_source_bill_id
+	                       LIMIT 1
+	                   ) AS "redSourceBillNo"
             FROM purchase_in pi
             JOIN md_supplier s ON s.id = pi.supplier_id
             WHERE pi.bill_no = ?
-            """, BillStatus.RED_REVERSED.name(), BillStatus.RED_REVERSED.name(), billNo);
+	            """, billNo);
         if (billRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "采购入库单不存在");
         }
@@ -138,6 +141,7 @@ public class PurchaseInAppService {
                    w.code AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
@@ -155,15 +159,16 @@ public class PurchaseInAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(PurchaseInDraftRequest request) {
+        request.lines().forEach(line -> requirePositiveQty(line.qty(), "采购入库数量必须大于 0"));
         var billNo = numberingService.assignBillNo("purchaseIn", request.billNo());
+        redReverseGuardService.assertNotRedDraftForBillNo(BILL_TABLE, billNo, "采购入库单");
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
-        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
+            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
                 supplier_id = EXCLUDED.supplier_id,
@@ -171,7 +176,6 @@ public class PurchaseInAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
-                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_in.version + 1
@@ -184,12 +188,11 @@ public class PurchaseInAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            isTaxInclusive,
             request.ownerName()
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM purchase_in_line WHERE bill_id = ?::uuid", billId);
-        insertLines("purchase_in_line", "bill_id", billId, request.sourceOrderNo(), request.lines(), isTaxInclusive);
+        insertLines("purchase_in_line", "bill_id", billId, request.sourceOrderNo(), request.lines());
         return bill;
     }
 
@@ -200,13 +203,16 @@ public class PurchaseInAppService {
             billNo,
             BillStatus.DRAFT,
             BillStatus.AUDITED,
-            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
+	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
             "PURCHASE",
             "AUDIT",
             "purchase_in",
             "采购入库单不存在或已审核"
-        );
-        var lines = postingLines(billNo);
+	        );
+	        if (isRedBill(row)) {
+	            return auditRedBill(row, billNo);
+	        }
+	        var lines = postingLines(billNo);
         lifecycleService.guardSourceLineQuantities(PURCHASE_ORDER_IN_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
@@ -236,18 +242,22 @@ public class PurchaseInAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
+        redReverseGuardService.assertNoNonVoidRedBillForBillNo(BILL_TABLE, billNo, "采购入库单", "反审核");
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
             BillStatus.AUDITED,
             BillStatus.DRAFT,
-            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
+	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
             "PURCHASE",
             "REVERSE",
             "purchase_in",
             "采购入库单不存在或不能反审核"
-        );
-        var lines = postingLines(billNo);
+	        );
+	        if (isRedBill(row)) {
+	            return reverseRedBill(row, billNo);
+	        }
+	        var lines = postingLines(billNo);
         for (var line : lines) {
             postingPipeline.post(new PostingContext(
                 InventoryPostingHook.CHANNEL,
@@ -275,18 +285,8 @@ public class PurchaseInAppService {
     }
 
     @Transactional
-    public Map<String, Object> voidBill(String billNo) {
-        return lifecycleService.transition(
-            BILL_TABLE,
-            billNo,
-            BillStatus.DRAFT,
-            BillStatus.VOID,
-            "id::text AS id, bill_no AS \"billNo\", status",
-            "PURCHASE",
-            "VOID",
-            "purchase_in",
-            "只有草稿采购入库单可以作废"
-        );
+    public Map<String, Object> voidBill(String billNo, VoidRequest request) {
+        return lifecycleService.voidBill(LIFECYCLE_TARGET, billNo, request);
     }
 
     public Map<String, Object> delete(String billNo) {
@@ -301,7 +301,6 @@ public class PurchaseInAppService {
                    supplier_id::text AS "supplierId",
                    department,
                    total_amount,
-                   is_tax_inclusive,
                    owner_name AS "ownerName"
             FROM purchase_in
             WHERE bill_no = ? AND status = ?
@@ -309,14 +308,12 @@ public class PurchaseInAppService {
         if (sourceRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核采购入库单可以红冲");
         }
-        var redBillNo = validationService.required(request.redBillNo(), "红冲单号");
-        if (!jdbcTemplate.queryForList("SELECT 1 FROM purchase_in WHERE bill_no = ?", redBillNo).isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "红冲单号已存在");
-        }
+        redReverseGuardService.assertNoNonVoidRedBill(BILL_TABLE, sourceRows.get(0).get("id"), "采购入库单");
+        var redBillNo = numberingService.nextBillNo("purchaseIn");
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
+            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
             RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
             """,
             redBillNo,
@@ -325,11 +322,10 @@ public class PurchaseInAppService {
             source.get("supplierId"),
             LocalDate.parse(validationService.required(request.billDate(), "红冲日期")),
             source.get("department"),
-            BillStatus.RED_REVERSED.name(),
-            ((BigDecimal) source.get("total_amount")).negate(),
-            source.get("is_tax_inclusive"),
-            request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
-        );
+	            BillStatus.DRAFT.name(),
+	            ((BigDecimal) source.get("total_amount")).negate(),
+	            request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
+	        );
         var lines = jdbcTemplate.queryForList("""
             SELECT l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
@@ -345,6 +341,7 @@ public class PurchaseInAppService {
                    l.warehouse_id::text AS "warehouseId",
                    l.qty,
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
@@ -378,49 +375,75 @@ public class PurchaseInAppService {
                 line.get("taxRate"),
                 ((BigDecimal) line.get("taxAmount")).negate(),
                 ((BigDecimal) line.get("priceTaxTotal")).negate(),
-                line.get("lineRemark")
-            );
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
-                String.valueOf(line.get("productCode")),
-                String.valueOf(line.get("warehouseCode")),
-                qty.negate(),
-                "PURCHASE_IN_RED",
-                "PURCHASE_IN_RED:" + redBillNo
-            ));
-            var sourceOrderId = sourceOrderIdFromLine(line);
-            if (sourceOrderId != null) {
-                conversionService.decreaseExecutedQuantity(
-                    PURCHASE_ORDER_IN_SPEC,
-                    sourceOrderId,
-                    line.get("sourceLineNo"),
-                    qty
-                );
-            }
-        }
-        refreshPurchaseSourceStatuses(lines);
-        postingPipeline.post(new PostingContext(
-            FinancePosting.CHANNEL,
-            null,
-            null,
-            null,
-            "PURCHASE_IN_RED",
-            "PURCHASE_IN_RED:" + redBillNo,
-            redBillNo,
-            String.valueOf(source.get("supplierId")),
-            LocalDate.parse(validationService.required(request.billDate(), "红冲日期")),
-            (BigDecimal) redBill.get("totalAmount")
-        ));
-        operationLogService.log("PURCHASE", "RED_REVERSE", "purchase_in", String.valueOf(redBill.get("id")), true, null);
-        return redBill;
-    }
+	                line.get("lineRemark")
+	            );
+	        }
+	        operationLogService.log("PURCHASE", "CREATE_RED_DRAFT", "purchase_in", String.valueOf(redBill.get("id")), true, null);
+	        return redBill;
+	    }
 
-    private void insertLines(String table, String billIdColumn, Object billId, String defaultSourceOrderNo, List<PurchaseInLineRequest> lines, boolean isTaxInclusive) {
+	    private Map<String, Object> auditRedBill(Map<String, Object> row, String billNo) {
+	        validateRedSourceStillAudited(row.get("redSourceBillId"));
+	        validateRedLinesMatchSource(billNo, row.get("redSourceBillId"));
+	        var lines = postingLines(billNo);
+	        for (var line : lines) {
+	            var qty = positiveRedQty(line, "采购入库红字单分录数量必须为负数");
+	            postingPipeline.post(new PostingContext(
+	                InventoryPostingHook.CHANNEL,
+	                String.valueOf(line.get("productCode")),
+	                String.valueOf(line.get("warehouseCode")),
+	                qty.negate(),
+	                "PURCHASE_IN_RED",
+	                "PURCHASE_IN_RED:" + billNo
+	            ));
+	            var sourceOrderId = sourceOrderIdFromLine(line);
+	            if (sourceOrderId != null) {
+	                conversionService.decreaseExecutedQuantity(
+	                    PURCHASE_ORDER_IN_SPEC,
+	                    sourceOrderId,
+	                    line.get("sourceLineNo"),
+	                    qty
+	                );
+	            }
+	        }
+	        refreshPurchaseSourceStatuses(lines);
+	        postingPipeline.post(financeContext(row, "PURCHASE_IN_RED"));
+	        return row;
+	    }
+
+	    private Map<String, Object> reverseRedBill(Map<String, Object> row, String billNo) {
+	        var lines = postingLines(billNo);
+	        for (var line : lines) {
+	            var qty = positiveRedQty(line, "采购入库红字单分录数量必须为负数");
+	            postingPipeline.post(new PostingContext(
+	                InventoryPostingHook.CHANNEL,
+	                String.valueOf(line.get("productCode")),
+	                String.valueOf(line.get("warehouseCode")),
+	                qty,
+	                "PURCHASE_IN_RED_REVERSE",
+	                "PURCHASE_IN_RED_REVERSE:" + billNo
+	            ));
+	            var sourceOrderId = sourceOrderIdFromLine(line);
+	            if (sourceOrderId != null) {
+	                conversionService.increaseExecutedQuantity(
+	                    PURCHASE_ORDER_IN_SPEC,
+	                    sourceOrderId,
+	                    line.get("sourceLineNo"),
+	                    qty
+	                );
+	            }
+	        }
+	        refreshPurchaseSourceStatuses(lines);
+	        postingPipeline.post(financeContext(row, "PURCHASE_IN_RED_REVERSE"));
+	        return row;
+	    }
+
+    private void insertLines(String table, String billIdColumn, Object billId, String defaultSourceOrderNo, List<PurchaseInLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
             var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());
             Integer sourceLineNo = line.sourceLineNo();
             if (sourceLineNo == null && sourceOrderNo != null) {
@@ -475,17 +498,104 @@ public class PurchaseInAppService {
         );
     }
 
-    private LocalDate toLocalDate(Object value) {
-        if (value instanceof LocalDate localDate) {
-            return localDate;
+	    private LocalDate toLocalDate(Object value) {
+	        if (value instanceof LocalDate localDate) {
+	            return localDate;
         }
         if (value instanceof java.sql.Date sqlDate) {
             return sqlDate.toLocalDate();
         }
-        return LocalDate.parse(String.valueOf(value));
-    }
+	        return LocalDate.parse(String.valueOf(value));
+	    }
 
-    private String sourceOrderIdFromLine(Map<String, Object> line) {
+	    private boolean isRedBill(Map<String, Object> row) {
+	        var redSourceBillId = row.get("redSourceBillId");
+	        return redSourceBillId != null && !String.valueOf(redSourceBillId).isBlank();
+	    }
+
+	    private BigDecimal positiveRedQty(Map<String, Object> line, String message) {
+	        var qty = (BigDecimal) line.get("qty");
+	        if (qty == null || qty.compareTo(BigDecimal.ZERO) >= 0) {
+	            throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+	        }
+	        return qty.abs();
+	    }
+
+        private void requirePositiveQty(BigDecimal qty, String message) {
+            if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+            }
+        }
+
+	    private void validateRedSourceStillAudited(Object redSourceBillId) {
+	        var count = jdbcTemplate.queryForObject("""
+	            SELECT COUNT(*)
+	            FROM purchase_in
+	            WHERE id = ?::uuid
+	              AND status = 'AUDITED'
+	            """, Integer.class, redSourceBillId);
+	        if (count == null || count == 0) {
+	            throw new ResponseStatusException(HttpStatus.CONFLICT, "来源采购入库单未审核，不能审核红字单");
+	        }
+	    }
+
+	    private void validateRedLinesMatchSource(String billNo, Object redSourceBillId) {
+	        var counts = jdbcTemplate.queryForMap("""
+	            SELECT
+	                (SELECT COUNT(*) FROM purchase_in_line WHERE bill_id = ?::uuid) AS "sourceCount",
+	                (
+	                    SELECT COUNT(*)
+	                    FROM purchase_in_line red_line
+	                    JOIN purchase_in red ON red.id = red_line.bill_id
+	                    WHERE red.bill_no = ?
+	                ) AS "redCount"
+	            """, redSourceBillId, billNo);
+	        var sourceCount = Number.class.cast(counts.get("sourceCount")).longValue();
+	        var redCount = Number.class.cast(counts.get("redCount")).longValue();
+	        if (sourceCount != redCount) {
+	            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库红字单分录必须与来源单一致");
+	        }
+	        var invalidHeader = jdbcTemplate.queryForList("""
+	            SELECT 1
+	            FROM purchase_in red
+	            JOIN purchase_in source ON source.id = red.red_source_bill_id
+	            WHERE red.bill_no = ?
+	              AND (
+	                  red.supplier_id <> source.supplier_id
+	                  OR red.total_amount <> -source.total_amount
+	              )
+	            """, billNo);
+	        if (!invalidHeader.isEmpty()) {
+	            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库红字单表头必须与来源单反向金额一致");
+	        }
+	        var invalidLines = jdbcTemplate.queryForList("""
+	            SELECT red_line.line_no
+	            FROM purchase_in red
+	            JOIN purchase_in_line red_line ON red_line.bill_id = red.id
+	            LEFT JOIN purchase_in_line source_line
+	              ON source_line.bill_id = red.red_source_bill_id
+	             AND source_line.line_no = red_line.line_no
+	            WHERE red.bill_no = ?
+	              AND (
+	                  source_line.line_no IS NULL
+	                  OR red_line.product_id <> source_line.product_id
+	                  OR red_line.warehouse_id <> source_line.warehouse_id
+	                  OR COALESCE(red_line.source_order_no, '') <> COALESCE(source_line.source_order_no, '')
+	                  OR COALESCE(red_line.source_line_no, -1) <> COALESCE(source_line.source_line_no, -1)
+	                  OR red_line.qty <> -source_line.qty
+	                  OR red_line.unit_price <> source_line.unit_price
+	                  OR red_line.amount <> -source_line.amount
+	                  OR COALESCE(red_line.tax_rate, 0) <> COALESCE(source_line.tax_rate, 0)
+	                  OR red_line.tax_amount <> -source_line.tax_amount
+	                  OR red_line.price_tax_total <> -source_line.price_tax_total
+	              )
+	            """, billNo);
+	        if (!invalidLines.isEmpty()) {
+	            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库红字单分录必须保持来源行反向数量和金额");
+	        }
+	    }
+
+	    private String sourceOrderIdFromLine(Map<String, Object> line) {
         var sourceOrderNo = line.get("sourceOrderNo");
         if (sourceOrderNo == null || String.valueOf(sourceOrderNo).isBlank() || line.get("sourceLineNo") == null) {
             return null;
@@ -512,7 +622,7 @@ public class PurchaseInAppService {
             .toList();
     }
 
-    public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, Boolean isTaxInclusive, List<PurchaseInLineRequest> lines) {
+    public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, List<PurchaseInLineRequest> lines) {
         public PurchaseInDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");

@@ -61,7 +61,10 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
+                   so.status AS "statusCode",
                    CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                   CASE WHEN so.status = 'DRAFT' THEN '未审核' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS "auditStatus",
+                   CASE WHEN so.status = 'VOID' THEN '已作废' ELSE '未作废' END AS "voidStatus",
                    CASE
                        WHEN so.out_status = 'ALL_OUT' THEN '全部出库'
                        WHEN so.out_status = 'PART_OUT' THEN '部分出库'
@@ -77,7 +80,7 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
                        ELSE COALESCE(so.close_status, '')
                    END AS "closeStatusLabel",
                    so.frozen_status AS "frozenStatus",
-                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END AS "frozenStatusLabel",
+                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '未冻结' END AS "frozenStatusLabel",
                    %s AS qty,
                    %s AS "shippedQty",
                    %s AS "remainingQty",
@@ -121,7 +124,10 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                    c.name AS partner,
+                   so.status AS "statusCode",
                    CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
+                   CASE WHEN so.status = 'DRAFT' THEN '未审核' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS "auditStatus",
+                   CASE WHEN so.status = 'VOID' THEN '已作废' ELSE '未作废' END AS "voidStatus",
                    so.close_status AS "closeStatus",
                    so.close_mode AS "closeMode",
                    CASE
@@ -132,7 +138,7 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
                        ELSE COALESCE(so.close_status, '')
                    END AS "closeStatusLabel",
                    so.frozen_status AS "frozenStatus",
-                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END AS "frozenStatusLabel",
+                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '未冻结' END AS "frozenStatusLabel",
                    l.line_no AS "lineNo",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
                    COALESCE(l.product_name_snapshot, p.name) AS "productName",
@@ -291,13 +297,16 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
         expressions.put("customer", "c.name");
         expressions.put("billDate", "to_char(so.bill_date, 'YYYY-MM-DD')");
         expressions.put("planDeliveryDate", "COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '')");
+        expressions.put("statusCode", "so.status");
         expressions.put("status", "CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END");
+        expressions.put("auditStatus", "CASE WHEN so.status = 'DRAFT' THEN '未审核' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END");
+        expressions.put("voidStatus", "CASE WHEN so.status = 'VOID' THEN '已作废' ELSE '未作废' END");
         expressions.put("outStatus", "CASE WHEN so.out_status = 'ALL_OUT' THEN '全部出库' WHEN so.out_status = 'PART_OUT' THEN '部分出库' ELSE '未出库' END");
         expressions.put("closeStatus", "COALESCE(so.close_status, '')");
         expressions.put("closeMode", "COALESCE(so.close_mode, '')");
         expressions.put("closeStatusLabel", "CASE WHEN so.close_status = 'OPEN' THEN '未关闭' WHEN so.close_status = 'CLOSED' AND so.close_mode = 'AUTO' THEN '自动关闭' WHEN so.close_status = 'CLOSED' AND so.close_mode = 'MANUAL' THEN '手动关闭' WHEN so.close_status = 'CLOSED' THEN '历史已关闭' ELSE COALESCE(so.close_status, '') END");
         expressions.put("frozenStatus", "COALESCE(so.frozen_status, '')");
-        expressions.put("frozenStatusLabel", "CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END");
+        expressions.put("frozenStatusLabel", "CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '未冻结' END");
         expressions.put("qty", HEADER_QTY_TEXT);
         expressions.put("shippedQty", HEADER_SHIPPED_QTY_TEXT);
         expressions.put("remainingQty", HEADER_REMAINING_QTY_TEXT);
@@ -374,7 +383,7 @@ public class SalesOrderListQueryAdapter implements ListQueryAdapter {
     private static final String DETAIL_SHIPPED_QTY_TEXT = "trim(to_char(COALESCE(l.shipped_qty, 0), 'FM9999999990.####'))";
     private static final String DETAIL_REMAINING_QTY_TEXT = "trim(to_char(GREATEST(0, l.qty - COALESCE(l.shipped_qty, 0)), 'FM9999999990.####'))";
     private static final String DETAIL_UNIT_PRICE_TEXT = "trim(to_char(l.unit_price, 'FM9999999990.00'))";
-    private static final String DETAIL_TAX_INCLUSIVE_UNIT_PRICE_TEXT = "trim(to_char(CASE WHEN so.is_tax_inclusive THEN l.unit_price ELSE round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) END, 'FM9999999990.00'))";
+    private static final String DETAIL_TAX_INCLUSIVE_UNIT_PRICE_TEXT = "trim(to_char(round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2), 'FM9999999990.00'))";
     private static final String DETAIL_AMOUNT_TEXT = "trim(to_char(l.amount, 'FM9999999990.00'))";
     private static final String DETAIL_PRICE_TAX_TOTAL_TEXT = "trim(to_char(l.price_tax_total, 'FM9999999990.00'))";
 }

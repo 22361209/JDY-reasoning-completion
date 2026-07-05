@@ -8,6 +8,7 @@ const screenshotDir = path.join(verificationDir, "playwright");
 const resultPath = path.join(verificationDir, "a64-production-red-source-ui-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const bomIssueMethod = `A64-${batch}`;
 
 await mkdir(screenshotDir, { recursive: true });
 
@@ -15,6 +16,14 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 async function browserFetch(page, pathname, options = {}) {
@@ -32,6 +41,18 @@ async function requireJson(page, pathname, options = {}) {
   const response = await browserFetch(page, pathname, options);
   assert(response.ok, `${options.method ?? "GET"} ${pathname} failed ${response.status}: ${response.text}`);
   return response.text ? JSON.parse(response.text) : {};
+}
+
+async function auditBomAllowNewVersion(page, code) {
+  const preview = await requireJson(page, `/api/production/boms/${encodeURIComponent(code)}/audit-preview`);
+  const body = preview.requiresConfirmation
+    ? {
+        confirmNewVersion: true,
+        latestBomCode: preview.latestBomCode,
+        latestVersionNo: preview.latestVersionNo
+      }
+    : undefined;
+  return requireJson(page, `/api/production/boms/${encodeURIComponent(code)}/audit`, { method: "POST", body });
 }
 
 async function loginAsAdmin(page) {
@@ -62,12 +83,6 @@ async function seedStock(page) {
 async function createProductionPairs(page) {
   await seedStock(page);
   const bomCode = `BOM-A64-${batch}`;
-  const issueTaskNo = `SCRW-A64-I-${batch}`;
-  const completeTaskNo = `SCRW-A64-C-${batch}`;
-  const issueNo = `SCLL-A64-${batch}`;
-  const redIssueNo = `RED-A64-SCLL-${batch}`;
-  const productInNo = `CPRK-A64-${batch}`;
-  const redProductInNo = `RED-A64-CPRK-${batch}`;
 
   await requireJson(page, "/api/production/boms", {
     method: "POST",
@@ -76,43 +91,51 @@ async function createProductionPairs(page) {
       productCode: "CP-001",
       qty: 1,
       lines: [
-        { materialCode: "CP-001", qty: 1 },
-        { materialCode: "PJ-014", qty: 2 },
-        { materialCode: "CP-T413874", qty: 3 }
+        { materialCode: "CP-001", qty: 1, issueWarehouseCode: "CK-002" },
+        { materialCode: "PJ-014", qty: 2, issueWarehouseCode: "CK-001" },
+        { materialCode: "CP-T413874", qty: 3, issueMethod: bomIssueMethod }
       ]
     }
   });
-  await requireJson(page, `/api/production/boms/${encodeURIComponent(bomCode)}/audit`, { method: "POST" });
-  await requireJson(page, "/api/production/tasks", {
+  await auditBomAllowNewVersion(page, bomCode);
+  const issueTaskNo = generatedBillNo(await requireJson(page, "/api/production/tasks", {
     method: "POST",
-    body: { billNo: issueTaskNo, bomCode, warehouseCode: "CK-001", qty: 3 }
-  });
-  await requireJson(page, "/api/production/tasks", {
+    body: { bomCode, warehouseCode: "CK-001", qty: 3 }
+  }), "生产任务领料红冲 UI 样本");
+  const completeTaskNo = generatedBillNo(await requireJson(page, "/api/production/tasks", {
     method: "POST",
-    body: { billNo: completeTaskNo, bomCode, warehouseCode: "CK-001", qty: 10 }
-  });
-  await requireJson(page, `/api/production/tasks/${encodeURIComponent(issueTaskNo)}/issue`, {
+    body: { bomCode, warehouseCode: "CK-001", qty: 10 }
+  }), "生产任务完工红冲 UI 样本");
+  await requireJson(page, `/api/production/tasks/${encodeURIComponent(issueTaskNo)}/audit`, { method: "POST" });
+  await requireJson(page, `/api/production/tasks/${encodeURIComponent(completeTaskNo)}/audit`, { method: "POST" });
+  const issueNo = generatedBillNo(await requireJson(page, `/api/production/tasks/${encodeURIComponent(issueTaskNo)}/issue`, {
     method: "POST",
-    body: { billNo: issueNo, materialWarehouseCode: "CK-002" }
-  });
-  await requireJson(page, `/api/production/material-issues/${encodeURIComponent(issueNo)}/red-reverse`, {
+    body: { materialWarehouseCode: "CK-002" }
+  }), "生产领料红冲 UI 来源");
+  await requireJson(page, `/api/production/material-issues/${encodeURIComponent(issueNo)}/audit`, { method: "POST" });
+  const redIssue = await requireJson(page, `/api/production/material-issues/${encodeURIComponent(issueNo)}/red-reverse`, {
     method: "POST",
-    body: { redBillNo: redIssueNo }
+    body: {}
   });
-  await requireJson(page, `/api/production/tasks/${encodeURIComponent(completeTaskNo)}/complete`, {
+  const completeIssueNo = generatedBillNo(await requireJson(page, `/api/production/tasks/${encodeURIComponent(completeTaskNo)}/issue`, {
+    method: "POST",
+    body: { materialWarehouseCode: "CK-002" }
+  }), "完工任务领料红冲 UI 样本");
+  await requireJson(page, `/api/production/material-issues/${encodeURIComponent(completeIssueNo)}/audit`, { method: "POST" });
+  const productInNo = generatedBillNo(await requireJson(page, `/api/production/tasks/${encodeURIComponent(completeTaskNo)}/complete`, {
     method: "POST",
     body: {
-      billNo: productInNo,
       lines: [
         { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
         { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
         { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 20 }
       ]
     }
-  });
-  await requireJson(page, `/api/production/product-ins/${encodeURIComponent(productInNo)}/red-reverse`, {
+  }), "产品入库红冲 UI 来源");
+  await requireJson(page, `/api/production/product-ins/${encodeURIComponent(productInNo)}/audit`, { method: "POST" });
+  const redProductIn = await requireJson(page, `/api/production/product-ins/${encodeURIComponent(productInNo)}/red-reverse`, {
     method: "POST",
-    body: { redBillNo: redProductInNo }
+    body: {}
   });
 
   return [
@@ -121,7 +144,7 @@ async function createProductionPairs(page) {
       listQueryTestId: "query-material-issue-form",
       listPageTestId: "list-page-material-issue-form-list",
       billInputTestId: "material-issue-bill-no",
-      redBillNo: redIssueNo,
+      redBillNo: redIssue.billNo,
       sourceBillNo: issueNo
     },
     {
@@ -129,7 +152,7 @@ async function createProductionPairs(page) {
       listQueryTestId: "query-product-in-form",
       listPageTestId: "list-page-product-in-form-list",
       billInputTestId: "product-in-bill-no",
-      redBillNo: redProductInNo,
+      redBillNo: redProductIn.billNo,
       sourceBillNo: productInNo
     }
   ];

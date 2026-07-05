@@ -18,7 +18,7 @@ export function useProductInDocument(options: Parameters<typeof useDocumentModul
     reversible: true,
     initialForm: initialProductInForm,
     riskySummaryTitle: "产品入库单",
-    redReverseImpact: "红冲将生成负数产品入库单，原单标记已红冲，并回写产品入库库存流水。",
+	    redReverseImpact: "红冲将生成负数产品入库草稿，在原单关联红字单；审核红字单后才回写产品入库库存流水。",
     reverseImpact: "反审核将冲销产品入库库存流水，并保留生产任务执行链路。"
   }, options);
 }

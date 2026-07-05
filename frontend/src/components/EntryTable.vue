@@ -320,7 +320,7 @@
             <template v-else-if="column.key === 'qty'">{{ totalQty }}</template>
             <template v-else-if="column.key === 'amount'">{{ totalNetAmount }}</template>
             <template v-else-if="column.key === 'taxAmount'">{{ totalTaxAmount }}</template>
-            <template v-else-if="column.key === 'priceTaxTotal'">{{ totalAmount }}</template>
+            <template v-else-if="column.key === 'priceTaxTotal'">{{ totalPriceTaxAmount }}</template>
           </td>
         </tr>
     </template>
@@ -489,11 +489,14 @@ import {
 import type { EditableLineCell, EntryColumn, EntryColumnKey, EntryLine, MasterOption } from "./entry-table/types";
 import {
   entryLineAmount,
+  entryLineAmountValue,
   entryLineExecutedQty,
   entryLineNo,
   entryLinePriceTaxTotal,
+  entryLinePriceTaxTotalValue,
   entryLineRemainingQty,
   entryLineTaxAmount,
+  entryLineTaxAmountValue,
   entryLineTaxInclusiveUnitPrice,
   entryProductInfo,
   entrySourceLineNo,
@@ -506,10 +509,11 @@ import { createEntryTableTestIds } from "./entry-table/useEntryTableTestIds";
 
 export type { EntryLine, MasterOption } from "./entry-table/types";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   lines: EntryLine[];
   testPrefix: string;
   isDraft: boolean;
+  dirty?: boolean;
   batchWarehouseCode: string;
   batchPlanDeliveryDate?: string;
   activeSelector: string;
@@ -543,10 +547,11 @@ const props = defineProps<{
   entryTableColspan: number;
   entryTotalColspan: number;
   totalAmount: string;
-  isTaxInclusive?: boolean;
   showTaxColumns?: boolean;
   showLineCloseStatus?: boolean;
-}>();
+}>(), {
+  showPriceAmountColumns: true
+});
 
 const emit = defineEmits<{
   "update:batchWarehouseCode": [value: string];
@@ -675,8 +680,10 @@ const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.
 })));
 const firstVisibleColumnKey = computed(() => visibleColumns.value.find((column) => !isFrozenEntryColumn(column.key))?.key ?? "productCode");
 const totalQty = computed(() => formatQty(props.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0)));
-const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).amount, 0).toFixed(2));
-const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + taxForLine(line).taxAmount, 0).toFixed(2));
+const previewPriceAmounts = computed(() => Boolean(props.dirty));
+const totalNetAmount = computed(() => props.lines.reduce((sum, line) => sum + entryLineAmountValue(line, previewPriceAmounts.value), 0).toFixed(2));
+const totalTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + entryLineTaxAmountValue(line, previewPriceAmounts.value), 0).toFixed(2));
+const totalPriceTaxAmount = computed(() => props.lines.reduce((sum, line) => sum + entryLinePriceTaxTotalValue(line, previewPriceAmounts.value), 0).toFixed(2));
 const totalAmountColumnKey = computed<EntryColumnKey>(() => props.showTaxColumns ? "priceTaxTotal" : "amount");
 const partyCodeForLine = computed(() => props.partyCode ?? "");
 const draggingColumnTitle = columnReorder.draggingTitle;
@@ -1194,23 +1201,23 @@ function formatDateValue(date: Date) {
 }
 
 function lineAmount(line: EntryLine) {
-  return entryLineAmount(line, Boolean(props.isTaxInclusive));
+  return entryLineAmount(line, previewPriceAmounts.value);
 }
 
 function lineTaxAmount(line: EntryLine) {
-  return entryLineTaxAmount(line, Boolean(props.isTaxInclusive));
+  return entryLineTaxAmount(line, previewPriceAmounts.value);
 }
 
 function linePriceTaxTotal(line: EntryLine) {
-  return entryLinePriceTaxTotal(line, Boolean(props.isTaxInclusive));
+  return entryLinePriceTaxTotal(line, previewPriceAmounts.value);
 }
 
 function lineTaxInclusiveUnitPrice(line: EntryLine) {
-  return entryLineTaxInclusiveUnitPrice(line, Boolean(props.isTaxInclusive));
+  return entryLineTaxInclusiveUnitPrice(line, previewPriceAmounts.value);
 }
 
 function taxForLine(line: EntryLine) {
-  return taxForEntryLine(line, Boolean(props.isTaxInclusive));
+  return taxForEntryLine(line);
 }
 
 function lineExecutedQty(line: EntryLine) {

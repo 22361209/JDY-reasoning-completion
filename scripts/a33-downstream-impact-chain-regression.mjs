@@ -170,7 +170,7 @@ assertEqual("purchase line 3 downstream count", purchaseLine3Docs.length, 1);
 assertIncludes("sales reverse impact", salesLine3Docs[0].reverseImpact, "反审核发货通知将释放预留库存");
 assertIncludes("sales red reverse impact", salesLine3Docs[0].redReverseImpact, "发货通知单不支持红冲");
 assertIncludes("purchase reverse impact", purchaseLine3Docs[0].reverseImpact, "反审核将冲销采购入库库存流水");
-assertIncludes("purchase red reverse impact", purchaseLine3Docs[0].redReverseImpact, "红冲将生成负数采购入库单");
+assertIncludes("purchase red reverse impact", purchaseLine3Docs[0].redReverseImpact, "红冲将生成负数采购入库草稿");
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
@@ -201,7 +201,7 @@ try {
   const purchaseDialogText = await page.getByTestId("downstream-trace-dialog").innerText();
   assertIncludes("purchase dialog note", purchaseDialogText, "影响提示");
   assertIncludes("purchase dialog reverse", purchaseDialogText, "反审核将冲销采购入库库存流水");
-  assertIncludes("purchase dialog red reverse", purchaseDialogText, "红冲将生成负数采购入库单");
+  assertIncludes("purchase dialog red reverse", purchaseDialogText, "红冲将生成负数采购入库草稿");
   const purchaseScreenshot = `a33-purchase-downstream-impact-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, purchaseScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${purchaseScreenshot}`);

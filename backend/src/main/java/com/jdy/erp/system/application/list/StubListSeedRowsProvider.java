@@ -60,7 +60,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 return detailRows;
             }
         }
-        return switch (listKey) {
+        return withLifecycleColumns(switch (listKey) {
             case "product-master-list" -> realProductRows();
             case "product-category-list" -> realProductCategoryRows();
             case "unit-master-list" -> realUnitRows();
@@ -98,7 +98,77 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "role-list", "user-role-list" -> roleRows();
             case "operation-log-list" -> operationLogRows();
             default -> salesRows();
-        };
+        });
+    }
+
+    private List<Map<String, ?>> withLifecycleColumns(List<Map<String, ?>> rows) {
+        return rows.stream()
+            .<Map<String, ?>>map(row -> {
+                var copy = new java.util.LinkedHashMap<String, Object>(row);
+                copy.putIfAbsent("auditStatus", auditStatusLabel(copy.get("statusCode"), copy.get("status")));
+                copy.putIfAbsent("closeStatusLabel", closeStatusLabel(copy.get("closeStatus")));
+                copy.putIfAbsent("frozenStatusLabel", frozenStatusLabel(copy.get("frozenStatus")));
+                copy.putIfAbsent("voidStatus", voidStatusLabel(copy.get("statusCode"), copy.get("status")));
+                return copy;
+            })
+            .toList();
+    }
+
+    private String auditStatusLabel(Object statusCodeValue, Object statusValue) {
+        var statusCode = stringValue(statusCodeValue);
+        var status = stringValue(statusValue);
+        if ("VOID".equals(statusCode) || "已作废".equals(status)) {
+            return "已作废";
+        }
+        if ("DRAFT".equals(statusCode) || "草稿".equals(status)) {
+            return "未审核";
+        }
+        if ("REVERSED".equals(statusCode) || "已反审核".equals(status)) {
+            return "已反审核";
+        }
+        if ("RED_REVERSED".equals(statusCode) || "已红冲".equals(status)) {
+            return "已红冲";
+        }
+        if ("AUDITED".equals(statusCode)) {
+            return "已审核";
+        }
+        if ("已审核".equals(status) || "未领料".equals(status) || "部分领料".equals(status) || "完全领料".equals(status) || "已完工".equals(status) || "已关闭".equals(status) || "已冻结".equals(status)) {
+            return "已审核";
+        }
+        return status.isBlank() ? "" : status;
+    }
+
+    private String closeStatusLabel(Object value) {
+        var status = stringValue(value);
+        if ("CLOSED".equals(status) || "已关闭".equals(status)) {
+            return "已关闭";
+        }
+        if ("PART_CLOSED".equals(status)) {
+            return "部分关闭";
+        }
+        if ("OPEN".equals(status) || status.isBlank()) {
+            return "未关闭";
+        }
+        return status;
+    }
+
+    private String frozenStatusLabel(Object value) {
+        var status = stringValue(value);
+        if ("FROZEN".equals(status) || "已冻结".equals(status)) {
+            return "已冻结";
+        }
+        if ("NORMAL".equals(status) || status.isBlank()) {
+            return "未冻结";
+        }
+        return status;
+    }
+
+    private String voidStatusLabel(Object statusCodeValue, Object statusValue) {
+        return "VOID".equals(stringValue(statusCodeValue)) || "已作废".equals(stringValue(statusValue)) ? "已作废" : "未作废";
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : value.toString();
     }
 
     private List<Map<String, ?>> documentDetailRows(String listKey) {
@@ -203,13 +273,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                        trim(to_char(GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0)), 'FM9999999990.####')) AS "receivedQty",
                        trim(to_char(GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))), 'FM9999999990.####')) AS "remainingQty",
                        trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
-                       trim(to_char(
-                           CASE
-                               WHEN po.is_tax_inclusive THEN l.unit_price
-                               ELSE round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2)
-                           END,
-                           'FM9999999990.00'
-                       )) AS "taxInclusiveUnitPrice",
+                       trim(to_char(round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2), 'FM9999999990.00')) AS "taxInclusiveUnitPrice",
                        trim(to_char(COALESCE(l.tax_rate, 13), 'FM9999999990.####')) AS "taxRate",
                        trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
                        trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
@@ -595,7 +659,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(drawing_file_name, '') AS "drawingFileName",
                    COALESCE(image_file_names, '') AS "imageFileNames",
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_product
             ORDER BY code
@@ -611,7 +675,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    sort_no AS "sortNo",
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_product_category
             ORDER BY sort_no, code
@@ -627,7 +691,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    sort_no AS "sortNo",
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_unit
             ORDER BY sort_no, code
@@ -652,7 +716,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(owner_name, '') AS "ownerName",
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_customer
             ORDER BY code
             """));
@@ -675,7 +739,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(owner_name, '') AS "ownerName",
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_supplier
             ORDER BY code
             """));
@@ -694,7 +758,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    CASE WHEN allow_negative_stock THEN '允许负库存' ELSE '不允许负库存' END AS stockPolicy,
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_warehouse
             ORDER BY code
             """));
@@ -709,7 +773,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(manager, '') AS manager,
                    COALESCE(remark, '') AS remark,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_production_department
             ORDER BY code
@@ -1364,14 +1428,21 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(t.product_unit_snapshot, p.unit, '') AS unit,
                    trim(to_char(COALESCE(t.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
                    trim(to_char(COALESCE(t.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                   t.status AS "statusCode",
+                   t.close_status AS "closeStatus",
+                   t.frozen_status AS "frozenStatus",
                    w.name AS warehouse,
                    trim(to_char(t.qty, 'FM9999999990.####')) AS qty,
-                   trim(to_char(t.issued_qty, 'FM9999999990.####')) AS "issuedQty",
+                   trim(to_char(COALESCE(issue_progress.issued_sets, 0), 'FM9999999990.####')) AS "issuedQty",
                    trim(to_char(t.completed_qty, 'FM9999999990.####')) AS "completedQty",
                    CASE
-                       WHEN t.status = 'COMPLETED' THEN '已完工'
-                       WHEN t.status = 'ISSUED' THEN '已领料'
-                       WHEN t.status = 'AUDITED' THEN '已审核'
+                       WHEN t.status = 'VOID' THEN '已作废'
+                       WHEN t.status = 'AUDITED' AND t.close_status = 'CLOSED' THEN '已关闭'
+                       WHEN t.status = 'AUDITED' AND t.frozen_status = 'FROZEN' THEN '已冻结'
+                       WHEN t.status = 'AUDITED' AND t.completed_qty >= t.qty THEN '已完工'
+                       WHEN t.status = 'AUDITED' AND COALESCE(issue_progress.all_issued, FALSE) THEN '完全领料'
+                       WHEN t.status = 'AUDITED' AND COALESCE(issue_progress.any_issued, FALSE) THEN '部分领料'
+                       WHEN t.status = 'AUDITED' THEN '未领料'
                        ELSE '草稿'
                    END AS status
             FROM production_task t
@@ -1379,6 +1450,21 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             JOIN prod_bom b ON b.id = t.bom_id
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
+            LEFT JOIN LATERAL (
+                SELECT LEAST(
+                           t.qty,
+                           COALESCE(MIN(
+                               CASE
+                                   WHEN s.required_qty > 0 THEN s.issued_qty * t.qty / s.required_qty
+                                   ELSE t.qty
+                               END
+                           ), 0)
+                       ) AS issued_sets,
+                       BOOL_OR(COALESCE(s.issued_qty, 0) > 0) AS any_issued,
+                       BOOL_AND(COALESCE(s.issued_qty, 0) >= s.required_qty) AS all_issued
+                FROM production_task_material_snapshot s
+                WHERE s.task_id = t.id
+            ) issue_progress ON TRUE
             ORDER BY t.updated_at DESC
             """));
     }
@@ -1416,6 +1502,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 SELECT plan_id, SUM(qty) AS assigned_qty
                 FROM production_task
                 WHERE plan_id IS NOT NULL
+                  AND status <> 'VOID'
                 GROUP BY plan_id
             ) task_qty ON task_qty.plan_id = pl.id
             ORDER BY pl.updated_at DESC
@@ -1454,16 +1541,18 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
 
     private List<Map<String, ?>> materialIssueRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
-            SELECT i.id::text AS id,
-                   i.bill_no AS "billNo",
-                   t.bill_no AS "sourceOrderNo",
-                   to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
-                   CASE
-                       WHEN i.status = 'DRAFT' THEN '草稿'
-                       WHEN i.status = 'REVERSED' THEN '已反审核'
-                       WHEN i.status = 'RED_REVERSED' THEN '已红冲'
-                       ELSE '已审核'
-                   END AS status,
+	            SELECT i.id::text AS id,
+	                   i.bill_no AS "billNo",
+	                   t.bill_no AS "sourceOrderNo",
+	                   to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
+	                   i.status AS "statusCode",
+	                   CASE
+	                       WHEN i.status = 'DRAFT' THEN '草稿'
+	                       WHEN i.status = 'REVERSED' THEN '已反审核'
+	                       WHEN i.status = 'RED_REVERSED' THEN '已红冲'
+	                       WHEN i.status = 'VOID' THEN '已作废'
+	                       ELSE '已审核'
+	                   END AS status,
                    trim(to_char(COALESCE((
                        SELECT SUM(il.amount)
                        FROM production_material_issue_line il
@@ -1485,15 +1574,18 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
 
     private List<Map<String, ?>> productInRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
-            SELECT c.id::text AS id,
-                   c.bill_no AS "billNo",
-                   t.bill_no AS "sourceOrderNo",
-                   to_char(c.created_at, 'YYYY-MM-DD') AS "billDate",
-                   CASE
-                       WHEN c.status = 'REVERSED' THEN '已反审核'
-                       WHEN c.status = 'RED_REVERSED' THEN '已红冲'
-                       ELSE '已审核'
-                   END AS status,
+	            SELECT c.id::text AS id,
+	                   c.bill_no AS "billNo",
+	                   t.bill_no AS "sourceOrderNo",
+	                   to_char(c.created_at, 'YYYY-MM-DD') AS "billDate",
+	                   c.status AS "statusCode",
+	                   CASE
+	                       WHEN c.status = 'DRAFT' THEN '草稿'
+	                       WHEN c.status = 'REVERSED' THEN '已反审核'
+	                       WHEN c.status = 'RED_REVERSED' THEN '已红冲'
+	                       WHEN c.status = 'VOID' THEN '已作废'
+	                       ELSE '已审核'
+	                   END AS status,
                    trim(to_char(COALESCE((
                        SELECT SUM(cl.amount)
                        FROM production_completion_line cl
@@ -1541,6 +1633,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT h.id::text AS id,
                    h.bill_no AS "billNo",
+                   COALESCE(h.source_bill_no, '') AS "sourceBillNo",
                    h.supplier_code_snapshot AS "supplierCode",
                    h.supplier_name_snapshot AS "supplierName",
                    l.product_code_snapshot AS "productCode",
@@ -1670,7 +1763,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    trim(to_char(b.qty, 'FM9999999990.####')) AS qty,
                    b.version_no AS "versionNo",
                    CASE WHEN b.is_current THEN '是' ELSE '否' END AS "isCurrent",
-                   CASE WHEN b.audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
+                   CASE WHEN b.audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    b.enabled AS enabled,
                    CASE WHEN b.enabled THEN '启用' ELSE '禁用' END AS status,
                    COALESCE(b.remark, '') AS remark,

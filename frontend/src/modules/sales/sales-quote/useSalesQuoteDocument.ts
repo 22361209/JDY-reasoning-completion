@@ -15,7 +15,7 @@ export function useSalesQuoteDocument(options: Parameters<typeof useDocumentModu
     defaultDepartment: "销售部",
     defaultPartyCode: "",
     defaultUnitPrice: 86,
-    showTaxMode: true,
+    showTaxColumns: true,
     reversible: true,
     allowDraftDelete: true,
     allowZeroQty: true,

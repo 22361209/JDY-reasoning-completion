@@ -211,7 +211,6 @@ class TenantSalesChainIsolationTest {
             "销售部",
             "admin",
             remark,
-            false,
             "2026-07-30",
             List.of(new SalesQuoteAppService.SalesQuoteLineRequest(
                 null,
@@ -237,7 +236,6 @@ class TenantSalesChainIsolationTest {
             "销售部",
             "admin",
             "A119 order",
-            false,
             List.of(new SalesOrderAppService.SalesOrderLineRequest(
                 null,
                 PRODUCT_CODE,
@@ -265,7 +263,6 @@ class TenantSalesChainIsolationTest {
             "销售部",
             "admin",
             "A119 delivery notice",
-            false,
             List.of(new DeliveryNoticeAppService.DeliveryNoticeLineRequest(
                 null,
                 PRODUCT_CODE,
@@ -293,7 +290,6 @@ class TenantSalesChainIsolationTest {
             "销售部",
             "admin",
             "A119 sales out",
-            false,
             List.of(new SalesOutAppService.SalesOutLineRequest(
                 null,
                 PRODUCT_CODE,

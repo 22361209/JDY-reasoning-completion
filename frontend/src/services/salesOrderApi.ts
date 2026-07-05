@@ -38,7 +38,6 @@ export interface SalesOrderDetail {
     closeStatus?: string;
     closeMode?: string | null;
     frozenStatus?: string;
-    isTaxInclusive?: boolean;
   };
   lines: Array<{
     lineNo?: number | string;
@@ -57,6 +56,8 @@ export interface SalesOrderDetail {
     lineCloseStatus?: string;
     lineFrozenStatus?: string;
     unitPrice: number | string;
+    amount?: number | string;
+    taxInclusiveUnitPrice?: number | string;
     taxRate?: number | string;
     taxAmount?: number | string;
 	    priceTaxTotal?: number | string;
@@ -74,7 +75,6 @@ export interface SelectableSalesOrderLine {
   billDate: string;
   department?: string;
   ownerName?: string;
-  isTaxInclusive?: boolean;
   lineNo: number | string;
   productId?: string;
   productCode: string;
@@ -89,6 +89,8 @@ export interface SelectableSalesOrderLine {
   remainingQty: number | string;
   availableNoticeQty?: number | string;
   unitPrice: number | string;
+  amount?: number | string;
+  taxInclusiveUnitPrice?: number | string;
   taxRate?: number | string;
   taxAmount?: number | string;
 	  priceTaxTotal?: number | string;

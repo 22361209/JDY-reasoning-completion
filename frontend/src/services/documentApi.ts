@@ -6,7 +6,6 @@ interface DocumentDraftPayload {
   department: string;
   ownerName: string;
   remark?: string;
-  isTaxInclusive?: boolean;
   validUntil?: string;
   lines: Array<{
     lineNo?: number;
@@ -39,6 +38,7 @@ const endpointByType = {
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
   purchaseReturn: "/api/purchase-returns",
+  productionTask: "/api/production/tasks",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
   productIn: "/api/production/product-ins",
@@ -158,7 +158,6 @@ export interface DocumentDetail {
     frozenStatus?: string;
     redReverseBillNo?: string;
     redSourceBillNo?: string;
-    isTaxInclusive?: boolean;
     enabled?: boolean;
     validUntil?: string;
   };
@@ -199,6 +198,8 @@ export interface DocumentDetail {
     lineCloseStatus?: string;
     lineFrozenStatus?: string;
     unitPrice?: number | string;
+    amount?: number | string;
+    taxInclusiveUnitPrice?: number | string;
     taxRate?: number | string;
     taxAmount?: number | string;
     priceTaxTotal?: number | string;
@@ -272,15 +273,6 @@ export async function fetchSalesUnitPriceSources(customerCode: string, productCo
   return { ok: true, message: "", data: result.data as SalesUnitPriceSourcesResponse };
 }
 
-export async function fetchNextBillNo(type: DocumentType) {
-  const result = await callDocument(`/api/numbering/${encodeURIComponent(type)}/next`, "GET");
-  const data = result.data as { billNo?: unknown } | undefined;
-  if (!result.ok || typeof data?.billNo !== "string") {
-    return { ok: false, message: result.message || "单据编号生成失败。" };
-  }
-  return { ok: true, message: "", billNo: data.billNo };
-}
-
 export async function auditDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/audit`, "POST");
 }
@@ -329,7 +321,7 @@ export async function voidDocumentHardened(type: DocumentType, billNo: string, p
   return callDocument(`/api/document-lifecycle/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/void`, "POST", payload);
 }
 
-export async function redReverseDocument(type: DocumentType, billNo: string, payload: { redBillNo: string; billDate: string; ownerName: string }) {
+export async function redReverseDocument(type: DocumentType, billNo: string, payload: { redBillNo?: string; billDate: string; ownerName: string }) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/red-reverse`, "POST", payload);
 }
 
@@ -365,7 +357,6 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     department: payload.department,
     ownerName: payload.ownerName,
     remark: payload.remark,
-    isTaxInclusive: payload.isTaxInclusive,
     validUntil: payload.validUntil,
     lines: payload.lines
   };

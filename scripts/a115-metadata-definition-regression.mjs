@@ -17,6 +17,9 @@ const dataListPage = [
   "frontend/src/components/list/useDataListSummary.ts"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
 const documentModule = readFileSync("frontend/src/modules/documents/useDocumentModule.ts", "utf8");
+const salesOutDocument = readFileSync("frontend/src/modules/sales/sales-out/useSalesOutDocument.ts", "utf8");
+const documentApi = readFileSync("frontend/src/services/documentApi.ts", "utf8");
+const taxAmountsApp = readFileSync("frontend/src/app/taxAmounts.ts", "utf8");
 const masterDataRegistry = readFileSync("frontend/src/modules/master-data/registry.ts", "utf8");
 const fieldTypes = readFileSync("frontend/src/components/fields/types.ts", "utf8");
 const fieldRenderer = readFileSync("frontend/src/components/fields/FieldRenderer.vue", "utf8");
@@ -41,9 +44,17 @@ const masterDataReferenceIntegrationTest = readFileSync("backend/src/test/java/c
 const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
 const purchaseOrderDocument = readFileSync("frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts", "utf8");
 const listStubController = readFileSync("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java", "utf8");
+const listBackendSources = [
+  listStubController,
+  "backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java",
+  "backend/src/main/java/com/jdy/erp/system/application/list/SalesOrderListQueryAdapter.java"
+].map((source) => source.includes("\n") ? source : readFileSync(source, "utf8")).join("\n");
+const sourceSelectorListQueryAdapter = readFileSync("backend/src/main/java/com/jdy/erp/system/application/list/SourceSelectorListQueryAdapter.java", "utf8");
+const backendTaxAmountCalculator = readFileSync("backend/src/main/java/com/jdy/erp/shared/application/TaxAmountCalculator.java", "utf8");
 const purchaseOrderAppService = readFileSync("backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java", "utf8");
 const priceTaxBackfillMigration = readFileSync("backend/src/main/resources/db/migration/V63__backfill_price_tax_totals.sql", "utf8");
 const purchaseOrderSupplierMaterialMigration = readFileSync("backend/src/main/resources/db/migration/V65__purchase_order_supplier_material_and_delivery_date.sql", "utf8");
+const documentTaxHeaderDropMigration = readFileSync("backend/src/main/resources/db/migration/V86__drop_document_tax_inclusive_headers.sql", "utf8");
 const productDisplaySnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V66__product_display_snapshots.sql", "utf8");
 const productSnapshotService = readFileSync("backend/src/main/java/com/jdy/erp/shared/application/ProductSnapshotService.java", "utf8");
 const documentOutputController = readFileSync("backend/src/main/java/com/jdy/erp/reports/api/DocumentOutputController.java", "utf8");
@@ -96,7 +107,7 @@ assertContains(
 );
 assertContains(
   source,
-  /salesOrderBillDefinition[\s\S]*?detail:\s*\[\.\.\.salesOrderDetailColumns,\s*\.\.\.sourceDetailColumns\]/,
+  /salesOrderBillDefinition[\s\S]*?detail:\s*\[[\s\S]*?\.\.\.salesOrderDetailColumns[\s\S]*?\.\.\.sourceDetailColumns/,
   "销售订单明细视图应显示源单列"
 );
 assertContains(
@@ -215,32 +226,42 @@ assertContains(
   "采购订单表单必须开启供应商物料编码列，并支持采购订单分录预计交期"
 );
 assertContains(
-  listStubController,
+  listBackendSources,
   /documentDetailRows[\s\S]*?sales-quote-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?sales-order-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchase-order-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?sales-out-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?delivery-notice-form-list[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchase-in-list[\s\S]*?AS "priceTaxTotal"/,
   "核心单据明细列表 API 必须返回含税金额 priceTaxTotal"
 );
 assertContains(
-  listStubController,
+  listBackendSources,
   /purchase-order-form-list[\s\S]*?AS "supplierMaterialCode"[\s\S]*?AS "taxInclusiveUnitPrice"[\s\S]*?AS "taxRate"[\s\S]*?AS "priceTaxTotal"/,
   "采购订单明细列表 API 必须返回供应商物料编码、含税单价、税率和含税金额"
 );
 assertContains(
-  listStubController,
+  sourceSelectorListQueryAdapter,
+  /"unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"[\s\S]*?"unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal"/,
+  "销售选源字段必须返回单价、含税单价、金额、税额和含税金额"
+);
+assertContains(
+  sourceSelectorListQueryAdapter,
+  /"unitPrice", "taxInclusiveUnitPrice", "taxRate", "taxAmount",[\s\S]*?"unitPrice", "taxInclusiveUnitPrice", "taxRate", "taxAmount"/,
+  "采购选源字段必须返回含税单价和税额/含税金额口径"
+);
+assertContains(
+  listBackendSources,
   /purchase-order-form-list[\s\S]*?AS qty[\s\S]*?AS "receivedQty"[\s\S]*?AS "remainingQty"[\s\S]*?AS "unitPrice"/,
   "采购订单明细列表 API 必须返回数量/已入库数量/未入库数量"
 );
 assertContains(
-  listStubController,
+  listBackendSources,
   /purchaseOrderRows[\s\S]*?AS qty[\s\S]*?AS "receivedQty"[\s\S]*?AS "remainingQty"[\s\S]*?AS amount/,
   "采购订单整单列表 API 必须返回数量/已入库数量/未入库数量"
 );
 assertContains(
-  listStubController,
+  listBackendSources,
   /purchaseInRows[\s\S]*?AS qty[\s\S]*?AS amount[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchaseReturnRows[\s\S]*?AS qty[\s\S]*?AS amount[\s\S]*?AS "priceTaxTotal"/,
   "采购入库/采购退货整单列表 API 必须返回数量/金额/含税金额"
 );
 assertContains(
-  listStubController,
+  listBackendSources,
   /purchaseSummaryRows[\s\S]*?order_lines[\s\S]*?in_lines[\s\S]*?return_lines[\s\S]*?"netPurchaseAmount"/,
   "采购汇总表必须聚合采购订单、采购入库和采购退货"
 );
@@ -250,7 +271,7 @@ assertContains(
   "采购汇总表前端必须显示订单/入库/退货/净采购金额字段"
 );
 assertContains(
-  listStubController,
+  listBackendSources,
   /salesRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchaseOrderRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?salesQuoteRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchaseInRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?salesOutRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?deliveryNoticeRows[\s\S]*?AS "priceTaxTotal"/,
   "核心单据整单列表 API 必须返回含税金额 priceTaxTotal"
 );
@@ -365,7 +386,7 @@ assertContains(
   "物料类别建档必须维护上级类别，计量单位建档必须维护数量小数位"
 );
 assertContains(
-  materialCategoryUnitMigration + masterDataController + listStubController,
+  materialCategoryUnitMigration + masterDataController + listBackendSources,
   /CREATE TABLE IF NOT EXISTS md_product_category[\s\S]*?CREATE TABLE IF NOT EXISTS md_unit[\s\S]*?ALTER TABLE md_product[\s\S]*?ADD COLUMN IF NOT EXISTS oe_no[\s\S]*?case "productCategory"[\s\S]*?case "unit"[\s\S]*?case "product-category-list"[\s\S]*?case "unit-master-list"/,
   "后端必须落库物料类别、计量单位和云星辰物料页关键字段，并接入统一主数据接口"
 );
@@ -401,8 +422,48 @@ assertContains(
 );
 assertContains(
   documentForm,
-  /name:\s*"partyCode"[\s\S]*?testId:\s*`\$\{props\.testPrefix\}-party-code`[\s\S]*?name:\s*"billDate"[\s\S]*?name:\s*"billNo"[\s\S]*?name:\s*"department"[\s\S]*?name:\s*"ownerName"[\s\S]*?name:\s*"taxMode"[\s\S]*?name:\s*"remark"/,
-  "DocumentForm 字段协议必须覆盖客户/供应商、业务日期、单据编号、部门、录入人、价格口径和备注"
+  /name:\s*"partyCode"[\s\S]*?testId:\s*`\$\{props\.testPrefix\}-party-code`[\s\S]*?name:\s*"billDate"[\s\S]*?name:\s*"billNo"[\s\S]*?name:\s*"department"[\s\S]*?name:\s*"ownerName"[\s\S]*?name:\s*"remark"/,
+  "DocumentForm 字段协议必须覆盖客户/供应商、业务日期、单据编号、部门、录入人和备注"
+);
+assertNotContains(
+  documentForm + fragments,
+  /name:\s*"taxMode"|label:\s*"价格口径"/,
+  "单据表头字段定义不得再暴露价格口径/税价切换"
+);
+assertNotContains(
+  `${documentForm}\n${documentApi}\n${documentModule}\n${salesOutDocument}\n${entryTable}\n${source}\n${fragments}`,
+  /isTaxInclusive|showTaxMode|show-tax-mode|is-tax-inclusive|update:isTaxInclusive|name:\s*"taxMode"|label:\s*"价格口径"/,
+  "前端单据表头、payload 和分录表不得再保留旧税价切换字段"
+);
+assertNotContains(
+  `${productSnapshotWriteServices}\n${backendTaxAmountCalculator}\n${sourceSelectorListQueryAdapter}\n${listBackendSources}`,
+  /Boolean isTaxInclusive|AS "isTaxInclusive"|is_tax_inclusive/,
+  "后端单据请求 DTO、保存 SQL 和响应字段不得再暴露旧 isTaxInclusive 表头字段"
+);
+assertContains(
+  documentTaxHeaderDropMigration,
+  /sales_quote[\s\S]*sales_order[\s\S]*delivery_notice[\s\S]*sales_out[\s\S]*purchase_order[\s\S]*purchase_in[\s\S]*purchase_return/,
+  "数据库迁移必须删除核心单据头旧 is_tax_inclusive 字段"
+);
+assertContains(
+  backendTaxAmountCalculator,
+  /calculate\(BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate\)[\s\S]*?var netLineAmount = safeQty\.multiply\(safeUnitPrice\)[\s\S]*?var priceTaxTotal = scaleMoney\(netAmount\.multiply\(BigDecimal\.ONE\.add\(rateRatio\)\)\)/,
+  "后端金额计算必须统一为单价=不含税单价，金额=不含税金额，含税金额=金额+税额"
+);
+assertNotContains(
+  backendTaxAmountCalculator,
+  /taxInclusive/,
+  "后端金额计算器不得再接收表头税价切换参数"
+);
+assertContains(
+  documentModule,
+  /loadByBillNo\(savedBillNo, successMessage\)/,
+  "通用单据保存成功后必须按后端单号重新加载回算结果"
+);
+assertContains(
+  salesOutDocument,
+  /loadByBillNo\(savedBillNo, successMessage\)/,
+  "销售出库保存成功后必须按后端单号重新加载回算结果"
 );
 assertContains(
   standardDocument + documentActionRules,
@@ -445,7 +506,7 @@ assertContains(
   "物料、客户、供应商、仓库必须拥有只读可见系统编号 system_no，且 UUID 主键保持隐藏"
 );
 assertContains(
-  masterDataController + listStubController,
+  masterDataController + listBackendSources,
   /system_no::text AS "systemNo"/,
   "主数据新增、启停和列表接口必须返回 systemNo 给前端显示"
 );

@@ -341,7 +341,6 @@ class CoreBusinessFastIntegrationTest {
             "A115",
             "A115",
             "snapshot regression",
-            false,
             List.of(new SalesOrderAppService.SalesOrderLineRequest(
                 null,
                 productCode,

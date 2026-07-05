@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loginApi, loginAsAdmin } from "./helpers/regression-auth.mjs";
-import { salesOutPayloadViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
+import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -59,6 +59,14 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
     for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
@@ -77,51 +85,38 @@ async function seedStock() {
 
 async function createData() {
   await seedStock();
-  const salesOrderNo = `XSDD-A9-${batch}`;
-  const firstDeliveryNoticeNo = `FHTZ-A9-PART-${batch}`;
-  const firstSalesOutNo = `XSCK-A9-PART-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const salesOrderNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
       lines: salesLines
     }
-  });
+  }), "A9销售订单");
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  const firstSalesFlow = salesOutPayloadViaDeliveryNotice({
-    billNo: firstSalesOutNo,
+  const firstSalesFlow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
     sourceOrderNo: salesOrderNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
     ownerName: "本地管理员",
     lines: salesFirstOutLines
-  }, firstDeliveryNoticeNo);
-  await requireApi("/api/delivery-notices/draft", {
-    body: firstSalesFlow.noticePayload
   });
-  await requireApi(`/api/delivery-notices/${encodeURIComponent(firstDeliveryNoticeNo)}/audit`);
-  await requireApi("/api/sales-outs/draft", { body: firstSalesFlow.outPayload });
+  const firstSalesOutNo = firstSalesFlow.salesOutNo;
   await requireApi(`/api/sales-outs/${encodeURIComponent(firstSalesOutNo)}/audit`);
-  const purchaseOrderNo = `CGDD-A9-${batch}`;
-  const firstPurchaseInNo = `CGRK-A9-PART-${batch}`;
-  await requireApi("/api/purchase-orders/draft", {
+  const purchaseOrderNo = generatedBillNo(await requireApi("/api/purchase-orders/draft", {
     body: {
-      billNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
       ownerName: "本地管理员",
       lines: purchaseLines
     }
-  });
+  }), "A9采购订单");
   await requireApi(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`);
-  await requireApi("/api/purchase-ins/draft", {
+  const firstPurchaseInNo = generatedBillNo(await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: firstPurchaseInNo,
       sourceOrderNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
@@ -129,7 +124,7 @@ async function createData() {
       ownerName: "本地管理员",
       lines: purchaseFirstInLines
     }
-  });
+  }), "A9采购入库");
   await requireApi(`/api/purchase-ins/${encodeURIComponent(firstPurchaseInNo)}/audit`);
   return {
     salesOrderNo,
@@ -141,28 +136,24 @@ async function createData() {
 
 async function createOverPushChecks(data) {
   apiCookie = await loginApi(apiBase);
-  const overDeliveryNoticeNo = `FHTZ-A9-OVER-${batch}`;
-  const overSalesFlow = salesOutPayloadViaDeliveryNotice({
-    billNo: `XSCK-A9-OVER-${batch}`,
-    sourceOrderNo: data.salesOrderNo,
-    customerCode: "KH-001",
-    billDate,
-    department: "销售部",
-    ownerName: "本地管理员",
-    lines: salesLines
-  }, overDeliveryNoticeNo);
-  await requireApi("/api/delivery-notices/draft", {
-    body: overSalesFlow.noticePayload
+  const overDeliveryNotice = await requireApi("/api/delivery-notices/draft", {
+    body: {
+      sourceOrderNo: data.salesOrderNo,
+      customerCode: "KH-001",
+      billDate,
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: salesLines
+    }
   });
+  const overDeliveryNoticeNo = generatedBillNo(overDeliveryNotice, "A9超量发货通知");
   const salesOverAudit = await api(`/api/delivery-notices/${encodeURIComponent(overDeliveryNoticeNo)}/audit`);
   if (salesOverAudit.ok || salesOverAudit.status !== 409) {
     throw new Error(`sales over-push delivery notice audit should fail with 409, got ${salesOverAudit.status}`);
   }
 
-  const overPurchaseInNo = `CGRK-A9-OVER-${batch}`;
-  await requireApi("/api/purchase-ins/draft", {
+  const overPurchaseInNo = generatedBillNo(await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: overPurchaseInNo,
       sourceOrderNo: data.purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
@@ -170,7 +161,7 @@ async function createOverPushChecks(data) {
       ownerName: "本地管理员",
       lines: purchaseLines
     }
-  });
+  }), "A9超量采购入库");
   const purchaseOverAudit = await api(`/api/purchase-ins/${encodeURIComponent(overPurchaseInNo)}/audit`);
   if (purchaseOverAudit.ok || purchaseOverAudit.status !== 409) {
     throw new Error(`purchase over-push audit should fail with 409, got ${purchaseOverAudit.status}`);

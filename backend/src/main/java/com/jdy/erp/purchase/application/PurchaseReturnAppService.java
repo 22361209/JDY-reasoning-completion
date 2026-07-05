@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
+import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
@@ -97,7 +98,6 @@ public class PurchaseReturnAppService {
                    pr.close_status AS "closeStatus",
                    pr.frozen_status AS "frozenStatus",
                    pr.total_amount AS "totalAmount",
-                   pr.is_tax_inclusive AS "isTaxInclusive",
                    pr.owner_name AS "ownerName",
                    COALESCE(pr.remark, '') AS remark
             FROM purchase_return pr
@@ -123,6 +123,7 @@ public class PurchaseReturnAppService {
                    l.line_close_status AS "lineCloseStatus",
                    l.line_frozen_status AS "lineFrozenStatus",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
@@ -146,7 +147,6 @@ public class PurchaseReturnAppService {
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
                    pi.department,
                    pi.owner_name AS "ownerName",
-                   pi.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -160,6 +160,7 @@ public class PurchaseReturnAppService {
                    COALESCE(returned.returned_qty, 0) AS "returnedQty",
                    GREATEST(0, l.qty - COALESCE(returned.returned_qty, 0)) AS "remainingQty",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
@@ -188,20 +189,18 @@ public class PurchaseReturnAppService {
     public Map<String, Object> saveDraft(PurchaseReturnDraftRequest request) {
         var billNo = numberingService.assignBillNo("purchaseReturn", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
-        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var totalAmount = request.lines().stream()
-            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_return (bill_no, supplier_id, bill_date, department, status, total_amount, is_tax_inclusive, owner_name, remark)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO purchase_return (bill_no, supplier_id, bill_date, department, status, total_amount, owner_name, remark)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET supplier_id = EXCLUDED.supplier_id,
                 bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
-                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 close_status = 'OPEN',
@@ -216,13 +215,12 @@ public class PurchaseReturnAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            isTaxInclusive,
             request.ownerName(),
             validationService.optionalText(request.remark())
         );
         var billId = bill.get("id");
         jdbcTemplate.update("DELETE FROM purchase_return_line WHERE bill_id = ?::uuid", billId);
-        insertLines(billId, request.lines(), isTaxInclusive);
+        insertLines(billId, request.lines());
         return bill;
     }
 
@@ -284,30 +282,20 @@ public class PurchaseReturnAppService {
     }
 
     @Transactional
-    public Map<String, Object> voidBill(String billNo) {
-        return lifecycleService.transition(
-            BILL_TABLE,
-            billNo,
-            BillStatus.DRAFT,
-            BillStatus.VOID,
-            "id::text AS id, bill_no AS \"billNo\", status",
-            "PURCHASE",
-            "VOID",
-            "purchase_return",
-            "只有草稿采购退货单可以作废"
-        );
+    public Map<String, Object> voidBill(String billNo, VoidRequest request) {
+        return lifecycleService.voidBill(LIFECYCLE_TARGET, billNo, request);
     }
 
     public Map<String, Object> delete(String billNo) {
         return lifecycleService.deleteDraft(LIFECYCLE_TARGET, billNo, "只有草稿采购退货单可以删除");
     }
 
-    private void insertLines(Object billId, List<PurchaseReturnLineRequest> lines, boolean isTaxInclusive) {
+    private void insertLines(Object billId, List<PurchaseReturnLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
             var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
-            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""
                 INSERT INTO purchase_return_line (bill_id, line_no, source_in_no, source_line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark)
                 VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
@@ -386,7 +374,7 @@ public class PurchaseReturnAppService {
         return LocalDate.parse(String.valueOf(value));
     }
 
-    public record PurchaseReturnDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, String remark, Boolean isTaxInclusive, List<PurchaseReturnLineRequest> lines) {
+    public record PurchaseReturnDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, String remark, List<PurchaseReturnLineRequest> lines) {
         public PurchaseReturnDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");

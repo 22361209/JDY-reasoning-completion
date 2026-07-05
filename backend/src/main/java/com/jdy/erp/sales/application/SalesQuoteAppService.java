@@ -58,16 +58,15 @@ public class SalesQuoteAppService {
     public Map<String, Object> saveDraft(SalesQuoteDraftRequest request) {
         var billNo = numberingService.assignBillNo("salesQuote", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
-        var isTaxInclusive = Boolean.TRUE.equals(request.isTaxInclusive());
         var validUntil = LocalDate.parse(validationService.required(request.validUntil(), "报价有效期"));
         var totalAmount = request.lines().stream()
-            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive).priceTaxTotal())
+            .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var ownerName = currentSessionService.currentDisplayName();
         var createdBy = currentSessionService.currentUserId();
         var quote = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_quote (bill_no, customer_id, bill_date, valid_until, department, status, enabled, total_amount, is_tax_inclusive, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO sales_quote (bill_no, customer_id, bill_date, valid_until, department, status, enabled, total_amount, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, TRUE, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
@@ -75,7 +74,6 @@ public class SalesQuoteAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
-                is_tax_inclusive = EXCLUDED.is_tax_inclusive,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
@@ -89,7 +87,6 @@ public class SalesQuoteAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
-            isTaxInclusive,
             ownerName,
             validationService.optionalText(request.remark()),
             createdBy
@@ -100,7 +97,7 @@ public class SalesQuoteAppService {
         for (var line : request.lines()) {
             var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
             var warehouseId = optionalWarehouseId(line.warehouseCode());
-            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate(), isTaxInclusive);
+            var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""
                 INSERT INTO sales_quote_line (quote_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, customer_material_code, customer_order_no, line_remark, plan_delivery_date)
                 VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -198,7 +195,6 @@ public class SalesQuoteAppService {
                    sq.status,
                    sq.enabled,
                    sq.total_amount AS "totalAmount",
-                   sq.is_tax_inclusive AS "isTaxInclusive",
                    sq.owner_name AS "ownerName",
                    COALESCE(creator.display_name, sq.owner_name, '') AS "createdByName",
                    COALESCE(sq.remark, '') AS remark
@@ -223,7 +219,6 @@ public class SalesQuoteAppService {
                    to_char(sq.valid_until, 'YYYY-MM-DD') AS "validUntil",
                    sq.department,
                    sq.owner_name AS "ownerName",
-                   sq.is_tax_inclusive AS "isTaxInclusive",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -235,6 +230,7 @@ public class SalesQuoteAppService {
                    COALESCE(w.code, 'CK-001') AS "warehouseCode",
                    l.qty AS "sourceQty",
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
                    l.price_tax_total AS "priceTaxTotal",
@@ -277,6 +273,7 @@ public class SalesQuoteAppService {
                    COALESCE(w.code, 'CK-001') AS "warehouseCode",
                    l.qty,
                    l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
                    l.tax_rate AS "taxRate",
                    l.tax_amount AS "taxAmount",
@@ -314,7 +311,6 @@ public class SalesQuoteAppService {
         String department,
         String ownerName,
         String remark,
-        Boolean isTaxInclusive,
         String validUntil,
         List<SalesQuoteLineRequest> lines
     ) {

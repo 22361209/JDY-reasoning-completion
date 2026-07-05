@@ -82,7 +82,6 @@ async function createAuditedOrder(billNo, customerCode, lines, billDate) {
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
-      isTaxInclusive: false,
       lines
     }
   });
