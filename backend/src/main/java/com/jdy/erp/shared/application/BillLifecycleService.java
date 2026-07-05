@@ -60,6 +60,20 @@ public class BillLifecycleService {
         return transition(table, billNo, from, to, null, table, to.name(), table, null);
     }
 
+    public void guardPositiveLineQuantities(BillLifecycleTarget target, String billNo, String message) {
+        guardTarget(target);
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM %s line
+            JOIN %s bill ON bill.id = line.%s
+            WHERE bill.bill_no = ?
+              AND line.qty <= 0
+            """.formatted(target.lineTable(), target.headerTable(), target.lineOwnerColumn()), Integer.class, billNo);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+    }
+
 
     public Map<String, Object> transitionAny(
         String table,

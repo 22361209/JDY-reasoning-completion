@@ -56,6 +56,7 @@ public class SalesQuoteAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(SalesQuoteDraftRequest request) {
+        request.lines().forEach(line -> validationService.positive(line.qty(), "报价数量"));
         var billNo = numberingService.assignBillNo("salesQuote", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
         var validUntil = LocalDate.parse(validationService.required(request.validUntil(), "报价有效期"));
@@ -125,7 +126,9 @@ public class SalesQuoteAppService {
         return quote;
     }
 
+    @Transactional
     public Map<String, Object> audit(String billNo) {
+        lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, billNo, "报价数量必须大于 0");
         return lifecycleService.transition(
             BILL_TABLE,
             billNo,

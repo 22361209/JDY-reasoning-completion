@@ -187,6 +187,7 @@ public class PurchaseReturnAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(PurchaseReturnDraftRequest request) {
+        request.lines().forEach(line -> validationService.positive(line.qty(), "采购退货数量"));
         var billNo = numberingService.assignBillNo("purchaseReturn", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
         var totalAmount = request.lines().stream()
@@ -226,6 +227,7 @@ public class PurchaseReturnAppService {
 
     @Transactional
     public Map<String, Object> audit(String billNo) {
+        lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, billNo, "采购退货数量必须大于 0");
         var lines = postingLines(billNo);
         lifecycleService.guardSourceLineQuantities(PURCHASE_IN_RETURN_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
         var row = lifecycleService.transition(

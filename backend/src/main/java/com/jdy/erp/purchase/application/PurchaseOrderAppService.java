@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import com.jdy.erp.shared.application.BillLifecycleService;
+import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.ProductSnapshotService;
@@ -22,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PurchaseOrderAppService {
     private static final String BILL_TABLE = "purchase_order";
+    private static final BillLifecycleTarget LIFECYCLE_TARGET = new BillLifecycleTarget(BILL_TABLE, "purchase_order_line", "order_id", "PURCHASE", "purchase_order");
 
     private final JdbcTemplate jdbcTemplate;
     private final LookupService lookupService;
@@ -243,6 +245,7 @@ public class PurchaseOrderAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(PurchaseOrderDraftRequest request) {
+        request.lines().forEach(line -> validationService.positive(line.qty(), "采购订单数量"));
         var billNo = numberingService.assignBillNo("purchaseOrder", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
         var totalAmount = request.lines().stream()
@@ -280,7 +283,6 @@ public class PurchaseOrderAppService {
             request.ownerName()
         );
         var orderId = order.get("id");
-        releasePurchaseRequisitionUsage(String.valueOf(orderId));
         jdbcTemplate.update("DELETE FROM purchase_order_line WHERE order_id = ?::uuid", orderId);
         var lineNo = 1;
         for (var line : request.lines()) {
@@ -310,23 +312,29 @@ public class PurchaseOrderAppService {
                 validationService.optionalText(line.lineRemark()),
                 parseOptionalDate(line.planDeliveryDate())
             );
-            markPurchaseRequisitionOrdered(line.sourceOrderNo(), line.sourceLineNo(), line.qty());
             lineNo += 1;
         }
         return order;
     }
 
+    @Transactional
     public Map<String, Object> audit(String billNo) {
-        return lifecycleService.transitionAny(
+        lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, billNo, "采购订单数量必须大于 0");
+        var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
+            BillStatus.DRAFT,
             BillStatus.AUDITED,
             "id::text AS id, bill_no AS \"billNo\", status",
             "PURCHASE",
             "AUDIT",
             "purchase_order",
-            "采购订单不存在"
+            "采购订单不存在或已审核"
         );
+        var demands = purchaseRequisitionDemands(billNo);
+        guardPurchaseRequisitionQuantities(demands, billNo);
+        markPurchaseRequisitionOrdered(demands);
+        return row;
     }
 
     public record PurchaseOrderDraftRequest(
@@ -359,39 +367,93 @@ public class PurchaseOrderAppService {
     ) {
     }
 
-    private void markPurchaseRequisitionOrdered(String sourceOrderNo, Integer sourceLineNo, BigDecimal qty) {
-        var billNo = validationService.optionalText(sourceOrderNo);
-        if (billNo == null || sourceLineNo == null || qty == null) {
-            return;
+    private List<PurchaseRequisitionDemand> purchaseRequisitionDemands(String billNo) {
+        var lines = jdbcTemplate.queryForList("""
+            SELECT source_requisition_no AS "sourceBillNo",
+                   source_requisition_line_no AS "sourceLineNo",
+                   qty
+            FROM purchase_order_line line
+            JOIN purchase_order po ON po.id = line.order_id
+            WHERE po.bill_no = ?
+            ORDER BY line.line_no
+            """, billNo);
+        var grouped = new HashMap<String, PurchaseRequisitionDemand>();
+        for (var line : lines) {
+            var sourceBillNo = validationService.optionalText((String) line.get("sourceBillNo"));
+            var sourceLineNo = line.get("sourceLineNo");
+            if (sourceBillNo == null && sourceLineNo == null) {
+                continue;
+            }
+            if (sourceBillNo == null || sourceLineNo == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源单行不能为空");
+            }
+            var qty = validationService.positive((BigDecimal) line.get("qty"), "采购订单数量");
+            var key = sourceBillNo + "\u0000" + sourceLineNo;
+            var existing = grouped.get(key);
+            grouped.put(
+                key,
+                existing == null
+                    ? new PurchaseRequisitionDemand(sourceBillNo, sourceLineNo, qty)
+                    : new PurchaseRequisitionDemand(sourceBillNo, sourceLineNo, existing.qty().add(qty))
+            );
         }
+        return grouped.values().stream().toList();
+    }
+
+    private void guardPurchaseRequisitionQuantities(List<PurchaseRequisitionDemand> demands, String currentBillNo) {
+        for (var demand : demands) {
+            refreshPurchaseRequisitionOrderedQty(demand, currentBillNo);
+            var rows = jdbcTemplate.queryForList("""
+                SELECT line.qty - COALESCE(line.ordered_qty, 0) AS remaining_qty
+                FROM purchase_requisition req
+                JOIN purchase_requisition_line line ON line.requisition_id = req.id
+                WHERE req.bill_no = ?
+                  AND req.status = 'AUDITED'
+                  AND line.line_no = ?
+                  AND line.line_close_status = 'OPEN'
+                  AND line.line_frozen_status = 'NORMAL'
+                FOR UPDATE OF line
+                """, demand.sourceBillNo(), demand.sourceLineNo());
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源明细不存在或未审核");
+            }
+            var remaining = (BigDecimal) rows.get(0).get("remaining_qty");
+            if (remaining == null || remaining.compareTo(demand.qty()) < 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单数量不能超过采购申请剩余可订数量");
+            }
+        }
+    }
+
+    private void refreshPurchaseRequisitionOrderedQty(PurchaseRequisitionDemand demand, String currentBillNo) {
         jdbcTemplate.update("""
             UPDATE purchase_requisition_line line
-            SET ordered_qty = LEAST(line.qty, COALESCE(line.ordered_qty, 0) + ?)
+            SET ordered_qty = COALESCE((
+                SELECT SUM(po_line.qty)
+                FROM purchase_order_line po_line
+                JOIN purchase_order po ON po.id = po_line.order_id
+                WHERE po.status = 'AUDITED'
+                  AND po.bill_no <> ?
+                  AND po_line.source_requisition_no = req.bill_no
+                  AND po_line.source_requisition_line_no = line.line_no
+            ), 0)
             FROM purchase_requisition req
             WHERE req.id = line.requisition_id
               AND req.bill_no = ?
               AND line.line_no = ?
-            """, qty, billNo, sourceLineNo);
+            """, currentBillNo, demand.sourceBillNo(), demand.sourceLineNo());
     }
 
-    private void releasePurchaseRequisitionUsage(String orderId) {
-        jdbcTemplate.update("""
-            UPDATE purchase_requisition_line line
-            SET ordered_qty = GREATEST(0, COALESCE(line.ordered_qty, 0) - usage.qty)
-            FROM (
-                SELECT source_requisition_no,
-                       source_requisition_line_no,
-                       SUM(qty) AS qty
-                FROM purchase_order_line
-                WHERE order_id = ?::uuid
-                  AND source_requisition_no IS NOT NULL
-                  AND source_requisition_line_no IS NOT NULL
-                GROUP BY source_requisition_no, source_requisition_line_no
-            ) usage
-            JOIN purchase_requisition req ON req.bill_no = usage.source_requisition_no
-            WHERE req.id = line.requisition_id
-              AND line.line_no = usage.source_requisition_line_no
-            """, orderId);
+    private void markPurchaseRequisitionOrdered(List<PurchaseRequisitionDemand> demands) {
+        for (var demand : demands) {
+            jdbcTemplate.update("""
+                UPDATE purchase_requisition_line line
+                SET ordered_qty = COALESCE(line.ordered_qty, 0) + ?
+                FROM purchase_requisition req
+                WHERE req.id = line.requisition_id
+                  AND req.bill_no = ?
+                  AND line.line_no = ?
+                """, demand.qty(), demand.sourceBillNo(), demand.sourceLineNo());
+        }
     }
 
     private LocalDate parseOptionalDate(String value) {
@@ -402,5 +464,8 @@ public class PurchaseOrderAppService {
     private String optionalTextOrEmpty(String value) {
         var text = validationService.optionalText(value);
         return text == null ? "" : text;
+    }
+
+    private record PurchaseRequisitionDemand(String sourceBillNo, Object sourceLineNo, BigDecimal qty) {
     }
 }

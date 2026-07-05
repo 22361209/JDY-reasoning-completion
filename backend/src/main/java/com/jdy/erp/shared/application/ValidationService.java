@@ -1,5 +1,7 @@
 package com.jdy.erp.shared.application;
 
+import java.math.BigDecimal;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -15,5 +17,12 @@ public class ValidationService {
 
     public String optionalText(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    public BigDecimal positive(BigDecimal value, String label) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "必须大于 0");
+        }
+        return value;
     }
 }

@@ -113,6 +113,7 @@ public class DeliveryNoticeAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(DeliveryNoticeDraftRequest request) {
+        request.lines().forEach(line -> validationService.positive(line.qty(), "发货通知数量"));
         var billNo = numberingService.assignBillNo("deliveryNotice", request.billNo());
         var customerId = lookupService.lookupEnabledId("md_customer", request.customerCode(), "客户");
         var totalAmount = request.lines().stream()
@@ -151,6 +152,7 @@ public class DeliveryNoticeAppService {
 
     @Transactional
     public Map<String, Object> audit(String billNo) {
+        lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, billNo, "发货通知数量必须大于 0");
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
