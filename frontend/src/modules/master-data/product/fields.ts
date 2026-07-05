@@ -45,7 +45,7 @@ export const productMasterFields: MasterDataField[] = [
   { name: "safetyStockQty", label: "安全库存数量", placeholder: "安全库存", section: "库存预警", type: "number" },
   { name: "maxStockQty", label: "最高库存数量", placeholder: "高于后续可预警", section: "库存预警", type: "number" },
 
-  { name: "defaultWorkshop", label: "默认生产车间", placeholder: "输入部门编码或名称", section: "生产信息", suggestions: ["焊接车间", "冲压车间", "装配车间", "委外车间"], lookup: { listKey: "production-department-list", valueField: "name", displayFields: ["code", "name"], searchFields: ["manager"] } },
+  { name: "defaultWorkshop", label: "默认生产车间", placeholder: "输入部门编码或名称", section: "生产信息", suggestions: ["冲压车间", "焊接车间", "金工车间", "安装车间", "包装车间"], lookup: { listKey: "production-department-list", valueField: "name", displayFields: ["code", "name"], searchFields: ["manager"] } },
 
   { name: "defaultWarehouseCode", label: "默认仓库", placeholder: "输入仓库编码或名称", section: "其他信息", lookup: { listKey: "warehouse-master-list", valueField: "code", displayFields: ["code", "name"], searchFields: ["warehouseType", "manager"] } },
   { name: "defaultSupplierCode", label: "默认供应商", placeholder: "输入供应商编码或名称", section: "其他信息", lookup: { listKey: "supplier-master-list", valueField: "code", displayFields: ["code", "name"], searchFields: ["contact", "phone"] } },

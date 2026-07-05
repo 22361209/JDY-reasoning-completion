@@ -179,7 +179,12 @@ public class TenantSchemaProvisioner {
             """.formatted(quoteIdentifier(schema)));
         platformJdbcTemplate.update("""
             INSERT INTO %s.md_production_department (code, name, manager, remark, enabled, audit_status)
-            VALUES ('SC-001', '默认生产车间', '', '账套初始化默认车间', TRUE, 'AUDITED')
+            VALUES
+                ('CY', '冲压车间', '', '账套初始化默认车间', TRUE, 'AUDITED'),
+                ('HJ', '焊接车间', '', '账套初始化默认车间', TRUE, 'AUDITED'),
+                ('JG', '金工车间', '', '账套初始化默认车间', TRUE, 'AUDITED'),
+                ('AZ', '安装车间', '', '账套初始化默认车间', TRUE, 'AUDITED'),
+                ('BZ', '包装车间', '', '账套初始化默认车间', TRUE, 'AUDITED')
             ON CONFLICT (code) DO UPDATE
             SET name = EXCLUDED.name,
                 enabled = TRUE,

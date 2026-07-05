@@ -40,6 +40,8 @@ const masterDataSystemNoMigration = readFileSync("backend/src/main/resources/db/
 const materialCategoryUnitMigration = readFileSync("backend/src/main/resources/db/migration/V68__material_category_unit_master_data.sql", "utf8");
 const productUnitWeightSnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V69__product_unit_weight_snapshots.sql", "utf8");
 const productMasterReferenceMigration = readFileSync("backend/src/main/resources/db/migration/V72__product_master_reference_ids.sql", "utf8");
+const factoryWorkshopSeedMigration = readFileSync("backend/src/main/resources/db/migration/V89__seed_factory_production_workshops.sql", "utf8");
+const tenantSchemaProvisioner = readFileSync("backend/src/main/java/com/jdy/erp/system/tenant/TenantSchemaProvisioner.java", "utf8");
 const masterDataReferenceIntegrationTest = readFileSync("backend/src/test/java/com/jdy/erp/masterdata/api/MasterDataReferenceIntegrationTest.java", "utf8");
 const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
 const purchaseOrderDocument = readFileSync("frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts", "utf8");
@@ -369,6 +371,21 @@ assertContains(
   productMasterFields,
   /label:\s*"可销售"[\s\S]*?label:\s*"可采购"[\s\S]*?label:\s*"采购价"[\s\S]*?label:\s*"参考成本"[\s\S]*?label:\s*"最低库存数量"[\s\S]*?label:\s*"默认生产车间"/,
   "物料建档页必须保留商品特性、价格、库存预警和生产关键字段"
+);
+assertContains(
+  factoryWorkshopSeedMigration,
+  /'CY',\s*'冲压车间'[\s\S]*?'HJ',\s*'焊接车间'[\s\S]*?'JG',\s*'金工车间'[\s\S]*?'AZ',\s*'安装车间'[\s\S]*?'BZ',\s*'包装车间'/,
+  "已有库补丁迁移必须补齐冲压、焊接、金工、安装、包装"
+);
+assertContains(
+  tenantSchemaProvisioner,
+  /'CY',\s*'冲压车间'[\s\S]*?'HJ',\s*'焊接车间'[\s\S]*?'JG',\s*'金工车间'[\s\S]*?'AZ',\s*'安装车间'[\s\S]*?'BZ',\s*'包装车间'/,
+  "新账套初始化必须种入冲压、焊接、金工、安装、包装"
+);
+assertContains(
+  productMasterFields,
+  /冲压车间[\s\S]*?焊接车间[\s\S]*?金工车间[\s\S]*?安装车间[\s\S]*?包装车间/,
+  "物料默认生产车间建议词必须包含冲压、焊接、金工、安装、包装"
 );
 assertNotContains(
   productMasterFields,
