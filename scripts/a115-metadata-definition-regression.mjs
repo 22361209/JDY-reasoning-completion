@@ -41,6 +41,8 @@ const materialCategoryUnitMigration = readFileSync("backend/src/main/resources/d
 const productUnitWeightSnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V69__product_unit_weight_snapshots.sql", "utf8");
 const productMasterReferenceMigration = readFileSync("backend/src/main/resources/db/migration/V72__product_master_reference_ids.sql", "utf8");
 const factoryWorkshopSeedMigration = readFileSync("backend/src/main/resources/db/migration/V89__seed_factory_production_workshops.sql", "utf8");
+const genericProductionDepartmentRetirementMigration = readFileSync("backend/src/main/resources/db/migration/V94__retire_generic_production_department.sql", "utf8");
+const tenantWorkshopEnforcementMigration = readFileSync("backend/src/main/resources/db/migration/V95__enforce_factory_workshops_across_tenants.sql", "utf8");
 const tenantSchemaProvisioner = readFileSync("backend/src/main/java/com/jdy/erp/system/tenant/TenantSchemaProvisioner.java", "utf8");
 const masterDataReferenceIntegrationTest = readFileSync("backend/src/test/java/com/jdy/erp/masterdata/api/MasterDataReferenceIntegrationTest.java", "utf8");
 const purchaseOrderForm = readFileSync("frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue", "utf8");
@@ -386,6 +388,26 @@ assertContains(
   productMasterFields,
   /冲压车间[\s\S]*?焊接车间[\s\S]*?金工车间[\s\S]*?安装车间[\s\S]*?包装车间/,
   "物料默认生产车间建议词必须包含冲压、焊接、金工、安装、包装"
+);
+assertContains(
+  genericProductionDepartmentRetirementMigration,
+  /UPDATE md_product product[\s\S]*?department\.code NOT IN \('AZ', 'BZ', 'CY', 'HJ', 'JG'\)[\s\S]*?DELETE FROM md_production_department[\s\S]*?WHERE code NOT IN \('AZ', 'BZ', 'CY', 'HJ', 'JG'\)/,
+  "生产部门主数据必须只保留安装、包装、冲压、焊接、金工五个默认车间"
+);
+assertContains(
+  tenantWorkshopEnforcementMigration,
+  /FOR tenant_schema IN[\s\S]*?FROM sys_account_set[\s\S]*?INSERT INTO %1\$I\.md_production_department[\s\S]*?UPDATE %1\$I\.md_product product[\s\S]*?DELETE FROM %1\$I\.md_production_department[\s\S]*?WHERE code NOT IN \('AZ', 'BZ', 'CY', 'HJ', 'JG'\)/,
+  "生产部门收敛迁移必须覆盖 public 和所有 tenant schema"
+);
+assertContains(
+  tenantWorkshopEnforcementMigration,
+  /product\.default_workshop IN \(department\.code, department\.name\)[\s\S]*?default_workshop NOT IN \('AZ', 'BZ', 'CY', 'HJ', 'JG', '安装车间', '包装车间', '冲压车间', '焊接车间', '金工车间'\)/,
+  "清理孤立默认车间快照前必须保留五车间编码和名称"
+);
+assertContains(
+  masterDataRecordPage,
+  /const key = normalizeLookupText\(option\.value\)[\s\S]*?deduped\.set\(key, option\)/,
+  "主数据 lookup 候选必须按值去重，避免静态建议和远程主数据重复显示同一车间"
 );
 assertNotContains(
   productMasterFields,

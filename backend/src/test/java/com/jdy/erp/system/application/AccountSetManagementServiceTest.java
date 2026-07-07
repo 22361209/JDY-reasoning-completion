@@ -107,6 +107,7 @@ class AccountSetManagementServiceTest {
             "安装区辅材仓",
             "安装区毛坯仓"
         );
+        assertThat(productionDepartmentCodes(schema)).containsExactly("AZ", "BZ", "CY", "HJ", "JG");
 
         var grants = platformJdbcTemplate.queryForObject("""
             SELECT count(*)::int
@@ -249,6 +250,13 @@ class AccountSetManagementServiceTest {
         return platformJdbcTemplate.queryForObject(
             "SELECT count(*)::int FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(tableName) + " WHERE " + whereClause,
             Integer.class
+        );
+    }
+
+    private List<String> productionDepartmentCodes(String schema) {
+        return platformJdbcTemplate.queryForList(
+            "SELECT code FROM " + quoteIdentifier(schema) + ".md_production_department ORDER BY code",
+            String.class
         );
     }
 

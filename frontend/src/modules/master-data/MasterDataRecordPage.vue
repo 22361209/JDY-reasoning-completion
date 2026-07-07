@@ -240,7 +240,7 @@ function allLookupOptions(field: MasterDataField) {
   }));
   const deduped = new Map<string, LookupOption>();
   [...dynamicOptions, ...staticOptions].forEach((option) => {
-    const key = `${option.value}\u0000${option.label}`;
+    const key = normalizeLookupText(option.value);
     if (option.value && !deduped.has(key)) {
       deduped.set(key, option);
     }
