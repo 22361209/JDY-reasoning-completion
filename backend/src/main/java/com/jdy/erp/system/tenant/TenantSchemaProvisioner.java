@@ -169,11 +169,22 @@ public class TenantSchemaProvisioner {
                 audit_status = 'AUDITED'
             """.formatted(quoteIdentifier(schema)));
         platformJdbcTemplate.update("""
-            INSERT INTO %s.md_warehouse (code, name, allow_negative_stock, enabled, audit_status)
-            VALUES ('CK-001', '默认仓库', FALSE, TRUE, 'AUDITED')
+            INSERT INTO %s.md_warehouse (code, name, warehouse_type, manager, allow_negative_stock, remark, enabled, audit_status)
+            VALUES
+                ('CK-001', '冲压区材料仓', '原料仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-002', '冲压区片件仓', '半成品仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-003', '焊接区片件仓', '半成品仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-004', '焊接区配件仓', '半成品仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-005', '安装区成品仓', '成品仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-006', '安装区配件仓', '半成品仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-007', '安装区辅材仓', '普通仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED'),
+                ('CK-008', '安装区毛坯仓', '原料仓', '本地管理员', FALSE, '默认仓库', TRUE, 'AUDITED')
             ON CONFLICT (code) DO UPDATE
             SET name = EXCLUDED.name,
+                warehouse_type = EXCLUDED.warehouse_type,
+                manager = EXCLUDED.manager,
                 allow_negative_stock = EXCLUDED.allow_negative_stock,
+                remark = EXCLUDED.remark,
                 enabled = TRUE,
                 audit_status = 'AUDITED'
             """.formatted(quoteIdentifier(schema)));

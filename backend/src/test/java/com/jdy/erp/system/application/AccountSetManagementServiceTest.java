@@ -97,7 +97,16 @@ class AccountSetManagementServiceTest {
         assertThat(tableExists(schema, "sales_order")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
-        assertThat(countRows(schema, "md_warehouse")).isEqualTo(1);
+        assertThat(warehouseNames(schema)).containsExactly(
+            "冲压区材料仓",
+            "冲压区片件仓",
+            "焊接区片件仓",
+            "焊接区配件仓",
+            "安装区成品仓",
+            "安装区配件仓",
+            "安装区辅材仓",
+            "安装区毛坯仓"
+        );
 
         var grants = platformJdbcTemplate.queryForObject("""
             SELECT count(*)::int
@@ -240,6 +249,13 @@ class AccountSetManagementServiceTest {
         return platformJdbcTemplate.queryForObject(
             "SELECT count(*)::int FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(tableName) + " WHERE " + whereClause,
             Integer.class
+        );
+    }
+
+    private List<String> warehouseNames(String schema) {
+        return platformJdbcTemplate.queryForList(
+            "SELECT name FROM " + quoteIdentifier(schema) + ".md_warehouse ORDER BY code",
+            String.class
         );
     }
 
