@@ -331,11 +331,10 @@ class CoreBusinessFastIntegrationTest {
     @Test
     void documentLinesKeepProductDisplaySnapshotAfterProductCodeAndNameChange() {
         var productCode = billNo("CP-A115-SNAPSHOT");
-        var billNo = billNo("XSDD-A115-SNAPSHOT");
         insertProduct(productCode);
 
-        salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
-            billNo,
+        var savedOrder = salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
+            null,
             "KH-001",
             "2026-06-28",
             "A115",
@@ -356,6 +355,8 @@ class CoreBusinessFastIntegrationTest {
                 "2026-06-28"
             ))
         ));
+        var billNo = (String) savedOrder.get("billNo");
+        assertThat(billNo).isNotBlank();
 
         jdbcTemplate.update("""
             UPDATE md_product

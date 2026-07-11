@@ -33,10 +33,6 @@ class TenantSalesChainIsolationTest {
     private static final String PRODUCT_CODE = "A119-SALES";
     private static final String CUSTOMER_CODE = "A119-CUST";
     private static final String WAREHOUSE_CODE = "CK-001";
-    private static final String QUOTE_NO = "A119-SQ";
-    private static final String ORDER_NO = "A119-SO";
-    private static final String NOTICE_NO = "A119-DN";
-    private static final String OUT_NO = "A119-SOUT";
 
     @Autowired
     private AccountSetManagementService accountSetManagementService;
@@ -109,41 +105,41 @@ class TenantSalesChainIsolationTest {
         createAuditedCustomer("A119 账套A客户");
         createAuditedMaterial("A119 账套A销售物料");
         saveOpeningStock(new BigDecimal("20"));
-        saveAndAuditQuote("A119 账套A报价");
-        assertQuoteSelectable("A119 账套A销售物料");
-        saveAndAuditOrder(new BigDecimal("6"));
+        var quoteNoA = saveAndAuditQuote("A119 账套A报价");
+        assertQuoteSelectable("A119 账套A销售物料", quoteNoA);
+        var orderNoA = saveAndAuditOrder(new BigDecimal("6"), quoteNoA);
         assertQuoteConsumed();
-        assertOrderSelectableStock("A119 账套A销售物料", "20.0000", "0.0000", "20.0000");
-        saveAndAuditDeliveryNotice(new BigDecimal("4"));
-        assertDeliveryStock(NOTICE_NO, "20.0000", "4.0000", "16.0000");
-        saveAndAuditSalesOut(new BigDecimal("3"));
-        assertDeliverySelectableRemaining("1.0000");
+        assertOrderSelectableStock("A119 账套A销售物料", orderNoA, "20.0000", "0.0000", "20.0000");
+        var noticeNoA = saveAndAuditDeliveryNotice(new BigDecimal("4"), orderNoA);
+        assertDeliveryStock(noticeNoA, "20.0000", "4.0000", "16.0000");
+        var outNoA = saveAndAuditSalesOut(new BigDecimal("3"), noticeNoA);
+        assertDeliverySelectableRemaining(noticeNoA, "1.0000");
         assertBalance("17.0000", "1.0000", "16.0000");
-        assertListContainsOnlyTenantCustomer("sales-order-form-list", "header", "A119 账套A客户", ORDER_NO);
-        assertListContainsOnlyTenantCustomer("sales-order-form-list", "detail", "A119 账套A客户", ORDER_NO);
+        assertListContainsOnlyTenantCustomer("sales-order-form-list", "header", "A119 账套A客户", orderNoA);
+        assertListContainsOnlyTenantCustomer("sales-order-form-list", "detail", "A119 账套A客户", orderNoA);
 
         useTenant(tenantB);
         createAuditedCustomer("A119 账套B客户");
         createAuditedMaterial("A119 账套B销售物料");
         saveOpeningStock(new BigDecimal("7"));
-        saveAndAuditQuote("A119 账套B报价");
-        assertQuoteSelectable("A119 账套B销售物料");
-        saveAndAuditOrder(new BigDecimal("2"));
-        assertOrderSelectableStock("A119 账套B销售物料", "7.0000", "0.0000", "7.0000");
-        saveAndAuditDeliveryNotice(new BigDecimal("2"));
-        assertDeliveryStock(NOTICE_NO, "7.0000", "2.0000", "5.0000");
+        var quoteNoB = saveAndAuditQuote("A119 账套B报价");
+        assertQuoteSelectable("A119 账套B销售物料", quoteNoB);
+        var orderNoB = saveAndAuditOrder(new BigDecimal("2"), quoteNoB);
+        assertOrderSelectableStock("A119 账套B销售物料", orderNoB, "7.0000", "0.0000", "7.0000");
+        var noticeNoB = saveAndAuditDeliveryNotice(new BigDecimal("2"), orderNoB);
+        assertDeliveryStock(noticeNoB, "7.0000", "2.0000", "5.0000");
         assertThat(countCustomersNamed("A119 账套A客户")).isZero();
         assertThat(countProductsNamed("A119 账套A销售物料")).isZero();
-        assertListContainsOnlyTenantCustomer("sales-order-form-list", "header", "A119 账套B客户", ORDER_NO);
+        assertListContainsOnlyTenantCustomer("sales-order-form-list", "header", "A119 账套B客户", orderNoB);
 
         useTenant(tenantA);
         assertBalance("17.0000", "1.0000", "16.0000");
-        assertOrderDetailStock("17.0000", "1.0000", "16.0000");
-        assertDeliveryStock(NOTICE_NO, "17.0000", "1.0000", "16.0000");
+        assertOrderDetailStock(orderNoA, "17.0000", "1.0000", "16.0000");
+        assertDeliveryStock(noticeNoA, "17.0000", "1.0000", "16.0000");
         assertThat(countCustomersNamed("A119 账套B客户")).isZero();
         assertThat(countProductsNamed("A119 账套B销售物料")).isZero();
-        assertListContainsOnlyTenantCustomer("delivery-notice-form-list", "header", "A119 账套A客户", NOTICE_NO);
-        assertListContainsOnlyTenantCustomer("sales-out-form-list", "header", "A119 账套A客户", OUT_NO);
+        assertListContainsOnlyTenantCustomer("delivery-notice-form-list", "header", "A119 账套A客户", noticeNoA);
+        assertListContainsOnlyTenantCustomer("sales-out-form-list", "header", "A119 账套A客户", outNoA);
     }
 
     private String createManagedAccountSet(String prefix) {
@@ -203,9 +199,9 @@ class TenantSalesChainIsolationTest {
         )));
     }
 
-    private void saveAndAuditQuote(String remark) {
-        salesQuoteAppService.saveDraft(new SalesQuoteAppService.SalesQuoteDraftRequest(
-            QUOTE_NO,
+    private String saveAndAuditQuote(String remark) {
+        var saved = salesQuoteAppService.saveDraft(new SalesQuoteAppService.SalesQuoteDraftRequest(
+            null,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -225,12 +221,14 @@ class TenantSalesChainIsolationTest {
                 "2026-07-05"
             ))
         ));
-        salesQuoteAppService.audit(QUOTE_NO);
+        var billNo = generatedBillNo(saved, "销售报价单");
+        salesQuoteAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditOrder(BigDecimal qty) {
-        salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
-            ORDER_NO,
+    private String saveAndAuditOrder(BigDecimal qty, String quoteNo) {
+        var saved = salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
+            null,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -240,7 +238,7 @@ class TenantSalesChainIsolationTest {
                 null,
                 PRODUCT_CODE,
                 WAREHOUSE_CODE,
-                QUOTE_NO,
+                quoteNo,
                 1,
                 qty,
                 new BigDecimal("10"),
@@ -251,13 +249,15 @@ class TenantSalesChainIsolationTest {
                 "2026-07-05"
             ))
         ));
-        salesOrderAppService.audit(ORDER_NO);
+        var billNo = generatedBillNo(saved, "销售订单");
+        salesOrderAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditDeliveryNotice(BigDecimal qty) {
-        deliveryNoticeAppService.saveDraft(new DeliveryNoticeAppService.DeliveryNoticeDraftRequest(
-            NOTICE_NO,
-            ORDER_NO,
+    private String saveAndAuditDeliveryNotice(BigDecimal qty, String orderNo) {
+        var saved = deliveryNoticeAppService.saveDraft(new DeliveryNoticeAppService.DeliveryNoticeDraftRequest(
+            null,
+            orderNo,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -267,7 +267,7 @@ class TenantSalesChainIsolationTest {
                 null,
                 PRODUCT_CODE,
                 WAREHOUSE_CODE,
-                ORDER_NO,
+                orderNo,
                 1,
                 qty,
                 new BigDecimal("10"),
@@ -278,13 +278,15 @@ class TenantSalesChainIsolationTest {
                 "2026-07-05"
             ))
         ));
-        deliveryNoticeAppService.audit(NOTICE_NO);
+        var billNo = generatedBillNo(saved, "发货通知单");
+        deliveryNoticeAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditSalesOut(BigDecimal qty) {
-        salesOutAppService.saveDraft(new SalesOutAppService.SalesOutDraftRequest(
-            OUT_NO,
-            NOTICE_NO,
+    private String saveAndAuditSalesOut(BigDecimal qty, String noticeNo) {
+        var saved = salesOutAppService.saveDraft(new SalesOutAppService.SalesOutDraftRequest(
+            null,
+            noticeNo,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -296,7 +298,7 @@ class TenantSalesChainIsolationTest {
                 WAREHOUSE_CODE,
                 null,
                 null,
-                NOTICE_NO,
+                noticeNo,
                 1,
                 qty,
                 new BigDecimal("10"),
@@ -307,15 +309,17 @@ class TenantSalesChainIsolationTest {
                 "2026-07-05"
             ))
         ));
-        salesOutAppService.audit(OUT_NO);
+        var billNo = generatedBillNo(saved, "销售出库单");
+        salesOutAppService.audit(billNo);
+        return billNo;
     }
 
-    private void assertQuoteSelectable(String productName) {
+    private void assertQuoteSelectable(String productName, String quoteNo) {
         var lines = linesOf(salesQuoteAppService.selectableLines(CUSTOMER_CODE));
         assertThat(lines)
             .singleElement()
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo(QUOTE_NO);
+                assertThat(row.get("billNo")).isEqualTo(quoteNo);
                 assertThat(row.get("productName")).isEqualTo(productName);
             });
     }
@@ -324,12 +328,12 @@ class TenantSalesChainIsolationTest {
         assertThat(linesOf(salesQuoteAppService.selectableLines(CUSTOMER_CODE))).isEmpty();
     }
 
-    private void assertOrderSelectableStock(String productName, String onHand, String reserved, String available) {
+    private void assertOrderSelectableStock(String productName, String orderNo, String onHand, String reserved, String available) {
         var lines = linesOf(salesOrderAppService.selectableLines(CUSTOMER_CODE));
         assertThat(lines)
             .singleElement()
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo(ORDER_NO);
+                assertThat(row.get("billNo")).isEqualTo(orderNo);
                 assertThat(row.get("productName")).isEqualTo(productName);
                 assertDecimal(row.get("stockOnHand"), onHand);
                 assertDecimal(row.get("stockReserved"), reserved);
@@ -337,8 +341,8 @@ class TenantSalesChainIsolationTest {
             });
     }
 
-    private void assertOrderDetailStock(String onHand, String reserved, String available) {
-        var lines = linesOf(salesOrderAppService.detail(ORDER_NO), "lines");
+    private void assertOrderDetailStock(String orderNo, String onHand, String reserved, String available) {
+        var lines = linesOf(salesOrderAppService.detail(orderNo), "lines");
         assertThat(lines)
             .singleElement()
             .satisfies(row -> {
@@ -359,12 +363,12 @@ class TenantSalesChainIsolationTest {
             });
     }
 
-    private void assertDeliverySelectableRemaining(String remainingQty) {
+    private void assertDeliverySelectableRemaining(String noticeNo, String remainingQty) {
         var lines = linesOf(deliveryNoticeAppService.selectableLines(CUSTOMER_CODE));
         assertThat(lines)
             .singleElement()
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo(NOTICE_NO);
+                assertThat(row.get("billNo")).isEqualTo(noticeNo);
                 assertDecimal(row.get("remainingQty"), remainingQty);
             });
     }
@@ -421,6 +425,12 @@ class TenantSalesChainIsolationTest {
 
     private void assertDecimal(Object actual, String expected) {
         assertThat((BigDecimal) actual).isEqualByComparingTo(expected);
+    }
+
+    private String generatedBillNo(Map<String, Object> saved, String label) {
+        var billNo = (String) saved.get("billNo");
+        assertThat(billNo).as(label + "系统生成单号").isNotBlank();
+        return billNo;
     }
 
     private int countCustomersNamed(String name) {

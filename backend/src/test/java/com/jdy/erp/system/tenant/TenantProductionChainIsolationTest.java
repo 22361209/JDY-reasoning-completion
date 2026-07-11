@@ -35,9 +35,6 @@ class TenantProductionChainIsolationTest {
     private static final String DEPARTMENT_CODE = "A119-PROD-DEPT";
     private static final String WAREHOUSE_CODE = "CK-001";
     private static final String BOM_CODE = "BOM-A119-PROD";
-    private static final String PLAN_NO = "A119-PLAN";
-    private static final String ISSUE_NO = "A119-ISSUE";
-    private static final String PRODUCT_IN_NO = "A119-PIN";
 
     @Autowired
     private AccountSetManagementService accountSetManagementService;
@@ -107,43 +104,43 @@ class TenantProductionChainIsolationTest {
         createProductionSetup("A119 账套A母件", "A119 账套A子件", "A119 账套A供应商");
         saveComponentOpeningStock(new BigDecimal("30"));
         createAuditedBom();
-        createPlan(new BigDecimal("5"));
-        assertKitAnalysis("A119 账套A子件", "10.0000", "30.0000", "0.0000");
-        var taskBillNoA = pushDownPlanAndAssertPurchaseRequisition("A119 账套A供应商", "A119 账套A子件", "10.0000");
-        saveAndAuditIssue(taskBillNoA);
+        var planNoA = createPlan(new BigDecimal("5"));
+        assertKitAnalysis(planNoA, "A119 账套A子件", "10.0000", "30.0000", "0.0000");
+        var taskBillNoA = pushDownPlanAndAssertPurchaseRequisition(planNoA, "A119 账套A供应商", "A119 账套A子件", "10.0000");
+        var issueNoA = saveAndAuditIssue(taskBillNoA);
         assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
-        completeFromIssue(new BigDecimal("5"));
+        var productInNoA = completeFromIssue(issueNoA, new BigDecimal("5"));
         assertBalance(PARENT_CODE, "5.0000", "0.0000", "5.0000");
-        assertKitAnalysis("A119 账套A子件", "10.0000", "20.0000", "0.0000");
-        assertListContainsSingle("production-plan-list", "A119 账套A母件", PLAN_NO);
+        assertKitAnalysis(planNoA, "A119 账套A子件", "10.0000", "20.0000", "0.0000");
+        assertListContainsSingle("production-plan-list", "A119 账套A母件", planNoA);
         assertListContainsSingle("production-task-list", taskBillNoA, taskBillNoA);
-        assertListContainsSingle("material-issue-list", ISSUE_NO, ISSUE_NO);
-        assertListContainsSingle("product-in-list", PRODUCT_IN_NO, PRODUCT_IN_NO);
+        assertListContainsSingle("material-issue-list", issueNoA, issueNoA);
+        assertListContainsSingle("product-in-list", productInNoA, productInNoA);
 
         useTenant(tenantB);
         createProductionSetup("A119 账套B母件", "A119 账套B子件", "A119 账套B供应商");
         saveComponentOpeningStock(new BigDecimal("4"));
         createAuditedBom();
-        createPlan(BigDecimal.ONE);
-        assertKitAnalysis("A119 账套B子件", "2.0000", "4.0000", "0.0000");
-        var taskBillNoB = pushDownPlanAndAssertPurchaseRequisition("A119 账套B供应商", "A119 账套B子件", "2.0000");
-        saveAndAuditIssue(taskBillNoB);
+        var planNoB = createPlan(BigDecimal.ONE);
+        assertKitAnalysis(planNoB, "A119 账套B子件", "2.0000", "4.0000", "0.0000");
+        var taskBillNoB = pushDownPlanAndAssertPurchaseRequisition(planNoB, "A119 账套B供应商", "A119 账套B子件", "2.0000");
+        var issueNoB = saveAndAuditIssue(taskBillNoB);
         assertBalance(COMPONENT_CODE, "2.0000", "0.0000", "2.0000");
-        completeFromIssue(BigDecimal.ONE);
+        completeFromIssue(issueNoB, BigDecimal.ONE);
         assertBalance(PARENT_CODE, "1.0000", "0.0000", "1.0000");
         assertThat(countProductsNamed("A119 账套A母件")).isZero();
         assertThat(countProductsNamed("A119 账套A子件")).isZero();
-        assertListContainsSingle("production-plan-list", "A119 账套B母件", PLAN_NO);
+        assertListContainsSingle("production-plan-list", "A119 账套B母件", planNoB);
         assertListContainsSingle("production-task-list", taskBillNoB, taskBillNoB);
 
         useTenant(tenantA);
-        assertKitAnalysis("A119 账套A子件", "10.0000", "20.0000", "0.0000");
+        assertKitAnalysis(planNoA, "A119 账套A子件", "10.0000", "20.0000", "0.0000");
         assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
         assertBalance(PARENT_CODE, "5.0000", "0.0000", "5.0000");
         assertThat(countProductsNamed("A119 账套B母件")).isZero();
         assertThat(countProductsNamed("A119 账套B子件")).isZero();
-        assertListContainsSingle("production-plan-list", "A119 账套A母件", PLAN_NO);
-        assertListContainsSingle("product-in-list", PRODUCT_IN_NO, PRODUCT_IN_NO);
+        assertListContainsSingle("production-plan-list", "A119 账套A母件", planNoA);
+        assertListContainsSingle("product-in-list", productInNoA, productInNoA);
     }
 
     @Test
@@ -153,17 +150,18 @@ class TenantProductionChainIsolationTest {
         createProductionSetup("A119 数量母件", "A119 数量子件", "A119 数量供应商");
         saveComponentOpeningStock(new BigDecimal("30"));
         createAuditedBom();
-        createPlan(new BigDecimal("5"));
-        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition("A119 数量供应商", "A119 数量子件", "10.0000");
+        var planNo = createPlan(new BigDecimal("5"));
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 数量供应商", "A119 数量子件", "10.0000");
 
-        materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
-            ISSUE_NO,
+        var savedIssue = materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
+            null,
             taskBillNo,
             WAREHOUSE_CODE,
             List.of(new MaterialIssueAppService.IssueLineRequest(null, null, COMPONENT_CODE, WAREHOUSE_CODE, new BigDecimal("3")))
         ));
+        var issueNo = generatedBillNo(savedIssue, "生产领料单");
 
-        var detail = materialIssueAppService.detail(ISSUE_NO);
+        var detail = materialIssueAppService.detail(issueNo);
         @SuppressWarnings("unchecked")
         var productInfo = (Map<String, Object>) detail.get("productInfo");
         assertThat(productInfo.get("productCode")).isEqualTo(PARENT_CODE);
@@ -189,14 +187,15 @@ class TenantProductionChainIsolationTest {
         createProductionSetup("A119 重复母件", "A119 重复子件", "A119 重复供应商");
         saveComponentOpeningStock(new BigDecimal("30"));
         createAuditedDuplicateBom();
-        createPlan(BigDecimal.ONE);
-        var result = productionTaskAppService.pushDownPlan(PLAN_NO);
+        var planNo = createPlan(BigDecimal.ONE);
+        var result = productionTaskAppService.pushDownPlan(planNo);
         @SuppressWarnings("unchecked")
         var tasks = (List<Map<String, Object>>) result.get("productionTasks");
         var taskBillNo = String.valueOf(tasks.get(0).get("billNo"));
+        productionTaskAppService.auditTask(taskBillNo);
 
-        materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
-            ISSUE_NO,
+        var savedIssue = materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
+            null,
             taskBillNo,
             WAREHOUSE_CODE,
             List.of(
@@ -204,8 +203,9 @@ class TenantProductionChainIsolationTest {
                 new MaterialIssueAppService.IssueLineRequest(null, 2, COMPONENT_CODE, WAREHOUSE_CODE, new BigDecimal("2"))
             )
         ));
+        var issueNo = generatedBillNo(savedIssue, "生产领料单");
 
-        var detail = materialIssueAppService.detail(ISSUE_NO);
+        var detail = materialIssueAppService.detail(issueNo);
         @SuppressWarnings("unchecked")
         var lines = (List<Map<String, Object>>) detail.get("lines");
         assertThat(lines).hasSize(2);
@@ -223,15 +223,15 @@ class TenantProductionChainIsolationTest {
         createProductionSetup("A119 反审母件", "A119 反审子件", "A119 反审供应商");
         saveComponentOpeningStock(new BigDecimal("30"));
         createAuditedBom();
-        createPlan(new BigDecimal("5"));
-        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition("A119 反审供应商", "A119 反审子件", "10.0000");
+        var planNo = createPlan(new BigDecimal("5"));
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 反审供应商", "A119 反审子件", "10.0000");
 
-        saveAndAuditIssue(taskBillNo);
+        var issueNo = saveAndAuditIssue(taskBillNo);
         assertTaskIssued(taskBillNo, "5.0000", "AUDITED");
         assertTaskSnapshotIssued(taskBillNo, "10.0000");
         assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
 
-        materialIssueAppService.reverse(ISSUE_NO);
+        materialIssueAppService.reverse(issueNo);
 
         assertTaskIssued(taskBillNo, "0.0000", "AUDITED");
         assertTaskSnapshotIssued(taskBillNo, "0.0000");
@@ -371,9 +371,9 @@ class TenantProductionChainIsolationTest {
         productionTaskAppService.auditBom(BOM_CODE);
     }
 
-    private void createPlan(BigDecimal qty) {
-        productionTaskAppService.createPlan(new ProductionTaskAppService.PlanRequest(
-            PLAN_NO,
+    private String createPlan(BigDecimal qty) {
+        var saved = productionTaskAppService.createPlan(new ProductionTaskAppService.PlanRequest(
+            null,
             PARENT_CODE,
             null,
             null,
@@ -382,11 +382,13 @@ class TenantProductionChainIsolationTest {
             null,
             "2026-07-05"
         ));
-        productionTaskAppService.auditPlan(PLAN_NO);
+        var planNo = generatedBillNo(saved, "生产计划");
+        productionTaskAppService.auditPlan(planNo);
+        return planNo;
     }
 
-    private String pushDownPlanAndAssertPurchaseRequisition(String supplierName, String productName, String qty) {
-        var result = productionTaskAppService.pushDownPlan(PLAN_NO);
+    private String pushDownPlanAndAssertPurchaseRequisition(String planNo, String supplierName, String productName, String qty) {
+        var result = productionTaskAppService.pushDownPlan(planNo);
         @SuppressWarnings("unchecked")
         var tasks = (List<Map<String, Object>>) result.get("productionTasks");
         assertThat(tasks).singleElement().satisfies(row -> assertDecimal(row.get("qty"), qty.equals("10.0000") ? "5.0000" : "1.0000"));
@@ -403,30 +405,36 @@ class TenantProductionChainIsolationTest {
                 assertThat(row.get("productName")).isEqualTo(productName);
                 assertDecimal(row.get("remainingQty"), qty);
             });
-        return String.valueOf(tasks.get(0).get("billNo"));
+        var taskBillNo = String.valueOf(tasks.get(0).get("billNo"));
+        productionTaskAppService.auditTask(taskBillNo);
+        return taskBillNo;
     }
 
-    private void saveAndAuditIssue(String taskBillNo) {
-        materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
-            ISSUE_NO,
+    private String saveAndAuditIssue(String taskBillNo) {
+        var saved = materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
+            null,
             taskBillNo,
             WAREHOUSE_CODE,
             List.of(new MaterialIssueAppService.IssueLineRequest(null, null, null, WAREHOUSE_CODE, null))
         ));
-        materialIssueAppService.audit(ISSUE_NO);
+        var issueNo = generatedBillNo(saved, "生产领料单");
+        materialIssueAppService.audit(issueNo);
+        return issueNo;
     }
 
-    private void completeFromIssue(BigDecimal qty) {
-        productInAppService.completeFromIssue(ISSUE_NO, new ProductInAppService.CompleteRequest(
-            PRODUCT_IN_NO,
+    private String completeFromIssue(String issueNo, BigDecimal qty) {
+        var saved = productInAppService.completeFromIssue(issueNo, new ProductInAppService.CompleteRequest(
+            null,
             qty,
             null
         ));
-        productInAppService.audit(PRODUCT_IN_NO);
+        var productInNo = generatedBillNo(saved, "产品入库单");
+        productInAppService.audit(productInNo);
+        return productInNo;
     }
 
-    private void assertKitAnalysis(String productName, String requiredQty, String availableQty, String shortageQty) {
-        var rows = productionTaskAppService.kitAnalysis(PLAN_NO);
+    private void assertKitAnalysis(String planNo, String productName, String requiredQty, String availableQty, String shortageQty) {
+        var rows = productionTaskAppService.kitAnalysis(planNo);
         assertThat(rows)
             .singleElement()
             .satisfies(row -> {
@@ -435,7 +443,7 @@ class TenantProductionChainIsolationTest {
                 assertDecimal(row.get("availableQty"), availableQty);
                 assertDecimal(row.get("shortageQty"), shortageQty);
             });
-        assertListContainsSingleField("kit-analysis-list", productName, "planNo", PLAN_NO);
+        assertListContainsSingleField("kit-analysis-list", productName, "planNo", planNo);
     }
 
     private void assertBalance(String productCode, String onHand, String reserved, String available) {
@@ -522,6 +530,12 @@ class TenantProductionChainIsolationTest {
             ""
         );
         return (List<Map<String, Object>>) payload.get("rows");
+    }
+
+    private String generatedBillNo(Map<String, Object> saved, String label) {
+        var billNo = (String) saved.get("billNo");
+        assertThat(billNo).as(label + "系统生成单号").isNotBlank();
+        return billNo;
     }
 
     private int countProductsNamed(String name) {

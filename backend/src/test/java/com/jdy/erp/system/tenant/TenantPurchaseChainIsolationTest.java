@@ -32,9 +32,6 @@ class TenantPurchaseChainIsolationTest {
     private static final String SUPPLIER_CODE = "A119-SUP";
     private static final String WAREHOUSE_CODE = "CK-001";
     private static final String REQUISITION_NO = "A119-PR";
-    private static final String ORDER_NO = "A119-PO";
-    private static final String IN_NO = "A119-PIN";
-    private static final String RETURN_NO = "A119-PRET";
 
     @Autowired
     private AccountSetManagementService accountSetManagementService;
@@ -102,21 +99,21 @@ class TenantPurchaseChainIsolationTest {
         createAuditedMaterial("A119 账套A采购物料");
         createAuditedPurchaseRequisition(new BigDecimal("12"));
         assertRequisitionSelectable("A119 账套A采购物料", "12.0000");
-        saveAndAuditPurchaseOrder(new BigDecimal("8"));
+        var orderNoA = saveAndAuditPurchaseOrder(new BigDecimal("8"));
         assertRequisitionSelectable("A119 账套A采购物料", "4.0000");
-        assertPurchaseOrderSelectable("A119 账套A采购物料", "0.0000", "8.0000");
-        saveAndAuditPurchaseIn(new BigDecimal("5"));
-        assertPurchaseOrderSelectable("A119 账套A采购物料", "5.0000", "3.0000");
+        assertPurchaseOrderSelectable("A119 账套A采购物料", orderNoA, "0.0000", "8.0000");
+        var inNoA = saveAndAuditPurchaseIn(new BigDecimal("5"), orderNoA);
+        assertPurchaseOrderSelectable("A119 账套A采购物料", orderNoA, "5.0000", "3.0000");
         assertBalance("5.0000", "0.0000", "5.0000");
-        assertReturnSelectable("A119 账套A采购物料", "0.0000", "5.0000");
-        saveAndAuditPurchaseReturn(new BigDecimal("2"));
-        assertReturnSelectable("A119 账套A采购物料", "2.0000", "3.0000");
+        assertReturnSelectable("A119 账套A采购物料", inNoA, "0.0000", "5.0000");
+        var returnNoA = saveAndAuditPurchaseReturn(new BigDecimal("2"), inNoA);
+        assertReturnSelectable("A119 账套A采购物料", inNoA, "2.0000", "3.0000");
         assertBalance("3.0000", "0.0000", "3.0000");
         assertListContainsOnlyTenantSupplier("purchase-requisition-list", "header", "A119 账套A供应商", REQUISITION_NO);
-        assertListContainsOnlyTenantSupplier("purchase-order-form-list", "header", "A119 账套A供应商", ORDER_NO);
-        assertListContainsOnlyTenantSupplier("purchase-order-form-list", "detail", "A119 账套A供应商", ORDER_NO);
-        assertListContainsOnlyTenantSupplier("purchase-in-form-list", "header", "A119 账套A供应商", IN_NO);
-        assertListContainsOnlyTenantSupplier("purchase-return-form-list", "header", "A119 账套A供应商", RETURN_NO);
+        assertListContainsOnlyTenantSupplier("purchase-order-form-list", "header", "A119 账套A供应商", orderNoA);
+        assertListContainsOnlyTenantSupplier("purchase-order-form-list", "detail", "A119 账套A供应商", orderNoA);
+        assertListContainsOnlyTenantSupplier("purchase-in-form-list", "header", "A119 账套A供应商", inNoA);
+        assertListContainsOnlyTenantSupplier("purchase-return-form-list", "header", "A119 账套A供应商", returnNoA);
         assertPurchaseSummary("A119 账套A供应商", "A119 账套A采购物料", "8", "5", "2", "5");
 
         useTenant(tenantB);
@@ -124,20 +121,20 @@ class TenantPurchaseChainIsolationTest {
         createAuditedMaterial("A119 账套B采购物料");
         createAuditedPurchaseRequisition(new BigDecimal("4"));
         assertRequisitionSelectable("A119 账套B采购物料", "4.0000");
-        saveAndAuditPurchaseOrder(new BigDecimal("3"));
+        var orderNoB = saveAndAuditPurchaseOrder(new BigDecimal("3"));
         assertRequisitionSelectable("A119 账套B采购物料", "1.0000");
-        saveAndAuditPurchaseIn(new BigDecimal("1"));
-        assertPurchaseOrderSelectable("A119 账套B采购物料", "1.0000", "2.0000");
+        saveAndAuditPurchaseIn(new BigDecimal("1"), orderNoB);
+        assertPurchaseOrderSelectable("A119 账套B采购物料", orderNoB, "1.0000", "2.0000");
         assertBalance("1.0000", "0.0000", "1.0000");
         assertThat(countSuppliersNamed("A119 账套A供应商")).isZero();
         assertThat(countProductsNamed("A119 账套A采购物料")).isZero();
-        assertListContainsOnlyTenantSupplier("purchase-order-form-list", "header", "A119 账套B供应商", ORDER_NO);
+        assertListContainsOnlyTenantSupplier("purchase-order-form-list", "header", "A119 账套B供应商", orderNoB);
         assertPurchaseSummary("A119 账套B供应商", "A119 账套B采购物料", "3", "1", "0", "2");
 
         useTenant(tenantA);
         assertRequisitionSelectable("A119 账套A采购物料", "4.0000");
-        assertPurchaseOrderSelectable("A119 账套A采购物料", "5.0000", "3.0000");
-        assertReturnSelectable("A119 账套A采购物料", "2.0000", "3.0000");
+        assertPurchaseOrderSelectable("A119 账套A采购物料", orderNoA, "5.0000", "3.0000");
+        assertReturnSelectable("A119 账套A采购物料", inNoA, "2.0000", "3.0000");
         assertBalance("3.0000", "0.0000", "3.0000");
         assertThat(countSuppliersNamed("A119 账套B供应商")).isZero();
         assertThat(countProductsNamed("A119 账套B采购物料")).isZero();
@@ -210,9 +207,9 @@ class TenantPurchaseChainIsolationTest {
             """, requisition.get("id"), warehouseId, qty, productId);
     }
 
-    private void saveAndAuditPurchaseOrder(BigDecimal qty) {
-        purchaseOrderAppService.saveDraft(new PurchaseOrderAppService.PurchaseOrderDraftRequest(
-            ORDER_NO,
+    private String saveAndAuditPurchaseOrder(BigDecimal qty) {
+        var saved = purchaseOrderAppService.saveDraft(new PurchaseOrderAppService.PurchaseOrderDraftRequest(
+            null,
             SUPPLIER_CODE,
             "2026-06-30",
             "采购部",
@@ -231,13 +228,15 @@ class TenantPurchaseChainIsolationTest {
                 "2026-07-05"
             ))
         ));
-        purchaseOrderAppService.audit(ORDER_NO);
+        var billNo = generatedBillNo(saved, "采购订单");
+        purchaseOrderAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditPurchaseIn(BigDecimal qty) {
-        purchaseInAppService.saveDraft(new PurchaseInAppService.PurchaseInDraftRequest(
-            IN_NO,
-            ORDER_NO,
+    private String saveAndAuditPurchaseIn(BigDecimal qty, String orderNo) {
+        var saved = purchaseInAppService.saveDraft(new PurchaseInAppService.PurchaseInDraftRequest(
+            null,
+            orderNo,
             SUPPLIER_CODE,
             "2026-06-30",
             "采购部",
@@ -246,7 +245,7 @@ class TenantPurchaseChainIsolationTest {
                 null,
                 PRODUCT_CODE,
                 WAREHOUSE_CODE,
-                ORDER_NO,
+                orderNo,
                 1,
                 qty,
                 new BigDecimal("10"),
@@ -254,12 +253,14 @@ class TenantPurchaseChainIsolationTest {
                 "A119 purchase in line"
             ))
         ));
-        purchaseInAppService.audit(IN_NO);
+        var billNo = generatedBillNo(saved, "采购入库单");
+        purchaseInAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditPurchaseReturn(BigDecimal qty) {
-        purchaseReturnAppService.saveDraft(new PurchaseReturnAppService.PurchaseReturnDraftRequest(
-            RETURN_NO,
+    private String saveAndAuditPurchaseReturn(BigDecimal qty, String purchaseInNo) {
+        var saved = purchaseReturnAppService.saveDraft(new PurchaseReturnAppService.PurchaseReturnDraftRequest(
+            null,
             SUPPLIER_CODE,
             "2026-06-30",
             "采购部",
@@ -269,7 +270,7 @@ class TenantPurchaseChainIsolationTest {
                 null,
                 PRODUCT_CODE,
                 WAREHOUSE_CODE,
-                IN_NO,
+                purchaseInNo,
                 1,
                 qty,
                 new BigDecimal("10"),
@@ -277,7 +278,9 @@ class TenantPurchaseChainIsolationTest {
                 "A119 purchase return line"
             ))
         ));
-        purchaseReturnAppService.audit(RETURN_NO);
+        var billNo = generatedBillNo(saved, "采购退货单");
+        purchaseReturnAppService.audit(billNo);
+        return billNo;
     }
 
     private void assertRequisitionSelectable(String productName, String remainingQty) {
@@ -291,24 +294,24 @@ class TenantPurchaseChainIsolationTest {
             });
     }
 
-    private void assertPurchaseOrderSelectable(String productName, String receivedQty, String remainingQty) {
+    private void assertPurchaseOrderSelectable(String productName, String orderNo, String receivedQty, String remainingQty) {
         var lines = linesOf(purchaseOrderAppService.selectableLines(SUPPLIER_CODE));
         assertThat(lines)
             .singleElement()
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo(ORDER_NO);
+                assertThat(row.get("billNo")).isEqualTo(orderNo);
                 assertThat(row.get("productName")).isEqualTo(productName);
                 assertDecimal(row.get("receivedQty"), receivedQty);
                 assertDecimal(row.get("remainingQty"), remainingQty);
             });
     }
 
-    private void assertReturnSelectable(String productName, String returnedQty, String remainingQty) {
+    private void assertReturnSelectable(String productName, String purchaseInNo, String returnedQty, String remainingQty) {
         var lines = linesOf(purchaseReturnAppService.selectableLines(SUPPLIER_CODE));
         assertThat(lines)
             .singleElement()
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo(IN_NO);
+                assertThat(row.get("billNo")).isEqualTo(purchaseInNo);
                 assertThat(row.get("productName")).isEqualTo(productName);
                 assertDecimal(row.get("returnedQty"), returnedQty);
                 assertDecimal(row.get("remainingQty"), remainingQty);
@@ -401,6 +404,12 @@ class TenantPurchaseChainIsolationTest {
 
     private void assertDecimal(Object actual, String expected) {
         assertThat((BigDecimal) actual).isEqualByComparingTo(expected);
+    }
+
+    private String generatedBillNo(Map<String, Object> saved, String label) {
+        var billNo = (String) saved.get("billNo");
+        assertThat(billNo).as(label + "系统生成单号").isNotBlank();
+        return billNo;
     }
 
     private int countSuppliersNamed(String name) {

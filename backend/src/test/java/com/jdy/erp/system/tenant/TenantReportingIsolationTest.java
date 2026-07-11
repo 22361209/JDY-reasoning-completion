@@ -40,12 +40,6 @@ class TenantReportingIsolationTest {
     private static final String DEPARTMENT_CODE = "A119-RPT-DEPT";
     private static final String WAREHOUSE_CODE = "CK-001";
     private static final String BOM_CODE = "BOM-A119-RPT";
-    private static final String SALES_ORDER_NO = "A119-RPT-SO";
-    private static final String DELIVERY_NOTICE_NO = "A119-RPT-DN";
-    private static final String SALES_OUT_NO = "A119-RPT-SOUT";
-    private static final String PURCHASE_ORDER_NO = "A119-RPT-PO";
-    private static final String PURCHASE_IN_NO = "A119-RPT-PIN";
-    private static final String PLAN_NO = "A119-RPT-PLAN";
 
     @Autowired
     private AccountSetManagementService accountSetManagementService;
@@ -186,14 +180,14 @@ class TenantReportingIsolationTest {
         saveOpeningStock(PARENT_CODE, parentOpeningQty);
         saveOpeningStock(COMPONENT_CODE, componentOpeningQty);
         saveStockAlertSetting(safetyQty, maxQty);
-        saveAndAuditSalesOrder(salesQty);
-        saveAndAuditDeliveryNotice(salesQty);
-        saveAndAuditSalesOut(salesQty);
-        saveAndAuditPurchaseOrder(purchaseOrderQty);
-        saveAndAuditPurchaseIn(purchaseInQty);
+        var salesOrderNo = saveAndAuditSalesOrder(salesQty);
+        var deliveryNoticeNo = saveAndAuditDeliveryNotice(salesQty, salesOrderNo);
+        var salesOutNo = saveAndAuditSalesOut(salesQty, deliveryNoticeNo);
+        var purchaseOrderNo = saveAndAuditPurchaseOrder(purchaseOrderQty);
+        var purchaseInNo = saveAndAuditPurchaseIn(purchaseInQty, purchaseOrderNo);
         createAuditedBom();
-        createPlan(planQty);
-        var taskBillNo = pushDownPlan();
+        var planNo = createPlan(planQty);
+        var taskBillNo = pushDownPlan(planNo);
         savePrintTemplate(companyName);
         return new ReportState(
             customerName,
@@ -201,6 +195,9 @@ class TenantReportingIsolationTest {
             parentName,
             componentName,
             companyName,
+            salesOrderNo,
+            salesOutNo,
+            purchaseInNo,
             taskBillNo,
             parentOpeningQty.subtract(salesQty),
             componentOpeningQty.add(purchaseInQty),
@@ -304,9 +301,9 @@ class TenantReportingIsolationTest {
             """, safetyQty, maxQty, WAREHOUSE_CODE, COMPONENT_CODE);
     }
 
-    private void saveAndAuditSalesOrder(BigDecimal qty) {
-        salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
-            SALES_ORDER_NO,
+    private String saveAndAuditSalesOrder(BigDecimal qty) {
+        var saved = salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
+            null,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -327,13 +324,15 @@ class TenantReportingIsolationTest {
                 "2026-07-05"
             ))
         ));
-        salesOrderAppService.audit(SALES_ORDER_NO);
+        var billNo = generatedBillNo(saved, "销售订单");
+        salesOrderAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditDeliveryNotice(BigDecimal qty) {
-        deliveryNoticeAppService.saveDraft(new DeliveryNoticeAppService.DeliveryNoticeDraftRequest(
-            DELIVERY_NOTICE_NO,
-            SALES_ORDER_NO,
+    private String saveAndAuditDeliveryNotice(BigDecimal qty, String salesOrderNo) {
+        var saved = deliveryNoticeAppService.saveDraft(new DeliveryNoticeAppService.DeliveryNoticeDraftRequest(
+            null,
+            salesOrderNo,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -343,7 +342,7 @@ class TenantReportingIsolationTest {
                 null,
                 PARENT_CODE,
                 WAREHOUSE_CODE,
-                SALES_ORDER_NO,
+                salesOrderNo,
                 1,
                 qty,
                 new BigDecimal("15"),
@@ -354,13 +353,15 @@ class TenantReportingIsolationTest {
                 "2026-07-05"
             ))
         ));
-        deliveryNoticeAppService.audit(DELIVERY_NOTICE_NO);
+        var billNo = generatedBillNo(saved, "发货通知单");
+        deliveryNoticeAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditSalesOut(BigDecimal qty) {
-        salesOutAppService.saveDraft(new SalesOutAppService.SalesOutDraftRequest(
-            SALES_OUT_NO,
-            DELIVERY_NOTICE_NO,
+    private String saveAndAuditSalesOut(BigDecimal qty, String deliveryNoticeNo) {
+        var saved = salesOutAppService.saveDraft(new SalesOutAppService.SalesOutDraftRequest(
+            null,
+            deliveryNoticeNo,
             CUSTOMER_CODE,
             "2026-06-30",
             "销售部",
@@ -372,7 +373,7 @@ class TenantReportingIsolationTest {
                 WAREHOUSE_CODE,
                 null,
                 null,
-                DELIVERY_NOTICE_NO,
+                deliveryNoticeNo,
                 1,
                 qty,
                 new BigDecimal("15"),
@@ -383,12 +384,14 @@ class TenantReportingIsolationTest {
                 "2026-07-05"
             ))
         ));
-        salesOutAppService.audit(SALES_OUT_NO);
+        var billNo = generatedBillNo(saved, "销售出库单");
+        salesOutAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditPurchaseOrder(BigDecimal qty) {
-        purchaseOrderAppService.saveDraft(new PurchaseOrderAppService.PurchaseOrderDraftRequest(
-            PURCHASE_ORDER_NO,
+    private String saveAndAuditPurchaseOrder(BigDecimal qty) {
+        var saved = purchaseOrderAppService.saveDraft(new PurchaseOrderAppService.PurchaseOrderDraftRequest(
+            null,
             SUPPLIER_CODE,
             "2026-06-30",
             "采购部",
@@ -407,13 +410,15 @@ class TenantReportingIsolationTest {
                 "2026-07-05"
             ))
         ));
-        purchaseOrderAppService.audit(PURCHASE_ORDER_NO);
+        var billNo = generatedBillNo(saved, "采购订单");
+        purchaseOrderAppService.audit(billNo);
+        return billNo;
     }
 
-    private void saveAndAuditPurchaseIn(BigDecimal qty) {
-        purchaseInAppService.saveDraft(new PurchaseInAppService.PurchaseInDraftRequest(
-            PURCHASE_IN_NO,
-            PURCHASE_ORDER_NO,
+    private String saveAndAuditPurchaseIn(BigDecimal qty, String purchaseOrderNo) {
+        var saved = purchaseInAppService.saveDraft(new PurchaseInAppService.PurchaseInDraftRequest(
+            null,
+            purchaseOrderNo,
             SUPPLIER_CODE,
             "2026-06-30",
             "采购部",
@@ -422,7 +427,7 @@ class TenantReportingIsolationTest {
                 null,
                 COMPONENT_CODE,
                 WAREHOUSE_CODE,
-                PURCHASE_ORDER_NO,
+                purchaseOrderNo,
                 1,
                 qty,
                 new BigDecimal("10"),
@@ -430,7 +435,9 @@ class TenantReportingIsolationTest {
                 "A119 reporting purchase in line"
             ))
         ));
-        purchaseInAppService.audit(PURCHASE_IN_NO);
+        var billNo = generatedBillNo(saved, "采购入库单");
+        purchaseInAppService.audit(billNo);
+        return billNo;
     }
 
     private void createAuditedBom() {
@@ -456,9 +463,9 @@ class TenantReportingIsolationTest {
         productionTaskAppService.auditBom(BOM_CODE);
     }
 
-    private void createPlan(BigDecimal qty) {
-        productionTaskAppService.createPlan(new ProductionTaskAppService.PlanRequest(
-            PLAN_NO,
+    private String createPlan(BigDecimal qty) {
+        var saved = productionTaskAppService.createPlan(new ProductionTaskAppService.PlanRequest(
+            null,
             PARENT_CODE,
             null,
             null,
@@ -467,11 +474,13 @@ class TenantReportingIsolationTest {
             null,
             "2026-07-05"
         ));
-        productionTaskAppService.auditPlan(PLAN_NO);
+        var planNo = generatedBillNo(saved, "生产计划");
+        productionTaskAppService.auditPlan(planNo);
+        return planNo;
     }
 
-    private String pushDownPlan() {
-        var result = productionTaskAppService.pushDownPlan(PLAN_NO);
+    private String pushDownPlan(String planNo) {
+        var result = productionTaskAppService.pushDownPlan(planNo);
         @SuppressWarnings("unchecked")
         var tasks = (List<Map<String, Object>>) result.get("productionTasks");
         assertThat(tasks).singleElement();
@@ -535,12 +544,12 @@ class TenantReportingIsolationTest {
             });
         assertThat(singleRow("receivable-list", state.customerName()))
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo("YS-" + SALES_OUT_NO);
+                assertThat(row.get("billNo")).isEqualTo("YS-" + state.salesOutNo());
                 assertThat(row.get("customer")).isEqualTo(state.customerName());
             });
         assertThat(singleRow("payable-list", state.supplierName()))
             .satisfies(row -> {
-                assertThat(row.get("billNo")).isEqualTo("YF-" + PURCHASE_IN_NO);
+                assertThat(row.get("billNo")).isEqualTo("YF-" + state.purchaseInNo());
                 assertThat(row.get("supplier")).isEqualTo(state.supplierName());
             });
         assertListExportContainsOnlyTenant("purchase-summary-report", state.supplierName(), state.componentName());
@@ -599,14 +608,14 @@ class TenantReportingIsolationTest {
     }
 
     private void assertDocumentOutput(ReportState state) {
-        var html = documentOutputController.printHtml("sales-order", SALES_ORDER_NO).getBody();
+        var html = documentOutputController.printHtml("sales-order", state.salesOrderNo()).getBody();
         assertThat(html)
             .contains(state.companyName())
             .contains(state.customerName())
             .contains(state.parentName())
             .doesNotContain(oppositeMarker(state.companyName()))
             .doesNotContain(oppositeMarker(state.customerName()));
-        var csv = documentOutputController.exportCsv("sales-order", SALES_ORDER_NO).getBody();
+        var csv = documentOutputController.exportCsv("sales-order", state.salesOrderNo()).getBody();
         assertThat(csv)
             .contains(state.customerName())
             .contains(state.parentName())
@@ -638,6 +647,12 @@ class TenantReportingIsolationTest {
         return value.stripTrailingZeros().toPlainString();
     }
 
+    private String generatedBillNo(Map<String, Object> saved, String label) {
+        var billNo = (String) saved.get("billNo");
+        assertThat(billNo).as(label + "系统生成单号").isNotBlank();
+        return billNo;
+    }
+
     private String quoteIdentifier(String identifier) {
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
@@ -648,6 +663,9 @@ class TenantReportingIsolationTest {
         String parentName,
         String componentName,
         String companyName,
+        String salesOrderNo,
+        String salesOutNo,
+        String purchaseInNo,
         String taskBillNo,
         BigDecimal parentAvailable,
         BigDecimal componentAvailable,

@@ -33,7 +33,7 @@ class MasterDataReferenceIntegrationTest {
             Map.entry("unit", "只"),
             Map.entry("defaultWarehouseCode", "CK-001"),
             Map.entry("defaultSupplierCode", "GYS-001"),
-            Map.entry("defaultWorkshop", "生产部"),
+            Map.entry("defaultWorkshop", "CY"),
             Map.entry("isSale", "true"),
             Map.entry("isInventory", "true"),
             Map.entry("isProduce", "true")
@@ -59,7 +59,7 @@ class MasterDataReferenceIntegrationTest {
             .containsEntry("unit_code", "只")
             .containsEntry("warehouse_code", "CK-001")
             .containsEntry("supplier_code", "GYS-001")
-            .containsEntry("workshop_name", "生产部");
+            .containsEntry("workshop_name", "冲压车间");
 
         controller.audit("product", code);
 
