@@ -6,7 +6,7 @@
 
 1. `CLAUDE.md`：铁律、生成链、禁止事项。
 2. `docs/09-交接清单.md`：当前批次、服务地址、最近测试和下一步。
-3. `docs/12-当前批次验收清单.md`：当前批次验收项和批次坐标。
+3. `docs/12-当前批次验收清单.md`：唯一当前任务包，包含 base commit、允许路径、明确不做事项、待决项和验收门禁。
 4. 当前任务涉及的代码文件与对应 `复刻-local` 截图/规格。
 
 不要每次重读全部文档；按任务读取相关文件。
@@ -69,7 +69,11 @@
 | `scripts/helpers/` | 回归脚本共享辅助 | 新交互不要复制粘贴到每个脚本 |
 | `docs/` | 手维护文档和生成文档 | `docs/01/02/03` 是生成物，别手改 |
 | `docs/验收报告/` | 已完成批次报告 | 根目录不要散落验收报告 |
-| `config/` | 审批范围和实施例外 | 改范围例外走 `implementation-overrides.json` |
+| `config/approved-feature-scope.json` | 原始审批快照 | 生成物，不应用实施 override，不手改 |
+| `config/implementation-overrides.json` | 人工实施差异 | 唯一人工范围差异入口 |
+| `config/effective-feature-scope.json` | 当前有效范围 | 由 approved + overrides 生成，不手改 |
+| `config/feature-delivery-status.json` | A0-A4 交付状态 | 只引用 effective scope ID；缺证据必须保守标记 |
+| `config/regression-manifest.json` | smoke / area / full 清单 | 所有回归脚本必须登记或显式豁免 |
 | `outputs/` | 用户审批 Excel 输入 | 路径被生成脚本依赖，不改名 |
 | `verification/` | 本地临时验证产物 | 默认不进 Git，长期证据写入验收报告 |
 
@@ -78,13 +82,14 @@
 禁止手改：
 
 - `config/approved-feature-scope.json`
+- `config/effective-feature-scope.json`
 - `docs/01-审批结果复刻范围.md`
 - `docs/02-第一版模块边界.md`
 - `docs/03-开发执行顺序.md`
 - `frontend/src/app/featureScope.ts`
 - `app/feature-data.js`
 
-范围例外只改 `config/implementation-overrides.json`，再按 `CLAUDE.md` 的生成链重跑。绝不重跑退役的 `build-jdy-feature-approval.mjs`。
+范围例外只改 `config/implementation-overrides.json`，再按 `CLAUDE.md` 的生成链重跑。`config/feature-delivery-status.json` 和 `config/regression-manifest.json` 是手维护治理配置，但不得反向改变有效范围。绝不重跑退役的 `build-jdy-feature-approval.mjs`。
 
 ## 规则入口
 
@@ -117,6 +122,10 @@
 ./scripts/dev-down.sh
 npm --prefix frontend run build
 ./scripts/backend-test.sh
+node scripts/effective-scope-contract-check.mjs
+node scripts/feature-delivery-status-scan.mjs
+node scripts/validate-regression-manifest.mjs
+node scripts/run-regression-tier.mjs full --list
 node scripts/run-regression-tier.mjs smoke
 node scripts/run-regression-tier.mjs area:sales
 node scripts/run-regression-tier.mjs full

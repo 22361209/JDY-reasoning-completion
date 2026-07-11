@@ -25,7 +25,7 @@
 
 - 新接手、不熟目录、或不确定规则放在哪里时，读 `docs/guides/repository-map.md`；业务规则和动作按钮规则也从该文件跳转。
 - 改功能、逻辑、规则、机制或动作前，先扫是否已有复用点：`docs/guides/*`（规则口径）、`scripts/helpers/*`（回归动作）、`frontend/src/components` 与模块 composable（产品范式）。能复用先复用；需要新机制时先沉淀共享层，再改具体入口。
-- 范围以 `config/approved-feature-scope.json` + `config/implementation-overrides.json` 为准，别擅自扩范围。
+- 执行范围以生成物 `config/effective-feature-scope.json` 为准；它必须且只能由原始审批快照 `config/approved-feature-scope.json` + 手维护 `config/implementation-overrides.json` 推导，别手改生成物或擅自扩范围。
 - 验收 = 业务逻辑门禁（`docs/11`）+ 对照截图的视觉相似度。
 - 收尾覆盖更新 `docs/09` 快照。
 
@@ -39,7 +39,7 @@ node scripts/run-regression-tier.mjs area:sales
 node scripts/run-regression-tier.mjs full
 ```
 
-结果统一写入 `verification/regression-tier-<tier>-latest.json`。`full` 复用当前累积全量脚本清单；`area:<module>` 会自动包含 smoke。
+结果统一写入 `verification/regression-tier-<tier>-latest.json`。smoke / area / full 清单统一来自受版本控制的 `config/regression-manifest.json`；`area:<module>` 会自动包含 smoke。新增、删除或豁免回归脚本必须在同一提交更新 manifest，不得再从 ignored `verification/` 读取清单。
 
 每批按改动性质选档：
 
@@ -53,19 +53,21 @@ node scripts/run-regression-tier.mjs full
 
 ## 注意（生成产物会回滚，别手改）
 
-生成链：`xlsx → export-approved-scope.mjs → config + docs/01/02/03 → build-app-data.mjs / generate-frontend-scope.mjs`
+生成链：`xlsx → export-approved-scope.mjs → approved 原始快照`；`approved + implementation-overrides → effective 执行快照 + docs/01/02/03 → generate-frontend-scope.mjs`；退役中的静态工作台仍按需单独运行 `build-app-data.mjs`
 
 | 文件 | 由谁生成 | 规则 |
 | --- | --- | --- |
 | `outputs/.../JDY复刻功能审批表.xlsx` | `build-jdy-feature-approval.mjs` | ⚠️ **绝不要重跑此脚本**。它只生成「空白审批模板」，会抹掉用户手填的「你的审批」列并静默改范围。脚本已加防覆盖闸（FORCE_REGEN=1 才覆盖）。该脚本视为退役。 |
 | `config/approved-feature-scope.json` | `export-approved-scope.mjs`（只读 xlsx 原始审批） | 生成物，别手改；它是原始审批快照，不应用 overrides |
-| `docs/01 / 02 / 03` | `export-approved-scope.mjs`（读 xlsx + implementation-overrides） | 生成物，改要改脚本模板/overrides 再 `node export-approved-scope.mjs` |
+| `config/effective-feature-scope.json` | 共享 scope 推导 helper（读 approved + implementation-overrides） | 生成物，别手改；正式执行范围和前端生成都以此推导结果为准 |
+| `docs/01 / 02 / 03` | `export-approved-scope.mjs`（读 approved + implementation-overrides 的有效结果） | 生成物，改要改脚本模板/overrides 再 `node export-approved-scope.mjs` |
 | `app/feature-data.js` | `build-app-data.mjs` | 生成物，别手改 |
-| `frontend/src/app/featureScope.ts` | `generate-frontend-scope.mjs` | ⚠️ 在 frontend 源码树里但是**生成物**，开工后别手改，改 overrides 再重跑 |
+| `frontend/src/app/featureScope.ts` | `generate-frontend-scope.mjs` | ⚠️ 在 frontend 源码树里但是**生成物**；脚本同时刷新 effective scope，开工后别手改，改 overrides 再重跑 |
 
 - 范围的实施例外（如某功能后置）走 `config/implementation-overrides.json`，然后按顺序重跑：
-  1. `node export-approved-scope.mjs`（更新 `docs/01/02/03`）
-  2. `node generate-frontend-scope.mjs`（更新正式前端 `frontend/src/app/featureScope.ts`）
-  3. 可选：`node build-app-data.mjs`（更新退役中的静态范围工作台 `app/feature-data.js`）
+  1. `node export-approved-scope.mjs`（更新 effective scope 与 `docs/01/02/03`；xlsx 未变时保留原始审批快照时间）
+  2. `node generate-frontend-scope.mjs`（按同一共享推导刷新 effective scope 与正式前端 `frontend/src/app/featureScope.ts`）
+  3. `node scripts/effective-scope-contract-check.mjs`（确认 effective scope 与两个输入逐字节一致）
+  4. 可选：`node build-app-data.mjs`（更新退役中的静态范围工作台 `app/feature-data.js`）
 - 绝不重跑 `build-jdy-feature-approval.mjs`，除非明确要用 `FORCE_REGEN=1` 重建空白审批模板。
-- 手维护安全文件：`docs/00/04/05/06/07/08/09/10/11`、`README.md`、`CLAUDE.md`、`config/implementation-overrides.json`、四个 `.mjs` 脚本本身。
+- 手维护安全文件：`docs/00/04/05/06/07/08/09/10/11`、`README.md`、`CLAUDE.md`、`config/implementation-overrides.json`、`config/feature-delivery-status.json`、`config/regression-manifest.json` 和相关生成/门禁脚本。`config/effective-feature-scope.json` 仍是生成物，不在手维护清单内。

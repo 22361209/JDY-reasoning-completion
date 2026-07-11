@@ -9,9 +9,9 @@
 
 ## 当前阶段
 
-- 已完成：功能范围审批表、审批结果结构化配置、接手文档、静态范围工作台。
-- 下一步：搭建正式工程骨架，技术路线为 `Java Spring Boot 模块化单体 + Vue 3 + PostgreSQL`。
-- 落地批次采用 复刻-local 的 B0-B6，先 B0/B1/B3 固化范式，再用 B2 单据引擎打通第一条库存/资金闭环，详见 `docs/03-开发执行顺序.md`。
+- 正式工程已经落地为 `Java 21 + Spring Boot 模块化单体 + Vue 3 + PostgreSQL + Redis`，销售、采购、库存、生产、委外、多账套等已有不同程度实现；实际完成度不能再由菜单或历史批次推断。
+- 项目已建立防偏移治理基线：有效范围、A0-A4 交付状态和 smoke/area/full 回归清单均为可机器校验的版本控制产物；具体当前批次不在 README 固化。
+- 当前实时状态、已知失败和唯一下一步以 `docs/09-交接清单.md` 为准；当前任务允许路径、明确不做事项和验收门禁以 `docs/12-当前批次验收清单.md` 为准。
 
 ## 快速入口
 
@@ -29,10 +29,13 @@
 | `docs/09-交接清单.md` | 每次交接和阶段收尾必须更新的内容 |
 | `docs/10-前端体验与视觉规范.md` | 金蝶式产品前台的视觉、交互和手感标准 |
 | `docs/11-验收标准与测试门禁.md` | 功能、数据、前端体验和交接验收标准 |
-| `docs/12-当前批次验收清单.md` | 当前批次（B0…）的逐项验收清单，随批次覆盖更新 |
+| `docs/12-当前批次验收清单.md` | 唯一当前任务包，随批次覆盖更新并在换批时归档 |
 | `docs/12-本地开发启动说明.md` | 本地启动 PostgreSQL、Redis、后端和前端 |
-| `config/approved-feature-scope.json` | Excel 审批结果的机器可读版本 |
-| `config/implementation-overrides.json` | 审批后因架构依赖调整实施顺序的覆盖规则 |
+| `config/approved-feature-scope.json` | Excel 原始审批快照，生成物，不应用实施 override |
+| `config/implementation-overrides.json` | 唯一人工范围差异入口 |
+| `config/effective-feature-scope.json` | 原始审批与 override 推导出的当前有效范围，生成物 |
+| `config/feature-delivery-status.json` | 按 scope ID 记录 A0-A4、能力、证据和已知缺口 |
+| `config/regression-manifest.json` | 受版本控制的 smoke / area / full 回归清单 |
 | `outputs/jdy-feature-approval/JDY复刻功能审批表.xlsx` | 用户填写过的审批 Excel |
 
 ## 静态范围工作台
@@ -91,3 +94,16 @@ http://127.0.0.1:5088/
 ```
 
 日志默认写入 `verification/logs/`。
+
+## 项目门禁
+
+治理与清单检查不需要启动浏览器：
+
+```bash
+node scripts/effective-scope-contract-check.mjs
+node scripts/feature-delivery-status-scan.mjs
+node scripts/validate-regression-manifest.mjs
+node scripts/run-regression-tier.mjs full --list
+```
+
+行为回归仍按改动类型执行 `smoke`、`area:<module>` 或 `full`。运行结果写入 ignored `verification/`，验收结论写入 `docs/验收报告/`；不得再用 ignored 文件充当 full 的清单来源。

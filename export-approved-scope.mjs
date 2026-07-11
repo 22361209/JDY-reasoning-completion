@@ -1,12 +1,50 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { FileBlob, SpreadsheetFile } from "@oai/artifact-tool";
+import {
+  deriveEffectiveFeatureScope,
+  readJsonFile,
+  reconcileApprovedFeatureIds,
+  writeEffectiveFeatureScope,
+} from "./scripts/helpers/effective-feature-scope.mjs";
 
-const workbookPath = "/Users/linzhenyue/Projects/JDY 推理补完/outputs/jdy-feature-approval/JDY复刻功能审批表.xlsx";
+const rootDir = import.meta.dirname;
+const args = process.argv.slice(2);
+const dryRun = args.includes("--dry-run");
+const unknownArgs = args.filter((arg) => arg !== "--dry-run");
+if (unknownArgs.length > 0) {
+  throw new Error(`未知参数：${unknownArgs.join(", ")}。仅支持 --dry-run。`);
+}
+const workbookPath = path.join(rootDir, "outputs/jdy-feature-approval/JDY复刻功能审批表.xlsx");
+const approvedScopePath = path.join(rootDir, "config/approved-feature-scope.json");
+const implementationOverridesPath = path.join(rootDir, "config/implementation-overrides.json");
+const effectiveScopePath = path.join(rootDir, "config/effective-feature-scope.json");
 const input = await FileBlob.load(workbookPath);
 const workbook = await SpreadsheetFile.importXlsx(input);
 const sheet = workbook.worksheets.getItem("功能审批");
-const values = sheet.getRange("A1:I112").values;
+const values = sheet.getUsedRange().values;
 const headers = values[0];
+const requiredHeaders = [
+  "模块",
+  "功能",
+  "功能说明",
+  "我的建议",
+  "你的审批",
+  "优先级",
+  "建议版本",
+  "备注",
+  "推理补完方式",
+];
+const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
+if (missingHeaders.length > 0) {
+  throw new Error(`功能审批工作表缺少列：${missingHeaders.join(", ")}`);
+}
+const duplicateHeaders = headers.filter((header, index) => (
+  header && headers.indexOf(header) !== index
+));
+if (duplicateHeaders.length > 0) {
+  throw new Error(`功能审批工作表存在重复列：${[...new Set(duplicateHeaders)].join(", ")}`);
+}
 
 const records = values
   .slice(1)
@@ -24,17 +62,9 @@ const approvalRank = {
   "不建议做": "exclude",
 };
 
-let implementationOverrides = { overrides: {} };
-try {
-  implementationOverrides = JSON.parse(
-    await fs.readFile("/Users/linzhenyue/Projects/JDY 推理补完/config/implementation-overrides.json", "utf8"),
-  );
-} catch {
-  implementationOverrides = { overrides: {} };
-}
+const implementationOverrides = await readJsonFile(implementationOverridesPath, "实施 overrides");
 
-const normalized = records.map((item, index) => ({
-  id: `F${String(index + 1).padStart(3, "0")}`,
+const candidateFeatures = records.map((item) => ({
   module: item["模块"],
   feature: item["功能"],
   description: item["功能说明"],
@@ -47,13 +77,29 @@ const normalized = records.map((item, index) => ({
   inferenceMode: item["推理补完方式"],
 }));
 
-const implementationFeatures = normalized.map((item) => ({
-  ...item,
-  ...(implementationOverrides.overrides[item.id] || {}),
-  originalApproval: item.approval,
-  originalDecision: item.decision,
-  originalTargetVersion: item.targetVersion,
-}));
+// 现有 approved scope 是 F ID 的身份注册表；没有它就不允许按行号静默重建 ID。
+const existingApprovedScope = await readJsonFile(approvedScopePath, "现有原始审批范围");
+const normalized = reconcileApprovedFeatureIds({
+  existingFeatures: existingApprovedScope.features,
+  candidateFeatures,
+});
+const approvedScopeChanged = (
+  JSON.stringify(existingApprovedScope.features) !== JSON.stringify(normalized)
+);
+const approvedScope = approvedScopeChanged
+  ? {
+      ...existingApprovedScope,
+      source: existingApprovedScope.source ?? workbookPath,
+      generatedAt: new Date().toISOString(),
+      features: normalized,
+    }
+  : existingApprovedScope;
+
+const effectiveScope = deriveEffectiveFeatureScope({
+  approvedScope,
+  implementationOverrides,
+});
+const implementationFeatures = effectiveScope.features;
 
 const byDecision = normalized.reduce((acc, item) => {
   acc[item.decision] ||= [];
@@ -76,10 +122,13 @@ const later = implementationFeatures.filter((item) => item.decision === "later" 
 const excluded = implementationFeatures.filter((item) => item.decision === "exclude");
 const overrideLater = implementationFeatures.filter((item) => item.originalDecision !== item.decision && item.decision === "later");
 
-await fs.writeFile(
-  "/Users/linzhenyue/Projects/JDY 推理补完/config/approved-feature-scope.json",
-  `${JSON.stringify({ source: workbookPath, generatedAt: new Date().toISOString(), features: normalized }, null, 2)}\n`,
-);
+if (!dryRun) {
+  await fs.writeFile(
+    approvedScopePath,
+    `${JSON.stringify(approvedScope, null, 2)}\n`,
+  );
+  await writeEffectiveFeatureScope(effectiveScopePath, effectiveScope);
+}
 
 function featureList(items) {
   return items.map((item) => `- ${item.module} / ${item.feature}: ${item.approval} (${item.priority}, ${item.targetVersion})`).join("\n");
@@ -132,7 +181,9 @@ ${scopeFeatureList(later)}
 ${scopeFeatureList(excluded)}
 `;
 
-await fs.writeFile("/Users/linzhenyue/Projects/JDY 推理补完/docs/01-审批结果复刻范围.md", scopeMd);
+if (!dryRun) {
+  await fs.writeFile(path.join(rootDir, "docs/01-审批结果复刻范围.md"), scopeMd);
+}
 
 const moduleMd = `# 审批后模块边界
 
@@ -165,7 +216,9 @@ ${featureList(excludeItems) || "- 无"}`;
   .join("\n\n")}
 `;
 
-await fs.writeFile("/Users/linzhenyue/Projects/JDY 推理补完/docs/02-第一版模块边界.md", moduleMd);
+if (!dryRun) {
+  await fs.writeFile(path.join(rootDir, "docs/02-第一版模块边界.md"), moduleMd);
+}
 
 const devPlanMd = `# 开发执行顺序
 
@@ -173,7 +226,7 @@ const devPlanMd = `# 开发执行顺序
 
 - 本仓库是 \`JDY-复刻-local\` 的落地实现。开发批次、页面范式、组件、验收**以 \`JDY-复刻-local/02_复刻规划\` 为准**，本文只做实现层补充，不复述规格。
 - 执行批次采用 复刻-local 的 **B0-B6**，详见 \`JDY-复刻-local/02_复刻规划/首版页面实现批次与组件复用矩阵-1880收口版.md\`。
-- 范围过滤（建哪些入口）见 \`docs/01-审批结果复刻范围.md\` + \`config/approved-feature-scope.json\`。
+- 范围过滤（建哪些入口）见 \`docs/01-审批结果复刻范围.md\` + \`config/effective-feature-scope.json\`；原始审批快照仍保留在 \`config/approved-feature-scope.json\`。
 - 架构与数据底线见 \`docs/04\`、\`docs/06\`、\`docs/07\`。
 
 ## 批次落地顺序（对齐 复刻-local 实现顺序）
@@ -195,9 +248,13 @@ ${overrideLater.length ? `
 ${overrideLater.map((item) => `- ${item.module} / ${item.feature}：${item.note}`).join("\n")}
 ` : ""}`;
 
-await fs.writeFile("/Users/linzhenyue/Projects/JDY 推理补完/docs/03-开发执行顺序.md", devPlanMd);
+if (!dryRun) {
+  await fs.writeFile(path.join(rootDir, "docs/03-开发执行顺序.md"), devPlanMd);
+}
 
 console.log(JSON.stringify({
+  dryRun,
+  approvedScopeChanged,
   total: normalized.length,
   build: byDecision.build?.length ?? 0,
   simple: byDecision.simple?.length ?? 0,

@@ -1,0 +1,2125 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-12",
+  "source": {
+    "effectiveScope": "config/effective-feature-scope.json"
+  },
+  "catalogExceptions": [
+    {
+      "catalogEntryId": "delivery-notice-form",
+      "disposition": "pending_scope_decision",
+      "reason": "发货通知已有实现但原审批表没有 scope ID；A130 不新增范围，待用户确认 addition 后再由正式 scope 认领。"
+    },
+    {
+      "catalogEntryId": "purchase-requisition-list",
+      "disposition": "excluded_scope_pending_decision",
+      "reason": "采购申请对应 F031，但原审批 decision=exclude 且当前已有入口；待用户确认保留或退役，不能临时映射到其他 scope。"
+    },
+    {
+      "catalogEntryId": "opening-stock-settings",
+      "disposition": "platform_support_entry",
+      "reason": "库存期初是多账套初始化和库存基线工具，原审批没有独立功能项；本次不把它并入库存查询或新增 scope。"
+    },
+    {
+      "catalogEntryId": "outsourcing-scrap-list",
+      "disposition": "unapproved_implementation_entry",
+      "reason": "原审批委外范围没有委外产品报废独立功能项；现有入口保守登记为未归属实现，后续需单独确认范围。"
+    },
+    {
+      "catalogEntryId": "account-set-settings",
+      "disposition": "platform_support_entry",
+      "reason": "账套管理是多账套平台运维入口，原审批没有独立功能项，且不应借用系统参数 scope 认领。"
+    },
+    {
+      "catalogEntryId": "notification-provider-settings",
+      "disposition": "implementation_support_entry",
+      "reason": "通知供应商配置不等同 F102 消息预警设置，原审批没有独立功能项；保守登记而不改变范围。"
+    },
+    {
+      "catalogEntryId": "quick-sales-shell",
+      "disposition": "workbench_shell_entry",
+      "reason": "销售快速发起是 F001 首页工作台的导航壳层派生，不作为独立批准功能或新增 scope。"
+    },
+    {
+      "catalogEntryId": "quick-purchase-shell",
+      "disposition": "workbench_shell_entry",
+      "reason": "采购快速发起是 F001 首页工作台的导航壳层派生，不作为独立批准功能或新增 scope。"
+    }
+  ],
+  "semantics": {
+    "state": {
+      "verified": "现有验收报告足以支撑所列等级，但仍不得超出 knownGaps 声明的边界。",
+      "unverified": "代码或入口可能存在，但尚未按当前标准复核；不是未开始，也不能计作已交付。",
+      "not_started": "已确认尚未开始，且没有交付证据。",
+      "deferred": "由有效范围决定后置或可选，不进入当前交付门禁。"
+    },
+    "exposure": {
+      "published": "已达到当前公开入口最低门槛。",
+      "hold": "入口可能已存在，但当前不得计作可发布；必须隐藏或补齐门禁。",
+      "hidden": "当前不应公开入口。",
+      "deferred": "随有效范围后置。"
+    }
+  },
+  "features": [
+    {
+      "id": "F001",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "published",
+      "surface": "global",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-B0-页面外壳-20260623.md"
+      ],
+      "knownGaps": [
+        "当前只验证快捷入口壳层；待办、经营卡片和预警仍未形成真实业务聚合。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F002",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "global",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-B0-页面外壳-20260623.md",
+        "docs/验收报告/验收报告-A55-权限驱动前端入口与动作-20260624.md"
+      ],
+      "knownGaps": [
+        "菜单权限已有证据；仍需随权限 fail-closed 专项完成后再复核到 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F003",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "global",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-B0-页面外壳-20260623.md",
+        "docs/验收报告/验收报告-A104-编辑锁-20260626.md"
+      ],
+      "knownGaps": [
+        "多页签和编辑锁有证据；尚未按当前全量基线复跑并归档 A4 交接。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F004",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hold",
+      "surface": "global",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "全局搜索输入框当前仅有视觉骨架，没有功能入口或业务对象搜索行为。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F005",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F006",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "operation-log-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A37-操作日志检索红冲动作-20260624.md",
+        "docs/验收报告/验收报告-A43-操作日志引出-20260624.md"
+      ],
+      "knownGaps": [
+        "查询、筛选和引出已有证据；失败动作日志完整性仍需随权限/事务整改复核。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F007",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F008",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "shared",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-A17-分录Excel多行粘贴-20260624.md",
+        "docs/验收报告/验收报告-A43-操作日志引出-20260624.md"
+      ],
+      "knownGaps": [
+        "列表引出和分录 Excel 粘贴已有证据，但基础资料 Excel 文件导入尚未实现。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F009",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "print-template-settings"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A46-单据PDF套打模板-20260624.md",
+        "docs/验收报告/验收报告-A47-打印模板设置页-20260624.md",
+        "docs/验收报告/验收报告-A63-打印参数预览与联次设置-20260624.md"
+      ],
+      "knownGaps": [
+        "固定模板、参数和预览已有证据；可视化模板设计器属于后置能力。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F010",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "product-master-list",
+        "product-category-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md",
+        "docs/验收报告/验收报告-A82-主数据表单迁出-20260625.md"
+      ],
+      "knownGaps": [
+        "物料维护可操作，但主数据稀疏更新与并发版本保护未完成，不能按 P0 发布门槛计交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F011",
+      "state": "verified",
+      "level": "A2",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "bom-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
+        "docs/验收报告/全项目Review与回归报告-20260630.md"
+      ],
+      "knownGaps": [
+        "BOM 保存、审核和生产快照已有证据；当前浏览器边界与 A115 定义层尚未收口到 A3。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F012",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "customer-master-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md"
+      ],
+      "knownGaps": [
+        "客户新增/编辑/启停已有证据；稀疏更新会覆盖隐藏字段，必须修复后再提升。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F013",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "supplier-master-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md"
+      ],
+      "knownGaps": [
+        "供应商新增/编辑/启停已有证据；稀疏更新会覆盖隐藏字段，必须修复后再提升。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F014",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "warehouse-master-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md"
+      ],
+      "knownGaps": [
+        "仓库新增/编辑/启停已有证据；稀疏更新会覆盖电话和负库存策略，必须修复后再提升。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F015",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "production-department-list"
+      ],
+      "evidence": [],
+      "knownGaps": [
+        "生产部门/车间入口和数据存在，但缺少按当前 A0-A4 标准完成的独立验收报告。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F016",
+      "state": "verified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "shared",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-A58-用户维护页-20260624.md",
+        "docs/验收报告/验收报告-A59-正式登录与退出-20260624.md"
+      ],
+      "knownGaps": [
+        "登录用户和角色维护已有证据，但独立员工主档及员工与账号关联未完成。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F017",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "审批范围要求现金、银行和存款账户；仓库中尚无可确认的独立账户主档页面与闭环证据。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F018",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "unit-master-list"
+      ],
+      "evidence": [],
+      "knownGaps": [
+        "计量单位入口和维护代码存在，但缺少按当前标准完成的独立浏览器及边界验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F020",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F021",
+      "state": "deferred",
+      "level": null,
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "sales-quote-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A126-销售链路日常可用性-20260701.md"
+      ],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。",
+        "catalog 当前存在相关入口；入口收口批次必须隐藏或重新取得发布证据。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F022",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "sales-order-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A126-销售链路日常可用性-20260701.md"
+      ],
+      "knownGaps": [
+        "销售订单日常链路已有证据；当前后端全量测试基线仍需恢复后再升 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F023",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "sales-out-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A126-销售链路日常可用性-20260701.md"
+      ],
+      "knownGaps": [
+        "销售出库、库存、预留和红冲链路已有证据；当前后端全量测试基线仍需恢复后再升 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F024",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "sales-return-form"
+      ],
+      "evidence": [],
+      "knownGaps": [
+        "catalog 只有销售退货空壳；正式表单、选源、库存回补和冲应收闭环未接入。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F026",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "后端存在按应收单立即收款接口，但没有符合草稿/审核协议的销售收款前台。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F027",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F028",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F029",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "sales-detail-report",
+        "sales-profit-report"
+      ],
+      "evidence": [],
+      "knownGaps": [
+        "销售明细/利润入口当前可能落入通用列表 fallback，缺少真实报表数据契约。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F033",
+      "state": "verified",
+      "level": "A2",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-order-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A100-采购下推收尾-20260626.md",
+        "docs/验收报告/验收报告-A105-状态机-20260626.md"
+      ],
+      "knownGaps": [
+        "采购订单保存、审核和下推已有历史证据；当前采购回归与元数据定义需重新复核到 A3。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F034",
+      "state": "verified",
+      "level": "A2",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-in-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A2-采购出入库业务闭环-20260624.md",
+        "docs/验收报告/验收报告-A85-财务过账接审核-20260625.md"
+      ],
+      "knownGaps": [
+        "采购入库审核、库存和应付过账有证据；当前边界回归未按最新基线复核到 A3。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F035",
+      "state": "verified",
+      "level": "A2",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-return-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A105-状态机-20260626.md",
+        "docs/验收报告/验收报告-A124-L-单据生命周期统一规则-20260630.md"
+      ],
+      "knownGaps": [
+        "采购退货生命周期已有证据；库存、财务和反审核边界需按最新基线复核。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F036",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "后端存在按应付单立即付款接口，但没有符合草稿/审核协议的采购付款前台。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F037",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F038",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F039",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F040",
+      "state": "verified",
+      "level": "A2",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-summary-report"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md"
+      ],
+      "knownGaps": [
+        "采购汇总与账套隔离已有证据；报表筛选、导出和大数据量反馈尚未单独达到 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F041",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "inventory-query-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-F-库存流水与余额闭环-20260623.md",
+        "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md"
+      ],
+      "knownGaps": [
+        "库存余额与账套隔离已有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F042",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "stock-flow-report"
+      ],
+      "evidence": [],
+      "knownGaps": [
+        "商品收发明细入口未登记真实列表定义，当前可能错误展示销售订单数据。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F043",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "other-in-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A86-其他入库-20260625.md"
+      ],
+      "knownGaps": [
+        "其他入库闭环已有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F044",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "other-out-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A87-其他出库与调拨-20260625.md"
+      ],
+      "knownGaps": [
+        "其他出库库存不足与反审核已有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F045",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "stock-transfer-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A87-其他出库与调拨-20260625.md"
+      ],
+      "knownGaps": [
+        "调拨闭环已有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F046",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 可选，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F047",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "stock-count-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A88-盘点链-20260626.md"
+      ],
+      "knownGaps": [
+        "盘点任务和审核链有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F048",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "stock-count-gain-form",
+        "stock-count-loss-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A88-盘点链-20260626.md"
+      ],
+      "knownGaps": [
+        "盘盈盘亏与库存边界有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F049",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F052",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "stock-alert-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A101-库存预警-20260626.md"
+      ],
+      "knownGaps": [
+        "库存预警查询和设置有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F055",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F056",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "production-task-form",
+        "production-plan-list",
+        "task-track-report"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
+        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md"
+      ],
+      "knownGaps": [
+        "生产计划、任务与用料快照有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F057",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "material-issue-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
+        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md"
+      ],
+      "knownGaps": [
+        "生产领料按任务快照扣库有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F058",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F059",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "product-in-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
+        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md"
+      ],
+      "knownGaps": [
+        "产品入库与生产链闭环有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F060",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 可选，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F061",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "scrap-report"
+      ],
+      "evidence": [],
+      "knownGaps": [
+        "材料报废统计入口不等于材料报废单；正式报废单和统计闭环均未按当前标准确认。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F062",
+      "state": "unverified",
+      "level": "A2",
+      "exposure": "hold",
+      "surface": "shared",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
+        "docs/验收报告/全项目Review与回归报告-20260630.md"
+      ],
+      "knownGaps": [
+        "BOM 基础能力有报告，但正向/反查作为独立批准能力尚未完成当前浏览器验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F063",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F064",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F065",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "生产计划可生成任务和采购申请，但尚不能据此认定完整 MRP 已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F066",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "kit-analysis-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
+        "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md"
+      ],
+      "knownGaps": [
+        "齐套分析有代码和隔离证据，但缺少当前浏览器、筛选和错误态专项验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F067",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "足缺料分析未找到可独立确认的入口和当前验收报告。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F068",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F069",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F070",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F071",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "outsourcing-work-order-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A118-委外加工闭环-20260629.md"
+      ],
+      "knownGaps": [
+        "委外加工链有完整报告；委外费用、成本和质检仍不在本功能交付口径内。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F072",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "outsourcing-issue-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A118-委外加工闭环-20260629.md"
+      ],
+      "knownGaps": [
+        "委外发料按 BOM 子件扣库有证据；供应商仓和委外在途库后置。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F073",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 可选，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F074",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "outsourcing-receipt-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A118-委外加工闭环-20260629.md"
+      ],
+      "knownGaps": [
+        "委外入库闭环有证据；供应商仓和委外在途库后置。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F075",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "outsourcing-return-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A118-委外加工闭环-20260629.md"
+      ],
+      "knownGaps": [
+        "委外退货闭环有证据；当前全量基线恢复后再复核 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F076",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "委外加工使用当前 BOM，但独立委外 BOM 维护能力没有专项入口和验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F077",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F078",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F079",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "委外链已有业务单据，委外报表仍缺少独立真实查询与验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F080",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "应收列表不是收款单；缺少正式收款单草稿、审核、反审核和账户选择页面。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F081",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "缺少正式收款退款单及退款下游约束验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F082",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "应付列表不是付款单；缺少正式付款单草稿、审核、反审核和账户选择页面。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F083",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "缺少正式付款退款单及退款下游约束验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F084",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F085",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "代码或入口可能存在，但缺少能按当前 A0-A4 标准确认的对应验收证据；复核前不得视为已交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F086",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "未找到其他收入/支出正式单据页面和当前验收报告。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F087",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "账户主档尚未完成，资金转账也缺少正式单据与验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F088",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "现有按单立即结算接口不符合保存草稿、审核才核销的统一协议。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F089",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F090",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "未找到客户/供应商对账的独立真实页面和当前验收报告。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F091",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "receivable-list",
+        "payable-list",
+        "ar-summary-report"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A85-财务过账接审核-20260625.md",
+        "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md"
+      ],
+      "knownGaps": [
+        "应收/应付只读列表有部分证据，但应收汇总入口仍可能落入错误 fallback，未完成报表门禁。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F093",
+      "state": "unverified",
+      "level": "A2",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "coding-rule-list",
+        "numbering-rule-settings"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A90-单据编号-20260626.md"
+      ],
+      "knownGaps": [
+        "单据编号规则页有证据，但 catalog 同时公开 coding-rule-list，后者未登记真实列表契约。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F094",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "user-role-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A58-用户维护页-20260624.md",
+        "docs/验收报告/验收报告-A59-正式登录与退出-20260624.md"
+      ],
+      "knownGaps": [
+        "用户新增、角色、启停和登录有证据；独立员工主档不属于本项。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F095",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "role-permission-settings"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A54-权限矩阵管理页-20260624.md",
+        "docs/验收报告/验收报告-A55-权限驱动前端入口与动作-20260624.md",
+        "docs/验收报告/验收报告-A56-后端权限拦截-20260624.md"
+      ],
+      "knownGaps": [
+        "前后端权限和矩阵有历史证据；默认放行风险整改完成前不得提升 A4。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F096",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F097",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "数据权限属于第二版，尚未按列表与选择器的前后端双重过滤标准验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F098",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "shared",
+      "catalogEntryIds": [],
+      "evidence": [
+        "docs/验收报告/验收报告-A124-L-单据生命周期统一规则-20260630.md",
+        "docs/验收报告/验收报告-A125-生命周期协议固化门禁-20260701.md"
+      ],
+      "knownGaps": [
+        "统一生命周期动作规则与静态门禁有证据；无注解写接口 fail-closed 仍需整改。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F099",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F101",
+      "state": "unverified",
+      "level": "A1",
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "security-settings"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A69-重复登录策略配置-20260625.md",
+        "docs/验收报告/验收报告-A70-会话超时分钟数配置-20260625.md",
+        "docs/验收报告/验收报告-A71-密码复杂度参数配置-20260625.md"
+      ],
+      "knownGaps": [
+        "安全参数已有部分设置页，但批准项“系统参数”范围更广，尚未形成统一参数目录和当前验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "unverified",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "unverified"
+      }
+    },
+    {
+      "id": "F102",
+      "state": "unverified",
+      "level": "A0",
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "通知供应商设置不等同消息预警设置；未找到业务预警规则的正式页面和验收。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F103",
+      "state": "deferred",
+      "level": null,
+      "exposure": "deferred",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "有效范围为 后置，当前批次不计入交付。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    },
+    {
+      "id": "F104",
+      "state": "unverified",
+      "level": null,
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
+      "evidence": [],
+      "knownGaps": [
+        "未找到网络控制/多端互联的可确认实现和当前验收报告。"
+      ],
+      "capabilityChecks": {
+        "entry": "not_applicable",
+        "backend": "unverified",
+        "permission": "unverified",
+        "auditLog": "unverified",
+        "automation": "unverified",
+        "browser": "not_applicable"
+      }
+    }
+  ]
+}

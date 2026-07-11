@@ -1,0 +1,298 @@
+{
+  "version": 1,
+  "smoke": [
+    "scripts/a59-formal-login-regression.mjs",
+    "scripts/a90-numbering-regression.mjs",
+    "scripts/a85-finance-posting-regression.mjs",
+    "scripts/a86-other-stock-in-regression.mjs",
+    "scripts/a87-other-stock-out-regression.mjs",
+    "scripts/a93-sales-out-source-selection-regression.mjs",
+    "scripts/a94-tax-amount-regression.mjs",
+    "scripts/a105-bill-lifecycle-regression.mjs",
+    "scripts/a108-delivery-notice-reservation-regression.mjs",
+    "scripts/a110-table-display-brand-regression.mjs"
+  ],
+  "areas": {
+    "sales": [
+      "scripts/a89-sales-order-detail-pushdown-regression.mjs",
+      "scripts/a92-sales-document-fields-regression.mjs",
+      "scripts/a93-sales-out-source-selection-regression.mjs",
+      "scripts/a94-tax-amount-regression.mjs",
+      "scripts/a98-line-level-source-regression.mjs",
+      "scripts/a100-purchase-direct-push-regression.mjs",
+      "scripts/a103-price-memory-regression.mjs",
+      "scripts/a108-delivery-notice-reservation-regression.mjs",
+      "scripts/a113b-unit-price-bulk-fill-regression.mjs",
+      "scripts/a126-sales-daily-usability-regression.mjs"
+    ],
+    "purchase": [
+      "scripts/a92-sales-document-fields-regression.mjs",
+      "scripts/a94-tax-amount-regression.mjs",
+      "scripts/a100-purchase-direct-push-regression.mjs",
+      "scripts/a116-production-plan-pushdown-regression.mjs",
+      "scripts/a116b-production-source-chain-regression.mjs",
+      "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs"
+    ],
+    "inventory": [
+      "scripts/a85-finance-posting-regression.mjs",
+      "scripts/a86-other-stock-in-regression.mjs",
+      "scripts/a87-other-stock-out-regression.mjs",
+      "scripts/a87-stock-transfer-regression.mjs",
+      "scripts/a88-stock-count-regression.mjs",
+      "scripts/a88-stock-count-gain-regression.mjs",
+      "scripts/a88-stock-count-loss-regression.mjs",
+      "scripts/a101-stock-alert-regression.mjs",
+      "scripts/a108-delivery-notice-reservation-regression.mjs"
+    ],
+    "finance": [
+      "scripts/a85-finance-posting-regression.mjs",
+      "scripts/a94-tax-amount-regression.mjs"
+    ],
+    "lifecycle": [
+      "scripts/a95-lifecycle-workbench-regression.mjs",
+      "scripts/a104-document-lock-regression.mjs",
+      "scripts/a105-bill-lifecycle-regression.mjs",
+      "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs"
+    ],
+    "table": [
+      "scripts/a91-frontend-ux-regression.mjs",
+      "scripts/a96-master-selector-dialog-regression.mjs",
+      "scripts/a97-entry-table-ux-regression.mjs",
+      "scripts/a102-core-flow-ui-regression.mjs",
+      "scripts/a106-detail-view-regression.mjs",
+      "scripts/a107-table-structure-regression.mjs",
+      "scripts/a110-table-display-brand-regression.mjs",
+      "scripts/a128-list-query-unification-regression.mjs"
+    ],
+    "security": [
+      "scripts/a54-role-permission-matrix-regression.mjs",
+      "scripts/a55-permission-driven-ui-regression.mjs",
+      "scripts/a56-backend-permission-guard-regression.mjs",
+      "scripts/a59-formal-login-regression.mjs",
+      "scripts/a60-password-session-regression.mjs",
+      "scripts/a61-login-lock-audit-regression.mjs",
+      "scripts/a67-cross-tab-session-regression.mjs",
+      "scripts/a68-single-active-session-regression.mjs",
+      "scripts/a69-security-settings-policy-regression.mjs",
+      "scripts/a70-session-timeout-settings-regression.mjs",
+      "scripts/a71-password-policy-settings-regression.mjs"
+    ],
+    "print": [
+      "scripts/a38-document-pdf-output-regression.mjs",
+      "scripts/a39-core-document-pdf-regression.mjs",
+      "scripts/a40-production-document-pdf-regression.mjs",
+      "scripts/a46-document-print-template-regression.mjs",
+      "scripts/a47-print-template-settings-regression.mjs",
+      "scripts/a52-print-template-role-default-regression.mjs",
+      "scripts/a53-production-red-source-print-regression.mjs",
+      "scripts/a63-print-page-settings-regression.mjs"
+    ],
+    "production": [
+      "scripts/a40-production-document-pdf-regression.mjs",
+      "scripts/a46-document-print-template-regression.mjs",
+      "scripts/a53-production-red-source-print-regression.mjs",
+      "scripts/a64-production-red-source-ui-regression.mjs",
+      "scripts/a114-production-plan-snapshot-regression.mjs",
+      "scripts/a116-production-plan-pushdown-regression.mjs",
+      "scripts/a116b-production-source-chain-regression.mjs",
+      "scripts/a118-outsourcing-chain-regression.mjs"
+    ]
+  },
+  "full": [
+    "scripts/a2-a7-multiline-regression.mjs",
+    "scripts/a9-partial-pushdown-regression.mjs",
+    "scripts/a10-entry-efficiency-regression.mjs",
+    "scripts/a11-push-confirm-regression.mjs",
+    "scripts/a12-execution-columns-regression.mjs",
+    "scripts/a13-entry-row-reorder-regression.mjs",
+    "scripts/a14-push-confirm-bulk-tools-regression.mjs",
+    "scripts/a15-source-trace-regression.mjs",
+    "scripts/a16-source-line-trace-regression.mjs",
+    "scripts/a17-entry-excel-paste-regression.mjs",
+    "scripts/a18-push-confirm-selected-lines-regression.mjs",
+    "scripts/a19-source-line-focus-regression.mjs",
+    "scripts/a20-entry-name-spec-paste-regression.mjs",
+    "scripts/a21-push-confirm-bidirectional-regression.mjs",
+    "scripts/a22-source-line-downstream-regression.mjs",
+    "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
+    "scripts/a24-push-confirm-selected-warehouse-regression.mjs",
+    "scripts/a25-entry-paste-conflict-keyboard-regression.mjs",
+    "scripts/a26-selector-next-field-regression.mjs",
+    "scripts/a27-entry-enter-next-line-regression.mjs",
+    "scripts/a28-entry-new-line-inherit-warehouse-regression.mjs",
+    "scripts/a29-entry-save-validation-regression.mjs",
+    "scripts/a30-entry-zero-value-confirm-regression.mjs",
+    "scripts/a31-zero-value-reason-remark-regression.mjs",
+    "scripts/a32-line-remark-output-regression.mjs",
+    "scripts/a33-downstream-impact-chain-regression.mjs",
+    "scripts/a34-risky-action-confirm-regression.mjs",
+    "scripts/a35-red-reverse-backlink-regression.mjs",
+    "scripts/a36-red-source-backlink-regression.mjs",
+    "scripts/a37-operation-log-regression.mjs",
+    "scripts/a38-document-pdf-output-regression.mjs",
+    "scripts/a39-core-document-pdf-regression.mjs",
+    "scripts/a40-production-document-pdf-regression.mjs",
+    "scripts/a41-operation-log-composite-filter-regression.mjs",
+    "scripts/a42-operation-log-operator-target-filter-regression.mjs",
+    "scripts/a43-operation-log-export-regression.mjs",
+    "scripts/a44-operation-log-filter-preset-regression.mjs",
+    "scripts/a45-operation-log-shared-preset-regression.mjs",
+    "scripts/a46-document-print-template-regression.mjs",
+    "scripts/a47-print-template-settings-regression.mjs",
+    "scripts/a48-print-template-copy-regression.mjs",
+    "scripts/a49-operation-log-default-readonly-preset-regression.mjs",
+    "scripts/a50-operation-log-role-scoped-preset-regression.mjs",
+    "scripts/a51-operation-log-user-preset-override-regression.mjs",
+    "scripts/a52-print-template-role-default-regression.mjs",
+    "scripts/a53-production-red-source-print-regression.mjs",
+    "scripts/a54-role-permission-matrix-regression.mjs",
+    "scripts/a55-permission-driven-ui-regression.mjs",
+    "scripts/a56-backend-permission-guard-regression.mjs",
+    "scripts/a57-session-user-switch-regression.mjs",
+    "scripts/a58-user-management-regression.mjs",
+    "scripts/a59-formal-login-regression.mjs",
+    "scripts/a60-password-session-regression.mjs",
+    "scripts/a61-login-lock-audit-regression.mjs",
+    "scripts/a62-user-unlock-regression.mjs",
+    "scripts/a63-print-page-settings-regression.mjs",
+    "scripts/a64-production-red-source-ui-regression.mjs",
+    "scripts/a65-password-reset-request-regression.mjs",
+    "scripts/a67-cross-tab-session-regression.mjs",
+    "scripts/a68-single-active-session-regression.mjs",
+    "scripts/a69-security-settings-policy-regression.mjs",
+    "scripts/a70-session-timeout-settings-regression.mjs",
+    "scripts/a71-password-policy-settings-regression.mjs",
+    "scripts/a72-security-settings-password-confirm-regression.mjs",
+    "scripts/a73-password-reset-notification-outbox-regression.mjs",
+    "scripts/a74-notification-retry-regression.mjs",
+    "scripts/a75-notification-auto-retry-regression.mjs",
+    "scripts/a76-notification-receipt-regression.mjs",
+    "scripts/a77-notification-provider-settings-regression.mjs",
+    "scripts/a85-finance-posting-regression.mjs",
+    "scripts/a86-other-stock-in-regression.mjs",
+    "scripts/a87-other-stock-out-regression.mjs",
+    "scripts/a87-stock-transfer-regression.mjs",
+    "scripts/a88-stock-count-gain-regression.mjs",
+    "scripts/a88-stock-count-loss-regression.mjs",
+    "scripts/a88-stock-count-regression.mjs",
+    "scripts/a89-sales-order-detail-pushdown-regression.mjs",
+    "scripts/a90-numbering-regression.mjs",
+    "scripts/a91-frontend-ux-regression.mjs",
+    "scripts/a92-sales-document-fields-regression.mjs",
+    "scripts/a93-sales-out-source-selection-regression.mjs",
+    "scripts/a94-tax-amount-regression.mjs",
+    "scripts/a95-lifecycle-workbench-regression.mjs",
+    "scripts/a96-master-selector-dialog-regression.mjs",
+    "scripts/a97-entry-table-ux-regression.mjs",
+    "scripts/a98-line-level-source-regression.mjs",
+    "scripts/a99-density-regression.mjs",
+    "scripts/a100-purchase-direct-push-regression.mjs",
+    "scripts/a101-stock-alert-regression.mjs",
+    "scripts/a102-core-flow-ui-regression.mjs",
+    "scripts/a103-price-memory-regression.mjs",
+    "scripts/a104-document-lock-regression.mjs",
+    "scripts/a105-bill-lifecycle-regression.mjs",
+    "scripts/a106-detail-view-regression.mjs",
+    "scripts/a107-table-structure-regression.mjs",
+    "scripts/a108-delivery-notice-reservation-regression.mjs",
+    "scripts/a110-table-display-brand-regression.mjs",
+    "scripts/a112-table-core-scroll-regression.mjs",
+    "scripts/a113b-unit-price-bulk-fill-regression.mjs",
+    "scripts/a114-production-plan-snapshot-regression.mjs",
+    "scripts/a115-metadata-definition-regression.mjs",
+    "scripts/a116-production-plan-pushdown-regression.mjs",
+    "scripts/a116b-production-source-chain-regression.mjs",
+    "scripts/a118-outsourcing-chain-regression.mjs",
+    "scripts/a119-account-set-switch-ui-regression.mjs",
+    "scripts/a119-full-isolation-regression.mjs",
+    "scripts/a126-sales-daily-usability-regression.mjs",
+    "scripts/a128-list-query-unification-regression.mjs",
+    "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs"
+  ],
+  "exemptions": [
+    {
+      "script": "scripts/run-a2-a89-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a90-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a91-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a92-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a93-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a94-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a95-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a96-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a97-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a98-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a99-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a100-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a101-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a102-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a103-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a104-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a105-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a106-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a107-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a108-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    },
+    {
+      "script": "scripts/run-a2-a110-regression.mjs",
+      "reason": "Historical aggregate runner; superseded by run-regression-tier.mjs and must not be nested inside a tier."
+    }
+  ]
+}

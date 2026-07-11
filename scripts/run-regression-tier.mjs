@@ -1,120 +1,32 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loadRegressionManifest } from "./validate-regression-manifest.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
-const latestFullPath = path.join(rootDir, "verification/a2-a110-regression-latest.json");
 const verificationDir = path.join(rootDir, "verification");
-const fullTailScripts = [
-  "scripts/a112-table-core-scroll-regression.mjs"
-];
-
-const smokeScripts = [
-  "scripts/a59-formal-login-regression.mjs",
-  "scripts/a90-numbering-regression.mjs",
-  "scripts/a85-finance-posting-regression.mjs",
-  "scripts/a86-other-stock-in-regression.mjs",
-  "scripts/a87-other-stock-out-regression.mjs",
-  "scripts/a93-sales-out-source-selection-regression.mjs",
-  "scripts/a94-tax-amount-regression.mjs",
-  "scripts/a105-bill-lifecycle-regression.mjs",
-  "scripts/a108-delivery-notice-reservation-regression.mjs",
-  "scripts/a110-table-display-brand-regression.mjs"
-];
-
-const areaScripts = {
-  sales: [
-    "scripts/a89-sales-order-detail-pushdown-regression.mjs",
-    "scripts/a92-sales-document-fields-regression.mjs",
-    "scripts/a93-sales-out-source-selection-regression.mjs",
-    "scripts/a94-tax-amount-regression.mjs",
-    "scripts/a98-line-level-source-regression.mjs",
-    "scripts/a100-purchase-direct-push-regression.mjs",
-    "scripts/a103-price-memory-regression.mjs",
-    "scripts/a108-delivery-notice-reservation-regression.mjs"
-  ],
-  purchase: [
-    "scripts/a92-sales-document-fields-regression.mjs",
-    "scripts/a94-tax-amount-regression.mjs",
-    "scripts/a100-purchase-direct-push-regression.mjs"
-  ],
-  inventory: [
-    "scripts/a85-finance-posting-regression.mjs",
-    "scripts/a86-other-stock-in-regression.mjs",
-    "scripts/a87-other-stock-out-regression.mjs",
-    "scripts/a87-stock-transfer-regression.mjs",
-    "scripts/a88-stock-count-regression.mjs",
-    "scripts/a88-stock-count-gain-regression.mjs",
-    "scripts/a88-stock-count-loss-regression.mjs",
-    "scripts/a101-stock-alert-regression.mjs",
-    "scripts/a108-delivery-notice-reservation-regression.mjs"
-  ],
-  finance: [
-    "scripts/a85-finance-posting-regression.mjs",
-    "scripts/a94-tax-amount-regression.mjs"
-  ],
-  lifecycle: [
-    "scripts/a95-lifecycle-workbench-regression.mjs",
-    "scripts/a104-document-lock-regression.mjs",
-    "scripts/a105-bill-lifecycle-regression.mjs"
-  ],
-  table: [
-    "scripts/a91-frontend-ux-regression.mjs",
-    "scripts/a96-master-selector-dialog-regression.mjs",
-    "scripts/a97-entry-table-ux-regression.mjs",
-    "scripts/a102-core-flow-ui-regression.mjs",
-    "scripts/a106-detail-view-regression.mjs",
-    "scripts/a107-table-structure-regression.mjs",
-    "scripts/a110-table-display-brand-regression.mjs"
-  ],
-  security: [
-    "scripts/a54-role-permission-matrix-regression.mjs",
-    "scripts/a55-permission-driven-ui-regression.mjs",
-    "scripts/a56-backend-permission-guard-regression.mjs",
-    "scripts/a59-formal-login-regression.mjs",
-    "scripts/a60-password-session-regression.mjs",
-    "scripts/a61-login-lock-audit-regression.mjs",
-    "scripts/a67-cross-tab-session-regression.mjs",
-    "scripts/a68-single-active-session-regression.mjs",
-    "scripts/a69-security-settings-policy-regression.mjs",
-    "scripts/a70-session-timeout-settings-regression.mjs",
-    "scripts/a71-password-policy-settings-regression.mjs"
-  ],
-  print: [
-    "scripts/a38-document-pdf-output-regression.mjs",
-    "scripts/a39-core-document-pdf-regression.mjs",
-    "scripts/a40-production-document-pdf-regression.mjs",
-    "scripts/a46-document-print-template-regression.mjs",
-    "scripts/a47-print-template-settings-regression.mjs",
-    "scripts/a52-print-template-role-default-regression.mjs",
-    "scripts/a53-production-red-source-print-regression.mjs",
-    "scripts/a63-print-page-settings-regression.mjs"
-  ],
-  production: [
-    "scripts/a40-production-document-pdf-regression.mjs",
-    "scripts/a46-document-print-template-regression.mjs",
-    "scripts/a53-production-red-source-print-regression.mjs",
-    "scripts/a64-production-red-source-ui-regression.mjs",
-    "scripts/a114-production-plan-snapshot-regression.mjs",
-    "scripts/a118-outsourcing-chain-regression.mjs"
-  ]
-};
+const { manifest, summary: manifestSummary } = await loadRegressionManifest(rootDir);
+const smokeScripts = manifest.smoke;
+const areaScripts = manifest.areas;
+const fullScripts = manifest.full;
 
 const args = process.argv.slice(2);
 const continueOnFailure = args.includes("--continue-on-failure") || args.includes("--continue");
+const listOnly = args.includes("--list");
 const requestedTier = args.find((arg) => !arg.startsWith("--")) ?? "smoke";
 const tier = requestedTier.endsWith(":continue") ? requestedTier.slice(0, -":continue".length) : requestedTier;
 const shouldContinue = continueOnFailure || requestedTier.endsWith(":continue");
 const resultTier = shouldContinue && tier === "full" ? "full-continue" : tier;
 
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`Usage: node scripts/run-regression-tier.mjs smoke|area:<module>|full [--continue-on-failure]
+  console.log(`Usage: node scripts/run-regression-tier.mjs smoke|area:<module>|full [--continue-on-failure] [--list]
 
 Examples:
   node scripts/run-regression-tier.mjs smoke
   node scripts/run-regression-tier.mjs area:sales
   node scripts/run-regression-tier.mjs full
   node scripts/run-regression-tier.mjs full --continue-on-failure
+  node scripts/run-regression-tier.mjs full --list
 
 Areas:
   ${Object.keys(areaScripts).sort().join(", ")}`);
@@ -123,6 +35,15 @@ Areas:
 
 const startedAt = new Date().toISOString();
 const scripts = await scriptsForTier(tier);
+if (listOnly) {
+  console.log(JSON.stringify({
+    tier,
+    total: scripts.length,
+    manifest: manifestSummary.manifest,
+    scripts
+  }, null, 2));
+  process.exit(0);
+}
 const safeTier = resultTier.replace(/[^a-zA-Z0-9_-]/g, "-");
 const resultPath = path.join(verificationDir, `regression-tier-${safeTier}-latest.json`);
 const results = [];
@@ -164,6 +85,7 @@ const summary = {
   startedAt,
   finishedAt: new Date().toISOString(),
   resultPath: path.relative(rootDir, resultPath),
+  manifest: manifestSummary.manifest,
   availableAreas: Object.keys(areaScripts).sort(),
   results
 };
@@ -190,8 +112,7 @@ async function scriptsForTier(selectedTier) {
     return smokeScripts;
   }
   if (selectedTier === "full") {
-    const baseline = JSON.parse(await readFile(latestFullPath, "utf8"));
-    return unique([...baseline.results.map((result) => result.script), ...fullTailScripts]);
+    return fullScripts;
   }
   if (selectedTier.startsWith("area:")) {
     const area = selectedTier.slice("area:".length);
