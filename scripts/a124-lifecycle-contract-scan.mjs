@@ -124,6 +124,7 @@ const frontendPolicySource = read("frontend/src/app/documentLifecyclePolicy.ts")
 const controllerSource = read("backend/src/main/java/com/jdy/erp/shared/api/BillLifecycleController.java");
 const backendPolicySource = read("backend/src/main/java/com/jdy/erp/shared/application/BillLifecyclePolicy.java");
 const permissionPolicySource = read("backend/src/main/java/com/jdy/erp/shared/application/DocumentPermissionPolicy.java");
+const documentLockServiceSource = read("backend/src/main/java/com/jdy/erp/shared/application/DocumentLockService.java");
 const documentLockControllerSource = read("backend/src/main/java/com/jdy/erp/shared/api/DocumentLockController.java");
 const permissionGuardSource = read("backend/src/main/java/com/jdy/erp/system/security/PermissionGuardInterceptor.java");
 const dataListSource = read("frontend/src/components/DataListPage.vue");
@@ -164,6 +165,9 @@ if (!/@GetMapping\("\/\{type\}\/\{billNo\}"\)\s+@RequireDocumentPermission/.test
 }
 if (!/@PostMapping\("\/\{type\}\/\{billNo\}\/acquire"\)\s+@RequireDocumentPermission/.test(documentLockControllerSource)) {
   failures.push("document lock acquire must require the mapped document permission");
+}
+if (!/documentPermissionPolicy\.supportedDocumentTypes\(\)\.contains\(documentType\)/.test(documentLockServiceSource)) {
+  failures.push("DocumentLockService must derive supported types from the unique DocumentPermissionPolicy registry");
 }
 
 for (const [type, frontPolicy] of Object.entries(frontendPolicies)) {

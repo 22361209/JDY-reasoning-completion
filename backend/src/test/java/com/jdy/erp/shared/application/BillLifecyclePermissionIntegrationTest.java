@@ -12,6 +12,7 @@ import java.util.Map;
 import com.jdy.erp.shared.api.BillLifecycleController;
 import com.jdy.erp.shared.api.DocumentLockController;
 import com.jdy.erp.system.security.CurrentPermissionService;
+import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.RequireDocumentPermission;
 import com.jdy.erp.system.security.WriteAccess;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,21 @@ class BillLifecyclePermissionIntegrationTest {
         var policy = new DocumentPermissionPolicy(mock(CurrentPermissionService.class));
 
         assertThat(policy.supportedDocumentTypes()).containsExactlyInAnyOrderElementsOf(EXPECTED_PERMISSIONS.keySet());
+    }
+
+    @Test
+    void documentLocksDeriveTheirSupportedTypesFromThePermissionRegistry() {
+        var policy = new DocumentPermissionPolicy(mock(CurrentPermissionService.class));
+        var lockService = new DocumentLockService(
+            mock(org.springframework.jdbc.core.JdbcTemplate.class),
+            mock(CurrentSessionService.class),
+            mock(CurrentPermissionService.class),
+            policy
+        );
+
+        assertThat(EXPECTED_PERMISSIONS.keySet())
+            .allMatch(lockService::supportsDocumentType);
+        assertThat(lockService.supportsDocumentType("unknown")).isFalse();
     }
 
     @Test

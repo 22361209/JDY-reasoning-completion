@@ -3,7 +3,6 @@ package com.jdy.erp.shared.application;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 
 import com.jdy.erp.system.security.CurrentPermissionService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -17,36 +16,21 @@ import org.springframework.web.server.ResponseStatusException;
 public class DocumentLockService {
     private static final int LOCK_TIMEOUT_MINUTES = 30;
     private static final String OVERRIDE_PERMISSION = "document.lock.override";
-    private static final Set<String> DOCUMENT_TYPES = Set.of(
-        "salesOrder",
-        "salesQuote",
-        "deliveryNotice",
-        "salesOut",
-        "purchaseOrder",
-        "purchaseIn",
-        "purchaseReturn",
-        "materialIssue",
-        "productIn",
-        "otherStockIn",
-        "otherStockOut",
-        "stockTransfer",
-        "stockCount",
-        "stockCountGain",
-        "stockCountLoss"
-    );
-
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final CurrentPermissionService permissionService;
+    private final DocumentPermissionPolicy documentPermissionPolicy;
 
     public DocumentLockService(
         JdbcTemplate jdbcTemplate,
         CurrentSessionService currentSessionService,
-        CurrentPermissionService permissionService
+        CurrentPermissionService permissionService,
+        DocumentPermissionPolicy documentPermissionPolicy
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.permissionService = permissionService;
+        this.documentPermissionPolicy = documentPermissionPolicy;
     }
 
     @Transactional
@@ -231,7 +215,11 @@ public class DocumentLockService {
         }
     }
 
+    boolean supportsDocumentType(String documentType) {
+        return documentPermissionPolicy.supportedDocumentTypes().contains(documentType);
+    }
+
     private boolean isSupported(String documentType) {
-        return DOCUMENT_TYPES.contains(documentType);
+        return supportsDocumentType(documentType);
     }
 }
