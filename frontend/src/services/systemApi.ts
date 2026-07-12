@@ -211,19 +211,6 @@ export async function fetchSystemSession(): Promise<SystemSession | null> {
   }
 }
 
-export async function fetchSystemUsers(): Promise<SystemUser[]> {
-  try {
-    const response = await fetch("/api/system/users");
-    if (!response.ok) {
-      return [];
-    }
-    const payload = await response.json() as { users?: SystemUser[] };
-    return payload.users ?? [];
-  } catch {
-    return [];
-  }
-}
-
 export async function loginSystemUser(username: string, password: string, accountSetCode = ""): Promise<LoginResult> {
   try {
     const response = await fetch("/api/system/login", {

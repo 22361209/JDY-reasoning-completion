@@ -2,7 +2,6 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   createManagedUser,
   fetchManagedUsers,
-  fetchSystemUsers,
   handlePasswordResetRequest,
   resetManagedUserPassword,
   unlockManagedUser,
@@ -10,13 +9,11 @@ import {
   type ManagedRole,
   type ManagedUser,
   type PasswordResetRequestItem,
-  type SystemAccountSet,
-  type SystemUser
+  type SystemAccountSet
 } from "../../../services/systemApi";
 
 export function useUserManagementPage(options: {
   canManage: () => boolean;
-  onUsersChanged: (users: SystemUser[]) => void;
   onNotificationsChanged: () => void;
 }) {
   const managedUsers = ref<ManagedUser[]>([]);
@@ -150,7 +147,6 @@ export function useUserManagementPage(options: {
     selectedManagedUsername.value = managedUserForm.username;
     userManagementMode.value = "edit";
     applySelectedManagedUser();
-    options.onUsersChanged(await fetchSystemUsers());
     userManagementMessage.value = "用户已保存";
   }
 

@@ -5,6 +5,9 @@ import java.util.Map;
 
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
+import com.jdy.erp.system.security.RequirePermission;
+import com.jdy.erp.system.security.WriteAccess;
+import com.jdy.erp.system.security.WriteAccess.Mode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -69,6 +72,7 @@ public class SystemShellController {
     }
 
     @GetMapping("/users")
+    @RequirePermission("system.role_permission.manage")
     public Map<String, Object> users() {
         var users = jdbcTemplate.queryForList("""
             SELECT u.username,
@@ -94,12 +98,14 @@ public class SystemShellController {
     }
 
     @PostMapping("/login")
+    @WriteAccess(Mode.PUBLIC)
     public Map<String, Object> login(@RequestBody LoginRequest request) {
         currentSessionService.login(request.username(), request.password(), request.accountSetCode());
         return session();
     }
 
     @PostMapping("/logout")
+    @WriteAccess(Mode.PUBLIC)
     public Map<String, Object> logout() {
         currentSessionService.logout();
         return Map.of("ok", true);

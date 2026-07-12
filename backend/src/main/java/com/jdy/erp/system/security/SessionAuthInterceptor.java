@@ -13,14 +13,13 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component
 public class SessionAuthInterceptor implements HandlerInterceptor {
-    private static final Set<String> PUBLIC_API_PATHS = Set.of(
-        "/api/system/health",
-        "/api/system/session",
-        "/api/system/account-sets",
-        "/api/system/users",
-        "/api/system/login",
-        "/api/system/logout",
-        "/api/system/password-reset-requests"
+    private static final Set<PublicEndpoint> PUBLIC_API_ENDPOINTS = Set.of(
+        new PublicEndpoint("GET", "/api/system/health"),
+        new PublicEndpoint("GET", "/api/system/session"),
+        new PublicEndpoint("GET", "/api/system/account-sets"),
+        new PublicEndpoint("POST", "/api/system/login"),
+        new PublicEndpoint("POST", "/api/system/logout"),
+        new PublicEndpoint("POST", "/api/system/password-reset-requests")
     );
 
     private final CurrentSessionService currentSessionService;
@@ -34,7 +33,7 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
         if (!(handler instanceof HandlerMethod)) {
             return true;
         }
-        if (isPublicApiPath(request.getRequestURI())) {
+        if (isPublicApiEndpoint(request.getMethod(), request.getRequestURI())) {
             return true;
         }
         if (currentSessionService.isAuthenticated()) {
@@ -43,7 +42,10 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
     }
 
-    private boolean isPublicApiPath(String requestUri) {
-        return PUBLIC_API_PATHS.contains(requestUri) || requestUri.startsWith("/api/system/password-reset-requests");
+    private boolean isPublicApiEndpoint(String method, String requestUri) {
+        return PUBLIC_API_ENDPOINTS.contains(new PublicEndpoint(method, requestUri));
+    }
+
+    private record PublicEndpoint(String method, String path) {
     }
 }

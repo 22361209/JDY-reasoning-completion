@@ -5,8 +5,7 @@ import {
   requestPasswordReset,
   type PasswordPolicySettings,
   type SystemAccountSet,
-  type SystemSession,
-  type SystemUser
+  type SystemSession
 } from "../../../services/systemApi";
 
 export function passwordPolicyRules(policy: PasswordPolicySettings, password: string) {
@@ -178,7 +177,6 @@ export function usePasswordChangeDialog(options: {
   };
 }
 
-export type LoginPageUser = SystemUser;
 export type LoginPageAccountSet = SystemAccountSet;
 
 const CACHED_LOGIN_KEY = "jdy:cached-login";

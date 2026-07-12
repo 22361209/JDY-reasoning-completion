@@ -2,12 +2,10 @@ import { onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import {
   fetchAccountSets,
   fetchSystemSession,
-  fetchSystemUsers,
   logoutSystemUser,
   type PasswordPolicySettings,
   type SystemAccountSet,
-  type SystemSession,
-  type SystemUser
+  type SystemSession
 } from "../../services/systemApi";
 import { useSessionStore } from "../../stores/session";
 import { useTabStore } from "../../stores/tabs";
@@ -24,7 +22,14 @@ type PasswordChangeDialogHandle = {
 const SESSION_EXPIRED_EVENT = "jdy:session-expired";
 const SESSION_INVALIDATION_STORAGE_KEY = "jdy:session-invalidation";
 type SessionInvalidationReason = "logout" | "password-changed" | "session-expired";
-const publicSessionPaths = new Set(["/api/system/health", "/api/system/session", "/api/system/account-sets", "/api/system/users", "/api/system/login", "/api/system/logout", "/api/system/password-reset-requests"]);
+const publicSessionRequests = new Set([
+  "GET /api/system/health",
+  "GET /api/system/session",
+  "GET /api/system/account-sets",
+  "POST /api/system/login",
+  "POST /api/system/logout",
+  "POST /api/system/password-reset-requests"
+]);
 
 export function useShellSession(handles: {
   loginPageRef: Ref<LoginPageHandle | null>;
@@ -39,7 +44,6 @@ export function useShellSession(handles: {
     requireDigit: true,
     requireSymbol: true
   });
-  const systemUsers = ref<SystemUser[]>([]);
   const accountSets = ref<SystemAccountSet[]>([]);
   const isAuthenticated = ref(false);
   const loginPageMessage = ref("");
@@ -50,7 +54,6 @@ export function useShellSession(handles: {
     window.addEventListener("storage", handleSessionStorageEvent);
     window.addEventListener("focus", verifyActiveSession);
     accountSets.value = (await fetchAccountSets()).accountSets;
-    systemUsers.value = await fetchSystemUsers();
     const remoteSession = await fetchSystemSession();
     if (remoteSession?.authenticated && remoteSession.user) {
       applySystemSession(remoteSession);
@@ -180,7 +183,8 @@ export function useShellSession(handles: {
       const response = await runtimeWindow.__jdyOriginalFetch!(input, init);
       const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
       const url = new URL(rawUrl, window.location.origin);
-      if (response.status === 401 && url.pathname.startsWith("/api/") && !publicSessionPaths.has(url.pathname)) {
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (response.status === 401 && url.pathname.startsWith("/api/") && !publicSessionRequests.has(`${method} ${url.pathname}`)) {
         window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
       }
       return response;
@@ -189,7 +193,6 @@ export function useShellSession(handles: {
 
   return {
     activePasswordPolicy,
-    systemUsers,
     accountSets,
     isAuthenticated,
     loginPageMessage,

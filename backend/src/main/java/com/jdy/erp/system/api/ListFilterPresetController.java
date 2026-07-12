@@ -5,6 +5,9 @@ import java.util.Map;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdy.erp.system.application.ListFilterPresetAccessPolicy;
+import com.jdy.erp.system.security.WriteAccess;
+import com.jdy.erp.system.security.WriteAccess.Mode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,19 +22,23 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/list-presets")
 public class ListFilterPresetController {
-    private static final String CURRENT_ROLE_CODE = "ADMIN";
-    private static final String CURRENT_USER_NAME = "本地管理员";
-
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ListFilterPresetAccessPolicy accessPolicy;
 
-    public ListFilterPresetController(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public ListFilterPresetController(
+        JdbcTemplate jdbcTemplate,
+        ObjectMapper objectMapper,
+        ListFilterPresetAccessPolicy accessPolicy
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.accessPolicy = accessPolicy;
     }
 
     @GetMapping("/{listKey}")
     public List<Map<String, Object>> presets(@PathVariable String listKey) {
+        var currentScope = accessPolicy.currentPersonalScope();
         return jdbcTemplate.query("""
             SELECT id::text AS id,
                    list_key AS "listKey",
@@ -72,13 +79,14 @@ public class ListFilterPresetController {
                 Map.entry("isDefault", rs.getBoolean("isDefault")),
                 Map.entry("readOnly", rs.getBoolean("readOnly")),
                 Map.entry("updatedAt", rs.getString("updatedAt"))
-            ), listKey, CURRENT_USER_NAME, CURRENT_ROLE_CODE, CURRENT_USER_NAME, CURRENT_ROLE_CODE);
+            ), listKey, currentScope.userName(), currentScope.roleCode(), currentScope.userName(), currentScope.roleCode());
     }
 
     @PostMapping("/{listKey}")
+    @WriteAccess(Mode.REQUEST_SCOPED_PERMISSION)
     public Map<String, Object> save(@PathVariable String listKey, @RequestBody PresetRequest request) {
         var name = request.name == null || request.name.isBlank() ? "未命名预设" : request.name.trim();
-        var scope = resolveScope(request);
+        var scope = accessPolicy.resolveWriteScope(request.scope, request.roleCode);
         var readOnlyRows = jdbcTemplate.queryForList("""
             SELECT id::text
             FROM sys_list_filter_preset
@@ -157,20 +165,24 @@ public class ListFilterPresetController {
     }
 
     @DeleteMapping("/{listKey}/{id}")
+    @WriteAccess(Mode.REQUEST_SCOPED_PERMISSION)
     public Map<String, Object> delete(@PathVariable String listKey, @PathVariable String id) {
-        var readOnlyRows = jdbcTemplate.queryForList("""
-            SELECT id::text
+        var targetRows = jdbcTemplate.queryForList("""
+            SELECT role_code AS "roleCode",
+                   user_name AS "userName",
+                   read_only AS "readOnly"
             FROM sys_list_filter_preset
             WHERE list_key = ?
               AND id = ?::uuid
-              AND (
-                  user_name = ?
-                  OR (user_name IS NULL AND role_code = ?)
-                  OR (user_name IS NULL AND role_code IS NULL)
-              )
-              AND read_only = TRUE
-            """, listKey, id, CURRENT_USER_NAME, CURRENT_ROLE_CODE);
-        if (!readOnlyRows.isEmpty()) {
+            """, listKey, id);
+        if (targetRows.isEmpty()) {
+            return Map.of("deleted", 0);
+        }
+        var target = targetRows.getFirst();
+        var roleCode = target.get("roleCode") == null ? null : String.valueOf(target.get("roleCode"));
+        var userName = target.get("userName") == null ? null : String.valueOf(target.get("userName"));
+        accessPolicy.requireCanModifyStoredScope(roleCode, userName);
+        if (Boolean.TRUE.equals(target.get("readOnly"))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "系统预设不可删除");
         }
         var deleted = jdbcTemplate.update("""
@@ -178,24 +190,10 @@ public class ListFilterPresetController {
             WHERE list_key = ?
               AND id = ?::uuid
               AND read_only = FALSE
-              AND (
-                  user_name = ?
-                  OR (user_name IS NULL AND role_code = ?)
-                  OR (user_name IS NULL AND role_code IS NULL)
-              )
-            """, listKey, id, CURRENT_USER_NAME, CURRENT_ROLE_CODE);
+              AND role_code IS NOT DISTINCT FROM ?
+              AND user_name IS NOT DISTINCT FROM ?
+            """, listKey, id, roleCode, userName);
         return Map.of("deleted", deleted);
-    }
-
-    private PresetScope resolveScope(PresetRequest request) {
-        if ("GENERAL".equalsIgnoreCase(request.scope)) {
-            return new PresetScope(null, null);
-        }
-        if (request.roleCode != null && !request.roleCode.isBlank()) {
-            return new PresetScope(request.roleCode.trim(), null);
-        }
-        var userName = request.userName == null || request.userName.isBlank() ? CURRENT_USER_NAME : request.userName.trim();
-        return new PresetScope(CURRENT_ROLE_CODE, userName);
     }
 
     private Map<String, Object> parseJson(String json) {
@@ -228,5 +226,4 @@ public class ListFilterPresetController {
         Boolean isDefault
     ) {}
 
-    private record PresetScope(String roleCode, String userName) {}
 }

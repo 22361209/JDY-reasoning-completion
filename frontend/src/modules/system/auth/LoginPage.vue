@@ -6,10 +6,7 @@
       <p>输入账号密码，选择账套后进入工作台。</p>
       <label>
         <span>账号</span>
-        <input v-model.trim="auth.loginForm.username" data-testid="login-username" list="login-user-candidates" autocomplete="username" placeholder="请输入账号" />
-        <datalist id="login-user-candidates">
-          <option v-for="user in users" :key="user.username" :value="user.username">{{ user.displayName }} / {{ user.roleName }}</option>
-        </datalist>
+        <input v-model.trim="auth.loginForm.username" data-testid="login-username" autocomplete="username" placeholder="请输入账号" />
       </label>
       <label>
         <span>密码</span>
@@ -55,10 +52,9 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import type { SystemSession } from "../../../services/systemApi";
-import { useLoginPage, type LoginPageAccountSet, type LoginPageUser } from "./useAuthForms";
+import { useLoginPage, type LoginPageAccountSet } from "./useAuthForms";
 
 const props = defineProps<{
-  users: LoginPageUser[];
   accountSets: LoginPageAccountSet[];
   message: string;
 }>();

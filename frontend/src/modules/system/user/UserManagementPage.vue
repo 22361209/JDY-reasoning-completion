@@ -141,7 +141,6 @@ import { computed } from "vue";
 import ActionBar from "../../../components/ActionBar.vue";
 import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
-import type { SystemUser } from "../../../services/systemApi";
 import NotificationOutboxPanel from "../notification/NotificationOutboxPanel.vue";
 import { ref } from "vue";
 import { useUserManagementPage } from "./useUserManagementPage";
@@ -150,15 +149,10 @@ const props = defineProps<{
   canManage: boolean;
 }>();
 
-const emit = defineEmits<{
-  usersChanged: [users: SystemUser[]];
-}>();
-
 const notificationOutboxPanelRef = ref<InstanceType<typeof NotificationOutboxPanel> | null>(null);
 
 const page = useUserManagementPage({
   canManage: () => props.canManage,
-  onUsersChanged: (users) => emit("usersChanged", users),
   onNotificationsChanged: () => notificationOutboxPanelRef.value?.reload()
 });
 
