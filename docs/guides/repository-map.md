@@ -7,7 +7,8 @@
 1. `CLAUDE.md`：铁律、生成链、禁止事项。
 2. `docs/09-交接清单.md`：当前批次、服务地址、最近测试和下一步。
 3. `docs/12-当前批次验收清单.md`：唯一当前任务包，包含 base commit、允许路径、明确不做事项、待决项和验收门禁。
-4. 当前任务涉及的代码文件与对应 `复刻-local` 截图/规格。
+4. `config/remediation-roadmap.json` 中由当前任务声明的 item 或 gate；不要把整条长期队列加载进当前任务。
+5. 当前任务涉及的代码文件与对应 `复刻-local` 截图/规格。
 
 不要每次重读全部文档；按任务读取相关文件。
 
@@ -73,6 +74,7 @@
 | `config/implementation-overrides.json` | 人工实施差异 | 唯一人工范围差异入口 |
 | `config/effective-feature-scope.json` | 当前有效范围 | 由 approved + overrides 生成，不手改 |
 | `config/feature-delivery-status.json` | A0-A4 交付状态 | 只引用 effective scope ID；缺证据必须保守标记 |
+| `config/remediation-roadmap.json` | 阻断整改与 P0 收口路线合同 | 只保存 0–6、6A–6E 的顺序、边界和硬退出条件；不保存当前完成度 |
 | `config/regression-manifest.json` | smoke / area / full 清单 | 所有回归脚本必须登记或显式豁免 |
 | `outputs/` | 用户审批 Excel 输入 | 路径被生成脚本依赖，不改名 |
 | `verification/` | 本地临时验证产物 | 默认不进 Git，长期证据写入验收报告 |
@@ -89,7 +91,7 @@
 - `frontend/src/app/featureScope.ts`
 - `app/feature-data.js`
 
-范围例外只改 `config/implementation-overrides.json`，再按 `CLAUDE.md` 的生成链重跑。`config/feature-delivery-status.json` 和 `config/regression-manifest.json` 是手维护治理配置，但不得反向改变有效范围。绝不重跑退役的 `build-jdy-feature-approval.mjs`。
+范围例外只改 `config/implementation-overrides.json`，再按 `CLAUDE.md` 的生成链重跑。`config/feature-delivery-status.json`、`config/remediation-roadmap.json` 和 `config/regression-manifest.json` 是手维护治理配置，但不得反向改变有效范围；roadmap 也不得复制交付状态或当前批次状态。绝不重跑退役的 `build-jdy-feature-approval.mjs`。
 
 ## 规则入口
 
@@ -113,6 +115,7 @@
 | A119-2 路由底座 | `docs/guides/a119-2-tenant-context-routing.md` |
 | A119-3 账套初始化 | `docs/guides/a119-3-account-set-initialization.md` |
 | 新项目迁移蓝图 | `docs/guides/new-project-migration-blueprint.md` |
+| 阻断整改与 P0 收口路线 | `config/remediation-roadmap.json` |
 
 ## 常用命令
 

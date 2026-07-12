@@ -10,6 +10,9 @@ import { promisify } from "node:util";
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const statusPath = path.join(rootDir, "config/feature-delivery-status.json");
 const effectiveScopePath = path.join(rootDir, "config/effective-feature-scope.json");
+const remediationRoadmapPath = path.join(rootDir, "config/remediation-roadmap.json");
+const currentSnapshotPath = path.join(rootDir, "docs/09-交接清单.md");
+const currentTaskPath = path.join(rootDir, "docs/12-当前批次验收清单.md");
 const effectiveScopeContractPath = path.join(rootDir, "scripts/effective-scope-contract-check.mjs");
 const catalogPaths = [
   path.join(rootDir, "frontend/src/modules/catalog.ts"),
@@ -18,9 +21,12 @@ const catalogPaths = [
 
 await promisify(execFile)(process.execPath, [effectiveScopeContractPath], { cwd: rootDir });
 
-const [status, effectiveScope, ...catalogSources] = await Promise.all([
+const [status, effectiveScope, remediationRoadmap, currentSnapshotSource, currentTaskSource, ...catalogSources] = await Promise.all([
   readJson(statusPath),
   readJson(effectiveScopePath),
+  readJson(remediationRoadmapPath),
+  readFile(currentSnapshotPath, "utf8"),
+  readFile(currentTaskPath, "utf8"),
   ...catalogPaths.map((filePath) => readFile(filePath, "utf8"))
 ]);
 
@@ -59,6 +65,14 @@ const catalogIds = new Set(catalogIdList);
 assert.equal(catalogIds.size, catalogIdList.length, "catalog source contains duplicate entry ids");
 const catalogOwners = new Map();
 const levelRank = { A0: 0, A1: 1, A2: 2, A3: 3, A4: 4 };
+const roadmapSummary = await validateRemediationRoadmap({
+  roadmap: remediationRoadmap,
+  effectiveById,
+  statusById,
+  currentSnapshotSource,
+  currentTaskSource,
+  levels
+});
 
 for (const id of expectedIds) {
   const feature = effectiveById.get(id);
@@ -193,10 +207,204 @@ console.log(JSON.stringify({
   catalogEntryCount: catalogIds.size,
   catalogOwnedEntryCount: catalogOwners.size,
   catalogExceptionCount: catalogExceptionById.size,
+  remediationRoadmap: roadmapSummary,
   capabilities: capabilityCounts,
   ...counts
 }, null, 2));
 
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
+}
+
+async function validateRemediationRoadmap({ roadmap, effectiveById, statusById, currentSnapshotSource, currentTaskSource, levels }) {
+  assertExactObjectKeys(roadmap, ["schemaVersion", "description", "sources", "order", "gates", "items"], "remediation roadmap");
+  assert.equal(roadmap.schemaVersion, 1, "remediation roadmap schemaVersion must be 1");
+  assertExactObjectKeys(roadmap.sources, ["effectiveScope", "deliveryStatus", "currentSnapshot", "currentTask"], "roadmap.sources");
+  assert.equal(roadmap.sources?.effectiveScope, "config/effective-feature-scope.json", "roadmap effectiveScope source is invalid");
+  assert.equal(roadmap.sources?.deliveryStatus, "config/feature-delivery-status.json", "roadmap deliveryStatus source is invalid");
+  assert.equal(roadmap.sources?.currentSnapshot, "docs/09-交接清单.md", "roadmap currentSnapshot source is invalid");
+  assert.equal(roadmap.sources?.currentTask, "docs/12-当前批次验收清单.md", "roadmap currentTask source is invalid");
+  assert(Array.isArray(roadmap.order), "roadmap.order must be an array");
+  assert(Array.isArray(roadmap.gates), "roadmap.gates must be an array");
+  assert(Array.isArray(roadmap.items), "roadmap.items must be an array");
+
+  const expectedOrder = ["0", "1", "2", "3", "4", "5", "6", "6A", "6B", "6C", "6D", "6E"];
+  const expectedTitles = new Map([
+    ["0", "上下文与范围持续漂移"],
+    ["1", "后端测试和 Flyway 不可复现"],
+    ["2", "权限 fail-open、生命周期和库存直调接口可绕过"],
+    ["3", "操作日志缺操作人并伪装成本地管理员"],
+    ["4", "tenant schema 没有外键"],
+    ["5", "主数据编辑会清空隐藏字段"],
+    ["6", "未知列表错误返回销售订单数据"],
+    ["6A", "账户资料与员工主档"],
+    ["6B", "正式收款单与付款单"],
+    ["6C", "销售退货单"],
+    ["6D", "Excel 导入"],
+    ["6E", "报表与当前错误入口"]
+  ]);
+  const expectedFeatureScopeIds = new Map([
+    ["6A", ["F016", "F017"]],
+    ["6B", ["F026", "F036", "F080", "F082"]],
+    ["6C", ["F024"]],
+    ["6D", ["F008"]],
+    ["6E", ["F029", "F042", "F061", "F091", "F093"]]
+  ]);
+  const expectedKinds = new Map(expectedOrder.map((id) => [
+    id,
+    id === "0" ? "governance" : id.startsWith("6") && id.length > 1 ? "feature_delivery" : "cross_cutting"
+  ]));
+  const expectedAcceptance = new Map(expectedOrder.map((id) => [
+    id,
+    id === "6A" || id === "6E" ? "A3" : "A4"
+  ]));
+  assert.deepEqual(roadmap.order, expectedOrder, "remediation roadmap must preserve the approved 0-6 and 6A-6E order");
+  assert.deepEqual(roadmap.items.map((item) => item.id), expectedOrder, "roadmap.items must follow roadmap.order exactly");
+
+  const itemById = new Map();
+  const allowedKinds = new Set(["governance", "cross_cutting", "feature_delivery"]);
+  for (const [index, item] of roadmap.items.entries()) {
+    assert(item && typeof item === "object" && !Array.isArray(item), `roadmap item ${index} must be an object`);
+    assertExactObjectKeys(item, ["id", "title", "kind", "scopeIds", "targetAcceptance", "boundaries", "hardExitConditions", "predecessorIds", "historyRefs"], `roadmap item ${index}`);
+    assert.equal(typeof item.id, "string", `roadmap item ${index} id must be a string`);
+    assert(!itemById.has(item.id), `duplicate roadmap item: ${item.id}`);
+    assert.equal(typeof item.title, "string", `${item.id}: title must be a string`);
+    assert(item.title.trim().length > 0, `${item.id}: title cannot be blank`);
+    assert.equal(item.title, expectedTitles.get(item.id), `${item.id}: title does not match the approved remediation route`);
+    assert(allowedKinds.has(item.kind), `${item.id}: invalid kind ${item.kind}`);
+    assert.equal(item.kind, expectedKinds.get(item.id), `${item.id}: kind does not match the approved remediation route`);
+    assert(levels.has(item.targetAcceptance), `${item.id}: invalid targetAcceptance ${item.targetAcceptance}`);
+    assert.equal(item.targetAcceptance, expectedAcceptance.get(item.id), `${item.id}: targetAcceptance does not match the approved remediation route`);
+    assertStringArray(item.scopeIds, `${item.id}: scopeIds`, { allowEmpty: item.kind !== "feature_delivery" });
+    assert.equal(new Set(item.scopeIds).size, item.scopeIds.length, `${item.id}: duplicate scope ID`);
+    if (expectedFeatureScopeIds.has(item.id)) {
+      assert.deepEqual([...item.scopeIds].sort(), [...expectedFeatureScopeIds.get(item.id)].sort(), `${item.id}: feature scope IDs do not match the approved route`);
+    } else {
+      assert.equal(item.scopeIds.length, 0, `${item.id}: cross-cutting route item cannot claim feature scope IDs`);
+    }
+    for (const scopeId of item.scopeIds) {
+      assert(effectiveById.has(scopeId), `${item.id}: scope ID is not in effective non-excluded scope: ${scopeId}`);
+      assert(statusById.has(scopeId), `${item.id}: scope ID is missing delivery status: ${scopeId}`);
+    }
+    validateRoadmapBoundaries(item.boundaries, item.id);
+    assertStringArray(item.hardExitConditions, `${item.id}: hardExitConditions`);
+    assertStringArray(item.predecessorIds, `${item.id}: predecessorIds`, { allowEmpty: index === 0 });
+    assert.equal(new Set(item.predecessorIds).size, item.predecessorIds.length, `${item.id}: duplicate predecessor ID`);
+    for (const predecessorId of item.predecessorIds) {
+      const predecessorIndex = roadmap.order.indexOf(predecessorId);
+      assert(predecessorIndex >= 0, `${item.id}: missing predecessor ${predecessorId}`);
+      assert(predecessorIndex < index, `${item.id}: predecessor ${predecessorId} must appear earlier in the route`);
+    }
+    if (index > 0) {
+      assert(item.predecessorIds.includes(roadmap.order[index - 1]), `${item.id}: must depend on the immediately preceding route item`);
+    }
+    assertStringArray(item.historyRefs, `${item.id}: historyRefs`, { allowEmpty: true });
+    assert.equal(new Set(item.historyRefs).size, item.historyRefs.length, `${item.id}: duplicate history reference`);
+    for (const historyRef of item.historyRefs) {
+      assert(historyRef.startsWith("docs/验收报告/"), `${item.id}: historyRefs must point to acceptance reports`);
+      assert(historyRef.endsWith(".md"), `${item.id}: historyRefs must point to Markdown files`);
+      await access(path.join(rootDir, historyRef));
+    }
+    itemById.set(item.id, item);
+  }
+
+  const gateById = new Map();
+  for (const gate of roadmap.gates) {
+    assert(gate && typeof gate === "object" && !Array.isArray(gate), "roadmap gate must be an object");
+    assertExactObjectKeys(gate, ["id", "title", "afterItemId", "beforeItemId", "targetAcceptance", "boundaries", "hardExitConditions"], "roadmap gate");
+    assert.match(gate.id, /^G\d+-[a-z0-9-]+$/, `invalid roadmap gate id: ${gate.id}`);
+    assert(!gateById.has(gate.id), `duplicate roadmap gate: ${gate.id}`);
+    assert.equal(typeof gate.title, "string", `${gate.id}: title must be a string`);
+    assert(gate.title.trim().length > 0, `${gate.id}: title cannot be blank`);
+    assert(itemById.has(gate.afterItemId), `${gate.id}: afterItemId does not exist`);
+    assert(itemById.has(gate.beforeItemId), `${gate.id}: beforeItemId does not exist`);
+    assert(roadmap.order.indexOf(gate.afterItemId) < roadmap.order.indexOf(gate.beforeItemId), `${gate.id}: gate order is invalid`);
+    assert(levels.has(gate.targetAcceptance), `${gate.id}: invalid targetAcceptance ${gate.targetAcceptance}`);
+    validateRoadmapBoundaries(gate.boundaries, gate.id);
+    assertStringArray(gate.hardExitConditions, `${gate.id}: hardExitConditions`);
+    gateById.set(gate.id, gate);
+  }
+  const regressionGate = gateById.get("G0-regression-baseline-before-2");
+  assert(regressionGate, "roadmap must contain G0-regression-baseline-before-2");
+  assert.equal(regressionGate.title, "JavaScript 回归夹具基线", "G0 title does not match the approved remediation gate");
+  assert.equal(regressionGate.afterItemId, "1", "G0 must follow roadmap item 1");
+  assert.equal(regressionGate.beforeItemId, "2", "G0 must block roadmap item 2");
+  assert.equal(regressionGate.targetAcceptance, "A4", "G0 targetAcceptance must be A4");
+
+  const currentCoordinate = parseCurrentRoadmapCoordinate(currentTaskSource, "current task");
+  const snapshotCoordinate = parseCurrentRoadmapCoordinate(currentSnapshotSource, "current snapshot");
+  assert.deepEqual(snapshotCoordinate, currentCoordinate, "docs/09 and docs/12 must reference the same current roadmap coordinate");
+  for (const itemId of currentCoordinate.itemIds) {
+    assert(itemById.has(itemId), `current task references missing roadmap item: ${itemId}`);
+  }
+  if (currentCoordinate.gateId) {
+    assert(gateById.has(currentCoordinate.gateId), `current task references missing roadmap gate: ${currentCoordinate.gateId}`);
+  }
+
+  return {
+    itemCount: itemById.size,
+    gateCount: gateById.size,
+    currentItemIds: currentCoordinate.itemIds,
+    currentGateId: currentCoordinate.gateId
+  };
+}
+
+function validateRoadmapBoundaries(boundaries, context) {
+  assert(boundaries && typeof boundaries === "object" && !Array.isArray(boundaries), `${context}: boundaries must be an object`);
+  assert.deepEqual(Object.keys(boundaries).sort(), ["inScope", "outOfScope"], `${context}: boundaries must contain exactly inScope and outOfScope`);
+  assertStringArray(boundaries.inScope, `${context}: boundaries.inScope`);
+  assertStringArray(boundaries.outOfScope, `${context}: boundaries.outOfScope`);
+}
+
+function assertStringArray(value, context, { allowEmpty = false } = {}) {
+  assert(Array.isArray(value), `${context} must be an array`);
+  if (!allowEmpty) {
+    assert(value.length > 0, `${context} cannot be empty`);
+  }
+  for (const entry of value) {
+    assert.equal(typeof entry, "string", `${context} entries must be strings`);
+    assert(entry.trim().length > 0, `${context} entries cannot be blank`);
+  }
+}
+
+function assertExactObjectKeys(value, expectedKeys, context) {
+  assert(value && typeof value === "object" && !Array.isArray(value), `${context} must be an object`);
+  assert.deepEqual(Object.keys(value).sort(), [...expectedKeys].sort(), `${context} contains missing or unsupported fields`);
+}
+
+function parseCurrentRoadmapCoordinate(source, context) {
+  const frontmatterMatch = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  assert(frontmatterMatch, `${context} must contain YAML frontmatter`);
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  const itemLineIndex = lines.findIndex((line) => line.startsWith("roadmapItemIds:"));
+  assert(itemLineIndex >= 0, `${context} must declare roadmapItemIds`);
+  const inlineItems = lines[itemLineIndex].slice("roadmapItemIds:".length).trim();
+  const itemIds = [];
+  if (inlineItems && inlineItems !== "[]") {
+    assert(inlineItems.startsWith("[") && inlineItems.endsWith("]"), `${context} roadmapItemIds inline value must be a YAML array`);
+    for (const value of inlineItems.slice(1, -1).split(",").map((entry) => entry.trim()).filter(Boolean)) {
+      itemIds.push(normalizeYamlScalar(value));
+    }
+  } else if (!inlineItems) {
+    for (let index = itemLineIndex + 1; index < lines.length; index += 1) {
+      const match = lines[index].match(/^\s{2}-\s+(.+)$/);
+      if (!match) {
+        break;
+      }
+      itemIds.push(normalizeYamlScalar(match[1]));
+    }
+  }
+  assert.equal(new Set(itemIds).size, itemIds.length, `${context} contains duplicate roadmapItemIds`);
+  assert(itemIds.length <= 1, `${context} must reference at most one roadmap item`);
+
+  const gateLine = lines.find((line) => line.startsWith("roadmapGateId:"));
+  assert(gateLine, `${context} must declare roadmapGateId`);
+  const rawGateId = gateLine.slice("roadmapGateId:".length).trim();
+  const gateId = rawGateId && rawGateId !== "null" ? normalizeYamlScalar(rawGateId) : null;
+  assert((itemIds.length > 0) !== Boolean(gateId), `${context} must reference one roadmap item or one roadmap gate, but not both`);
+  return { itemIds, gateId };
+}
+
+function normalizeYamlScalar(value) {
+  return value.replace(/^['"]|['"]$/g, "");
 }

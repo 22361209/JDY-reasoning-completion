@@ -11,6 +11,7 @@
 
 - 正式工程已经落地为 `Java 21 + Spring Boot 模块化单体 + Vue 3 + PostgreSQL + Redis`，销售、采购、库存、生产、委外、多账套等已有不同程度实现；实际完成度不能再由菜单或历史批次推断。
 - 项目已建立防偏移治理基线：有效范围、A0-A4 交付状态和 smoke/area/full 回归清单均为可机器校验的版本控制产物；具体当前批次不在 README 固化。
+- 阻断整改与 P0 收口的长期顺序、边界和硬退出条件由 `config/remediation-roadmap.json` 保存；它不记录当前完成度，当前位置仍由交接快照和当前任务包表达。
 - 当前实时状态、已知失败和唯一下一步以 `docs/09-交接清单.md` 为准；当前任务允许路径、明确不做事项和验收门禁以 `docs/12-当前批次验收清单.md` 为准。
 
 ## 快速入口
@@ -35,6 +36,7 @@
 | `config/implementation-overrides.json` | 唯一人工范围差异入口 |
 | `config/effective-feature-scope.json` | 原始审批与 override 推导出的当前有效范围，生成物 |
 | `config/feature-delivery-status.json` | 按 scope ID 记录 A0-A4、能力、证据和已知缺口 |
+| `config/remediation-roadmap.json` | 0–6、6A–6E 的长期整改顺序、边界和硬退出条件 |
 | `config/regression-manifest.json` | 受版本控制的 smoke / area / full 回归清单 |
 | `outputs/jdy-feature-approval/JDY复刻功能审批表.xlsx` | 用户填写过的审批 Excel |
 

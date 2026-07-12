@@ -1,0 +1,429 @@
+{
+  "schemaVersion": 1,
+  "description": "只记录阻断整改与 P0 收口的长期顺序、边界和硬退出条件；不复制有效范围、交付状态或当前批次状态。",
+  "sources": {
+    "effectiveScope": "config/effective-feature-scope.json",
+    "deliveryStatus": "config/feature-delivery-status.json",
+    "currentSnapshot": "docs/09-交接清单.md",
+    "currentTask": "docs/12-当前批次验收清单.md"
+  },
+  "order": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "6A",
+    "6B",
+    "6C",
+    "6D",
+    "6E"
+  ],
+  "gates": [
+    {
+      "id": "G0-regression-baseline-before-2",
+      "title": "JavaScript 回归夹具基线",
+      "afterItemId": "1",
+      "beforeItemId": "2",
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "修正回归脚本手工单号",
+          "修正回归脚本仓库状态夹具",
+          "诊断并收敛 UI 等待超时",
+          "按既有正式业务规则修正财务红冲断言"
+        ],
+        "outOfScope": [
+          "正式业务规则和生产代码",
+          "权限 fail-open 与库存直调整改",
+          "tenant 外键与主数据稀疏更新整改",
+          "F021、F031、发货通知范围决策"
+        ]
+      },
+      "hardExitConditions": [
+        "A93、A108、A110 分别转绿且不放松自动编号或仓库校验",
+        "A86、A87 的 UI 超时完成夹具或产品缺陷归因，夹具问题在本 gate 内收敛",
+        "A85 按既有红字草稿和审核后过账语义完成断言，若需要改变业务语义则停止并另开业务批次",
+        "A130 full 中属于仓库状态、手工单号、UI 等待和财务旧断言的 63 个目标失败全部转绿",
+        "smoke 10 项全部通过，full 失败集合只允许来自 8 个明确的本 gate 外基线脚本且不得新增",
+        "完成验收报告、独立 review 和独立 commit，工作区干净"
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "0",
+      "title": "上下文与范围持续漂移",
+      "kind": "governance",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "effective scope 生成链",
+          "交付状态与能力登记",
+          "受版本控制的回归 manifest",
+          "单一交接快照和当前任务包",
+          "CI 生成物与治理门禁"
+        ],
+        "outOfScope": [
+          "业务语义修改",
+          "未确认范围扩张"
+        ]
+      },
+      "hardExitConditions": [
+        "每个有效 scope ID 只有一条交付状态",
+        "每个公开入口都有唯一归属或明确例外",
+        "回归脚本全部进入 full 或明确豁免",
+        "docs/09 只保存当前快照且 docs/12 只保存一个当前任务",
+        "scope、status、manifest 与 CI 门禁通过"
+      ],
+      "predecessorIds": [],
+      "historyRefs": [
+        "docs/验收报告/验收报告-A130-项目防偏移与可复现治理基线-20260712.md"
+      ]
+    },
+    {
+      "id": "1",
+      "title": "后端测试和 Flyway 不可复现",
+      "kind": "cross_cutting",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "后端测试夹具服从正式自动编号、规范车间和生命周期",
+          "Flyway 历史经备份、隔离试验和官方操作收敛",
+          "当前库、已发布 V95 库和全新空库验证"
+        ],
+        "outOfScope": [
+          "放松正式业务规则",
+          "恢复从未发布的低版本迁移",
+          "手工编辑 flyway_schema_history"
+        ]
+      },
+      "hardExitConditions": [
+        "三种数据库拓扑的后端测试均为 48/48",
+        "共享 source 为 93 个 migration 且最高版本 V95",
+        "已发布 V95 库和全新空库均无 V90/V91",
+        "A119 隔离回归与治理门禁通过"
+      ],
+      "predecessorIds": [
+        "0"
+      ],
+      "historyRefs": [
+        "docs/验收报告/验收报告-A131-可复现测试与Flyway基线-20260712.md"
+      ]
+    },
+    {
+      "id": "2",
+      "title": "权限 fail-open、生命周期和库存直调接口可绕过",
+      "kind": "cross_cutting",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "员工侧写接口显式权限语义",
+          "生命周期动作按单据类型映射权限",
+          "库存只能由正式单据审核动账或受限测试入口调整"
+        ],
+        "outOfScope": [
+          "用菜单隐藏替代后端校验",
+          "绕过审核直接修改正式库存",
+          "顺带重构无关业务模块"
+        ]
+      },
+      "hardExitConditions": [
+        "写接口权限覆盖率 100%",
+        "未登录返回 401、无权返回 403、有权请求成功",
+        "低权限直接调用生命周期、库存和结算 URL 不产生数据",
+        "共享权限与生命周期改动通过 full 和后端快测"
+      ],
+      "predecessorIds": [
+        "1"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "3",
+      "title": "操作日志缺操作人并伪装成本地管理员",
+      "kind": "cross_cutting",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "新增日志读取真实会话用户",
+          "系统任务明确 actor 类型",
+          "失败动作保留可追溯审计"
+        ],
+        "outOfScope": [
+          "无依据回填历史空值",
+          "继续把未知操作人显示为本地管理员"
+        ]
+      },
+      "hardExitConditions": [
+        "两个用户、两个账套的新日志准确记录用户、账套、对象、前后状态和失败原因",
+        "新日志 operated_by 不为空",
+        "历史空值显示为历史未知或系统任务",
+        "操作日志筛选与导出结果一致"
+      ],
+      "predecessorIds": [
+        "2"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "4",
+      "title": "tenant schema 没有外键",
+      "kind": "cross_cutting",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "先审计孤儿数据",
+          "通过版本化迁移补齐 PK、UK、CHECK、FK",
+          "新账套初始化复用同一 tenant DDL 计划"
+        ],
+        "outOfScope": [
+          "临时切换 database-per-tenant",
+          "擅自删除孤儿数据",
+          "伪造引用以通过约束"
+        ]
+      },
+      "hardExitConditions": [
+        "tenant 业务表与参考 schema 的约束语义一致",
+        "非法外键、重复键和非法 CHECK 数据被数据库拒绝",
+        "新建账套立即具备完整约束",
+        "两账套同码同号隔离回归通过",
+        "发现孤儿数据时停止并提交处理清单"
+      ],
+      "predecessorIds": [
+        "3"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "5",
+      "title": "主数据编辑会清空隐藏字段",
+      "kind": "cross_cutting",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "客户、供应商、仓库、物料使用字段白名单 PATCH",
+          "字段缺失表示保持且显式 null 表示清空",
+          "携带 version 做并发校验"
+        ],
+        "outOfScope": [
+          "把创建默认值用于更新",
+          "通过前端补齐隐藏字段掩盖后端语义",
+          "绕过既有生命周期动作"
+        ]
+      },
+      "hardExitConditions": [
+        "四类主数据只修改一个可见字段时其余列逐列不变",
+        "显式清空有效",
+        "旧版本返回 409、无权限返回 403、引用错误整笔回滚",
+        "四类页面完成浏览器保存、重开和冲突态验证"
+      ],
+      "predecessorIds": [
+        "4"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "6",
+      "title": "未知列表错误返回销售订单数据",
+      "kind": "cross_cutting",
+      "scopeIds": [],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "删除前端 fallbackDefinition 和后端未知 listKey 的销售订单 fallback",
+          "未知 listKey 查询和导出统一 404",
+          "可见入口同时具备定义、contract、adapter、权限和交付等级"
+        ],
+        "outOfScope": [
+          "用伪造销售数据支撑报表或空壳入口",
+          "在本项夹带新业务报表实现"
+        ]
+      },
+      "hardExitConditions": [
+        "随机未知 listKey 的查询和导出均返回 404",
+        "当前错误入口只能是真实页面或不可见",
+        "错误入口不得出现销售订单列或销售单号",
+        "A115、A124、A128、前端 build、smoke、full 通过对应门禁"
+      ],
+      "predecessorIds": [
+        "5"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "6A",
+      "title": "账户资料与员工主档",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F016",
+        "F017"
+      ],
+      "targetAcceptance": "A3",
+      "boundaries": {
+        "inScope": [
+          "账户资料归 master-data",
+          "员工主档与 system 登录用户分离",
+          "复用 DataListPage、MasterDataRecordPage、FieldRenderer 和 ActionBar"
+        ],
+        "outOfScope": [
+          "另写一套 CRUD 页面",
+          "复杂资金管理",
+          "多币种核算引擎"
+        ]
+      },
+      "hardExitConditions": [
+        "账户和员工完成新增、编辑、查看、启停与选择器",
+        "重复编码、并发、权限和跨账套隔离通过",
+        "目标验收等级达到 A3"
+      ],
+      "predecessorIds": [
+        "6"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "6B",
+      "title": "正式收款单与付款单",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F026",
+        "F036",
+        "F080",
+        "F082"
+      ],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "F026、F036、F080、F082 复用同一 finance 能力",
+          "正式草稿、审核和反审核生命周期",
+          "保存不核销且审核才更新应收应付"
+        ],
+        "outOfScope": [
+          "销售和采购各建一套结算引擎",
+          "调用接口即直接结算",
+          "在本项夹带退款单"
+        ]
+      },
+      "hardExitConditions": [
+        "草稿零影响且重复审核幂等",
+        "部分核销、全额核销、超额和并发阻断可解释",
+        "反审核释放且失败零半截数据",
+        "权限、日志和两账套隔离通过",
+        "目标验收等级达到 A4"
+      ],
+      "predecessorIds": [
+        "6A"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "6C",
+      "title": "销售退货单",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F024"
+      ],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "只能选择已审核销售出库行",
+          "后端计算正式可退量",
+          "审核回补库存并形成冲应收或待退款关系"
+        ],
+        "outOfScope": [
+          "换货流程",
+          "退货申请流程",
+          "绕过 finance application service"
+        ]
+      },
+      "hardExitConditions": [
+        "草稿零影响且审核回补库存",
+        "超退、重复退货和并发被阻断",
+        "财务关系和反审核下游阻断正确",
+        "权限与跨账套通过",
+        "目标验收等级达到 A4"
+      ],
+      "predecessorIds": [
+        "6B"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "6D",
+      "title": "Excel 导入",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F008"
+      ],
+      "targetAcceptance": "A4",
+      "boundaries": {
+        "inScope": [
+          "第一阶段覆盖物料、类别、单位、客户、供应商、仓库、员工、账户",
+          "下载模板、上传、服务端 dry-run、行级错误预览、确认提交",
+          "整批原子提交且重复编码默认报错"
+        ],
+        "outOfScope": [
+          "错误行静默跳过",
+          "重复编码静默覆盖",
+          "未预览直接写入"
+        ]
+      },
+      "hardExitConditions": [
+        "合法导入、重复编码、错误引用和非法数值通过",
+        "文件超限、重复提交、无权限和跨账套通过",
+        "任一行错误时整批零写入",
+        "目标验收等级达到 A4"
+      ],
+      "predecessorIds": [
+        "6C"
+      ],
+      "historyRefs": []
+    },
+    {
+      "id": "6E",
+      "title": "报表与当前错误入口",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F029",
+        "F042",
+        "F061",
+        "F091",
+        "F093"
+      ],
+      "targetAcceptance": "A3",
+      "boundaries": {
+        "inScope": [
+          "编码规则入口直达已有设置页",
+          "商品收发明细读取真实 inv_stock_txn 并保留来源追溯",
+          "销售简单报表按 F029 实现",
+          "资金和材料报废报表只在对应业务闭环完成后发布"
+        ],
+        "outOfScope": [
+          "无可信成本口径时发布销售利润",
+          "用销售订单 fallback 冒充库存、资金或生产报表",
+          "报表先于底层资金或材料报废业务闭环发布"
+        ]
+      },
+      "hardExitConditions": [
+        "筛选有效且页面结果与来源单据一致",
+        "页面和导出使用同一查询",
+        "空态明确且大数据量有分页或进度反馈",
+        "不得展示伪造报表数据",
+        "目标验收等级至少达到 A3，涉及资金或库存核心的依赖项先达到对应 A4"
+      ],
+      "predecessorIds": [
+        "6D"
+      ],
+      "historyRefs": []
+    }
+  ]
+}

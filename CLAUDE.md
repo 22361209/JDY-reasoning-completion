@@ -20,12 +20,14 @@
 每个任务自包含，**只读这几样，不要重读全部 docs**：
 
 1. `docs/09-交接清单.md`（当前快照）
-2. 目标入口的 复刻-local 截图 + 对应 B 批次组件规格（`复刻-local/02_复刻规划/首版页面实现批次与组件复用矩阵-1880收口版.md`）
-3. 本任务相关代码文件
+2. `docs/12-当前批次验收清单.md`（唯一当前任务包）
+3. 目标入口的 复刻-local 截图 + 对应 B 批次组件规格（`复刻-local/02_复刻规划/首版页面实现批次与组件复用矩阵-1880收口版.md`）
+4. 本任务相关代码文件
 
 - 新接手、不熟目录、或不确定规则放在哪里时，读 `docs/guides/repository-map.md`；业务规则和动作按钮规则也从该文件跳转。
 - 改功能、逻辑、规则、机制或动作前，先扫是否已有复用点：`docs/guides/*`（规则口径）、`scripts/helpers/*`（回归动作）、`frontend/src/components` 与模块 composable（产品范式）。能复用先复用；需要新机制时先沉淀共享层，再改具体入口。
 - 执行范围以生成物 `config/effective-feature-scope.json` 为准；它必须且只能由原始审批快照 `config/approved-feature-scope.json` + 手维护 `config/implementation-overrides.json` 推导，别手改生成物或擅自扩范围。
+- 阻断整改与 P0 收口的长期顺序只认 `config/remediation-roadmap.json`。它只能保存顺序、边界和硬退出条件，不得复制范围、交付状态或当前完成度；当前任务必须在 `docs/12` frontmatter 中声明 `roadmapItemIds` 或 `roadmapGateId`，且只能读取当前坐标相关内容。
 - 验收 = 业务逻辑门禁（`docs/11`）+ 对照截图的视觉相似度。
 - 收尾覆盖更新 `docs/09` 快照。
 
@@ -70,4 +72,4 @@ node scripts/run-regression-tier.mjs full
   3. `node scripts/effective-scope-contract-check.mjs`（确认 effective scope 与两个输入逐字节一致）
   4. 可选：`node build-app-data.mjs`（更新退役中的静态范围工作台 `app/feature-data.js`）
 - 绝不重跑 `build-jdy-feature-approval.mjs`，除非明确要用 `FORCE_REGEN=1` 重建空白审批模板。
-- 手维护安全文件：`docs/00/04/05/06/07/08/09/10/11`、`README.md`、`CLAUDE.md`、`config/implementation-overrides.json`、`config/feature-delivery-status.json`、`config/regression-manifest.json` 和相关生成/门禁脚本。`config/effective-feature-scope.json` 仍是生成物，不在手维护清单内。
+- 手维护安全文件：`docs/00/04/05/06/07/08/09/10/11`、`README.md`、`CLAUDE.md`、`config/implementation-overrides.json`、`config/feature-delivery-status.json`、`config/remediation-roadmap.json`、`config/regression-manifest.json` 和相关生成/门禁脚本。`config/effective-feature-scope.json` 仍是生成物，不在手维护清单内。
