@@ -18,8 +18,11 @@ BACKEND_PROFILE="local"
 TEST_ADJUSTMENT_ACCOUNT_SETS="BLD-TEST"
 
 source "$ROOT_DIR/scripts/java-env.sh"
+source "$ROOT_DIR/scripts/dev-process-identity.sh"
 
 mkdir -p "$LOG_DIR"
+
+BACKEND_BUILD_FINGERPRINT=""
 
 log() {
   printf '[dev-up] %s\n' "$*"
@@ -54,6 +57,28 @@ wait_for_url() {
 test_adjustment_capability_ready() {
   curl -fsS --max-time 3 "$BACKEND_SYSTEM_HEALTH_URL" 2>/dev/null \
     | grep -Eq '"testInventoryAdjustmentApi"[[:space:]]*:[[:space:]]*true'
+}
+
+backend_build_identity_ready() {
+  [[ -n "$BACKEND_BUILD_FINGERPRINT" ]] || return 1
+  curl -fsS --max-time 3 "$BACKEND_SYSTEM_HEALTH_URL" 2>/dev/null \
+    | grep -Eq '"devBuildFingerprint"[[:space:]]*:[[:space:]]*"'"$BACKEND_BUILD_FINGERPRINT"'"'
+}
+
+wait_for_backend_build_identity() {
+  local attempts="${1:-40}"
+  local delay="${2:-1}"
+
+  for ((i = 1; i <= attempts; i += 1)); do
+    if backend_build_identity_ready; then
+      log "backend build identity is current (${BACKEND_BUILD_FINGERPRINT:0:12})"
+      return 0
+    fi
+    sleep "$delay"
+  done
+
+  log "backend is reachable but its build identity does not match this workspace (${BACKEND_BUILD_FINGERPRINT:0:12})"
+  return 1
 }
 
 wait_for_test_adjustment_capability() {
@@ -108,12 +133,16 @@ ensure_docker_deps() {
 
 start_backend() {
   if port_listening 8080; then
+    if ! backend_build_identity_ready; then
+      log "backend on 8080 was not built from the current workspace sources (${BACKEND_BUILD_FINGERPRINT:0:12}); refusing to reuse it"
+      return 1
+    fi
     if ! test_adjustment_capability_ready; then
       log "backend on 8080 is not verified for controlled BLD-TEST fixtures; run ./scripts/dev-down.sh before retrying"
       return 1
     fi
     listening_pid 8080 > "$BACKEND_PID_FILE" || true
-    log "backend already listening on 8080 with controlled BLD-TEST fixtures enabled"
+    log "backend already listening on 8080 with current build identity and controlled BLD-TEST fixtures enabled"
     return
   fi
 
@@ -121,17 +150,18 @@ start_backend() {
 
   log "starting backend; log: $BACKEND_LOG"
   if screen_available; then
-    start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec env JAVA_HOME='$JAVA_HOME' PATH='$PATH' SPRING_PROFILES_ACTIVE='$BACKEND_PROFILE' JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED='true' JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS='$TEST_ADJUSTMENT_ACCOUNT_SETS' ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
+    start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec env JAVA_HOME='$JAVA_HOME' PATH='$PATH' SPRING_PROFILES_ACTIVE='$BACKEND_PROFILE' JDY_DEV_BUILD_FINGERPRINT='$BACKEND_BUILD_FINGERPRINT' JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED='true' JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS='$TEST_ADJUSTMENT_ACCOUNT_SETS' ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
     printf 'screen:%s\n' "$BACKEND_SESSION" > "$BACKEND_PID_FILE"
   else
     (
       cd "$BACKEND_DIR"
-      nohup env JAVA_HOME="$JAVA_HOME" PATH="$PATH" SPRING_PROFILES_ACTIVE="$BACKEND_PROFILE" JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED=true JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS="$TEST_ADJUSTMENT_ACCOUNT_SETS" ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
+      nohup env JAVA_HOME="$JAVA_HOME" PATH="$PATH" SPRING_PROFILES_ACTIVE="$BACKEND_PROFILE" JDY_DEV_BUILD_FINGERPRINT="$BACKEND_BUILD_FINGERPRINT" JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED=true JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS="$TEST_ADJUSTMENT_ACCOUNT_SETS" ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
       printf '%s\n' "$!" > "$BACKEND_PID_FILE"
     )
   fi
 
   wait_for_url "$BACKEND_HEALTH_URL" "backend" 60 1
+  wait_for_backend_build_identity 60 1
   wait_for_test_adjustment_capability 60 1
   sleep 2
   listening_pid 8080 > "$BACKEND_PID_FILE" || true
@@ -144,8 +174,16 @@ start_backend() {
 
 start_frontend() {
   if port_listening 5173; then
-    listening_pid 5173 > "$FRONTEND_PID_FILE" || true
-    log "frontend already listening on 5173"
+    local pid
+    local actual_cwd
+    pid="$(listening_pid 5173)"
+    if [[ -z "$pid" ]] || ! jdy_process_cwd_belongs_to "$pid" "$FRONTEND_DIR"; then
+      actual_cwd="$(jdy_pid_working_directory "$pid" 2>/dev/null || printf '<unavailable>')"
+      log "frontend on 5173 belongs to pid ${pid:-<unknown>} with cwd $actual_cwd; expected $FRONTEND_DIR; refusing to reuse it"
+      return 1
+    fi
+    printf '%s\n' "$pid" > "$FRONTEND_PID_FILE"
+    log "frontend already listening on 5173 from the current frontend workspace"
     return
   fi
 
@@ -174,6 +212,12 @@ print_summary() {
   printf 'Logs:     %s\n' "$LOG_DIR"
   printf 'Status:   ./scripts/dev-status.sh\n'
   printf 'Stop:     ./scripts/dev-down.sh\n'
+}
+
+BACKEND_BUILD_FINGERPRINT="$(jdy_backend_build_fingerprint "$ROOT_DIR" "$BACKEND_DIR")"
+[[ "${#BACKEND_BUILD_FINGERPRINT}" -eq 64 && "$BACKEND_BUILD_FINGERPRINT" != *[!0-9a-f]* ]] || {
+  log "could not calculate a valid backend build identity"
+  exit 1
 }
 
 ensure_docker_deps

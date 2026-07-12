@@ -38,6 +38,8 @@ management:
         enabled: true
 
 jdy:
+  dev:
+    build-fingerprint: ${JDY_DEV_BUILD_FINGERPRINT:}
   security:
     dev-open-api: ${JDY_DEV_OPEN_API:true}
   inventory:
