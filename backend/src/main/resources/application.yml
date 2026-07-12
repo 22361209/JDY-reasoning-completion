@@ -42,6 +42,24 @@ jdy:
     build-fingerprint: ${JDY_DEV_BUILD_FINGERPRINT:}
   security:
     dev-open-api: ${JDY_DEV_OPEN_API:true}
+    password-reset:
+      redis-key-prefix: ${JDY_PASSWORD_RESET_REDIS_KEY_PREFIX:jdy:security:{password-reset}}
+      redis-host: ${JDY_REDIS_HOST:localhost}
+      redis-port: ${JDY_REDIS_PORT:6379}
+      redis-connect-timeout: ${JDY_PASSWORD_RESET_REDIS_CONNECT_TIMEOUT:1s}
+      redis-read-timeout: ${JDY_PASSWORD_RESET_REDIS_READ_TIMEOUT:1s}
+      global-window: ${JDY_PASSWORD_RESET_GLOBAL_WINDOW:1m}
+      global-max-attempts: ${JDY_PASSWORD_RESET_GLOBAL_MAX_ATTEMPTS:100}
+      source-window: ${JDY_PASSWORD_RESET_SOURCE_WINDOW:10m}
+      source-max-attempts: ${JDY_PASSWORD_RESET_SOURCE_MAX_ATTEMPTS:10}
+      account-cooldown: ${JDY_PASSWORD_RESET_ACCOUNT_COOLDOWN:15m}
+      account-max-attempts: ${JDY_PASSWORD_RESET_ACCOUNT_MAX_ATTEMPTS:1}
+      max-pending: ${JDY_PASSWORD_RESET_MAX_PENDING:50}
+      pending-expiry: ${JDY_PASSWORD_RESET_PENDING_EXPIRY:72h}
+      history-retention: ${JDY_PASSWORD_RESET_HISTORY_RETENTION:90d}
+      cleanup-batch-size: ${JDY_PASSWORD_RESET_CLEANUP_BATCH_SIZE:500}
+      cleanup-fixed-delay-ms: ${JDY_PASSWORD_RESET_CLEANUP_FIXED_DELAY_MS:3600000}
+      cleanup-initial-delay-ms: ${JDY_PASSWORD_RESET_CLEANUP_INITIAL_DELAY_MS:60000}
   inventory:
     test-adjustment-api:
       enabled: ${JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED:false}

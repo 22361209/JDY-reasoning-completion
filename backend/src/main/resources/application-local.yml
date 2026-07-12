@@ -1,0 +1,6 @@
+jdy:
+  security:
+    password-reset:
+      global-max-attempts: ${JDY_PASSWORD_RESET_GLOBAL_MAX_ATTEMPTS:10000}
+      source-max-attempts: ${JDY_PASSWORD_RESET_SOURCE_MAX_ATTEMPTS:10000}
+      account-cooldown: ${JDY_PASSWORD_RESET_ACCOUNT_COOLDOWN:10ms}

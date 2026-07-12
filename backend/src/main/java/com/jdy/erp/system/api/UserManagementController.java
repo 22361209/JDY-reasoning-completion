@@ -6,11 +6,13 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.system.application.NotificationProviderService;
+import com.jdy.erp.system.application.PasswordResetRequestService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
 import com.jdy.erp.system.security.WriteAccess;
 import com.jdy.erp.system.security.WriteAccess.Policy;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -29,21 +31,29 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/system")
 public class UserManagementController {
+    private static final Map<String, Object> PASSWORD_RESET_REQUEST_RESPONSE = Map.of(
+        "ok", true,
+        "message", "已提交找回申请，请联系管理员完成身份核验和密码重置。"
+    );
+
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final PasswordPolicy passwordPolicy;
     private final NotificationProviderService notificationProviderService;
+    private final PasswordResetRequestService passwordResetRequestService;
 
     public UserManagementController(
         @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         CurrentSessionService currentSessionService,
         PasswordPolicy passwordPolicy,
-        NotificationProviderService notificationProviderService
+        NotificationProviderService notificationProviderService,
+        PasswordResetRequestService passwordResetRequestService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.passwordPolicy = passwordPolicy;
         this.notificationProviderService = notificationProviderService;
+        this.passwordResetRequestService = passwordResetRequestService;
     }
 
     @GetMapping("/managed-users")
@@ -139,27 +149,14 @@ public class UserManagementController {
 
     @PostMapping("/password-reset-requests")
     @WriteAccess(Policy.REQUEST_PASSWORD_RESET)
-    @Transactional(transactionManager = "platformTransactionManager")
-    public Map<String, Object> requestPasswordReset(@RequestBody PasswordResetRequest request) {
-        var username = required(request.username(), "用户名");
-        var contactNote = optionalLimited(request.contactNote(), 240);
-        var userRows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id
-            FROM sys_user
-            WHERE username = ?
-              AND enabled = TRUE
-            """, username);
-        var userId = userRows.isEmpty() ? null : String.valueOf(userRows.get(0).get("id"));
-        var resetRequest = jdbcTemplate.queryForMap("""
-            INSERT INTO sys_password_reset_request (username, contact_note, requested_user_id)
-            VALUES (?, ?, ?::uuid)
-            RETURNING id::text AS id
-            """, username, contactNote, userId);
-        logPublic("SYSTEM", "PASSWORD_RESET_REQUEST", "sys_user", userId, true, "申请编号 " + resetRequest.get("id"));
-        return Map.of(
-            "ok", true,
-            "message", "已提交找回申请，请联系管理员完成身份核验和密码重置。"
-        );
+    public Map<String, Object> requestPasswordReset(
+        @RequestBody PasswordResetRequest request,
+        HttpServletRequest servletRequest
+    ) {
+        var username = requiredLimited(request.username(), "用户名", 80);
+        var contactNote = optionalStrictLimited(request.contactNote(), "联系方式/说明", 240);
+        passwordResetRequestService.submit(username, contactNote, servletRequest.getRemoteAddr());
+        return PASSWORD_RESET_REQUEST_RESPONSE;
     }
 
     @PostMapping("/managed-users")
@@ -253,14 +250,6 @@ public class UserManagementController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
         }
         var pendingRequests = jdbcTemplate.queryForList("""
-            SELECT id::text AS id,
-                   COALESCE(contact_note, '') AS "contactNote"
-            FROM sys_password_reset_request
-            WHERE requested_user_id = ?::uuid
-              AND status = 'PENDING'
-            ORDER BY requested_at DESC
-            """, userId);
-        jdbcTemplate.update("""
             UPDATE sys_password_reset_request
             SET status = 'DONE',
                 handled_at = now(),
@@ -269,6 +258,8 @@ public class UserManagementController {
                 version = version + 1
             WHERE requested_user_id = ?::uuid
               AND status = 'PENDING'
+            RETURNING id::text AS id,
+                      COALESCE(contact_note, '') AS "contactNote"
             """, currentSessionService.currentUsername(), userId);
         if (!pendingRequests.isEmpty()) {
             var resetRequest = pendingRequests.get(0);
@@ -296,23 +287,8 @@ public class UserManagementController {
         if (!List.of("DONE", "REJECTED").contains(status)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "处理状态只能是 DONE 或 REJECTED");
         }
-        var rows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id,
-                   requested_user_id::text AS "requestedUserId",
-                   username,
-                   COALESCE(contact_note, '') AS "contactNote",
-                   status
-            FROM sys_password_reset_request
-            WHERE id = ?::uuid
-            """, normalizedRequestId);
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "找回申请不存在");
-        }
-        if (!"PENDING".equals(String.valueOf(rows.get(0).get("status")))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "找回申请已处理");
-        }
         var note = optionalLimited(request.note(), 240);
-        jdbcTemplate.update("""
+        var rows = jdbcTemplate.queryForList("""
             UPDATE sys_password_reset_request
             SET status = ?,
                 handled_at = now(),
@@ -320,9 +296,24 @@ public class UserManagementController {
                 handle_note = ?,
                 version = version + 1
             WHERE id = ?::uuid
+              AND status = 'PENDING'
+            RETURNING requested_user_id::text AS "requestedUserId",
+                      username,
+                      COALESCE(contact_note, '') AS "contactNote"
             """, status, currentSessionService.currentUsername(), note, normalizedRequestId);
+        if (rows.isEmpty()) {
+            var exists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM sys_password_reset_request WHERE id = ?::uuid)",
+                Boolean.class,
+                normalizedRequestId
+            );
+            if (Boolean.TRUE.equals(exists)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "找回申请已处理");
+            }
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "找回申请不存在");
+        }
         var targetUserId = rows.get(0).get("requestedUserId") == null ? null : String.valueOf(rows.get(0).get("requestedUserId"));
-        if ("REJECTED".equals(status)) {
+        if ("REJECTED".equals(status) && targetUserId != null) {
             createNotification(
                 targetUserId,
                 String.valueOf(rows.get(0).get("username")),
@@ -608,6 +599,25 @@ public class UserManagementController {
         return value.trim();
     }
 
+    private String requiredLimited(String value, String label, int maxLength) {
+        var normalized = required(value, label);
+        if (normalized.length() > maxLength) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能超过" + maxLength + "个字符");
+        }
+        return normalized;
+    }
+
+    private String optionalStrictLimited(String value, String label, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        var normalized = value.trim();
+        if (normalized.length() > maxLength) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能超过" + maxLength + "个字符");
+        }
+        return normalized;
+    }
+
     private String optionalLimited(String value, int maxLength) {
         if (value == null || value.isBlank()) {
             return "";
@@ -623,13 +633,6 @@ public class UserManagementController {
             FROM sys_user
             WHERE username = ?
             """, module, action, targetType, targetId, success, reason, currentSessionService.currentUsername());
-    }
-
-    private void logPublic(String module, String action, String targetType, String targetId, boolean success, String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
-            VALUES (?, ?, ?, ?::uuid, ?, ?)
-            """, module, action, targetType, targetId, success, reason);
     }
 
     private void createNotification(
