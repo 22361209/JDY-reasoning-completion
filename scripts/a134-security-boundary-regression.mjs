@@ -324,6 +324,16 @@ try {
   pass("system users 401/403/200");
 
   passwordResetBaseline = passwordResetFingerprint();
+  const passwordResetCountsBefore = sqlJson(`
+    SELECT jsonb_build_object(
+      'requests', (SELECT count(*) FROM public.sys_password_reset_request),
+      'logs', (
+        SELECT count(*)
+        FROM public.sys_operation_log
+        WHERE module_code = 'SYSTEM' AND action_code = 'PASSWORD_RESET_REQUEST'
+      )
+    )::text
+  `);
   addCleanup("password-reset fixtures", async () => {
     sqlScalar(`
       BEGIN;
@@ -358,24 +368,58 @@ try {
   assert(same(existingReset.data, missingReset.data), "existing and missing password-reset response bodies must be completely indistinguishable");
   assert(!Object.prototype.hasOwnProperty.call(existingReset.data ?? {}, "matched") && !Object.prototype.hasOwnProperty.call(missingReset.data ?? {}, "matched"), "password-reset responses must not expose matched");
   const resetFixtureCounts = sqlJson(`
+    WITH existing_user AS (
+      SELECT id
+      FROM public.sys_user
+      WHERE username = 'admin' AND enabled = TRUE
+    ), existing_requests AS (
+      SELECT request_row.*
+      FROM public.sys_password_reset_request request_row
+      JOIN existing_user user_row ON user_row.id = request_row.requested_user_id
+      WHERE request_row.username = 'admin'
+        AND request_row.contact_note = ${sqlLiteral(existingResetContact)}
+        AND request_row.status = 'PENDING'
+    ), missing_requests AS (
+      SELECT request_row.*
+      FROM public.sys_password_reset_request request_row
+      WHERE request_row.username = ${sqlLiteral(missingResetUsername)}
+         OR request_row.contact_note = ${sqlLiteral(missingResetContact)}
+    )
     SELECT jsonb_build_object(
-      'requests', (
-        SELECT count(*) FROM public.sys_password_reset_request
-        WHERE contact_note IN (${sqlLiteral(existingResetContact)}, ${sqlLiteral(missingResetContact)})
+      'totalRequests', (SELECT count(*) FROM public.sys_password_reset_request),
+      'totalLogs', (
+        SELECT count(*)
+        FROM public.sys_operation_log
+        WHERE module_code = 'SYSTEM' AND action_code = 'PASSWORD_RESET_REQUEST'
       ),
-      'logs', (
+      'existingRequests', (SELECT count(*) FROM existing_requests),
+      'existingLogs', (
         SELECT count(*)
         FROM public.sys_operation_log log_row
-        JOIN public.sys_password_reset_request request_row
+        JOIN existing_requests request_row
           ON log_row.failure_reason = '申请编号 ' || request_row.id::text
         WHERE log_row.module_code = 'SYSTEM'
           AND log_row.action_code = 'PASSWORD_RESET_REQUEST'
-          AND request_row.contact_note IN (${sqlLiteral(existingResetContact)}, ${sqlLiteral(missingResetContact)})
+          AND log_row.target_type = 'sys_user'
+          AND log_row.target_id = request_row.requested_user_id
+          AND log_row.success = TRUE
+      ),
+      'missingRequests', (SELECT count(*) FROM missing_requests),
+      'missingLogs', (
+        SELECT count(*)
+        FROM public.sys_operation_log log_row
+        JOIN missing_requests request_row
+          ON log_row.failure_reason = '申请编号 ' || request_row.id::text
+        WHERE log_row.module_code = 'SYSTEM'
+          AND log_row.action_code = 'PASSWORD_RESET_REQUEST'
       )
     )::text
   `);
-  assert(Number(resetFixtureCounts.requests) === 2 && Number(resetFixtureCounts.logs) === 2, `password-reset fixture should create exactly two requests and two exact logs: ${JSON.stringify(resetFixtureCounts)}`);
-  pass("password-reset account existence is indistinguishable and exactly recoverable");
+  assert(Number(resetFixtureCounts.totalRequests) === Number(passwordResetCountsBefore.requests) + 1, `password-reset requests should increase by exactly one: ${JSON.stringify({ before: passwordResetCountsBefore, after: resetFixtureCounts })}`);
+  assert(Number(resetFixtureCounts.totalLogs) === Number(passwordResetCountsBefore.logs) + 1, `password-reset logs should increase by exactly one: ${JSON.stringify({ before: passwordResetCountsBefore, after: resetFixtureCounts })}`);
+  assert(Number(resetFixtureCounts.existingRequests) === 1 && Number(resetFixtureCounts.existingLogs) === 1, `enabled account should create exactly one request and one exact PASSWORD_RESET_REQUEST log: ${JSON.stringify(resetFixtureCounts)}`);
+  assert(Number(resetFixtureCounts.missingRequests) === 0 && Number(resetFixtureCounts.missingLogs) === 0, `missing account should persist zero request and log rows: ${JSON.stringify(resetFixtureCounts)}`);
+  pass("password-reset account existence is indistinguishable with known-only persistence and exact restoration");
 
   addCleanup("sales-order fixture", async () => {
     sqlScalar(`
