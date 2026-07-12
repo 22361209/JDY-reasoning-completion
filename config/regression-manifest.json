@@ -79,7 +79,8 @@
       "scripts/a69-security-settings-policy-regression.mjs",
       "scripts/a70-session-timeout-settings-regression.mjs",
       "scripts/a71-password-policy-settings-regression.mjs",
-      "scripts/a134-security-boundary-regression.mjs"
+      "scripts/a134-security-boundary-regression.mjs",
+      "scripts/a135-public-security-boundary-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -212,7 +213,8 @@
     "scripts/a126-sales-daily-usability-regression.mjs",
     "scripts/a128-list-query-unification-regression.mjs",
     "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
-    "scripts/a134-security-boundary-regression.mjs"
+    "scripts/a134-security-boundary-regression.mjs",
+    "scripts/a135-public-security-boundary-regression.mjs"
   ],
   "exemptions": [
     {
