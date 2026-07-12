@@ -143,6 +143,12 @@ try {
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
   await ensureOperationLogFilters(page);
+  const resetResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === "/api/lists/operation-log-list";
+  });
+  await page.getByTestId("list-reset").click();
+  await resetResponsePromise;
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
   await page.getByTestId("operation-log-module").selectOption("SALES");
   await page.getByTestId("operation-log-action").selectOption("RED_REVERSE");
@@ -163,9 +169,12 @@ try {
   const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
   assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
   const table = page.getByTestId("vxe-list-table");
-  await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
-  await table.getByText("RED_REVERSE").first().waitFor({ state: "visible" });
-  await table.getByText("SALES").first().waitFor({ state: "visible" });
+  const matchingRow = table.locator("tr")
+    .filter({ hasText: sales.redBillNo })
+    .filter({ hasText: "RED_REVERSE" })
+    .filter({ hasText: "SALES" })
+    .first();
+  await matchingRow.waitFor({ state: "visible" });
   const screenshot = `a41-operation-log-composite-filter-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
   screenshots.push(`verification/playwright/${screenshot}`);

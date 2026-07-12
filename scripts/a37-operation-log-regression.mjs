@@ -115,12 +115,21 @@ try {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
+  const resetResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === "/api/lists/operation-log-list";
+  });
+  await page.getByTestId("list-reset").click();
+  await resetResponsePromise;
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
   await page.getByTestId("list-keyword").press("Enter");
   const table = page.getByTestId("vxe-list-table");
-  await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
-  await table.getByText("RED_REVERSE").first().waitFor({ state: "visible" });
-  await table.getByText("成功").first().waitFor({ state: "visible" });
+  const redReverseRow = table.locator("tr")
+    .filter({ hasText: sales.redBillNo })
+    .filter({ hasText: "RED_REVERSE" })
+    .filter({ hasText: "成功" })
+    .first();
+  await redReverseRow.waitFor({ state: "visible" });
   const screenshot = `a37-operation-log-red-reverse-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
   screenshots.push(`verification/playwright/${screenshot}`);
