@@ -72,14 +72,6 @@ function nullableSql(value, type = "text") {
   return value == null ? `NULL::${type}` : `${sqlLiteral(value)}::${type}`;
 }
 
-function jsonbSql(value) {
-  return value == null ? "NULL::jsonb" : `${sqlLiteral(JSON.stringify(value))}::jsonb`;
-}
-
-function booleanSql(value) {
-  return value ? "TRUE" : "FALSE";
-}
-
 function sqlScalar(sql) {
   return execFileSync(
     "docker",
@@ -97,42 +89,6 @@ function readCompletePresetSnapshot() {
   const presets = JSON.parse(raw || "[]");
   assert(Array.isArray(presets), `A50 preset snapshot should be an array, got ${raw}`);
   return presets;
-}
-
-function exactPresetInsert(preset) {
-  return `
-    INSERT INTO public.sys_list_filter_preset (
-      id, list_key, name, query, column_filters, shared, created_by,
-      created_at, updated_at, is_default, read_only, role_code, user_name
-    ) VALUES (
-      ${nullableSql(preset.id, "uuid")},
-      ${sqlLiteral(preset.list_key)},
-      ${sqlLiteral(preset.name)},
-      ${jsonbSql(preset.query)},
-      ${jsonbSql(preset.column_filters)},
-      ${booleanSql(preset.shared)},
-      ${nullableSql(preset.created_by, "uuid")},
-      ${nullableSql(preset.created_at, "timestamptz")},
-      ${nullableSql(preset.updated_at, "timestamptz")},
-      ${booleanSql(preset.is_default)},
-      ${booleanSql(preset.read_only)},
-      ${nullableSql(preset.role_code)},
-      ${nullableSql(preset.user_name)}
-    );
-  `;
-}
-
-function restorePresetScope(baselinePresets, roleCode, userName) {
-  const baselineScopeRows = scopeRows(baselinePresets, roleCode, userName);
-  sqlScalar(`
-    BEGIN;
-    DELETE FROM public.sys_list_filter_preset
-    WHERE list_key = ${sqlLiteral(listKey)}
-      AND role_code IS NOT DISTINCT FROM ${nullableSql(roleCode)}
-      AND user_name IS NOT DISTINCT FROM ${nullableSql(userName)};
-    ${baselineScopeRows.map(exactPresetInsert).join("\n")}
-    COMMIT;
-  `);
 }
 
 async function finishCleanup(primaryError, cleanupTasks) {
@@ -175,6 +131,7 @@ let session;
 let warehousePreset;
 let presets;
 let defaultPreset;
+let effectiveDefaultPreset;
 let browser;
 const screenshots = [];
 let primaryError;
@@ -186,15 +143,42 @@ let mutationStarted = false;
 let restoredExactPresetSnapshot = false;
 let restoredOriginalIds = false;
 
+function removeWarehouseFixture() {
+  if (!mutationStarted) {
+    return;
+  }
+  const idGuard = warehousePreset?.id
+    ? `AND id = ${nullableSql(warehousePreset.id, "uuid")}`
+    : "";
+  const deletedCount = Number(sqlScalar(`
+    WITH deleted AS (
+      DELETE FROM public.sys_list_filter_preset
+      WHERE list_key = ${sqlLiteral(listKey)}
+        AND name = ${sqlLiteral(hiddenWarehousePresetName)}
+        AND role_code = ${sqlLiteral(affectedRoleCode)}
+        AND user_name IS NULL
+        ${idGuard}
+      RETURNING id
+    )
+    SELECT count(*) FROM deleted
+  `));
+  assert(deletedCount <= 1, `A50 cleanup must never delete more than its one WAREHOUSE fixture, got ${deletedCount}`);
+  if (warehousePreset?.id) {
+    assert(deletedCount === 1, `A50 cleanup should delete the persisted WAREHOUSE fixture ID, got ${deletedCount}`);
+  }
+}
+
 try {
   session = await requireApi("/api/system/session");
   assert(session.user.roleCode === "ADMIN", "session should expose ADMIN role code");
+  assert(session.user.username === "admin", "session should expose the stable ADMIN username");
   assert(session?.tenant?.schemaName === "public", `A50 preset snapshot SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
 
   baselinePresets = readCompletePresetSnapshot();
   baselinePresetSnapshot = exactPresetSnapshot(baselinePresets);
   baselineAffectedScopeIds = scopeIds(baselinePresets, affectedRoleCode, affectedUserName);
   snapshotTaken = true;
+  assert(!baselinePresets.some((preset) => preset.name === hiddenWarehousePresetName), "A50 fixture name must be absent from the complete baseline");
 
   const baselineVisiblePresets = await requireApi(`/api/list-presets/${listKey}`);
   defaultPreset = baselineVisiblePresets.find((preset) =>
@@ -205,6 +189,8 @@ try {
   assert(defaultPreset, "default preset should be returned for current ADMIN role");
   assert(defaultPreset.isDefault === true, "ADMIN default preset should be default before A50 writes any fixture");
   assert(defaultPreset.readOnly === true, "ADMIN default preset should remain read only");
+  effectiveDefaultPreset = baselineVisiblePresets.find((preset) => preset.isDefault);
+  assert(effectiveDefaultPreset, "current ADMIN session should expose an effective default preset");
 
   mutationStarted = true;
   warehousePreset = await requireApi(`/api/list-presets/${listKey}`, {
@@ -261,8 +247,9 @@ try {
   const optionTexts = await page.getByTestId("operation-log-preset-select").locator("option").evaluateAll((options) => options.map((option) => option.textContent || ""));
   assert(optionTexts.some((text) => text.includes(`${defaultPresetName}（ADMIN）（默认）（只读）`)), "frontend should show ADMIN scoped default preset");
   assert(!optionTexts.some((text) => text.includes(hiddenWarehousePresetName)), "frontend should hide WAREHOUSE scoped preset");
-  assert(await page.getByTestId("operation-log-module").inputValue() === "SALES", "ADMIN default preset should apply module");
-  assert(await page.getByTestId("operation-log-target-type").inputValue() === "sales_out", "ADMIN default preset should apply target type");
+  assert(await page.getByTestId("operation-log-preset-select").inputValue() === effectiveDefaultPreset.id, "frontend should select the effective personal-or-role default by declared precedence");
+  assert(await page.getByTestId("operation-log-module").inputValue() === effectiveDefaultPreset.query.module, "effective ADMIN default preset should apply module");
+  assert(await page.getByTestId("operation-log-target-type").inputValue() === effectiveDefaultPreset.query.targetType, "effective ADMIN default preset should apply target type");
   const screenshot = `a50-operation-log-role-scoped-preset-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
   screenshots.push(`verification/playwright/${screenshot}`);
@@ -277,9 +264,7 @@ try {
       }
     },
     async () => {
-      if (mutationStarted) {
-        restorePresetScope(baselinePresets, affectedRoleCode, affectedUserName);
-      }
+      removeWarehouseFixture();
     },
     async () => {
       if (!snapshotTaken) {
@@ -308,6 +293,7 @@ const result = {
     warehousePresetHiddenFromAdmin: !presets.some((preset) => preset.name === hiddenWarehousePresetName),
     frontendShowsAdminScopedDefault: true,
     frontendHidesWarehouseScopedPreset: true,
+    frontendAppliedEffectiveDefault: true,
     restoredExactPresetSnapshot,
     restoredOriginalIds
   },
