@@ -6,6 +6,7 @@ import java.util.Map;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdy.erp.system.application.ListFilterPresetAccessPolicy;
+import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.WriteAccess;
 import com.jdy.erp.system.security.WriteAccess.Policy;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,15 +26,18 @@ public class ListFilterPresetController {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final ListFilterPresetAccessPolicy accessPolicy;
+    private final CurrentSessionService currentSessionService;
 
     public ListFilterPresetController(
         JdbcTemplate jdbcTemplate,
         ObjectMapper objectMapper,
-        ListFilterPresetAccessPolicy accessPolicy
+        ListFilterPresetAccessPolicy accessPolicy,
+        CurrentSessionService currentSessionService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.accessPolicy = accessPolicy;
+        this.currentSessionService = currentSessionService;
     }
 
     @GetMapping("/{listKey}")
@@ -138,10 +142,15 @@ public class ListFilterPresetController {
                   AND read_only = FALSE
                 """, query, columnFilters, request.shared == null || request.shared, isDefault, existingRows.getFirst().get("id"));
         } else {
+            var creatorUserId = currentSessionService.currentUserId();
             jdbcTemplate.update("""
-                INSERT INTO sys_list_filter_preset (list_key, name, role_code, user_name, query, column_filters, shared, is_default, read_only, updated_at)
-                VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, FALSE, now())
-                """, listKey, name, scope.roleCode(), scope.userName(), query, columnFilters, request.shared == null || request.shared, isDefault);
+                INSERT INTO sys_list_filter_preset (
+                    list_key, name, role_code, user_name, query, column_filters,
+                    shared, is_default, read_only, created_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, FALSE, ?::uuid, now())
+                """, listKey, name, scope.roleCode(), scope.userName(), query, columnFilters,
+                request.shared == null || request.shared, isDefault, creatorUserId);
         }
         var rows = jdbcTemplate.query("""
             SELECT id::text, list_key, name, role_code, user_name, query::text, column_filters::text, shared, is_default, read_only,
