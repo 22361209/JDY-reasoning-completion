@@ -167,20 +167,35 @@ try {
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
   await ensureOperationLogFilters(page);
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
-  await page.getByTestId("list-status").selectOption("成功");
   await page.getByTestId("operation-log-module").selectOption("SALES");
   await page.getByTestId("operation-log-action").selectOption("RED_REVERSE");
   await page.getByTestId("operation-log-operator").fill(operator);
   await page.getByTestId("operation-log-target-type").selectOption("sales_out");
-  await page.getByTestId("operation-log-date-from").fill(logDate);
-  await page.getByTestId("operation-log-date-to").fill(logDate);
+  await page.getByTestId("list-date-range").click();
+  await page.getByTestId("list-date-from").fill(logDate);
+  await page.getByTestId("list-date-to").fill(logDate);
+  await page.getByTestId("list-date-range-apply").click();
+  await page.getByTestId("column-filter-status").click();
+  await page.getByTestId("column-filter-dialog").getByRole("button", { name: "等于", exact: true }).click();
+  await page.getByTestId("column-filter-input").fill("成功");
+  await page.getByTestId("column-filter-ok").click();
+  const listRequestPromise = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return request.method() === "GET" && url.pathname === "/api/lists/operation-log-list";
+  });
   await page.getByTestId("list-query").click();
+  const listRequest = await listRequestPromise;
+  const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
+  assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
   await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible" });
   await page.getByTestId("list-more-actions").hover();
-  const [download] = await Promise.all([
+  const [download, exportRequest] = await Promise.all([
     page.waitForEvent("download"),
+    page.waitForRequest((request) => new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv"),
     page.getByTestId("list-export").click()
   ]);
+  const exportColumnFilters = JSON.parse(new URL(exportRequest.url()).searchParams.get("columnFilters") || "{}");
+  assert(exportColumnFilters.status?.operator === "等于" && exportColumnFilters.status?.value === "成功", `export should preserve exact status equality: ${JSON.stringify(exportColumnFilters.status)}`);
   downloadFileName = download.suggestedFilename();
   downloadedCsv = await readFile(await download.path(), "utf8");
   assertIncludes("download csv red bill", downloadedCsv, sales.redBillNo);

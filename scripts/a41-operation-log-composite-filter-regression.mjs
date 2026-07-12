@@ -144,12 +144,24 @@ try {
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
   await ensureOperationLogFilters(page);
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
-  await page.getByTestId("list-status").selectOption("成功");
   await page.getByTestId("operation-log-module").selectOption("SALES");
   await page.getByTestId("operation-log-action").selectOption("RED_REVERSE");
-  await page.getByTestId("operation-log-date-from").fill(logDate);
-  await page.getByTestId("operation-log-date-to").fill(logDate);
+  await page.getByTestId("list-date-range").click();
+  await page.getByTestId("list-date-from").fill(logDate);
+  await page.getByTestId("list-date-to").fill(logDate);
+  await page.getByTestId("list-date-range-apply").click();
+  await page.getByTestId("column-filter-status").click();
+  await page.getByTestId("column-filter-dialog").getByRole("button", { name: "等于", exact: true }).click();
+  await page.getByTestId("column-filter-input").fill("成功");
+  await page.getByTestId("column-filter-ok").click();
+  const listRequestPromise = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return request.method() === "GET" && url.pathname === "/api/lists/operation-log-list";
+  });
   await page.getByTestId("list-query").click();
+  const listRequest = await listRequestPromise;
+  const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
+  assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
   const table = page.getByTestId("vxe-list-table");
   await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
   await table.getByText("RED_REVERSE").first().waitFor({ state: "visible" });
