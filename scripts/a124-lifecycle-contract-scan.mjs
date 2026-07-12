@@ -65,6 +65,16 @@ function parseControllerTargets(source) {
   return targets;
 }
 
+function parseDocumentPermissions(source) {
+  const permissions = {};
+  const pattern = /Map\.entry\("([^"]+)",\s*"([^"]+)"\)/g;
+  let match;
+  while ((match = pattern.exec(source))) {
+    permissions[match[1]] = match[2];
+  }
+  return permissions;
+}
+
 function parseBackendPolicies(source) {
   const factMatch = source.match(/FACT_DOCUMENT\s*=\s*new LifecycleCapabilities\(([^)]+)\)/);
   const factPolicy = factMatch ? parseBooleans(factMatch[1]) : [];
@@ -113,15 +123,48 @@ function scanFiles(dir, predicate) {
 const frontendPolicySource = read("frontend/src/app/documentLifecyclePolicy.ts");
 const controllerSource = read("backend/src/main/java/com/jdy/erp/shared/api/BillLifecycleController.java");
 const backendPolicySource = read("backend/src/main/java/com/jdy/erp/shared/application/BillLifecyclePolicy.java");
+const permissionPolicySource = read("backend/src/main/java/com/jdy/erp/shared/application/DocumentPermissionPolicy.java");
+const documentLockControllerSource = read("backend/src/main/java/com/jdy/erp/shared/api/DocumentLockController.java");
+const permissionGuardSource = read("backend/src/main/java/com/jdy/erp/system/security/PermissionGuardInterceptor.java");
 const dataListSource = read("frontend/src/components/DataListPage.vue");
 
 const frontendPolicies = parseFrontendPolicies(frontendPolicySource);
 const controllerTargets = parseControllerTargets(controllerSource);
 const backendPolicies = parseBackendPolicies(backendPolicySource);
+const documentPermissions = parseDocumentPermissions(permissionPolicySource);
 const listActionTypes = parseDocumentActionListTypes(dataListSource);
 
 const failures = [];
 const warnings = [];
+
+if (!/@RequireDocumentPermission\s+public class BillLifecycleController/.test(controllerSource)) {
+  failures.push("BillLifecycleController must require dynamic document permission before lifecycle writes");
+}
+if (!/RequireDocumentPermission/.test(permissionGuardSource)
+  || !/DocumentPermissionPolicy/.test(permissionGuardSource)
+  || !/URI_TEMPLATE_VARIABLES_ATTRIBUTE/.test(permissionGuardSource)
+  || !/documentPermissionPolicy\.requirePermission/.test(permissionGuardSource)) {
+  failures.push("PermissionGuardInterceptor must resolve @RequireDocumentPermission from the mapped {type} before controller execution");
+}
+
+for (const type of Object.keys(controllerTargets)) {
+  if (!documentPermissions[type]) {
+    failures.push(`controller target ${type} has no document permission mapping`);
+  }
+}
+
+for (const type of Object.keys(documentPermissions)) {
+  if (!controllerTargets[type]) {
+    failures.push(`document permission mapping ${type} has no BillLifecycleController target`);
+  }
+}
+
+if (!/@GetMapping\("\/\{type\}\/\{billNo\}"\)\s+@RequireDocumentPermission/.test(documentLockControllerSource)) {
+  failures.push("document lock status must require the mapped document permission");
+}
+if (!/@PostMapping\("\/\{type\}\/\{billNo\}\/acquire"\)\s+@RequireDocumentPermission/.test(documentLockControllerSource)) {
+  failures.push("document lock acquire must require the mapped document permission");
+}
 
 for (const [type, frontPolicy] of Object.entries(frontendPolicies)) {
   const headerTable = controllerTargets[type];
@@ -201,6 +244,7 @@ const result = {
   ok: failures.length === 0,
   checkedAt: new Date().toISOString(),
   registeredDocumentTypes: Object.keys(frontendPolicies).sort(),
+  documentPermissionTypes: Object.keys(documentPermissions).sort(),
   listActionTypes,
   failures,
   warnings
