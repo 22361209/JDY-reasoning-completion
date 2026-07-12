@@ -203,7 +203,7 @@ try {
   assert(session.user.username === "admin", "session should expose current login username");
   assert(session.user.name === "本地管理员", "session should expose current display name");
   assert(session?.tenant?.schemaName === "public", `A51 preset snapshot SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
-  presetUserName = session.user.name;
+  presetUserName = session.user.username;
   affectedRoleCode = session.user.roleCode;
 
   baselinePresets = readCompletePresetSnapshot();
@@ -245,7 +245,7 @@ try {
     }
   });
   assert(userPreset.roleCode === affectedRoleCode, "user preset should keep current role code for audit context");
-  assert(userPreset.userName === presetUserName, "user preset should be scoped to current user display name");
+  assert(userPreset.userName === presetUserName, "user preset should be scoped to the immutable current username");
   assert(userPreset.isDefault === true, "user preset should be saved as default");
   const exactUserScopeCount = Number(sqlScalar(`
     SELECT count(*)

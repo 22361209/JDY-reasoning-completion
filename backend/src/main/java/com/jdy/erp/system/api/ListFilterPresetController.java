@@ -54,13 +54,13 @@ public class ListFilterPresetController {
             FROM sys_list_filter_preset
             WHERE list_key = ?
               AND (
-                  user_name = ?
+                  (user_name = ? AND role_code IS NOT DISTINCT FROM ?)
                   OR (user_name IS NULL AND role_code = ?)
                   OR (user_name IS NULL AND role_code IS NULL)
               )
             ORDER BY
               CASE
-                WHEN user_name = ? THEN 0
+                WHEN user_name = ? AND role_code IS NOT DISTINCT FROM ? THEN 0
                 WHEN user_name IS NULL AND role_code = ? THEN 1
                 ELSE 2
               END,
@@ -79,7 +79,13 @@ public class ListFilterPresetController {
                 Map.entry("isDefault", rs.getBoolean("isDefault")),
                 Map.entry("readOnly", rs.getBoolean("readOnly")),
                 Map.entry("updatedAt", rs.getString("updatedAt"))
-            ), listKey, currentScope.userName(), currentScope.roleCode(), currentScope.userName(), currentScope.roleCode());
+            ),
+            listKey,
+            currentScope.userName(), currentScope.roleCode(),
+            currentScope.roleCode(),
+            currentScope.userName(), currentScope.roleCode(),
+            currentScope.roleCode()
+        );
     }
 
     @PostMapping("/{listKey}")

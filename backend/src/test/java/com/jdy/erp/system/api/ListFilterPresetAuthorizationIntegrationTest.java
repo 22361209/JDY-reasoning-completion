@@ -3,6 +3,8 @@ package com.jdy.erp.system.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jdy.erp.system.application.ListFilterPresetAccessPolicy;
@@ -23,6 +25,7 @@ class ListFilterPresetAuthorizationIntegrationTest {
         sessionService = mock(CurrentSessionService.class);
         permissionService = mock(CurrentPermissionService.class);
         when(sessionService.currentRoleCode()).thenReturn("WAREHOUSE");
+        when(sessionService.currentUsername()).thenReturn("warehouse");
         when(sessionService.currentDisplayName()).thenReturn("仓库员");
         policy = new ListFilterPresetAccessPolicy(sessionService, permissionService);
     }
@@ -32,7 +35,31 @@ class ListFilterPresetAuthorizationIntegrationTest {
         var scope = policy.resolveWriteScope("PERSONAL", "ADMIN");
 
         assertThat(scope.roleCode()).isEqualTo("WAREHOUSE");
-        assertThat(scope.userName()).isEqualTo("仓库员");
+        assertThat(scope.userName()).isEqualTo("warehouse");
+        verify(sessionService, never()).currentDisplayName();
+    }
+
+    @Test
+    void personalScopesWithTheSameDisplayNameRemainIsolatedByLoginUsername() {
+        when(sessionService.currentUsername()).thenReturn("warehouse-a");
+        var firstScope = policy.currentPersonalScope();
+
+        when(sessionService.currentUsername()).thenReturn("warehouse-b");
+        var secondScope = policy.currentPersonalScope();
+
+        assertThat(firstScope.userName()).isEqualTo("warehouse-a");
+        assertThat(secondScope.userName()).isEqualTo("warehouse-b");
+        assertThat(firstScope).isNotEqualTo(secondScope);
+        verify(sessionService, never()).currentDisplayName();
+    }
+
+    @Test
+    void readWriteAndDeleteResolveTheSameUsernameScope() {
+        var readScope = policy.currentPersonalScope();
+        var writeScope = policy.resolveWriteScope("PERSONAL", "ADMIN");
+
+        assertThat(writeScope).isEqualTo(readScope);
+        policy.requireCanModifyStoredScope(readScope.roleCode(), readScope.userName());
     }
 
     @Test
@@ -59,10 +86,10 @@ class ListFilterPresetAuthorizationIntegrationTest {
 
     @Test
     void userCanDeleteOnlyTheExactCurrentPersonalScope() {
-        policy.requireCanModifyStoredScope("WAREHOUSE", "仓库员");
+        policy.requireCanModifyStoredScope("WAREHOUSE", "warehouse");
 
-        assertForbidden(() -> policy.requireCanModifyStoredScope("ADMIN", "本地管理员"));
-        assertForbidden(() -> policy.requireCanModifyStoredScope("WAREHOUSE", "其他仓库员"));
+        assertForbidden(() -> policy.requireCanModifyStoredScope("ADMIN", "admin"));
+        assertForbidden(() -> policy.requireCanModifyStoredScope("WAREHOUSE", "warehouse-other"));
     }
 
     @Test

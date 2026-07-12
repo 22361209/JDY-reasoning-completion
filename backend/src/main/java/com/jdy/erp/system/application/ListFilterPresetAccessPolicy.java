@@ -26,7 +26,7 @@ public class ListFilterPresetAccessPolicy {
     public PresetScope currentPersonalScope() {
         return new PresetScope(
             currentSessionService.currentRoleCode(),
-            currentSessionService.currentDisplayName()
+            currentSessionService.currentUsername()
         );
     }
 
