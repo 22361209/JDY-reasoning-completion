@@ -17,6 +17,8 @@ export function usePurchaseOrderDocument(options: Parameters<typeof useDocumentM
     defaultUnitPrice: 72,
     showSupplierMaterialCodeColumn: true,
     showTaxColumns: true,
+    executionQtyLabel: "已入库数量",
+    remainingQtyLabel: "未入库数量",
     initialForm: initialPurchaseOrderForm
   }, options);
 }

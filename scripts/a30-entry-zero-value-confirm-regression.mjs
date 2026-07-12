@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
 import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
@@ -9,26 +9,25 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a30-entry-zero-value-confirm-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
-const apiBase = "http://127.0.0.1:8080";
-await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 
 await mkdir(screenshotDir, { recursive: true });
 await mkdir(path.dirname(resultPath), { recursive: true });
 
-async function api(pathname, options = {}) {
-  const response = await fetch(`${apiBase}${pathname}`, {
-    method: options.method ?? "GET",
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  return { ok: response.ok, status: response.status, data };
+async function api(page, pathname, options = {}) {
+  return page.evaluate(async ({ url, method, body }) => {
+    const response = await fetch(url, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, data: text ? JSON.parse(text) : {} };
+  }, { url: pathname, method: options.method ?? "GET", body: options.body });
 }
 
-async function requireApi(pathname, options = {}) {
-  const result = await api(pathname, options);
+async function requireApi(page, pathname, options = {}) {
+  const result = await api(page, pathname, options);
   if (!result.ok) {
     throw new Error(`${options.method ?? "GET"} ${pathname} failed ${result.status}: ${JSON.stringify(result.data)}`);
   }
@@ -104,10 +103,11 @@ try {
   const dialogText = await dialog.innerText();
   assertIncludes("zero confirm dialog", dialogText, "第 1 行");
   assertIncludes("zero confirm dialog", dialogText, "单价为 0");
-  assertIncludes("zero confirm dialog", dialogText, "第 2 行");
-  assertIncludes("zero confirm dialog", dialogText, "数量为 0");
+  if (dialogText.includes("第 2 行") || dialogText.includes("数量为 0")) {
+    throw new Error(`zero-quantity sales-order line should bypass the reason dialog, got ${dialogText}`);
+  }
   const warningRows = await dialog.locator("tbody tr").count();
-  assertEqual("zero warning row count", warningRows, 2);
+  assertEqual("zero warning row count", warningRows, 1);
 
   const confirmScreenshot = `a30-entry-zero-value-confirm-dialog-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, confirmScreenshot), fullPage: true });
@@ -119,7 +119,7 @@ try {
   await page.getByTestId("save-sales-order").click();
   await dialog.waitFor({ state: "visible" });
   await page.getByTestId("entry-zero-confirm").click();
-  const saveMessage = "草稿已保存，已确认 2 行零值分录";
+  const saveMessage = "草稿已保存，已确认 1 行零值分录";
   const billNo = await waitForGeneratedSalesOrderNo(page, billNoInput);
   await page.getByTestId("form-message").filter({ hasText: saveMessage }).waitFor({ state: "visible" });
   if (!/^XSDD\d{6}$/.test(billNo)) {
@@ -131,21 +131,37 @@ try {
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();
   assertEqual("total", total, "67.80");
 
-  const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+  const detail = await requireApi(page, `/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),
     warehouseCode: String(line.warehouseCode ?? ""),
     qty: Number(line.qty ?? 0),
-    unitPrice: Number(line.unitPrice ?? 0)
+    unitPrice: Number(line.unitPrice ?? 0),
+    lineRemark: String(line.lineRemark ?? "")
   }));
   assertDeepEqual("saved lines", savedLines, [
-    { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0 },
-    { productCode: "PJ-014", warehouseCode: "CK-002", qty: 0, unitPrice: 5 },
-    { productCode: "CP-T413874", warehouseCode: "CK-001", qty: 2, unitPrice: 30 }
+    { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 0, lineRemark: "零值原因：赠品（单价为 0）" },
+    { productCode: "PJ-014", warehouseCode: "CK-002", qty: 0, unitPrice: 5, lineRemark: "" },
+    { productCode: "CP-T413874", warehouseCode: "CK-001", qty: 2, unitPrice: 30, lineRemark: "" }
   ]);
 
   const savedScreenshot = `a30-entry-zero-value-confirm-saved-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, savedScreenshot), fullPage: true });
+
+  const negativeQtyMessage = "销售订单数量不能小于 0";
+  const negativeSave = await api(page, "/api/sales-orders/draft", {
+    method: "POST",
+    body: {
+      billNo: null,
+      customerCode: "KH-001",
+      billDate: "2026-07-12",
+      department: "销售部",
+      ownerName: "本地管理员",
+      lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: -1, unitPrice: 5, taxRate: 13 }]
+    }
+  });
+  assertEqual("negative-quantity status", negativeSave.status, 400);
+  assertIncludes("negative-quantity reason", JSON.stringify(negativeSave.data), negativeQtyMessage);
 
   const result = {
     batch,
@@ -157,6 +173,7 @@ try {
     rowCountAfterSave,
     total,
     savedLines,
+    negativeQtyMessage,
     screenshots: [
       `verification/playwright/${confirmScreenshot}`,
       `verification/playwright/${savedScreenshot}`

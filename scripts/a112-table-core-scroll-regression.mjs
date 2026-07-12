@@ -45,7 +45,7 @@ async function api(pathname, options = {}) {
 }
 
 async function seed() {
-  for (let index = 0; index < 11; index += 1) {
+  for (let index = 0; index < 17; index += 1) {
     const lines = index === 0
       ? [
           { productCode: "CP-001", warehouseCode: "CK-001", qty: 8, unitPrice: 86, taxRate: 13, lineRemark: "A112 line 1", planDeliveryDate: "2026-07-06" },
@@ -180,6 +180,7 @@ async function tableMetrics(page) {
       listBodyScroll: scroll(".vxe-wrap .vxe-table--body-wrapper"),
       listFrameRect: rect(".vxe-wrap"),
       listBodyRect: rect(".vxe-wrap .vxe-table--body-wrapper"),
+      listMainRect: rect(".data-list-main"),
       listPaginationRect: rect(".list-pagination"),
       entryScroll: scroll(".entry-table"),
       entryBodyScroll: scroll(".entry-table .table-core-body-wrapper"),
@@ -308,13 +309,21 @@ try {
   );
   await screenshot(page, "a112b-header-sparse-fill", screenshots);
   const sparseHeaderMetrics = await tableMetrics(page);
-  const sparseBodyFillsAvailable = sparseHeaderMetrics.listBodyScroll.clientHeight > 336;
+  const sparseFramePaginationGap = Math.abs(sparseHeaderMetrics.listPaginationRect.y - sparseHeaderMetrics.listFrameRect.bottom);
+  const sparseMainBottomGap = Math.abs(sparseHeaderMetrics.listMainRect.bottom - sparseHeaderMetrics.listPaginationRect.bottom);
+  const sparseBodyFillsAvailable = sparseHeaderMetrics.listBodyScroll.clientHeight > 336
+    && sparseFramePaginationGap <= 2
+    && sparseMainBottomGap <= 2;
   assert(sparseHeaderMetrics.listScroll.overflowX === "scroll", `header view outer scrollbar should be always on: ${JSON.stringify(sparseHeaderMetrics.listScroll)}`);
   assert(sparseHeaderMetrics.listBodyScroll.overflowX === "hidden", `header view body should not own horizontal scroll: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`);
   assert(sparseHeaderMetrics.listBodyScroll.overflowY === "auto", `header view body should use auto vertical scroll: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`);
   assert(sparseHeaderMetrics.listBodyScroll.backgroundImage.includes("repeating-linear-gradient"), `header view empty space should continue grid lines: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`);
   assert(
-    sparseHeaderMetrics.listPaginationRect && sparseHeaderMetrics.listFrameRect && sparseHeaderMetrics.listPaginationRect.y >= sparseHeaderMetrics.listFrameRect.bottom - 1,
+    sparseHeaderMetrics.listPaginationRect
+      && sparseHeaderMetrics.listFrameRect
+      && sparseHeaderMetrics.listMainRect
+      && sparseFramePaginationGap <= 2
+      && sparseMainBottomGap <= 2,
     `pagination should stay directly below the flexed table frame: ${JSON.stringify(sparseHeaderMetrics)}`
   );
   assert(sparseHeaderMetrics.listCoreHeaderCount > 0, `header view should render shared table core header cells: ${JSON.stringify(sparseHeaderMetrics)}`);
@@ -330,9 +339,9 @@ try {
   const denseHeaderMetrics = await tableMetrics(page);
   assert(
     denseHeaderMetrics.listBodyScroll.scrollHeight > denseHeaderMetrics.listBodyScroll.clientHeight + 8,
-    `eleven self-owned rows should create real vertical overflow: ${JSON.stringify(denseHeaderMetrics.listBodyScroll)}`
+    `seventeen self-owned rows should create real vertical overflow: ${JSON.stringify(denseHeaderMetrics.listBodyScroll)}`
   );
-  await screenshot(page, "a112b-header-eleven-row-scroll", screenshots);
+  await screenshot(page, "a112b-header-seventeen-row-scroll", screenshots);
   const beforeResize = await headerWidths(page);
   await dragBillNoWidth(page, 44);
   const afterResize = await headerWidths(page);
@@ -461,7 +470,7 @@ try {
   console.log(JSON.stringify(result, null, 2));
   assert(
     sparseBodyFillsAvailable,
-    `one-row sparse header body should still fill the available area above 336px: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`
+    `one-row sparse header body should fill the real data-list-main area: ${JSON.stringify({ body: sparseHeaderMetrics.listBodyScroll, sparseFramePaginationGap, sparseMainBottomGap })}`
   );
 } finally {
   await browser.close();

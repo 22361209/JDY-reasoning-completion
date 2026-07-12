@@ -277,7 +277,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       netWeight: String(line.netWeight ?? ""),
       grossWeight: String(line.grossWeight ?? ""),
       warehouseCode: String(line.warehouseCode ?? "CK-001"),
-      sourceOrderNo: draft.sourceOrderNo,
+      sourceOrderNo: line.sourceOrderNo ?? "",
       sourceLineNo: line.sourceLineNo,
       sourceDeliveryNoticeNo: line.sourceDeliveryNoticeNo ?? draft.sourceOrderNo,
       sourceDeliveryLineNo: line.sourceDeliveryLineNo ?? line.sourceLineNo,
@@ -631,7 +631,15 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!billNo) {
       return;
     }
-    options.requestOpenDocument({ type: "deliveryNotice", billNo, sourceLineNo: sourceLineNo ?? form.lines.find((line) => line.sourceOrderNo === billNo && line.sourceLineNo)?.sourceLineNo ?? null });
+    const sourceLine = form.lines.find((line) => line.sourceOrderNo?.trim() === billNo && (sourceLineNo == null || line.sourceLineNo === sourceLineNo));
+    const opensDeliveryNotice = billNo.startsWith("FHTZD");
+    options.requestOpenDocument({
+      type: opensDeliveryNotice ? "deliveryNotice" : "salesOrder",
+      billNo,
+      sourceLineNo: opensDeliveryNotice
+        ? sourceLine?.sourceDeliveryLineNo ?? sourceLineNo ?? null
+        : sourceLineNo ?? sourceLine?.sourceLineNo ?? null
+    });
   }
 
   function openDownstreamTrace(line: OrderLineForm, index: number) {
@@ -1355,8 +1363,8 @@ function selectableLineToFormLine(line: SelectableDeliveryNoticeLine): OrderLine
     netWeight: String(line.netWeight ?? ""),
     grossWeight: String(line.grossWeight ?? ""),
     warehouseCode: String(line.warehouseCode ?? "CK-001"),
-    sourceOrderNo: String(line.billNo ?? ""),
-    sourceLineNo: normalizedOptionalInt(line.lineNo),
+    sourceOrderNo: String(line.sourceOrderNo ?? ""),
+    sourceLineNo: normalizedOptionalInt(line.sourceLineNo),
     sourceDeliveryNoticeNo: String(line.billNo ?? ""),
     sourceDeliveryLineNo: normalizedOptionalInt(line.lineNo),
     qty: normalizedQty(line.remainingQty),

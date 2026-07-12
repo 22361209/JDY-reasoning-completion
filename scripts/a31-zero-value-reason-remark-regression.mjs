@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
 import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 
@@ -9,19 +9,20 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a31-zero-value-reason-remark-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
-const apiBase = "http://127.0.0.1:8080";
-await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 
 await mkdir(screenshotDir, { recursive: true });
 await mkdir(path.dirname(resultPath), { recursive: true });
 
-async function requireApi(pathname) {
-  const response = await fetch(`${apiBase}${pathname}`);
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!response.ok) {
-    throw new Error(`GET ${pathname} failed ${response.status}: ${JSON.stringify(data)}`);
+async function requireApi(page, pathname) {
+  const result = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text };
+  }, pathname);
+  const data = result.text ? JSON.parse(result.text) : {};
+  if (!result.ok) {
+    throw new Error(`GET ${pathname} failed ${result.status}: ${JSON.stringify(data)}`);
   }
   return data;
 }
@@ -84,14 +85,15 @@ try {
   await page.getByTestId("sales-line-price-3").fill("30");
 
   await page.getByTestId("save-sales-order").click();
-  await page.getByTestId("entry-zero-confirm-dialog").waitFor({ state: "visible" });
+  const dialog = page.getByTestId("entry-zero-confirm-dialog");
+  await dialog.waitFor({ state: "visible" });
+  assertEqual("zero warning row count", await dialog.locator("tbody tr").count(), 1);
   await page.getByTestId("entry-zero-reason").selectOption("样品");
-  await page.getByTestId("entry-zero-reason-2").selectOption("补录");
   const reasonScreenshot = `a31-zero-value-reason-dialog-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, reasonScreenshot), fullPage: true });
 
   await page.getByTestId("entry-zero-confirm").click();
-  const saveMessage = "草稿已保存，已确认 2 行零值分录";
+  const saveMessage = "草稿已保存，已确认 1 行零值分录";
   const billNo = await waitForGeneratedSalesOrderNo(page, billNoInput);
   await page.getByTestId("form-message").filter({ hasText: saveMessage }).waitFor({ state: "visible" });
   if (!/^XSDD\d{6}$/.test(billNo)) {
@@ -100,13 +102,13 @@ try {
   const firstRemark = await page.getByTestId("sales-line-remark").inputValue();
   const secondRemark = await page.getByTestId("sales-line-remark-2").inputValue();
   assertEqual("first remark", firstRemark, "零值原因：样品（单价为 0）");
-  assertEqual("second remark", secondRemark, "零值原因：补录（数量为 0）");
+  assertEqual("second remark", secondRemark, "");
 
-  const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+  const detail = await requireApi(page, `/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedRemarks = detail.lines.map((line) => String(line.lineRemark ?? ""));
   assertDeepEqual("saved remarks", savedRemarks, [
     "零值原因：样品（单价为 0）",
-    "零值原因：补录（数量为 0）",
+    "",
     ""
   ]);
   const savedLines = detail.lines.map((line) => ({
@@ -120,6 +122,33 @@ try {
   const savedScreenshot = `a31-zero-value-reason-saved-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, savedScreenshot), fullPage: true });
 
+  const auditButton = page.getByTestId("audit-sales-order");
+  if (!await auditButton.isEnabled()) {
+    throw new Error(`zero-quantity draft should keep the audit action enabled so the backend can enforce the formal rule: ${JSON.stringify({ status: await page.getByTestId("document-status").innerText(), message: await page.getByTestId("form-message").innerText() })}`);
+  }
+  const auditEndpoint = `/api/sales-orders/${encodeURIComponent(billNo)}/audit`;
+  const auditResponsePromise = page.waitForResponse((response) => (
+    response.request().method() === "POST" && response.url().endsWith(auditEndpoint)
+  ));
+  await auditButton.click();
+  const auditResponse = await auditResponsePromise;
+  const auditResponseBody = await auditResponse.text();
+  assertEqual("zero-quantity audit status", auditResponse.status(), 400);
+  const auditMessage = "销售订单数量必须大于 0";
+  await page.waitForFunction((previousMessage) => {
+    const message = document.querySelector('[data-testid="form-message"]')?.textContent?.trim() ?? "";
+    return Boolean(message) && message !== previousMessage;
+  }, saveMessage);
+  const actualAuditMessage = (await page.getByTestId("form-message").innerText()).trim();
+  if (!actualAuditMessage.includes(auditMessage)) {
+    throw new Error(`zero-quantity audit should return the formal positive-quantity reason, got ${JSON.stringify(actualAuditMessage)}`);
+  }
+  assertEqual("status after rejected audit", (await page.getByTestId("document-status").innerText()).trim(), "草稿");
+  const detailAfterAudit = await requireApi(page, `/api/sales-orders/${encodeURIComponent(billNo)}`);
+  assertEqual("backend status after rejected audit", String(detailAfterAudit.order?.status ?? ""), "DRAFT");
+  const auditScreenshot = `a31-zero-quantity-audit-rejected-${batch}.png`;
+  await page.screenshot({ path: path.join(screenshotDir, auditScreenshot), fullPage: true });
+
   const result = {
     batch,
     generatedAt: new Date().toISOString(),
@@ -127,10 +156,14 @@ try {
     saveMessage,
     firstRemark,
     secondRemark,
+    auditMessage,
+    auditResponseStatus: auditResponse.status(),
+    auditResponseBody,
     savedLines,
     screenshots: [
       `verification/playwright/${reasonScreenshot}`,
-      `verification/playwright/${savedScreenshot}`
+      `verification/playwright/${savedScreenshot}`,
+      `verification/playwright/${auditScreenshot}`
     ]
   };
   await writeFile(resultPath, JSON.stringify(result, null, 2));

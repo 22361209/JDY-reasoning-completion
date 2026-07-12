@@ -133,6 +133,23 @@ try {
   ];
   assert(draftProducts.includes("CP-001") && draftProducts.includes("PJ-014"), `sales out draft should retain both selected source lines, got ${draftProducts.join(",")}`);
 
+  const draftSourceTexts = [await lineSourceText(page, "sales-out", 0), await lineSourceText(page, "sales-out", 1)];
+  assert(draftSourceTexts[0] === `${data.sourceA.orderNo} / #1`, `first unsaved source trace should bind to XSDD A, got ${draftSourceTexts[0]}`);
+  assert(draftSourceTexts[1] === `${data.sourceB.orderNo} / #1`, `second unsaved source trace should bind to XSDD B, got ${draftSourceTexts[1]}`);
+  const draftPopupPromise = page.waitForEvent("popup", { timeout: 5000 });
+  await page.getByTestId("sales-out-line-source-trace").click();
+  const draftPopup = await draftPopupPromise;
+  await draftPopup.waitForLoadState("domcontentloaded");
+  const draftPopupHeading = (await draftPopup.locator("h1").innerText()).trim();
+  assert(draftPopupHeading === `销售订单 ${data.sourceA.orderNo}`, `unsaved source trace should open exact XSDD A page, got ${draftPopupHeading}`);
+  assert((await draftPopup.title()).includes(`销售订单 ${data.sourceA.orderNo}`), "unsaved source trace title should identify the sales order");
+  const draftActiveLine = (await draftPopup.locator("tbody tr.active").innerText()).replace(/\s+/g, " ").trim();
+  assert(draftActiveLine.includes("CP-001") && draftActiveLine.startsWith("1 "), `unsaved source trace should highlight exact source line 1: ${draftActiveLine}`);
+  const draftTraceShot = `a98-unsaved-source-trace-${batch}.png`;
+  await draftPopup.screenshot({ path: path.join(screenshotDir, draftTraceShot), fullPage: true });
+  screenshots.push(`verification/playwright/${draftTraceShot}`);
+  await draftPopup.close();
+
   assert(await page.getByTestId("sales-out-bill-no").inputValue() === "", "multi-source sales out should keep bill no empty before first save");
   await saveDocument(page);
   await page.waitForFunction(() => /^XSCKD\d{6}$/.test(document.querySelector('[data-testid="sales-out-bill-no"]')?.value ?? ""));
@@ -225,10 +242,13 @@ try {
     );
   });
   await popup.waitForLoadState("domcontentloaded");
-  await popup.getByTestId("sales-bill-no").waitFor({ state: "visible" });
-  const openedSourceOrder = await popup.getByTestId("sales-bill-no").inputValue();
+  const savedPopupHeading = (await popup.locator("h1").innerText()).trim();
+  const openedSourceOrder = savedPopupHeading.replace(/^销售订单\s+/, "");
   assert(openedSourceOrder === clickedSourceOrderNo, `saved line source trace should open the exact clicked sales order ${clickedSourceOrderNo}, got ${openedSourceOrder}`);
-  assert(await popup.getByTestId("delivery-notice-bill-no").count() === 0, "saved XSDD source trace must not open a delivery-notice form");
+  assert(savedPopupHeading === `销售订单 ${clickedSourceOrderNo}`, `saved source trace should identify the sales-order page, got ${savedPopupHeading}`);
+  assert((await popup.title()).includes(`销售订单 ${clickedSourceOrderNo}`), "saved source trace title should identify the sales order");
+  const savedActiveLine = (await popup.locator("tbody tr.active").innerText()).replace(/\s+/g, " ").trim();
+  assert(savedActiveLine.startsWith("1 "), `saved source trace should highlight exact source line 1: ${savedActiveLine}`);
   await popup.close();
 
   const result = {
@@ -244,6 +264,7 @@ try {
     noticeB: data.sourceB.noticeNo,
     salesOutNo,
     lineSources: persistedSources,
+    draftSourceTexts,
     reloadedSourceTexts,
     remainingQty: {
       [data.sourceA.orderNo]: Number(orderADetail.lines[0].remainingQty),
