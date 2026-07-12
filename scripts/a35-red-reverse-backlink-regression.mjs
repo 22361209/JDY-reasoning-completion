@@ -14,7 +14,7 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 2, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 4, unitPrice: 12 }
 ];
 
@@ -40,9 +40,17 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -57,53 +65,47 @@ async function seedStock() {
 }
 
 async function createSalesOutPair() {
-  const orderNo = `XSDD-A35-${batch}`;
-  const billNo = `XSCK-A35-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const orderNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: orderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
       lines
     }
-  });
+  }), "A35销售订单");
   await requireApi(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
-    billNo,
+  const billNo = (await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
     sourceOrderNo: orderNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
     ownerName: "本地管理员",
     lines
-  }, `FHTZ-A35-${batch}`);
+  })).salesOutNo;
   await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
   const redDraft = await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
     body: { billDate, ownerName: "本地管理员" }
   });
-  const redBillNo = redDraft.billNo;
+  const redBillNo = generatedBillNo(redDraft, "A35销售出库红冲");
   return { orderNo, billNo, redBillNo };
 }
 
 async function createPurchaseInPair() {
-  const billNo = `CGRK-A35-${batch}`;
-  await requireApi("/api/purchase-ins/draft", {
+  const billNo = generatedBillNo(await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
       ownerName: "本地管理员",
       lines
     }
-  });
+  }), "A35采购入库");
   await requireApi(`/api/purchase-ins/${encodeURIComponent(billNo)}/audit`);
   const redDraft = await requireApi(`/api/purchase-ins/${encodeURIComponent(billNo)}/red-reverse`, {
     body: { billDate, ownerName: "本地管理员" }
   });
-  const redBillNo = redDraft.billNo;
+  const redBillNo = generatedBillNo(redDraft, "A35采购入库红冲");
   return { billNo, redBillNo };
 }
 

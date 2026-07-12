@@ -49,6 +49,12 @@ function assert(condition, message) {
   }
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 function assertArray(name, actual, expected) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`${name} expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -73,10 +79,9 @@ async function seedStock() {
 
 async function createSalesOrder() {
   await seedStock();
-  const salesOrderNo = `XSDD-A92-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const saved = await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: salesOrderNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -88,6 +93,7 @@ async function createSalesOrder() {
       ]
     }
   });
+  const salesOrderNo = generatedSalesOrderNo(saved, "A92 sales order");
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}`, { method: "GET" });
   assert(detail.order.customerCode === "KH-001", `customerCode mismatch: ${detail.order.customerCode}`);
   assert(String(detail.order.customer || "").length > 0, "customer name should be returned");
@@ -196,13 +202,20 @@ try {
   assertArray("pushed line remarks", pushed.remarks, ["A92 第一行备注", "A92 第二行备注"]);
   assertArray("pushed plan dates", pushed.planDates, [firstPlanDate, secondPlanDate]);
 
+  assert(await page.getByTestId("delivery-notice-bill-no").inputValue() === "", "pushed delivery notice should keep bill no empty before first save");
   await saveDocument(page);
+  await page.waitForFunction(() => /^FHTZD\d{6}$/.test(document.querySelector('[data-testid="delivery-notice-bill-no"]')?.value ?? ""));
+  const deliveryNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
+  assert(/^FHTZD\d{6}$/.test(deliveryNoticeNo), `pushed delivery notice should use a system bill number after save, got ${deliveryNoticeNo}`);
   await auditDocument(page);
   await page.getByTestId("push-sales-out-from-delivery-notice").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
   await page.getByTestId("sales-out-remark").fill(`A92 出库备注 ${batch}`);
+  assert(await page.getByTestId("sales-out-bill-no").inputValue() === "", "pushed sales out should keep bill no empty before first save");
   await saveDocument(page);
+  await page.waitForFunction(() => /^XSCKD\d{6}$/.test(document.querySelector('[data-testid="sales-out-bill-no"]')?.value ?? ""));
   const salesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
+  assert(/^XSCKD\d{6}$/.test(salesOutNo), `pushed sales out should use a system bill number after save, got ${salesOutNo}`);
 
   const outScreenshot = `a92-sales-out-pushdown-fields-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, outScreenshot), fullPage: true });
@@ -237,6 +250,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     salesOrderNo,
+    deliveryNoticeNo,
     salesOutNo,
     customerName,
     orderRemark,

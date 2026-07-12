@@ -11,8 +11,8 @@ const resultPath = path.join(rootDir, "verification/a87-stock-transfer-regressio
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const billNo = `DBD-A87-${batch}`;
-const shortageBillNo = `DBD-A87-SHORT-${batch}`;
+let billNo = "";
+let shortageBillNo = "";
 const billDate = "2026-06-25";
 const productCode = "CP-001";
 const sourceWarehouseCode = "CK-001";
@@ -43,6 +43,11 @@ async function api(pathname, options = {}) {
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
 
+const sessionResponse = await api("/api/system/session", { method: "GET" });
+const accountSetId = String(sessionResponse.body?.tenant?.id ?? "");
+assert(/^[0-9a-f-]{36}$/i.test(accountSetId), `current session should expose account set id, got ${JSON.stringify(accountSetId)}`);
+assert(sessionResponse.body?.tenant?.schemaName === "public", `A87 direct SQL expects the BLD-TEST public schema, got ${JSON.stringify(sessionResponse.body?.tenant?.schemaName)}`);
+
 function dbScalar(sql) {
   return execFileSync("docker", [
     "exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-tA", "-c", sql
@@ -53,14 +58,21 @@ function dbNumber(sql) {
   return Number(dbScalar(sql) || "0");
 }
 
-function stockQty(warehouseCode) {
-  return dbNumber(`
-    SELECT COALESCE(b.qty_on_hand, 0)
+function stockState(warehouseCode) {
+  const raw = dbScalar(`
+    SELECT COALESCE(b.qty_on_hand, 0) || '|' || COALESCE(b.qty_available, 0) || '|' || COALESCE(b.qty_reserved, 0)
     FROM md_product p
     JOIN md_warehouse w ON w.code = '${warehouseCode}'
-    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id
+    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid
     WHERE p.code = '${productCode}'
   `);
+  const [onHand, available, reserved] = raw.split("|").map(Number);
+  assert([onHand, available, reserved].every(Number.isFinite), `stock state should be numeric, got ${JSON.stringify(raw)}`);
+  return { onHand, available, reserved };
+}
+
+function stockQty(warehouseCode) {
+  return stockState(warehouseCode).onHand;
 }
 
 function txnCount(txnType, warehouseCode, targetBillNo = billNo) {
@@ -71,9 +83,25 @@ function txnCount(txnType, warehouseCode, targetBillNo = billNo) {
     JOIN md_warehouse w ON w.id = t.warehouse_id
     WHERE p.code = '${productCode}'
       AND w.code = '${warehouseCode}'
+      AND t.account_set_id = '${accountSetId}'::uuid
       AND t.txn_type = '${txnType}'
       AND t.source_bill_type = '${txnType}:${targetBillNo}'
   `);
+}
+
+async function ensureSourceAvailableAtLeast(minQty) {
+  const before = stockState(sourceWarehouseCode);
+  if (before.available >= minQty) return;
+  await api("/api/inventory/adjustments", {
+    body: {
+      productCode,
+      warehouseCode: sourceWarehouseCode,
+      qtyDelta: minQty - before.available,
+      txnType: "A87_STOCK_TRANSFER_SEED",
+      sourceBillType: `A87_STOCK_TRANSFER_SEED:${batch}`
+    }
+  });
+  assert(stockState(sourceWarehouseCode).available >= minQty, `seed should establish at least ${minQty} available source stock`);
 }
 
 function financeCount(targetBillNo = billNo) {
@@ -95,11 +123,9 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-stock-transfer-form").click();
     await page.getByTestId("tab-stock-transfer-form").waitFor({ state: "visible" });
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="stock-transfer-bill-no"]');
-      return input instanceof HTMLInputElement && input.value.length > 0;
-    });
-    await page.getByTestId("stock-transfer-bill-no").fill(billNo);
+    const billNoInput = page.getByTestId("stock-transfer-bill-no");
+    assert(await billNoInput.inputValue() === "", "new stock transfer bill no should be blank");
+    assert(!(await billNoInput.isEditable()), "new stock transfer bill no should be readonly");
     await page.getByTestId("stock-transfer-bill-date").fill(billDate);
     await page.getByTestId("stock-transfer-department").fill("仓储部");
     await page.getByTestId("stock-transfer-line-product").fill(productCode);
@@ -111,6 +137,12 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("stock-transfer-line-price").fill(String(unitPrice));
     await page.keyboard.press("Escape");
     await saveDocument(page);
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="stock-transfer-bill-no"]');
+      return input instanceof HTMLInputElement && /^ZJDB\d{6}$/.test(input.value);
+    });
+    billNo = await billNoInput.inputValue();
+    assert(/^ZJDB\d{6}$/.test(billNo), `saved stock transfer bill no should match ZJDB######, got ${JSON.stringify(billNo)}`);
     await auditDocument(page);
     await page.getByTestId("document-status").filter({ hasText: "已审核" }).waitFor({ state: "visible" });
     const formShot = `a87-stock-transfer-form-audited-${batch}.png`;
@@ -132,6 +164,7 @@ async function createAndAuditInFrontend() {
   return screenshots;
 }
 
+await ensureSourceAvailableAtLeast(qty + 1);
 const beforeSourceQty = stockQty(sourceWarehouseCode);
 const beforeTargetQty = stockQty(targetWarehouseCode);
 const screenshots = await createAndAuditInFrontend();
@@ -161,9 +194,10 @@ assert(afterReverseTargetQty === beforeTargetQty, `target stock should return to
 assert(inReverseTxnCount === 1, `target reverse leg should write one txn, got ${inReverseTxnCount}`);
 assert(outReverseTxnCount === 1, `source reverse leg should write one txn, got ${outReverseTxnCount}`);
 
-await api("/api/stock-transfers/draft", {
+const shortageState = stockState(sourceWarehouseCode);
+const shortageDraft = await api("/api/stock-transfers/draft", {
   body: {
-    billNo: shortageBillNo,
+    billNo: "",
     billDate,
     department: "仓储部",
     ownerName: "本地管理员",
@@ -171,19 +205,23 @@ await api("/api/stock-transfers/draft", {
       productCode,
       warehouseCode: sourceWarehouseCode,
       targetWarehouseCode,
-      qty: beforeSourceQty + 100000,
+      qty: Math.max(shortageState.onHand, shortageState.available) + 100000,
       unitPrice,
       lineRemark: "源仓不足断言"
     }]
   }
 });
+shortageBillNo = String(shortageDraft.body?.billNo ?? "");
+assert(/^ZJDB\d{6}$/.test(shortageBillNo), `shortage stock transfer bill no should match ZJDB######, got ${JSON.stringify(shortageBillNo)}`);
 const sourceBeforeShortage = stockQty(sourceWarehouseCode);
 const targetBeforeShortage = stockQty(targetWarehouseCode);
 const shortageResponse = await api(`/api/stock-transfers/${encodeURIComponent(shortageBillNo)}/audit`, { expectFailure: true });
 const sourceAfterShortage = stockQty(sourceWarehouseCode);
 const targetAfterShortage = stockQty(targetWarehouseCode);
+const shortageReason = String(shortageResponse.body?.reason ?? shortageResponse.body?.message ?? "");
 
 assert(shortageResponse.status === 409, `shortage audit should fail with 409, got ${shortageResponse.status}`);
+assert(shortageReason === "库存不足，不能调整为负数", `shortage audit should report the formal source inventory guard, got ${JSON.stringify(shortageReason)}`);
 assert(sourceAfterShortage === sourceBeforeShortage, "shortage audit must not change source stock");
 assert(targetAfterShortage === targetBeforeShortage, "shortage audit must not change target stock");
 assert(txnCount("STOCK_TRANSFER_OUT", sourceWarehouseCode, shortageBillNo) === 0, "shortage audit must not create source leg");
@@ -206,6 +244,7 @@ const result = {
   afterReverseSourceQty,
   afterReverseTargetQty,
   shortageStatus: shortageResponse.status,
+  shortageReason,
   outTxnCount,
   inTxnCount,
   inReverseTxnCount,

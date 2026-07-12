@@ -56,14 +56,15 @@ async function upsertProduct() {
 
 async function chooseFromDialog(page, openTestId, keyword, rowCode) {
   await page.getByTestId(openTestId).click();
-  await page.getByTestId("master-selector-dialog").waitFor({ state: "visible" });
-  await page.getByTestId("master-selector-total").waitFor({ state: "visible" });
-  await page.getByTestId("master-selector-search").fill(keyword);
-  await page.getByTestId("master-selector-search-button").click();
-  const row = page.getByTestId(`master-selector-row-${rowCode}`);
+  const dialog = page.getByTestId("master-selector-source-selector-dialog");
+  await dialog.waitFor({ state: "visible" });
+  await page.getByTestId("master-selector-source-selector-count").waitFor({ state: "visible" });
+  await page.getByTestId("master-selector-source-selector-search").fill(keyword);
+  await page.getByTestId("master-selector-source-selector-query").click();
+  const row = page.getByTestId(`master-selector-source-line-${rowCode}`);
   await row.waitFor({ state: "visible" });
   await row.click();
-  await page.getByTestId("master-selector-dialog").waitFor({ state: "hidden" });
+  await dialog.waitFor({ state: "hidden" });
 }
 
 function assertEqual(name, actual, expected) {
@@ -85,10 +86,9 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
+  const salesBillNoInput = page.getByTestId("sales-bill-no");
+  assertEqual("new sales order bill no", await salesBillNoInput.inputValue(), "");
+  assertEqual("new sales order bill no editable", await salesBillNoInput.isEditable(), false);
 
   await chooseFromDialog(page, "sales-party-open-selector", "KH-001", "KH-001");
   assertEqual("sales customer code", await page.getByTestId("sales-party-code").inputValue(), "KH-001");
@@ -110,10 +110,9 @@ try {
   await page.getByTestId("entry-purchase-order-form").click();
   await page.getByTestId("purchase-party-code").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="purchase-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
+  const purchaseBillNoInput = page.getByTestId("purchase-bill-no");
+  assertEqual("new purchase order bill no", await purchaseBillNoInput.inputValue(), "");
+  assertEqual("new purchase order bill no editable", await purchaseBillNoInput.isEditable(), false);
 
   await chooseFromDialog(page, "purchase-party-open-selector", "GYS-001", "GYS-001");
   assertEqual("purchase supplier code", await page.getByTestId("purchase-party-code").inputValue(), "GYS-001");

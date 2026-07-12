@@ -16,7 +16,7 @@ const logDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shangha
 const operator = "本地管理员";
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 2, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 12 }
 ];
 
@@ -41,6 +41,14 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -52,17 +60,17 @@ async function ensureOperationLogFilters(page) {
   if (await moduleFilter.isVisible({ timeout: 500 }).catch(() => false)) {
     return;
   }
-  await ensureOperationLogFilters(page);
+  await page.getByTestId("list-toggle-filter").click();
   if (await moduleFilter.isVisible({ timeout: 500 }).catch(() => false)) {
     return;
   }
-  await ensureOperationLogFilters(page);
+  await page.getByTestId("list-toggle-filter").click();
   await moduleFilter.waitFor({ state: "visible" });
 }
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -77,33 +85,29 @@ async function seedStock() {
 }
 
 async function createRedReverseSalesOut() {
-  const orderNo = `XSDD-A42-${batch}`;
-  const billNo = `XSCK-A42-${batch}`;
-  const redBillNo = `RED-A42-XSCK-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const orderNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: orderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: operator,
       lines
     }
-  });
+  }), "A42销售订单");
   await requireApi(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
-    billNo,
+  const billNo = (await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
     sourceOrderNo: orderNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
     ownerName: operator,
     lines
-  }, `FHTZ-A42-${batch}`);
+  })).salesOutNo;
   await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
-  await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
-    body: { redBillNo, billDate, ownerName: operator }
-  });
+  const redBillNo = generatedBillNo(await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
+    body: { billDate, ownerName: operator }
+  }), "A42销售出库红冲");
+  await requireApi(`/api/sales-outs/${encodeURIComponent(redBillNo)}/audit`);
   return { orderNo, billNo, redBillNo };
 }
 

@@ -12,7 +12,7 @@ const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
-const billNo = `XSDD-A52-${batch}`;
+let billNo = "";
 const roleCode = "ADMIN";
 const customTemplate = {
   templateName: `A52销售ADMIN模板-${batch}`,
@@ -34,10 +34,16 @@ const defaultTemplate = {
   showSeal: true,
   isDefault: true
 };
+const managedRoleCodes = new Set(["", "ADMIN"]);
+const templateFields = [
+  "documentType", "templateCode", "templateName", "roleCode", "companyName", "headerNote", "footerNote",
+  "showSignature", "showSeal", "isDefault", "paperSize", "pageOrientation", "marginTopMm", "marginRightMm",
+  "marginBottomMm", "marginLeftMm", "copyCount", "enabled"
+];
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 15, lineRemark: "A52 角色模板第一行" },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 8, lineRemark: "A52 角色模板第二行" },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 4, unitPrice: 20, lineRemark: "A52 角色模板第三行" }
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 4, unitPrice: 20, lineRemark: "A52 角色模板第三行" }
 ];
 
 await mkdir(screenshotDir, { recursive: true });
@@ -74,6 +80,12 @@ function assert(condition, message) {
   }
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 function utf16beHex(value) {
   let hex = "";
   for (const char of value) {
@@ -89,33 +101,116 @@ function utf16beHex(value) {
   return hex.toUpperCase();
 }
 
-async function restoreDefaultTemplate() {
+async function listPrintTemplates() {
+  return requireJson("/api/documents/print-templates");
+}
+
+function templateRequest(template, isDefault = template.isDefault) {
+  return {
+    templateCode: template.templateCode,
+    templateName: template.templateName,
+    roleCode: template.roleCode || "",
+    companyName: template.companyName,
+    headerNote: template.headerNote,
+    footerNote: template.footerNote,
+    showSignature: template.showSignature,
+    showSeal: template.showSeal,
+    isDefault,
+    paperSize: template.paperSize,
+    pageOrientation: template.pageOrientation,
+    marginTopMm: template.marginTopMm,
+    marginRightMm: template.marginRightMm,
+    marginBottomMm: template.marginBottomMm,
+    marginLeftMm: template.marginLeftMm,
+    copyCount: template.copyCount
+  };
+}
+
+async function saveTemplate(template, isDefault = template.isDefault) {
   return requireJson("/api/documents/sales-order/print-template", {
     method: "PUT",
-    body: defaultTemplate
+    body: templateRequest(template, isDefault)
   });
 }
 
-async function demoteRoleTemplate(templateCode) {
-  if (!templateCode) {
-    return null;
+async function captureTemplateSnapshot() {
+  const templates = await listPrintTemplates();
+  const snapshot = templates.filter((template) =>
+    template.documentType === "sales-order"
+      && (template.templateCode === "STANDARD" || (template.isDefault && managedRoleCodes.has(template.roleCode || "")))
+  );
+  assert(snapshot.some((template) => template.templateCode === "STANDARD"), "sales-order STANDARD template should exist before A52");
+  return snapshot;
+}
+
+async function demoteManagedDefaults() {
+  const templates = await listPrintTemplates();
+  for (const template of templates.filter((item) =>
+    item.documentType === "sales-order" && item.isDefault && managedRoleCodes.has(item.roleCode || "")
+  )) {
+    await saveTemplate(template, false);
   }
-  return requireJson("/api/documents/sales-order/print-template", {
-    method: "PUT",
-    body: {
-      templateCode,
-      roleCode,
-      ...customTemplate,
-      isDefault: false
+}
+
+async function establishKnownBaseline() {
+  await demoteManagedDefaults();
+  await requireJson("/api/documents/sales-order/print-template", { method: "PUT", body: defaultTemplate });
+}
+
+function comparableTemplate(template) {
+  return Object.fromEntries(templateFields.map((field) => [field, template[field]]));
+}
+
+function defaultSignatures(templates) {
+  return templates
+    .filter((template) => template.documentType === "sales-order" && template.isDefault && managedRoleCodes.has(template.roleCode || ""))
+    .map((template) => `${template.roleCode || "GENERAL"}|${template.templateCode}`)
+    .sort();
+}
+
+async function restoreTemplateSnapshot(snapshot) {
+  await demoteManagedDefaults();
+  for (const template of snapshot) {
+    await saveTemplate(template, false);
+  }
+  for (const template of snapshot.filter((item) => item.isDefault)) {
+    await saveTemplate(template, true);
+  }
+  const restored = await listPrintTemplates();
+  for (const expected of snapshot) {
+    const actual = restored.find((item) => item.documentType === expected.documentType && item.templateCode === expected.templateCode);
+    assert(actual, `${expected.templateCode} should exist after A52 cleanup`);
+    assert(JSON.stringify(comparableTemplate(actual)) === JSON.stringify(comparableTemplate(expected)), `${expected.templateCode} should be restored exactly after A52`);
+  }
+  assert(JSON.stringify(defaultSignatures(restored)) === JSON.stringify(defaultSignatures(snapshot)), "A52 GENERAL/ADMIN defaults should match the pre-run snapshot");
+}
+
+async function finishCleanup(primaryError, cleanupTasks) {
+  const cleanupErrors = [];
+  for (const task of cleanupTasks) {
+    try {
+      await task();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
-  });
+  }
+  if (cleanupErrors.length === 0) {
+    return;
+  }
+  if (primaryError) {
+    for (const error of cleanupErrors) {
+      console.error(`A52 cleanup failed after primary error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    }
+    return;
+  }
+  throw cleanupErrors[0];
 }
 
 async function createSalesOrder() {
-  await requireJson("/api/sales-orders/draft", {
+  const saved = await requireJson("/api/sales-orders/draft", {
     method: "POST",
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -123,22 +218,30 @@ async function createSalesOrder() {
       lines
     }
   });
+  billNo = generatedSalesOrderNo(saved, "A52 sales order");
   await requireJson(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
 }
 
-await restoreDefaultTemplate();
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
-let screenshot;
+const templateSnapshot = await captureTemplateSnapshot();
+let primaryError;
 let copiedTemplateCode;
+let browser;
+let screenshot;
+let roleDefault;
+let html;
+let pdfText;
 try {
+  await establishKnownBaseline();
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-print-template-settings").click();
   await page.getByTestId("tab-print-template-settings").waitFor({ state: "visible" });
   await page.getByTestId("print-template-document-type").selectOption("sales-order");
+  await page.getByTestId("print-template-code").selectOption("STANDARD");
+  await page.getByTestId("print-template-role-code").selectOption("");
   await page.getByTestId("print-template-copy").click();
   await page.getByTestId("print-template-message").getByText("模板副本已保存").waitFor({ state: "visible" });
   copiedTemplateCode = await page.getByTestId("print-template-code").inputValue();
@@ -162,34 +265,43 @@ try {
   await page.getByTestId("print-template-code").locator("option", { hasText: `${customTemplate.templateName}（${roleCode}）（默认）` }).waitFor({ state: "attached" });
   screenshot = `a52-print-template-role-default-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
+
+  roleDefault = await requireJson("/api/documents/sales-order/print-template");
+  assert(roleDefault.templateCode === copiedTemplateCode, "print-template API should return ADMIN role default");
+  assert(roleDefault.roleCode === roleCode, "print-template API should expose ADMIN role code");
+  assert(roleDefault.companyName === customTemplate.companyName, "ADMIN role default should use custom company");
+
+  await createSalesOrder();
+  html = await requireText(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.html`);
+  assert(html.includes(customTemplate.companyName), "HTML should use ADMIN role template company");
+  assert(html.includes(customTemplate.templateName), "HTML should use ADMIN role template name");
+  assert(!html.includes("公司章"), "HTML should hide seal from ADMIN role template");
+
+  const pdfResponse = await request(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.pdf`);
+  assert(pdfResponse.ok, `PDF endpoint failed ${pdfResponse.status}`);
+  const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
+  pdfText = pdfBytes.toString("latin1");
+  assert(pdfText.includes(utf16beHex(customTemplate.companyName)), "PDF should use ADMIN role template company");
+  assert(pdfText.includes(utf16beHex(customTemplate.templateName)), "PDF should use ADMIN role template name");
+  assert(!pdfText.includes(utf16beHex("公司章")), "PDF should hide seal from ADMIN role template");
+} catch (error) {
+  primaryError = error;
+  throw error;
 } finally {
-  await browser.close();
+  await finishCleanup(primaryError, [
+    async () => {
+      if (browser) {
+        await browser.close();
+      }
+    },
+    () => restoreTemplateSnapshot(templateSnapshot)
+  ]);
 }
 
-const roleDefault = await requireJson("/api/documents/sales-order/print-template");
-assert(roleDefault.templateCode === copiedTemplateCode, "print-template API should return ADMIN role default");
-assert(roleDefault.roleCode === roleCode, "print-template API should expose ADMIN role code");
-assert(roleDefault.companyName === customTemplate.companyName, "ADMIN role default should use custom company");
-
-await createSalesOrder();
-const html = await requireText(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.html`);
-assert(html.includes(customTemplate.companyName), "HTML should use ADMIN role template company");
-assert(html.includes(customTemplate.templateName), "HTML should use ADMIN role template name");
-assert(!html.includes("公司章"), "HTML should hide seal from ADMIN role template");
-
-const pdfResponse = await request(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.pdf`);
-assert(pdfResponse.ok, `PDF endpoint failed ${pdfResponse.status}`);
-const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
-const pdfText = pdfBytes.toString("latin1");
-assert(pdfText.includes(utf16beHex(customTemplate.companyName)), "PDF should use ADMIN role template company");
-assert(pdfText.includes(utf16beHex(customTemplate.templateName)), "PDF should use ADMIN role template name");
-assert(!pdfText.includes(utf16beHex("公司章")), "PDF should hide seal from ADMIN role template");
-
-const demotedRoleTemplate = await demoteRoleTemplate(copiedTemplateCode);
-const restoredTemplate = await restoreDefaultTemplate();
 const restoredDefault = await requireJson("/api/documents/sales-order/print-template");
-assert(restoredDefault.templateCode === "STANDARD", "STANDARD should win after ADMIN role template is demoted");
-assert(restoredDefault.roleCode === "", "restored default should be general");
+const templatesAfterRestore = await listPrintTemplates();
+const copiedAfterRestore = templatesAfterRestore.find((template) => template.documentType === "sales-order" && template.templateCode === copiedTemplateCode);
+assert(copiedAfterRestore && copiedAfterRestore.isDefault === false, "A52 copied role template should be non-default after restoring the original snapshot");
 
 const result = {
   batch,
@@ -199,15 +311,14 @@ const result = {
   copiedTemplateCode,
   customTemplate,
   roleDefault,
-  demotedRoleTemplate,
-  restoredTemplate,
   restoredDefault,
   checks: {
     frontendSavedRoleDefault: true,
     apiReturnsRoleDefault: roleDefault.templateCode === copiedTemplateCode && roleDefault.roleCode === roleCode,
     htmlUsesRoleDefault: html.includes(customTemplate.companyName) && html.includes(customTemplate.templateName),
     pdfUsesRoleDefault: pdfText.includes(utf16beHex(customTemplate.companyName)) && pdfText.includes(utf16beHex(customTemplate.templateName)),
-    restoredGeneralDefault: restoredDefault.templateCode === "STANDARD" && restoredDefault.roleCode === ""
+    restoredOriginalDefaults: true,
+    copiedRoleTemplateDemoted: copiedAfterRestore?.isDefault === false
   },
   screenshots: [`verification/playwright/${screenshot}`]
 };

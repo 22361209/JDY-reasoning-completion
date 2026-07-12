@@ -19,6 +19,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -34,7 +40,6 @@ async function api(pathname, options = {}) {
 }
 
 async function createAuditedSalesOrder(label, withNotice = false) {
-  const billNo = `XSDD-A102-${label}-${batch}`;
   const lines = [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, taxRate: 13, lineRemark: `A102 ${label} 1`, planDeliveryDate: "2026-07-03" },
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, taxRate: 13, lineRemark: `A102 ${label} 2`, planDeliveryDate: "2026-07-04" }
@@ -50,9 +55,9 @@ async function createAuditedSalesOrder(label, withNotice = false) {
       }
     });
   }
-  await api("/api/sales-orders/draft", {
+  const savedOrder = await api("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate: "2026-06-26",
       department: "销售部",
@@ -61,14 +66,14 @@ async function createAuditedSalesOrder(label, withNotice = false) {
       lines
     }
   });
+  const billNo = generatedBillNo(savedOrder, "XSDD", `A102 ${label} sales order`);
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
   if (!withNotice) {
     return { orderNo: billNo, noticeNo: "" };
   }
-  const noticeNo = `FHTZ-A102-${label}-${batch}`;
-  await api("/api/delivery-notices/draft", {
+  const savedNotice = await api("/api/delivery-notices/draft", {
     body: {
-      billNo: noticeNo,
+      billNo: null,
       sourceOrderNo: billNo,
       customerCode: "KH-001",
       billDate: "2026-06-26",
@@ -78,6 +83,7 @@ async function createAuditedSalesOrder(label, withNotice = false) {
       lines: lines.map((line, index) => ({ ...line, sourceOrderNo: billNo, sourceLineNo: index + 1 }))
     }
   });
+  const noticeNo = generatedBillNo(savedNotice, "FHTZD", `A102 ${label} delivery notice`);
   await api(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
   return { orderNo: billNo, noticeNo };
 }
@@ -261,14 +267,15 @@ try {
   assert(widthAfter > widthBefore + 30, `entry column resize should change width, got ${widthBefore} -> ${widthAfter}; hit ${JSON.stringify(resizeHit)}`);
 
   await page.getByTestId("sales-out-party-open-selector").click();
-  await page.getByTestId("master-selector-dialog").waitFor({ state: "visible" });
-  const masterDialogMetrics = await page.locator(".master-selector-dialog").evaluate((node) => ({
+  const masterSelectorDialog = page.getByTestId("master-selector-source-selector-dialog");
+  await masterSelectorDialog.waitFor({ state: "visible" });
+  const masterDialogMetrics = await masterSelectorDialog.locator(".source-selector-dialog").evaluate((node) => ({
     width: Math.round(node.getBoundingClientRect().width),
     height: Math.round(node.getBoundingClientRect().height),
     tableMinWidth: Math.round(node.querySelector("table")?.getBoundingClientRect().width ?? 0)
   }));
   assert(masterDialogMetrics.width >= 1000, `master selector should be large modal, got ${JSON.stringify(masterDialogMetrics)}`);
-  await page.getByTestId("master-selector-cancel").click();
+  await page.getByTestId("master-selector-source-selector-cancel").click();
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("query-sales-order-form").click();

@@ -2,8 +2,8 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
-import { saveDocument, auditDocument } from "./helpers/document-actions.mjs";
-import { chooseSalesOutSourceSelections, lineSourceText, openNewSalesOut } from "./helpers/sales-pages.mjs";
+import { saveDocument, auditDocument, confirmSalesOutSourceSelector, openSalesOutSourceSelector } from "./helpers/document-actions.mjs";
+import { lineSourceText, openNewSalesOut, selectSalesOutSourceLines } from "./helpers/sales-pages.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -21,6 +21,12 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
 }
 
 async function api(pathname, options = {}) {
@@ -58,10 +64,9 @@ async function seedStock() {
 }
 
 async function createOrder(suffix, productCode, qty, unitPrice) {
-  const billNo = `XSDD-A98-${suffix}-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const savedOrder = await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -70,11 +75,11 @@ async function createOrder(suffix, productCode, qty, unitPrice) {
       lines: [{ productCode, warehouseCode: "CK-001", qty, unitPrice, lineRemark: `A98 ${suffix} 行`, planDeliveryDate: "2026-07-18" }]
     }
   });
+  const billNo = generatedBillNo(savedOrder, "XSDD", `A98 ${suffix} sales order`);
   await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
-  const noticeNo = `FHTZ-A98-${suffix}-${batch}`;
-  await requireApi("/api/delivery-notices/draft", {
+  const savedNotice = await requireApi("/api/delivery-notices/draft", {
     body: {
-      billNo: noticeNo,
+      billNo: null,
       sourceOrderNo: billNo,
       customerCode: "KH-001",
       billDate,
@@ -84,6 +89,7 @@ async function createOrder(suffix, productCode, qty, unitPrice) {
       lines: [{ productCode, warehouseCode: "CK-001", sourceOrderNo: billNo, sourceLineNo: 1, qty, unitPrice, lineRemark: `A98 ${suffix} 行`, planDeliveryDate: "2026-07-18" }]
     }
   });
+  const noticeNo = generatedBillNo(savedNotice, "FHTZD", `A98 ${suffix} delivery notice`);
   await requireApi(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
   return { orderNo: billNo, noticeNo };
 }
@@ -98,13 +104,13 @@ async function createData() {
 
 async function selectSourceLines(page, noticeA, noticeB) {
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await chooseSalesOutSourceSelections(page, {
-    search: batch,
-    selections: [
-      { billNo: noticeA, lineNos: [1] },
-      { billNo: noticeB, lineNos: [1] }
-    ]
-  });
+  await openSalesOutSourceSelector(page);
+  for (const billNo of [noticeA, noticeB]) {
+    await page.getByTestId("sales-out-source-selector-search").fill(billNo);
+    await page.getByTestId("sales-out-source-selector-query").click();
+    await selectSalesOutSourceLines(page, billNo, [1]);
+  }
+  await confirmSalesOutSourceSelector(page);
   await page.getByTestId("sales-out-line-source-trace-2").waitFor({ state: "visible" });
 }
 
@@ -120,49 +126,42 @@ try {
   await openNewSalesOut(page);
   await selectSourceLines(page, data.sourceA.noticeNo, data.sourceB.noticeNo);
 
-  const sourceTexts = [await lineSourceText(page, "sales-out", 0), await lineSourceText(page, "sales-out", 1)];
-  assert(sourceTexts.includes(`${data.sourceA.noticeNo} / #1`), `line sources should include notice A, got ${sourceTexts.join(",")}`);
-  assert(sourceTexts.includes(`${data.sourceB.noticeNo} / #1`), `line sources should include notice B, got ${sourceTexts.join(",")}`);
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "header source order input should be removed after multi-source selection");
-
-  const popupPromise = page.waitForEvent("popup");
-  await page.getByTestId("sales-out-line-source-trace").click();
-  const popup = await popupPromise;
-  await popup.waitForLoadState("domcontentloaded");
-  const popupText = await popup.locator("body").innerText();
-  const openedSourceNotice = [data.sourceA.noticeNo, data.sourceB.noticeNo].find((billNo) => popupText.includes(billNo)) ?? "";
-  assert([data.sourceA.noticeNo, data.sourceB.noticeNo].includes(openedSourceNotice), `line source trace should open clicked source notice, got ${openedSourceNotice}`);
   const draftProducts = [
     await page.getByTestId("sales-out-line-product").inputValue(),
     await page.getByTestId("sales-out-line-product-2").inputValue()
   ];
-  assert(draftProducts.includes("CP-001") && draftProducts.includes("PJ-014"), `sales out draft lines should remain after source trace navigation, got ${draftProducts.join(",")}`);
-  await popup.close();
+  assert(draftProducts.includes("CP-001") && draftProducts.includes("PJ-014"), `sales out draft should retain both selected source lines, got ${draftProducts.join(",")}`);
 
-  const shot = `a98-multi-source-line-trace-${batch}.png`;
-  await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
-  screenshots.push(`verification/playwright/${shot}`);
-
-  const salesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
+  assert(await page.getByTestId("sales-out-bill-no").inputValue() === "", "multi-source sales out should keep bill no empty before first save");
   await saveDocument(page);
+  await page.waitForFunction(() => /^XSCKD\d{6}$/.test(document.querySelector('[data-testid="sales-out-bill-no"]')?.value ?? ""));
+  const salesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
+  assert(/^XSCKD\d{6}$/.test(salesOutNo), `multi-source sales out should use a system bill number after save, got ${salesOutNo}`);
   await auditDocument(page);
 
   const detail = await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}`, { method: "GET" });
   assert(!detail.document.sourceOrderNo, "audited sales out header sourceOrderNo should be empty");
-  const persistedOrderSources = detail.lines.map((line) => line.sourceOrderNo);
-  const persistedNoticeSources = detail.lines.map((line) => line.sourceDeliveryNoticeNo);
-  assert(persistedOrderSources.includes(data.sourceA.orderNo) && persistedOrderSources.includes(data.sourceB.orderNo), `audited sales out should persist line-level sales order numbers, got ${persistedOrderSources.join(",")}`);
-  assert(persistedNoticeSources.includes(data.sourceA.noticeNo) && persistedNoticeSources.includes(data.sourceB.noticeNo), `audited sales out should persist line-level delivery notice numbers, got ${persistedNoticeSources.join(",")}`);
+  const persistedSources = detail.lines.map((line) => ({
+    sourceOrderNo: line.sourceOrderNo,
+    sourceLineNo: Number(line.sourceLineNo),
+    sourceDeliveryNoticeNo: line.sourceDeliveryNoticeNo,
+    sourceDeliveryLineNo: Number(line.sourceDeliveryLineNo)
+  }));
+  const expectedPersistedSources = [
+    { sourceOrderNo: data.sourceA.orderNo, sourceLineNo: 1, sourceDeliveryNoticeNo: data.sourceA.noticeNo, sourceDeliveryLineNo: 1 },
+    { sourceOrderNo: data.sourceB.orderNo, sourceLineNo: 1, sourceDeliveryNoticeNo: data.sourceB.noticeNo, sourceDeliveryLineNo: 1 }
+  ];
+  assert(JSON.stringify(persistedSources) === JSON.stringify(expectedPersistedSources), `audited sales out should preserve sales-order and delivery-notice source layers: ${JSON.stringify(persistedSources)}`);
 
   const orderADetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.sourceA.orderNo)}`, { method: "GET" });
   const orderBDetail = await requireApi(`/api/sales-orders/${encodeURIComponent(data.sourceB.orderNo)}`, { method: "GET" });
   assert(Number(orderADetail.lines[0].remainingQty) === 0, "order A should have no remaining qty after audit");
   assert(Number(orderBDetail.lines[0].remainingQty) === 0, "order B should have no remaining qty after audit");
 
-  const duplicateNo = `XSCK-A98-DUP-${batch}`;
-  await requireApi("/api/sales-outs/draft", {
+  const duplicateDraft = await requireApi("/api/sales-outs/draft", {
     body: {
-      billNo: duplicateNo,
+      billNo: null,
       sourceOrderNo: data.sourceA.noticeNo,
       customerCode: "KH-001",
       billDate,
@@ -180,8 +179,57 @@ try {
       }]
     }
   });
+  const duplicateNo = generatedBillNo(duplicateDraft, "XSCKD", "A98 duplicate sales out");
   const duplicateAudit = await api(`/api/sales-outs/${encodeURIComponent(duplicateNo)}/audit`, { expectFailure: true });
   assert(duplicateAudit.status === 409, `duplicate over-push audit should be blocked with 409, got ${duplicateAudit.status}`);
+  assert(JSON.stringify(duplicateAudit.data).includes("销售出库数量不能超过发货通知剩余可出数量"), `duplicate over-push should report the formal remaining-quantity guard: ${JSON.stringify(duplicateAudit.data)}`);
+
+  await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await loginAsAdmin(page);
+  await page.getByTestId("module-销售管理").hover();
+  await page.getByTestId("query-sales-out-form").click();
+  await page.getByTestId("tab-sales-out-form-list").waitFor({ state: "visible" });
+  await page.getByTestId("list-keyword").waitFor({ state: "visible" });
+  await page.getByTestId("list-keyword").fill(salesOutNo);
+  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId(`open-document-${salesOutNo}`).click();
+  await page.waitForFunction((expectedBillNo) => {
+    const input = document.querySelector('[data-testid="sales-out-bill-no"]');
+    return input instanceof HTMLInputElement && input.value === expectedBillNo;
+  }, salesOutNo);
+
+  const reloadedSourceTexts = [await lineSourceText(page, "sales-out", 0), await lineSourceText(page, "sales-out", 1)];
+  assert(reloadedSourceTexts.includes(`${data.sourceA.orderNo} / #1`), `reloaded line sources should include sales order A, got ${reloadedSourceTexts.join(",")}`);
+  assert(reloadedSourceTexts.includes(`${data.sourceB.orderNo} / #1`), `reloaded line sources should include sales order B, got ${reloadedSourceTexts.join(",")}`);
+  const clickedSourceOrderNo = persistedSources[0].sourceOrderNo;
+  assert(
+    reloadedSourceTexts[0] === `${clickedSourceOrderNo} / #1`,
+    `first reloaded trace control should stay bound to its exact persisted sales order: ${JSON.stringify({ clickedSourceOrderNo, reloadedSourceTexts })}`
+  );
+  const reloadedProducts = [
+    await page.getByTestId("sales-out-line-product").inputValue(),
+    await page.getByTestId("sales-out-line-product-2").inputValue()
+  ];
+  assert(reloadedProducts.includes("CP-001") && reloadedProducts.includes("PJ-014"), `reloaded sales out should retain both source lines, got ${reloadedProducts.join(",")}`);
+
+  const shot = `a98-multi-source-line-trace-${batch}.png`;
+  await page.screenshot({ path: path.join(screenshotDir, shot), fullPage: true });
+  screenshots.push(`verification/playwright/${shot}`);
+
+  const popupPromise = page.waitForEvent("popup", { timeout: 5000 });
+  await page.getByTestId("sales-out-line-source-trace").click();
+  const popup = await popupPromise.catch((error) => {
+    throw new Error(
+      `saved sales-out source trace should open its exact XSDD source order after both source layers survive save/reload: ${JSON.stringify({ clickedSourceOrderNo, persistedSources, reloadedSourceTexts })}`,
+      { cause: error }
+    );
+  });
+  await popup.waitForLoadState("domcontentloaded");
+  await popup.getByTestId("sales-bill-no").waitFor({ state: "visible" });
+  const openedSourceOrder = await popup.getByTestId("sales-bill-no").inputValue();
+  assert(openedSourceOrder === clickedSourceOrderNo, `saved line source trace should open the exact clicked sales order ${clickedSourceOrderNo}, got ${openedSourceOrder}`);
+  assert(await popup.getByTestId("delivery-notice-bill-no").count() === 0, "saved XSDD source trace must not open a delivery-notice form");
+  await popup.close();
 
   const result = {
     batch,
@@ -195,7 +243,8 @@ try {
     noticeA: data.sourceA.noticeNo,
     noticeB: data.sourceB.noticeNo,
     salesOutNo,
-    lineSources: detail.lines.map((line) => ({ lineNo: line.lineNo, sourceOrderNo: line.sourceOrderNo, sourceLineNo: line.sourceLineNo })),
+    lineSources: persistedSources,
+    reloadedSourceTexts,
     remainingQty: {
       [data.sourceA.orderNo]: Number(orderADetail.lines[0].remainingQty),
       [data.sourceB.orderNo]: Number(orderBDetail.lines[0].remainingQty)

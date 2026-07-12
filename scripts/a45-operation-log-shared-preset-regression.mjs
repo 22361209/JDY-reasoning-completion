@@ -18,7 +18,7 @@ const presetName = `A45共享红冲审计-${batch}`;
 const listKey = "operation-log-list";
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 2, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 12 }
 ];
 
@@ -43,6 +43,14 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -54,17 +62,45 @@ async function ensureOperationLogFilters(page) {
   if (await moduleFilter.isVisible({ timeout: 500 }).catch(() => false)) {
     return;
   }
-  await ensureOperationLogFilters(page);
+  await page.getByTestId("list-toggle-filter").click();
   if (await moduleFilter.isVisible({ timeout: 500 }).catch(() => false)) {
     return;
   }
-  await ensureOperationLogFilters(page);
+  await page.getByTestId("list-toggle-filter").click();
   await moduleFilter.waitFor({ state: "visible" });
+}
+
+async function cleanupPreset() {
+  const presets = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
+  for (const preset of presets.filter((item) => item.name === presetName && !item.readOnly)) {
+    await requireApi(`/api/list-presets/${listKey}/${encodeURIComponent(preset.id)}`, { method: "DELETE" });
+  }
+}
+
+async function finishCleanup(primaryError, cleanupTasks) {
+  const cleanupErrors = [];
+  for (const task of cleanupTasks) {
+    try {
+      await task();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (cleanupErrors.length === 0) {
+    return;
+  }
+  if (primaryError) {
+    for (const error of cleanupErrors) {
+      console.error(`A45 cleanup failed after primary error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    }
+    return;
+  }
+  throw cleanupErrors[0];
 }
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -79,64 +115,65 @@ async function seedStock() {
 }
 
 async function createRedReverseSalesOut() {
-  const orderNo = `XSDD-A45-${batch}`;
-  const billNo = `XSCK-A45-${batch}`;
-  const redBillNo = `RED-A45-XSCK-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const orderNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: orderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: operator,
       lines
     }
-  });
+  }), "A45销售订单");
   await requireApi(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
-    billNo,
+  const billNo = (await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
     sourceOrderNo: orderNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
     ownerName: operator,
     lines
-  }, `FHTZ-A45-${batch}`);
+  })).salesOutNo;
   await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
-  await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
-    body: { redBillNo, billDate, ownerName: operator }
-  });
+  const redBillNo = generatedBillNo(await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
+    body: { billDate, ownerName: operator }
+  }), "A45销售出库红冲");
+  await requireApi(`/api/sales-outs/${encodeURIComponent(redBillNo)}/audit`);
   return { orderNo, billNo, redBillNo };
 }
 
 await seedStock();
 const sales = await createRedReverseSalesOut();
-const preset = await requireApi(`/api/list-presets/${listKey}`, {
-  body: {
-    name: presetName,
-    shared: true,
-    query: {
-      keyword: sales.redBillNo,
-      status: "成功",
-      module: "SALES",
-      action: "RED_REVERSE",
-      operator,
-      targetType: "sales_out",
-      dateFrom: logDate,
-      dateTo: logDate
-    },
-    columnFilters: {}
-  }
-});
-assert(preset.id, "saved preset should return id");
-
-const presetsBefore = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
-assert(presetsBefore.some((item) => item.name === presetName), "GET presets should contain saved preset");
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+let preset;
+let browser;
 const screenshots = [];
+let primaryError;
 try {
+  await cleanupPreset();
+  preset = await requireApi(`/api/list-presets/${listKey}`, {
+    body: {
+      name: presetName,
+      shared: true,
+      query: {
+        keyword: sales.redBillNo,
+        module: "SALES",
+        action: "RED_REVERSE",
+        operator,
+        targetType: "sales_out",
+        dateFrom: logDate,
+        dateTo: logDate
+      },
+      columnFilters: {
+        status: { operator: "等于", value: "成功" }
+      }
+    }
+  });
+  assert(preset.id, "saved preset should return id");
+
+  const presetsBefore = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
+  assert(presetsBefore.some((item) => item.name === presetName), "GET presets should contain saved preset");
+
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await page.evaluate(() => localStorage.removeItem("jdy:operation-log-filter-presets"));
@@ -156,15 +193,26 @@ try {
   assert(await page.getByTestId("list-keyword").inputValue() === sales.redBillNo, "applied shared preset should restore keyword");
   assert(await page.getByTestId("operation-log-module").inputValue() === "SALES", "applied shared preset should restore module");
   assert(await page.getByTestId("operation-log-target-type").inputValue() === "sales_out", "applied shared preset should restore target type");
-  await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible" });
+  assert(await page.getByTestId("column-filter-status").evaluate((node) => node.className.includes("active")), "applied shared preset should restore status column filter");
+  await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible", timeout: 3000 });
   await page.getByTestId("vxe-list-table").getByText("RED_REVERSE").first().waitFor({ state: "visible" });
   const screenshot = `a45-operation-log-shared-preset-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
   screenshots.push(`verification/playwright/${screenshot}`);
   await page.getByTestId("operation-log-preset-delete").click();
   await page.getByTestId("operation-log-preset-message").getByText("预设已删除").waitFor({ state: "visible" });
+} catch (error) {
+  primaryError = error;
+  throw error;
 } finally {
-  await browser.close();
+  await finishCleanup(primaryError, [
+    async () => {
+      if (browser) {
+        await browser.close();
+      }
+    },
+    cleanupPreset
+  ]);
 }
 
 const presetsAfterDelete = await requireApi(`/api/list-presets/${listKey}`, { method: "GET" });
@@ -177,7 +225,7 @@ const result = {
   salesOutNo: sales.billNo,
   salesRedReverseBillNo: sales.redBillNo,
   presetName,
-  presetId: preset.id,
+  presetId: preset?.id,
   checks: {
     apiSavedPreset: true,
     loadedFromBackendWithLocalStorageEmpty: true,

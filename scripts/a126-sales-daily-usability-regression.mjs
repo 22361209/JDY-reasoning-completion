@@ -72,14 +72,32 @@ async function requireApi(cookie, pathname, options = {}) {
   return result.data;
 }
 
+const adminSession = await requireApi(adminCookie, "/api/system/session", { method: "GET" });
+const accountSetId = String(adminSession?.tenant?.id ?? "");
+assert(/^[0-9a-f-]{36}$/i.test(accountSetId), "current session should expose account set id", { accountSetId });
+assert(adminSession?.tenant?.schemaName === "public", "A126 direct SQL expects the BLD-TEST public schema", { schemaName: adminSession?.tenant?.schemaName });
+
 async function expectApiFailure(cookie, pathname, expectedStatuses, options = {}) {
-  const result = await api(cookie, pathname, options);
+  const { expectedReason, ...requestOptions } = options;
+  const result = await api(cookie, pathname, requestOptions);
   const expected = Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses];
-  assert(!result.ok && expected.includes(result.status), `${options.method ?? "POST"} ${pathname} should fail with ${expected.join("/")}`, {
+  assert(!result.ok && expected.includes(result.status), `${requestOptions.method ?? "POST"} ${pathname} should fail with ${expected.join("/")}`, {
     actualStatus: result.status,
     response: result.data
   });
+  if (expectedReason) {
+    assert(result.text.includes(expectedReason), `${requestOptions.method ?? "POST"} ${pathname} should report the formal business reason`, {
+      expectedReason,
+      response: result.data
+    });
+  }
   return result;
+}
+
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number`, row);
+  return value;
 }
 
 function sqlValue(sql) {
@@ -95,7 +113,7 @@ function stock() {
     SELECT COALESCE(b.qty_on_hand, 0) || '|' || COALESCE(b.qty_reserved, 0) || '|' || COALESCE(b.qty_available, 0)
     FROM md_product p
     JOIN md_warehouse w ON w.code = '${warehouseCode}'
-    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id
+    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid
     WHERE p.code = '${productCode}'
   `);
   const [onHand, reserved, available] = raw.split("|").map(Number);
@@ -176,10 +194,10 @@ function line(qty, unitPrice = 86, extra = {}) {
   };
 }
 
-async function createQuote(quoteNo, qty) {
-  await requireApi(adminCookie, "/api/sales-quotes/draft", {
+async function createQuote(qty) {
+  const saved = await requireApi(adminCookie, "/api/sales-quotes/draft", {
     body: {
-      billNo: quoteNo,
+      billNo: null,
       customerCode,
       billDate,
       validUntil: "2026-12-31",
@@ -189,13 +207,15 @@ async function createQuote(quoteNo, qty) {
       lines: [line(qty, 86)]
     }
   });
+  const quoteNo = generatedBillNo(saved, "XSBJ", "A126 sales quote");
   await requireApi(adminCookie, `/api/sales-quotes/${encodeURIComponent(quoteNo)}/audit`);
+  return quoteNo;
 }
 
-async function createOrder(orderNo, qty, sourceQuoteNo = "") {
-  await requireApi(adminCookie, "/api/sales-orders/draft", {
+async function createOrder(qty, sourceQuoteNo = "") {
+  const saved = await requireApi(adminCookie, "/api/sales-orders/draft", {
     body: {
-      billNo: orderNo,
+      billNo: null,
       sourceOrderNo: sourceQuoteNo || undefined,
       customerCode,
       billDate,
@@ -205,18 +225,21 @@ async function createOrder(orderNo, qty, sourceQuoteNo = "") {
       lines: [line(qty, 86, sourceQuoteNo ? { sourceOrderNo: sourceQuoteNo, sourceLineNo: 1 } : {})]
     }
   });
+  const orderNo = generatedBillNo(saved, "XSDD", "A126 sales order");
   await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
+  return orderNo;
 }
 
-async function createNotice(noticeNo, orderNo, qty, cookie = adminCookie) {
-  await saveNoticeDraft(noticeNo, orderNo, [line(qty, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })], cookie);
+async function createNotice(orderNo, qty, cookie = adminCookie) {
+  const noticeNo = await saveNoticeDraft(orderNo, [line(qty, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })], cookie);
   await requireApi(cookie, `/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+  return noticeNo;
 }
 
-async function saveNoticeDraft(noticeNo, orderNo, lines, cookie = adminCookie) {
-  await requireApi(cookie, "/api/delivery-notices/draft", {
+async function saveNoticeDraft(orderNo, lines, cookie = adminCookie) {
+  const saved = await requireApi(cookie, "/api/delivery-notices/draft", {
     body: {
-      billNo: noticeNo,
+      billNo: null,
       sourceOrderNo: orderNo,
       customerCode,
       billDate,
@@ -226,35 +249,42 @@ async function saveNoticeDraft(noticeNo, orderNo, lines, cookie = adminCookie) {
       lines
     }
   });
+  return generatedBillNo(saved, "FHTZD", "A126 delivery notice");
 }
 
-async function createSalesOut(outNo, noticeNo, qty, cookie = warehouseCookie) {
-  await requireApi(cookie, "/api/sales-outs/draft", {
+async function saveSalesOutDraft(noticeNo, lines, cookie = warehouseCookie) {
+  const saved = await requireApi(cookie, "/api/sales-outs/draft", {
     body: {
-      billNo: outNo,
+      billNo: null,
       customerCode,
       billDate,
       department: "仓储部",
       ownerName: cookie === warehouseCookie ? "仓库操作员" : "本地管理员",
       remark: "A126 销售出库",
-      lines: [line(qty, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
+      lines
     }
   });
+  return generatedBillNo(saved, "XSCKD", "A126 sales out");
+}
+
+async function createSalesOut(noticeNo, qty, cookie = warehouseCookie) {
+  const outNo = await saveSalesOutDraft(
+    noticeNo,
+    [line(qty, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })],
+    cookie
+  );
   await requireApi(cookie, `/api/sales-outs/${encodeURIComponent(outNo)}/audit`);
+  return outNo;
 }
 
 async function runMainFlow() {
-  const quoteNo = `XSBJA126M${batch}`;
-  const orderNo = `XSDDA126M${batch}`;
-  const noticeNo = `FHTZA126M${batch}`;
-  const outNo = `XSCKA126M${batch}`;
   await seedInventory(300, "main");
   const before = stock();
-  await createQuote(quoteNo, 12);
-  await createOrder(orderNo, 12, quoteNo);
-  await createNotice(noticeNo, orderNo, 12);
+  const quoteNo = await createQuote(12);
+  const orderNo = await createOrder(12, quoteNo);
+  const noticeNo = await createNotice(orderNo, 12);
   const afterNotice = stock();
-  await createSalesOut(outNo, noticeNo, 12);
+  const outNo = await createSalesOut(noticeNo, 12);
   const afterOut = stock();
   const stats = orderStats(orderNo);
   assert(afterNotice.onHand === before.onHand, "发货通知审核不改变即时库存", { before, afterNotice });
@@ -263,21 +293,13 @@ async function runMainFlow() {
   assert(afterOut.reserved === afterNotice.reserved - 12, "销售出库审核释放对应预留库存", { afterNotice, afterOut });
   assert(stats.shippedQty === 12 && stats.remainingQty === 0 && stats.outStatus === "ALL_OUT", "主流程销售订单已出库/未出库数量正确", stats);
   assert(stats.closeStatus === "CLOSED" && stats.closeMode === "AUTO", "销售订单全部出库后自动关闭", stats);
-  const blockedNoticeAfterAutoClose = `FHTZA126MB${batch}`;
-  await requireApi(adminCookie, "/api/delivery-notices/draft", {
-    body: {
-      billNo: blockedNoticeAfterAutoClose,
-      sourceOrderNo: orderNo,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]
-    }
+  const blockedNoticeAfterAutoClose = await saveNoticeDraft(orderNo, [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]);
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNoticeAfterAutoClose)}/audit`, 409, {
+    expectedReason: "源单或源单行已关闭/冻结，或源单未审核，不能继续下推或执行"
   });
-  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNoticeAfterAutoClose)}/audit`, 409);
   await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/unclose`, 409, {
-    body: { reason: "自动关闭不能手动反关闭" }
+    body: { reason: "自动关闭不能手动反关闭" },
+    expectedReason: "只有手动关闭的销售订单可以反关闭"
   });
   const orderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(orderNo)}`, { method: "GET" });
   const outDetail = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}`, { method: "GET" });
@@ -288,46 +310,24 @@ async function runMainFlow() {
 }
 
 async function runPartialFlow() {
-  const orderNo = `XSDDA126P${batch}`;
-  const n1 = `FHTZA126P1${batch}`;
-  const o1 = `XSCKA126P1${batch}`;
-  const n2 = `FHTZA126P2${batch}`;
-  const o2 = `XSCKA126P2${batch}`;
   await seedInventory(300, "partial");
-  await createOrder(orderNo, 100);
-  await createNotice(n1, orderNo, 30);
-  await createSalesOut(o1, n1, 30);
+  const orderNo = await createOrder(100);
+  const n1 = await createNotice(orderNo, 30);
+  const o1 = await createSalesOut(n1, 30);
   const afterFirst = orderStats(orderNo);
   assert(afterFirst.shippedQty === 30 && afterFirst.remainingQty === 70 && afterFirst.outStatus === "PART_OUT", "第一次出库后未出库数量为 70", afterFirst);
-  await createNotice(n2, orderNo, 50);
-  await createSalesOut(o2, n2, 50);
+  const n2 = await createNotice(orderNo, 50);
+  const o2 = await createSalesOut(n2, 50);
   const afterSecond = orderStats(orderNo);
   assert(afterSecond.shippedQty === 80 && afterSecond.remainingQty === 20 && afterSecond.outStatus === "PART_OUT", "第二次出库后未出库数量为 20", afterSecond);
-  const overNoticeNo = `FHTZA126PX${batch}`;
-  await requireApi(adminCookie, "/api/delivery-notices/draft", {
-    body: {
-      billNo: overNoticeNo,
-      sourceOrderNo: orderNo,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [line(25, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]
-    }
+  const overNoticeNo = await saveNoticeDraft(orderNo, [line(25, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]);
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(overNoticeNo)}/audit`, 409, {
+    expectedReason: "发货通知数量不能超过销售订单剩余可通知数量"
   });
-  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(overNoticeNo)}/audit`, 409);
-  const overOutNo = `XSCKA126PX${batch}`;
-  await requireApi(warehouseCookie, "/api/sales-outs/draft", {
-    body: {
-      billNo: overOutNo,
-      customerCode,
-      billDate,
-      department: "仓储部",
-      ownerName: "仓库操作员",
-      lines: [line(60, 86, { sourceDeliveryNoticeNo: n2, sourceDeliveryLineNo: 1 })]
-    }
+  const overOutNo = await saveSalesOutDraft(n2, [line(60, 86, { sourceDeliveryNoticeNo: n2, sourceDeliveryLineNo: 1 })]);
+  await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(overOutNo)}/audit`, 409, {
+    expectedReason: "销售出库数量不能超过发货通知剩余可出数量"
   });
-  await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(overOutNo)}/audit`, 409);
   const headerRow = listRow("sales-order-form-list", orderNo, "header");
   const detailRow = listRow("sales-order-form-list", orderNo, "detail");
   assert(numberOf(headerRow?.shippedQty) === 80 && numberOf(headerRow?.remainingQty) === 20, "销售订单整单列表显示已出库/未出库数量", headerRow);
@@ -337,11 +337,9 @@ async function runPartialFlow() {
 }
 
 async function runFullyNoticedPendingShipmentFlow() {
-  const orderNo = `XSDDA126N${batch}`;
-  const noticeNo = `FHTZA126N${batch}`;
   await seedInventory(120, "fully-noticed-pending-shipment");
-  await createOrder(orderNo, 100);
-  await createNotice(noticeNo, orderNo, 100);
+  const orderNo = await createOrder(100);
+  const noticeNo = await createNotice(orderNo, 100);
 
   const stats = orderStats(orderNo);
   assert(stats.shippedQty === 0 && stats.remainingQty === 100, "已全量发货通知但未出库时，销售订单未出库数量仍按已出库事实计算", stats);
@@ -366,10 +364,8 @@ async function runFullyNoticedPendingShipmentFlow() {
 }
 
 async function runNoticeDraftAndGroupedAuditGuardFlow() {
-  const draftOrderNo = `XSDDA126D${batch}`;
-  const draftNoticeNo = `FHTZA126D${batch}`;
-  await createOrder(draftOrderNo, 100);
-  await saveNoticeDraft(draftNoticeNo, draftOrderNo, [line(100, 86, { sourceOrderNo: draftOrderNo, sourceLineNo: 1 })]);
+  const draftOrderNo = await createOrder(100);
+  const draftNoticeNo = await saveNoticeDraft(draftOrderNo, [line(100, 86, { sourceOrderNo: draftOrderNo, sourceLineNo: 1 })]);
 
   const draftOrderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(draftOrderNo)}`, { method: "GET" });
   const draftLine = draftOrderDetail.lines?.[0] ?? {};
@@ -382,17 +378,16 @@ async function runNoticeDraftAndGroupedAuditGuardFlow() {
   const auditedOrderDetail = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(draftOrderNo)}`, { method: "GET" });
   assert(numberOf(auditedOrderDetail.lines?.[0]?.availableNoticeQty) === 0, "发货通知审核后才占用销售订单可通知量", auditedOrderDetail.lines?.[0]);
 
-  const groupedOrderNo = `XSDDA126G${batch}`;
-  const overNoticeNo = `FHTZA126G${batch}`;
-  const okNoticeNo = `FHTZA126GOK${batch}`;
-  await createOrder(groupedOrderNo, 100);
-  await saveNoticeDraft(overNoticeNo, groupedOrderNo, [
+  const groupedOrderNo = await createOrder(100);
+  const overNoticeNo = await saveNoticeDraft(groupedOrderNo, [
     line(80, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 }),
     line(30, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 })
   ]);
-  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(overNoticeNo)}/audit`, 409);
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(overNoticeNo)}/audit`, 409, {
+    expectedReason: "发货通知数量不能超过销售订单剩余可通知数量"
+  });
 
-  await saveNoticeDraft(okNoticeNo, groupedOrderNo, [
+  const okNoticeNo = await saveNoticeDraft(groupedOrderNo, [
     line(40, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 }),
     line(60, 86, { sourceOrderNo: groupedOrderNo, sourceLineNo: 1 })
   ]);
@@ -403,32 +398,20 @@ async function runNoticeDraftAndGroupedAuditGuardFlow() {
 }
 
 async function runCloseRemainingFlow() {
-  const orderNo = `XSDDA126C${batch}`;
-  const n1 = `FHTZA126C1${batch}`;
-  const o1 = `XSCKA126C1${batch}`;
   await seedInventory(200, "close");
-  await createOrder(orderNo, 100);
-  await createNotice(n1, orderNo, 80);
-  await createSalesOut(o1, n1, 80);
+  const orderNo = await createOrder(100);
+  const n1 = await createNotice(orderNo, 80);
+  const o1 = await createSalesOut(n1, 80);
   await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/close`, {
     body: { reason: "客户接受少发，关闭剩余 20" }
   });
   const afterClose = orderStats(orderNo);
   assert(afterClose.closeStatus === "CLOSED" && afterClose.closeMode === "MANUAL", "销售订单剩余未发可手动关闭整单", afterClose);
   assert(afterClose.remainingQty === 20 && afterClose.lineCloseStatus === "OPEN", "手动关闭后未出库数量保留且不关闭行", afterClose);
-  const blockedNotice = `FHTZA126CB${batch}`;
-  await requireApi(adminCookie, "/api/delivery-notices/draft", {
-    body: {
-      billNo: blockedNotice,
-      sourceOrderNo: orderNo,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]
-    }
+  const blockedNotice = await saveNoticeDraft(orderNo, [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]);
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNotice)}/audit`, 409, {
+    expectedReason: "源单或源单行已关闭/冻结，或源单未审核，不能继续下推或执行"
   });
-  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNotice)}/audit`, 409);
   await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/unclose`, {
     body: { reason: "A126 手动反关闭恢复执行" }
   });
@@ -439,67 +422,52 @@ async function runCloseRemainingFlow() {
 }
 
 async function runRedReverseFlow() {
-  const orderNo = `XSDDA126R${batch}`;
-  const noticeNo = `FHTZA126R${batch}`;
-  const outNo = `XSCKA126R${batch}`;
-	  await seedInventory(100, "red");
-  await createOrder(orderNo, 10);
-  await createNotice(noticeNo, orderNo, 10);
+  await seedInventory(100, "red");
+  const orderNo = await createOrder(10);
+  const noticeNo = await createNotice(orderNo, 10);
   const beforeOut = stock();
-  await createSalesOut(outNo, noticeNo, 10);
+  const outNo = await createSalesOut(noticeNo, 10);
   const afterOut = stock();
-	  const redDraft = await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/red-reverse`, {
-	    body: { billDate, ownerName: "仓库操作员" }
-	  });
-	  const redNo = redDraft.billNo;
-	  const afterRedDraft = stock();
-	  await expectApiFailure(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/reverse`, 409);
-	  await requireApi(warehouseCookie, "/api/sales-outs/draft", {
-	    body: {
-	      billNo: redNo,
-	      customerCode,
-	      billDate,
-	      department: "仓储部",
-	      ownerName: "仓库操作员",
-	      remark: "A126 篡改红字草稿",
-	      lines: [line(-20, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
-	    }
-	  });
-	  await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`, 409);
-	  const afterTamperedAuditBlocked = stock();
-	  await requireApi(warehouseCookie, "/api/sales-outs/draft", {
-	    body: {
-	      billNo: redNo,
-	      customerCode,
-	      billDate,
-	      department: "仓储部",
-	      ownerName: "仓库操作员",
-	      remark: "A126 恢复红字草稿",
-	      lines: [line(-10, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
-	    }
-	  });
-	  await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`);
-	  const afterRed = stock();
+  const redDraft = await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/red-reverse`, {
+    body: { billDate, ownerName: "仓库操作员" }
+  });
+  const redNo = generatedBillNo(redDraft, "XSCKD", "A126 red sales out");
+  const afterRedDraft = stock();
+  await expectApiFailure(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/reverse`, 409, {
+    expectedReason: "销售出库单已存在非作废红字单，不能反审核"
+  });
+  await expectApiFailure(warehouseCookie, "/api/sales-outs/draft", 409, {
+    body: {
+      billNo: redNo,
+      customerCode,
+      billDate,
+      department: "仓储部",
+      ownerName: "仓库操作员",
+      remark: "A126 篡改红字草稿",
+      lines: [line(20, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
+    },
+    expectedReason: "销售出库单红字草稿由来源单生成，不能通过普通保存修改"
+  });
+  const afterTamperedSaveBlocked = stock();
+  await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`);
+  const afterRed = stock();
   const original = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}`, { method: "GET" });
   const red = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(redNo)}`, { method: "GET" });
-	  assert(afterOut.onHand === beforeOut.onHand - 10, "错发场景原销售出库扣减库存", { beforeOut, afterOut });
-	  assert(afterRedDraft.onHand === afterOut.onHand, "红字草稿保存不动库存", { afterOut, afterRedDraft });
-	  assert(afterTamperedAuditBlocked.onHand === afterRedDraft.onHand, "篡改红字草稿审核失败不动库存", { afterRedDraft, afterTamperedAuditBlocked });
-	  assert(afterRed.onHand === beforeOut.onHand, "红冲后库存回退到出库前", { beforeOut, afterRed });
-	  assert(original.document?.redReverseBillNo === redNo, "原销售出库能看到红字单", original.document);
-	  assert(red.document?.redSourceBillNo === outNo && red.document?.status === "AUDITED", "红字单能追溯原销售出库且审核后生效", red.document);
+  assert(afterOut.onHand === beforeOut.onHand - 10, "错发场景原销售出库扣减库存", { beforeOut, afterOut });
+  assert(afterRedDraft.onHand === afterOut.onHand, "红字草稿保存不动库存", { afterOut, afterRedDraft });
+  assert(afterTamperedSaveBlocked.onHand === afterRedDraft.onHand, "篡改红字草稿保存失败不动库存", { afterRedDraft, afterTamperedSaveBlocked });
+  assert(afterRed.onHand === beforeOut.onHand, "红冲后库存回退到出库前", { beforeOut, afterRed });
+  assert(original.document?.redReverseBillNo === redNo, "原销售出库能看到红字单", original.document);
+  assert(red.document?.redSourceBillNo === outNo && red.document?.status === "AUDITED", "红字单能追溯原销售出库且审核后生效", red.document);
   const afterRedOrder = orderStats(orderNo);
   assert(afterRedOrder.closeStatus === "OPEN" && afterRedOrder.closeMode === null && afterRedOrder.remainingQty === 10, "红冲导致未出库数量回升后自动关闭订单恢复未关闭", afterRedOrder);
-		  evidence.data.redReverse = { orderNo, noticeNo, outNo, redNo, beforeOut, afterOut, afterRedDraft, afterTamperedAuditBlocked, afterRed, afterRedOrder };
+  evidence.data.redReverse = { orderNo, noticeNo, outNo, redNo, beforeOut, afterOut, afterRedDraft, afterTamperedSaveBlocked, afterRed, afterRedOrder };
   return evidence.data.redReverse;
 }
 
 async function runFreezeFlow() {
-  const orderNo = `XSDDA126F${batch}`;
-  const blockedNotice = `FHTZA126FB${batch}`;
-  const noticeNo = `FHTZA126F${batch}`;
   await seedInventory(100, "freeze");
-  await createOrder(orderNo, 10);
+  const orderNo = await createOrder(10);
   const beforeFreeze = stock();
   await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/freeze`, {
     body: { reason: "客户要求暂停发货" }
@@ -508,40 +476,27 @@ async function runFreezeFlow() {
   const frozenStock = stock();
   assert(afterFreeze.frozenStatus === "FROZEN" && afterFreeze.lineFrozenStatus === "FROZEN", "销售订单冻结状态写入单头和分录", afterFreeze);
   assert(JSON.stringify(beforeFreeze) === JSON.stringify(frozenStock), "冻结不改变库存数量", { beforeFreeze, frozenStock });
-  await requireApi(adminCookie, "/api/delivery-notices/draft", {
-    body: {
-      billNo: blockedNotice,
-      sourceOrderNo: orderNo,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]
-    }
+  const blockedNotice = await saveNoticeDraft(orderNo, [line(1, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })]);
+  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNotice)}/audit`, 409, {
+    expectedReason: "源单或源单行已关闭/冻结，或源单未审核，不能继续下推或执行"
   });
-  await expectApiFailure(adminCookie, `/api/delivery-notices/${encodeURIComponent(blockedNotice)}/audit`, 409);
   await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(orderNo)}/unfreeze`, {
     body: { reason: "客户恢复发货" }
   });
-  await createNotice(noticeNo, orderNo, 1);
+  const noticeNo = await createNotice(orderNo, 1);
   evidence.data.freeze = { orderNo, blockedNotice, noticeNo, afterFreeze };
   return evidence.data.freeze;
 }
 
 async function runVoidFlow() {
-  const draftNo = `XSDDA126V${batch}`;
-  const auditedNo = `XSDDA126VA${batch}`;
-  const downstreamNo = `XSDDA126VD${batch}`;
-  const downstreamNotice = `FHTZA126VD${batch}`;
-  const outDraftNo = `XSCKA126V${batch}`;
-  const outNotice = `FHTZA126VO${batch}`;
-  await createOrder(auditedNo, 5);
+  const auditedNo = await createOrder(5);
   await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(auditedNo)}/void`, 409, {
-    body: { username: "admin", password: "admin123", reason: "已审核不可作废" }
+    body: { username: "admin", password: "admin123", reason: "已审核不可作废" },
+    expectedReason: "只有草稿且无下游影响的单据可以作废"
   });
-  await requireApi(adminCookie, "/api/sales-orders/draft", {
+  const draft = await requireApi(adminCookie, "/api/sales-orders/draft", {
     body: {
-      billNo: draftNo,
+      billNo: null,
       customerCode,
       billDate,
       department: "销售部",
@@ -549,60 +504,59 @@ async function runVoidFlow() {
       lines: [line(3)]
     }
   });
+  const draftNo = generatedBillNo(draft, "XSDD", "A126 voidable sales order");
   await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`, [400, 401, 403, 409], {
-    body: { username: "admin", password: "bad-password", reason: "错误密码" }
+    body: { username: "admin", password: "bad-password", reason: "错误密码" },
+    expectedReason: "当前密码不正确"
   });
   await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`, {
     body: { username: "admin", password: "admin123", reason: "A126 草稿作废" }
   });
   const voided = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(draftNo)}`, { method: "GET" });
   assert(voided.order?.status === "VOID", "草稿销售订单经账号密码原因校验后可作废", voided.order);
-  await createOrder(downstreamNo, 5);
-  await createNotice(downstreamNotice, downstreamNo, 1);
+  const downstreamNo = await createOrder(5);
+  const downstreamNotice = await createNotice(downstreamNo, 1);
   await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`, 409, {
-    body: { username: "admin", password: "admin123", reason: "已有下游不可作废" }
+    body: { username: "admin", password: "admin123", reason: "已有下游不可作废" },
+    expectedReason: "已有下游影响，禁止作废"
   });
-  await createSalesOutDraftForVoid(outDraftNo, outNotice);
-  await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outDraftNo)}/void`, [400, 401, 403, 409], {});
+  const { outDraftNo, noticeNo: outNotice } = await createSalesOutDraftForVoid();
+  await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outDraftNo)}/void`, [400, 401, 403, 409], {
+    body: {},
+    expectedReason: "当前密码不正确"
+  });
   await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outDraftNo)}/void`, {
     body: { username: "warehouse", password: "warehouse123", reason: "A126 销售出库草稿作废" }
   });
   const outVoided = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outDraftNo)}`, { method: "GET" });
   assert(outVoided.document?.status === "VOID", "销售出库旧作废入口同样要求账号密码原因并走统一作废", outVoided.document);
-  evidence.data.void = { draftNo, auditedNo, downstreamNo, downstreamNotice, outDraftNo };
+  evidence.data.void = { draftNo, auditedNo, downstreamNo, downstreamNotice, outDraftNo, outNotice };
   return evidence.data.void;
 }
 
-async function createSalesOutDraftForVoid(outDraftNo, noticeNo) {
-  const orderNo = `XSDDA126VO${batch}`;
+async function createSalesOutDraftForVoid() {
   await seedInventory(50, "void-sales-out");
-  await createOrder(orderNo, 3);
-  await createNotice(noticeNo, orderNo, 3);
-  await requireApi(warehouseCookie, "/api/sales-outs/draft", {
-    body: {
-      billNo: outDraftNo,
-      customerCode,
-      billDate,
-      department: "仓储部",
-      ownerName: "仓库操作员",
-      lines: [line(3, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
-    }
-  });
+  const orderNo = await createOrder(3);
+  const noticeNo = await createNotice(orderNo, 3);
+  const outDraftNo = await saveSalesOutDraft(noticeNo, [line(3, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]);
+  return { orderNo, noticeNo, outDraftNo };
 }
 
 async function runPermissionFlow() {
-  const blockedNo = `XSDDA126W${batch}`;
   await expectApiFailure(warehouseCookie, "/api/sales-orders/draft", 403, {
     body: {
-      billNo: blockedNo,
+      billNo: null,
       customerCode,
       billDate,
       department: "销售部",
       ownerName: "仓库操作员",
       lines: [line(1)]
-    }
+    },
+    expectedReason: "当前角色无权执行该操作：sales.order.audit"
   });
-  await expectApiFailure(warehouseCookie, `/api/sales-orders/${encodeURIComponent(evidence.data.mainFlow.orderNo)}/audit`, 403);
+  await expectApiFailure(warehouseCookie, `/api/sales-orders/${encodeURIComponent(evidence.data.mainFlow.orderNo)}/audit`, 403, {
+    expectedReason: "当前角色无权执行该操作：sales.order.audit"
+  });
   evidence.data.permissions = {
     salesOperator: "admin/系统管理员模拟销售人员",
     warehouseOperator: "warehouse/仓库员",

@@ -20,6 +20,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -35,7 +41,6 @@ async function api(pathname, options = {}) {
 }
 
 async function createAuditedOrder() {
-  const billNo = `XSDD-A97-${batch}`;
   const lines = [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, lineRemark: `A97 first ${batch}`, planDeliveryDate: "2026-07-03" },
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, lineRemark: `A97 second ${batch}`, planDeliveryDate: "2026-07-04" }
@@ -51,9 +56,9 @@ async function createAuditedOrder() {
       }
     });
   }
-  await api("/api/sales-orders/draft", {
+  const savedOrder = await api("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate: "2026-06-26",
       department: "销售部",
@@ -62,11 +67,11 @@ async function createAuditedOrder() {
       lines
     }
   });
+  const billNo = generatedBillNo(savedOrder, "XSDD", "A97 sales order");
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
-  const noticeNo = `FHTZ-A97-${batch}`;
-  await api("/api/delivery-notices/draft", {
+  const savedNotice = await api("/api/delivery-notices/draft", {
     body: {
-      billNo: noticeNo,
+      billNo: null,
       sourceOrderNo: billNo,
       customerCode: "KH-001",
       billDate: "2026-06-26",
@@ -76,6 +81,7 @@ async function createAuditedOrder() {
       lines: lines.map((line, index) => ({ ...line, sourceOrderNo: billNo, sourceLineNo: index + 1 }))
     }
   });
+  const noticeNo = generatedBillNo(savedNotice, "FHTZD", "A97 delivery notice");
   await api(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
   return { orderNo: billNo, noticeNo };
 }
@@ -163,7 +169,13 @@ try {
     clientWidth: node.clientWidth,
     overflowX: getComputedStyle(node).overflowX
   }));
-  assert(sourceTableScroll.scrollWidth > sourceTableScroll.clientWidth, `source selector should have horizontal scroll: ${JSON.stringify(sourceTableScroll)}`);
+  const sourceTableFrameScroll = await page.getByTestId("sales-out-source-selector-table-core").evaluate((node) => ({
+    scrollWidth: node.scrollWidth,
+    clientWidth: node.clientWidth,
+    overflowX: getComputedStyle(node).overflowX
+  }));
+  assert(sourceTableFrameScroll.scrollWidth > sourceTableFrameScroll.clientWidth, `source selector table core should have horizontal scroll: ${JSON.stringify(sourceTableFrameScroll)}`);
+  assert(["auto", "scroll"].includes(sourceTableFrameScroll.overflowX), `source selector table core overflow-x should scroll, got ${sourceTableFrameScroll.overflowX}`);
   await page.getByTestId("sales-out-source-selector-select-all").click();
   await page.getByTestId("sales-out-source-selector-count").waitFor({ state: "visible" });
   const selectedCount = await page.getByTestId("sales-out-source-selector-count").textContent();
@@ -205,6 +217,7 @@ try {
       entryScroll,
       hiddenRows,
       sourceTableScroll,
+      sourceTableFrameScroll,
       selectedCount,
       ghostText
     },

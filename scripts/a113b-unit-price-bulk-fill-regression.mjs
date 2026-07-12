@@ -22,6 +22,12 @@ function assert(condition, message) {
   }
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -42,12 +48,13 @@ async function upsertProduct(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+  const text = await response.text();
   if (response.status === 409) {
+    assert(text.includes("code already exists"), `product conflict should report an existing code: ${text}`);
     const updated = await api(`/api/master-data/product/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
     await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
     return updated;
   }
-  const text = await response.text();
   if (!response.ok) {
     throw new Error(`create product ${payload.code} failed ${response.status}: ${text}`);
   }
@@ -61,12 +68,13 @@ async function upsertCustomer(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
+  const text = await response.text();
   if (response.status === 409) {
+    assert(text.includes("code already exists"), `customer conflict should report an existing code: ${text}`);
     const updated = await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
     await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
     return updated;
   }
-  const text = await response.text();
   if (!response.ok) {
     throw new Error(`create customer ${payload.code} failed ${response.status}: ${text}`);
   }
@@ -74,10 +82,10 @@ async function upsertCustomer(payload) {
   return text ? JSON.parse(text) : {};
 }
 
-async function createAuditedOrder(billNo, customerCode, lines, billDate) {
-  await api("/api/sales-orders/draft", {
+async function createAuditedOrder(label, customerCode, lines, billDate) {
+  const saved = await api("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode,
       billDate,
       department: "销售部",
@@ -85,7 +93,9 @@ async function createAuditedOrder(billNo, customerCode, lines, billDate) {
       lines
     }
   });
+  const billNo = generatedSalesOrderNo(saved, `A113B ${label} sales order`);
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
+  return billNo;
 }
 
 async function expectInputValue(page, testId, expected) {
@@ -149,11 +159,11 @@ await api("/api/inventory/adjustments", {
   }
 });
 
-await createAuditedOrder(`XSDD-A113B-OLD-${batch}`, customerCode, [
+const oldOrderNo = await createAuditedOrder("OLD", customerCode, [
   { productCode: productA, warehouseCode: "CK-001", qty: 1, unitPrice: 120, taxRate: 13 },
   { productCode: productB, warehouseCode: "CK-001", qty: 1, unitPrice: 220, taxRate: 13 }
 ], "2026-06-20");
-await createAuditedOrder(`XSDD-A113B-MAX-${batch}`, customerCode, [
+const maxOrderNo = await createAuditedOrder("MAX", customerCode, [
   { productCode: productA, warehouseCode: "CK-001", qty: 1, unitPrice: 150, taxRate: 13 },
   { productCode: productB, warehouseCode: "CK-001", qty: 1, unitPrice: 260, taxRate: 13 }
 ], "2026-06-21");
@@ -208,6 +218,7 @@ const result = {
   generatedAt: new Date().toISOString(),
   ok: true,
   customerCode,
+  historyOrderNos: [oldOrderNo, maxOrderNo],
   productCodes: [productA, productB],
   sourceAssertions: {
     [productA]: {

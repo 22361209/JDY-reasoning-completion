@@ -74,7 +74,7 @@ function utf16beHex(value) {
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireJson("/api/inventory/adjustments", {
         method: "POST",
         body: {
@@ -137,7 +137,7 @@ async function createProductionPairs() {
       lines: [
         { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
         { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
-        { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 20 }
+        { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
       ]
     }
   }), "产品入库红冲打印来源");

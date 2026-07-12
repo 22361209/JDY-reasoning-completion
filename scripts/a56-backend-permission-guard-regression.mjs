@@ -40,11 +40,18 @@ async function requireJson(pathname, options = {}) {
   return text ? JSON.parse(text) : {};
 }
 
-async function requireForbidden(pathname, options = {}) {
+async function requireForbidden(pathname, expectedReason, options = {}) {
   const response = await request(pathname, options);
   const text = await response.text();
   assert(response.status === 403, `${options.method ?? "GET"} ${pathname} should be forbidden, got ${response.status}: ${text}`);
+  assert(text.includes(expectedReason), `${options.method ?? "GET"} ${pathname} should report ${expectedReason}: ${text}`);
   return { status: response.status, body: text };
+}
+
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
 }
 
 function findRole(matrix, code) {
@@ -64,7 +71,11 @@ async function saveRolePermissions(code, permissionCodes) {
   });
 }
 
-const billNo = `A56-XSDD-${batch}`;
+function samePermissionSet(left, right) {
+  return JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort());
+}
+
+let billNo = "";
 const masterCode = `A56-P-${batch}`;
 const originalMatrix = await requireJson("/api/system/role-permissions");
 const originalPermissions = [...findRole(originalMatrix, roleCode).permissionCodes];
@@ -75,12 +86,29 @@ assert(originalPermissions.includes("system.role_permission.manage"), "regressio
 
 const reducedPermissions = originalPermissions.filter((permissionCode) => !removedPermissions.includes(permissionCode));
 const assertions = [];
+let primaryError;
+
+async function restoreAdminPermissions() {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await saveRolePermissions(roleCode, originalPermissions);
+      const restoredMatrix = await requireJson("/api/system/role-permissions");
+      const restoredPermissions = findRole(restoredMatrix, roleCode).permissionCodes;
+      assert(samePermissionSet(restoredPermissions, originalPermissions), `ADMIN permission restore attempt ${attempt} did not reproduce the complete original set`);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
 
 try {
-  await requireJson("/api/sales-orders/draft", {
+  const savedOrder = await requireJson("/api/sales-orders/draft", {
     method: "POST",
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate: "2026-06-24",
       department: "销售部",
@@ -90,6 +118,7 @@ try {
       ]
     }
   });
+  billNo = generatedSalesOrderNo(savedOrder, "A56 sales order");
 
   await saveRolePermissions(roleCode, reducedPermissions);
   const session = await requireJson("/api/system/session");
@@ -99,14 +128,14 @@ try {
 
   assertions.push({
     name: "sales order audit blocked without sales.order.audit",
-    ...(await requireForbidden(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, { method: "POST" }))
+    ...(await requireForbidden(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, "当前角色无权执行该操作：sales.order.audit", { method: "POST" }))
   });
   const draftAfterBlockedAudit = await requireJson(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   assert(detailStatus(draftAfterBlockedAudit) === "DRAFT", "blocked audit should not change sales order status");
 
   assertions.push({
     name: "print template save blocked without system.print_template.manage",
-    ...(await requireForbidden("/api/documents/sales-order/print-template", {
+    ...(await requireForbidden("/api/documents/sales-order/print-template", "当前角色无权执行该操作：system.print_template.manage", {
       method: "PUT",
       body: {
         templateCode: "STANDARD",
@@ -123,7 +152,7 @@ try {
 
   assertions.push({
     name: "master data create blocked without master.data.manage",
-    ...(await requireForbidden("/api/master-data/product", {
+    ...(await requireForbidden("/api/master-data/product", "当前角色无权执行该操作：master.data.manage", {
       method: "POST",
       body: {
         code: masterCode,
@@ -134,11 +163,23 @@ try {
       }
     }))
   });
+} catch (error) {
+  primaryError = error;
+  throw error;
 } finally {
-  await saveRolePermissions(roleCode, originalPermissions);
+  try {
+    await restoreAdminPermissions();
+  } catch (cleanupError) {
+    if (primaryError) {
+      console.error(`A56 permission restore failed after primary error: ${cleanupError instanceof Error ? cleanupError.stack ?? cleanupError.message : String(cleanupError)}`);
+    } else {
+      throw cleanupError;
+    }
+  }
 }
 
 const restoredSession = await requireJson("/api/system/session");
+assert(samePermissionSet(restoredSession.user.permissionCodes, originalPermissions), "restored ADMIN session should match the complete original permission set");
 for (const permissionCode of removedPermissions) {
   assert(restoredSession.user.permissionCodes.includes(permissionCode), `restored session should include ${permissionCode}`);
 }

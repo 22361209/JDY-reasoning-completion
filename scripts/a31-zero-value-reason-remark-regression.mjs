@@ -38,6 +38,19 @@ function assertDeepEqual(name, actual, expected) {
   }
 }
 
+async function waitForGeneratedSalesOrderNo(page, billNoInput) {
+  try {
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="sales-bill-no"]');
+      return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+    });
+  } catch (error) {
+    const message = await page.getByTestId("form-message").innerText().catch(() => "");
+    throw new Error(`sales order number was not generated after zero-value confirmation; message=${JSON.stringify(message)}`, { cause: error });
+  }
+  return billNoInput.inputValue();
+}
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
@@ -48,11 +61,9 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  const billNoInput = page.getByTestId("sales-bill-no");
+  assertEqual("new sales order bill no", await billNoInput.inputValue(), "");
+  assertEqual("new sales order bill no editable", await billNoInput.isEditable(), false);
   await page.getByTestId("sales-party-code").fill("KH-001");
 
   await page.getByTestId("sales-line-product").fill("CP-001");
@@ -81,7 +92,11 @@ try {
 
   await page.getByTestId("entry-zero-confirm").click();
   const saveMessage = "草稿已保存，已确认 2 行零值分录";
-  await page.getByText(saveMessage).waitFor({ state: "visible" });
+  const billNo = await waitForGeneratedSalesOrderNo(page, billNoInput);
+  await page.getByTestId("form-message").filter({ hasText: saveMessage }).waitFor({ state: "visible" });
+  if (!/^XSDD\d{6}$/.test(billNo)) {
+    throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
+  }
   const firstRemark = await page.getByTestId("sales-line-remark").inputValue();
   const secondRemark = await page.getByTestId("sales-line-remark-2").inputValue();
   assertEqual("first remark", firstRemark, "零值原因：样品（单价为 0）");

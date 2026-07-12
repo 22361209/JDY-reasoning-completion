@@ -20,6 +20,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -35,10 +41,9 @@ async function api(pathname, options = {}) {
 }
 
 async function createAuditedSalesOrder() {
-  const billNo = `XSDD-A106-${batch}`;
-  await api("/api/sales-orders/draft", {
+  const saved = await api("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -50,6 +55,7 @@ async function createAuditedSalesOrder() {
       ]
     }
   });
+  const billNo = generatedSalesOrderNo(saved, "A106 sales order");
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }
@@ -108,8 +114,8 @@ assert(detailRows.rows.every((row) => row.customerCode === "KH-001"), "detail ro
 assert(detailRows.rows.every((row) => row.billDate === billDate), "detail rows should carry header bill date");
 assert(detailRows.rows.every((row) => row.partner === "广州测试客户"), "detail rows should carry customer header");
 assert(detailRows.rows.some((row) => row.customerMaterialCode === `KHWL-A106-${batch}-1` && row.planDeliveryDate === "2026-07-03"), "detail rows should include customer material code and expected delivery date");
-assert(detailRows.rows.some((row) => row.productCode === "CP-001" && row.warehouse === "成品仓"), "detail rows should include line product and warehouse");
-assert(detailRows.rows.some((row) => row.productCode === "PJ-014" && row.warehouse === "原料仓"), "detail rows should include second entry line");
+assert(detailRows.rows.some((row) => row.productCode === "CP-001" && row.warehouse === "冲压区材料仓"), "detail rows should include first line product and current workshop warehouse name");
+assert(detailRows.rows.some((row) => row.productCode === "PJ-014" && row.warehouse === "冲压区片件仓"), "detail rows should include second line product and current workshop warehouse name");
 assert(filteredDetailRows.total === 1, `detail column filter should apply to entry rows, got ${filteredDetailRows.total}`);
 
 const browser = await chromium.launch({ headless: true });
@@ -169,6 +175,13 @@ try {
   const reversedRows = await fetchList("sales-order-form-list", { keyword: billNo, view: "header" });
   assert(reversedRows.rows[0].status === "草稿", `detail reverse should return document to draft, got ${reversedRows.rows[0].status}`);
 
+  const paginationVisibility = await page.locator(".list-pagination").evaluateAll((nodes) => nodes.map((node) => ({
+    visible: Boolean(node.getClientRects().length) && getComputedStyle(node).visibility !== "hidden",
+    text: node.textContent?.replace(/\s+/g, " ").trim() ?? ""
+  })));
+  const paginationVisible = paginationVisibility.some((item) => item.visible);
+  assert(paginationVisible, `detail view pagination should remain visible throughout the workflow, got ${JSON.stringify(paginationVisibility)}`);
+
   const detailScreenshot = `a106-detail-view-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, detailScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${detailScreenshot}`);
@@ -177,9 +190,6 @@ try {
   await page.getByTestId("column-drag-productCode").waitFor({ state: "hidden" });
   const restoredHeaderCount = await page.locator(".vxe-wrap .vxe-body--row").count();
   assert(await page.getByTestId("column-drag-productCode").count() === 0, "header view should restore header columns and hide detail productCode column");
-
-  const paginationVisible = await page.locator(".list-pagination").isVisible();
-  assert(paginationVisible, "pagination should remain visible in detail view workflow");
 
   const result = {
     batch,
@@ -193,6 +203,7 @@ try {
       headerCount,
       restoredHeaderCount,
       paginationVisible,
+      paginationVisibility,
       toolbarParity: true,
       detailReverseEnabled: true,
       reverseMessage

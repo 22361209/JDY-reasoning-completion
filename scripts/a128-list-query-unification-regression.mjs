@@ -31,6 +31,12 @@ function assert(condition, message, details = undefined) {
   evidence.assertions.push({ ok: true, message, details });
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number`, row);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -105,10 +111,12 @@ async function buttonBox(page, testId) {
   });
 }
 
-const julyBillNo = `XSDD-A128-JUL-${batch}`;
-const juneBillNo = `XSDD-A128-JUN-${batch}`;
-await api("/api/sales-orders/draft", { body: salesOrderPayload(julyBillNo, "2026-07-01", `A128KEY ${batch} July`) });
-await api("/api/sales-orders/draft", { body: salesOrderPayload(juneBillNo, "2026-06-15", `A128KEY ${batch} June`) });
+const julyDraft = await api("/api/sales-orders/draft", { body: salesOrderPayload(null, "2026-07-01", `A128KEY ${batch} July`) });
+assert(julyDraft.ok, "A128 July sales order should be created", julyDraft.data);
+const julyBillNo = generatedSalesOrderNo(julyDraft.data, "A128 July sales order");
+const juneDraft = await api("/api/sales-orders/draft", { body: salesOrderPayload(null, "2026-06-15", `A128KEY ${batch} June`) });
+assert(juneDraft.ok, "A128 June sales order should be created", juneDraft.data);
+const juneBillNo = generatedSalesOrderNo(juneDraft.data, "A128 June sales order");
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });

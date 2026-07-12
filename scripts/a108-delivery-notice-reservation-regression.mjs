@@ -15,9 +15,9 @@ const productCode = "CP-001";
 const warehouseCode = "CK-001";
 const qty = 7;
 const unitPrice = 86;
-const orderNo = `XSDDA108${batch}`;
-const noticeNo = `FHTZDA108${batch}`;
-const outNo = `XSCKA108${batch}`;
+let orderNo = "";
+let noticeNo = "";
+let outNo = "";
 
 await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
@@ -25,6 +25,12 @@ await mkdir(path.dirname(resultPath), { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
 }
 
 async function api(pathname, options = {}) {
@@ -78,9 +84,9 @@ async function seed() {
       sourceBillType: `A108_SEED:${batch}`
     }
   });
-  await requireApi("/api/sales-orders/draft", {
+  const savedOrder = await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: orderNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -88,6 +94,7 @@ async function seed() {
       lines: [{ productCode, warehouseCode, qty, unitPrice, taxRate: 13, lineRemark: "A108 订单源行", planDeliveryDate: "2026-07-08" }]
     }
   });
+  orderNo = generatedBillNo(savedOrder, "XSDD", "A108 sales order");
   await requireApi(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
 }
 
@@ -98,7 +105,7 @@ assertStockInvariant("before notice", beforeNotice);
 const directOut = await api("/api/sales-outs/draft", {
   expectFailure: true,
   body: {
-    billNo: `${outNo}D`,
+    billNo: null,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
@@ -107,10 +114,11 @@ const directOut = await api("/api/sales-outs/draft", {
   }
 });
 assert(!directOut.ok && directOut.status === 409, `direct sales order to sales out should be blocked, got ${directOut.status}`);
+assert(JSON.stringify(directOut.data).includes("销售出库来源发货通知单不存在或未审核"), `direct sales-order source should report the formal delivery-notice guard: ${JSON.stringify(directOut.data)}`);
 
-await requireApi("/api/delivery-notices/draft", {
+const savedNotice = await requireApi("/api/delivery-notices/draft", {
   body: {
-    billNo: noticeNo,
+    billNo: null,
     sourceOrderNo: orderNo,
     customerCode: "KH-001",
     billDate,
@@ -119,6 +127,7 @@ await requireApi("/api/delivery-notices/draft", {
     lines: [{ productCode, warehouseCode, sourceOrderNo: orderNo, sourceLineNo: 1, qty, unitPrice, taxRate: 13, lineRemark: "A108 通知锁库", planDeliveryDate: "2026-07-08" }]
   }
 });
+noticeNo = generatedBillNo(savedNotice, "FHTZD", "A108 delivery notice");
 await requireApi(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
 const afterNoticeAudit = stock();
 assert(afterNoticeAudit.onHand === beforeNotice.onHand, "delivery notice audit must not change on hand");
@@ -127,10 +136,11 @@ assertStockInvariant("after notice audit", afterNoticeAudit);
 
 const reverseBlocked = await api(`/api/sales-orders/${encodeURIComponent(orderNo)}/reverse`, { expectFailure: true });
 assert(!reverseBlocked.ok && reverseBlocked.status === 409, `audited notice should block sales order reverse, got ${reverseBlocked.status}`);
+assert(JSON.stringify(reverseBlocked.data).includes("销售订单已有已审核发货通知单，不能反审核"), `sales order reverse should report the audited delivery-notice guard: ${JSON.stringify(reverseBlocked.data)}`);
 
-await requireApi("/api/sales-outs/draft", {
+const savedOut = await requireApi("/api/sales-outs/draft", {
   body: {
-    billNo: outNo,
+    billNo: null,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
@@ -138,6 +148,7 @@ await requireApi("/api/sales-outs/draft", {
     lines: [{ productCode, warehouseCode, sourceOrderNo: noticeNo, sourceLineNo: 1, sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1, qty, unitPrice, taxRate: 13, lineRemark: "A108 通知出库", planDeliveryDate: "2026-07-08" }]
   }
 });
+outNo = generatedBillNo(savedOut, "XSCKD", "A108 sales out");
 await requireApi(`/api/sales-outs/${encodeURIComponent(outNo)}/audit`);
 const afterOutAudit = stock();
 assert(afterOutAudit.onHand === afterNoticeAudit.onHand - qty, "sales out audit should decrease on hand");

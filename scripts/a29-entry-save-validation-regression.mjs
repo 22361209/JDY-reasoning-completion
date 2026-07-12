@@ -57,11 +57,9 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  const billNoInput = page.getByTestId("sales-bill-no");
+  assertEqual("new sales order bill no", await billNoInput.inputValue(), "");
+  assertEqual("new sales order bill no editable", await billNoInput.isEditable(), false);
   await page.getByTestId("sales-party-code").fill("KH-001");
 
   await page.getByTestId("sales-line-product").fill("CP-001");
@@ -76,6 +74,14 @@ try {
 
   await page.getByTestId("save-sales-order").dispatchEvent("click");
   await page.getByText("草稿已保存").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+  });
+  const billNo = await billNoInput.inputValue();
+  if (!/^XSDD\d{6}$/.test(billNo)) {
+    throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
+  }
   const duplicateMessage = "重复商品+仓库允许保存";
   const duplicateScreenshot = `a29-entry-save-validation-duplicate-allowed-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, duplicateScreenshot), fullPage: true });
@@ -89,6 +95,7 @@ try {
   await page.getByTestId("save-sales-order").dispatchEvent("click");
   const saveMessage = "草稿已保存，已移除 1 行空白分录";
   await page.getByText(saveMessage).waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="sales-entry-row"]').length === 2);
   const rowCountAfterSave = await page.getByTestId("sales-entry-row").count();
   assertEqual("row count after blank cleanup", rowCountAfterSave, 2);
   const total = (await page.getByTestId("document-total-amount").innerText()).trim();

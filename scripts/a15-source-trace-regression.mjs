@@ -15,22 +15,22 @@ const billDate = "2026-06-24";
 
 const salesLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 8, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12 }
 ];
 const salesOutLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12 }
 ];
 const purchaseLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 11, unitPrice: 72 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 9, unitPrice: 81 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 9, unitPrice: 81 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 7, unitPrice: 8 }
 ];
 const purchaseInLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 72 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 4, unitPrice: 81 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 4, unitPrice: 81 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 8 }
 ];
 
@@ -56,9 +56,17 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -74,47 +82,39 @@ async function seedStock() {
 
 async function createData() {
   await seedStock();
-  const salesOrderNo = `XSDD-A15-${batch}`;
-  const salesOutNo = `XSCK-A15-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const salesOrderNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
       lines: salesLines
     }
-  });
+  }), "A15销售订单");
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  const deliveryNoticeNo = `FHTZ-A15-${batch}`;
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
-    billNo: salesOutNo,
+  const salesFlow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
     sourceOrderNo: salesOrderNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
     ownerName: "本地管理员",
     lines: salesOutLines
-  }, deliveryNoticeNo);
+  });
+  const { noticeNo: deliveryNoticeNo, salesOutNo } = salesFlow;
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
-  const purchaseOrderNo = `CGDD-A15-${batch}`;
-  const purchaseInNo = `CGRK-A15-${batch}`;
-  await requireApi("/api/purchase-orders/draft", {
+  const purchaseOrderNo = generatedBillNo(await requireApi("/api/purchase-orders/draft", {
     body: {
-      billNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
       ownerName: "本地管理员",
       lines: purchaseLines
     }
-  });
+  }), "A15采购订单");
   await requireApi(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`);
-  await requireApi("/api/purchase-ins/draft", {
+  const purchaseInNo = generatedBillNo(await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: purchaseInNo,
       sourceOrderNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
@@ -122,19 +122,20 @@ async function createData() {
       ownerName: "本地管理员",
       lines: purchaseInLines
     }
-  });
+  }), "A15采购入库");
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
   return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
-async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
+async function openDetailFromList(page, moduleName, entryId, listId, billNo, billNoTestId) {
   await page.getByTestId(`module-${moduleName}`).hover();
   await page.getByTestId(`query-${entryId}`).click();
   await page.getByTestId(`tab-${listId}`).waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(billNo);
   await page.getByTestId("list-keyword").press("Enter");
   await page.getByTestId(`open-document-${billNo}`).click();
+  await waitInputValue(page, billNoTestId, billNo);
 }
 
 async function waitInputValue(page, testId, expected) {
@@ -197,19 +198,19 @@ try {
     localStorage.removeItem("jdy:entry-columns:purchase-in");
   });
   await loginAsAdmin(page);
-  await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo);
+  await openDetailFromList(page, "销售管理", "sales-out-form", "sales-out-form-list", data.salesOutNo, "sales-out-bill-no");
   const salesOutSourceLines = await readSourceLineNos(page, "sales-out", 3);
-  assertArray("sales out line-level source delivery notice", salesOutSourceLines, [`${data.deliveryNoticeNo} / #1`, `${data.deliveryNoticeNo} / #2`, `${data.deliveryNoticeNo} / #3`]);
+  assertArray("sales out line-level source sales order", salesOutSourceLines, [`${data.salesOrderNo} / #1`, `${data.salesOrderNo} / #2`, `${data.salesOrderNo} / #3`]);
   await page.getByTestId("sales-out-line-source-trace").waitFor({ state: "visible" });
   const salesPopupPromise = page.waitForEvent("popup");
   await page.getByTestId("sales-out-line-source-trace").click();
   const salesPopup = await salesPopupPromise;
   await salesPopup.waitForLoadState("domcontentloaded");
   const salesPopupText = await salesPopup.locator("body").innerText();
-  assertIncludes("sales source popup", salesPopupText, data.deliveryNoticeNo);
+  assertIncludes("sales source popup", salesPopupText, data.salesOrderNo);
   await salesPopup.close();
-  const tracedSalesBillNo = data.deliveryNoticeNo;
-  const tracedSalesQtys = [4, 3, 2];
+  const tracedSalesBillNo = data.salesOrderNo;
+  const tracedSalesQtys = [10, 8, 6];
   const salesScreenshot = `a15-sales-out-source-trace-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, salesScreenshot), fullPage: true });
   screenshots.push(`verification/playwright/${salesScreenshot}`);
@@ -220,7 +221,7 @@ try {
     localStorage.removeItem("jdy:entry-columns:purchase-in");
   });
   await loginAsAdmin(page);
-  await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo);
+  await openDetailFromList(page, "采购管理", "purchase-in-form", "purchase-in-form-list", data.purchaseInNo, "purchase-in-bill-no");
   const purchaseInSourceLines = await readSourceLineNos(page, "purchase-in", 3);
   assertArray("purchase in line-level source order", purchaseInSourceLines, [`${data.purchaseOrderNo} / #1`, `${data.purchaseOrderNo} / #2`, `${data.purchaseOrderNo} / #3`]);
   await page.getByTestId("purchase-in-line-source-trace").waitFor({ state: "visible" });

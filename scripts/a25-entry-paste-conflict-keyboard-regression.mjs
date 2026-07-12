@@ -99,13 +99,10 @@ async function openSalesOrderForm(page) {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  const billNoInput = page.getByTestId("sales-bill-no");
+  assertEqual("new sales order bill no", await billNoInput.inputValue(), "");
+  assertEqual("new sales order bill no editable", await billNoInput.isEditable(), false);
   await page.getByTestId("sales-party-code").fill("KH-001");
-  return billNo;
 }
 
 async function candidateCodes(page) {
@@ -166,7 +163,7 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
 try {
-  const billNo = await openSalesOrderForm(page);
+  await openSalesOrderForm(page);
 
   await dispatchPaste(page, "sales-line-product", pasteText);
   await page.getByTestId("entry-paste-conflict-dialog").waitFor({ state: "visible" });
@@ -211,6 +208,14 @@ try {
   assertEqual("total after paste", totalAfterPaste, "126.56");
 
   await saveDocument(page);
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+  });
+  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  if (!/^XSDD\d{6}$/.test(billNo)) {
+    throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
+  }
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),

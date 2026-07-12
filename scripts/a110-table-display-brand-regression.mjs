@@ -22,6 +22,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -37,10 +43,9 @@ async function api(pathname, options = {}) {
 }
 
 async function createAuditedSalesOrder() {
-  const billNo = `XSDD-A110-${batch}`;
-  await api("/api/sales-orders/draft", {
+  const saved = await api("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -52,6 +57,7 @@ async function createAuditedSalesOrder() {
       ]
     }
   });
+  const billNo = generatedSalesOrderNo(saved, "A110 sales order");
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }

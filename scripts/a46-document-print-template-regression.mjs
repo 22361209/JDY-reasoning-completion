@@ -18,11 +18,18 @@ const companyName = "博莱德机械测试账套";
 const templateName = "标准套打模板";
 const footerNote = "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。";
 const expectedTotal = "124.30";
+const documentTypes = ["sales-order", "purchase-order", "sales-out", "purchase-in", "material-issue", "product-in"];
+const managedRoleCodes = new Set(["", "ADMIN"]);
+const templateFields = [
+  "documentType", "templateCode", "templateName", "roleCode", "companyName", "headerNote", "footerNote",
+  "showSignature", "showSeal", "isDefault", "paperSize", "pageOrientation", "marginTopMm", "marginRightMm",
+  "marginBottomMm", "marginLeftMm", "copyCount", "enabled"
+];
 
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10, lineRemark: "A46 套打备注：首行" },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5, lineRemark: "A46 套打备注：第二行" },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 30, lineRemark: "A46 套打备注：第三行" }
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 30, lineRemark: "A46 套打备注：第三行" }
 ];
 
 await mkdir(screenshotDir, { recursive: true });
@@ -65,6 +72,128 @@ async function requireText(pathname) {
   return text;
 }
 
+async function listPrintTemplates() {
+  return requireJson("/api/documents/print-templates");
+}
+
+function templateRequest(template, isDefault = template.isDefault) {
+  return {
+    templateCode: template.templateCode,
+    templateName: template.templateName,
+    roleCode: template.roleCode || "",
+    companyName: template.companyName,
+    headerNote: template.headerNote,
+    footerNote: template.footerNote,
+    showSignature: template.showSignature,
+    showSeal: template.showSeal,
+    isDefault,
+    paperSize: template.paperSize,
+    pageOrientation: template.pageOrientation,
+    marginTopMm: template.marginTopMm,
+    marginRightMm: template.marginRightMm,
+    marginBottomMm: template.marginBottomMm,
+    marginLeftMm: template.marginLeftMm,
+    copyCount: template.copyCount
+  };
+}
+
+async function saveTemplate(template, isDefault = template.isDefault) {
+  return requireJson(`/api/documents/${template.documentType}/print-template`, {
+    method: "PUT",
+    body: templateRequest(template, isDefault)
+  });
+}
+
+async function captureTemplateSnapshot() {
+  const templates = await listPrintTemplates();
+  const snapshot = templates.filter((template) =>
+    documentTypes.includes(template.documentType)
+      && (template.templateCode === "STANDARD" || (template.isDefault && managedRoleCodes.has(template.roleCode || "")))
+  );
+  for (const documentType of documentTypes) {
+    assert(snapshot.some((template) => template.documentType === documentType && template.templateCode === "STANDARD"), `${documentType} STANDARD template should exist before A46`);
+  }
+  return snapshot;
+}
+
+async function demoteManagedDefaults() {
+  const templates = await listPrintTemplates();
+  for (const template of templates.filter((item) =>
+    documentTypes.includes(item.documentType)
+      && item.isDefault
+      && managedRoleCodes.has(item.roleCode || "")
+  )) {
+    await saveTemplate(template, false);
+  }
+}
+
+async function establishDefaultTemplates() {
+  await demoteManagedDefaults();
+  const body = {
+    templateCode: "STANDARD",
+    templateName,
+    roleCode: "",
+    companyName,
+    headerNote: "会计期间 2026-06 / 业务期间 2026-06",
+    footerNote,
+    showSignature: true,
+    showSeal: true,
+    isDefault: true
+  };
+  for (const documentType of documentTypes) {
+    await requireJson(`/api/documents/${documentType}/print-template`, { method: "PUT", body });
+  }
+}
+
+function comparableTemplate(template) {
+  return Object.fromEntries(templateFields.map((field) => [field, template[field]]));
+}
+
+function defaultSignatures(templates) {
+  return templates
+    .filter((template) => documentTypes.includes(template.documentType) && template.isDefault && managedRoleCodes.has(template.roleCode || ""))
+    .map((template) => `${template.documentType}|${template.roleCode || "GENERAL"}|${template.templateCode}`)
+    .sort();
+}
+
+async function restoreTemplateSnapshot(snapshot) {
+  await demoteManagedDefaults();
+  for (const template of snapshot) {
+    await saveTemplate(template, false);
+  }
+  for (const template of snapshot.filter((item) => item.isDefault)) {
+    await saveTemplate(template, true);
+  }
+  const restored = await listPrintTemplates();
+  for (const expected of snapshot) {
+    const actual = restored.find((item) => item.documentType === expected.documentType && item.templateCode === expected.templateCode);
+    assert(actual, `${expected.documentType}/${expected.templateCode} should exist after A46 cleanup`);
+    assert(JSON.stringify(comparableTemplate(actual)) === JSON.stringify(comparableTemplate(expected)), `${expected.documentType}/${expected.templateCode} should be restored exactly`);
+  }
+  assert(JSON.stringify(defaultSignatures(restored)) === JSON.stringify(defaultSignatures(snapshot)), "A46 GENERAL/ADMIN defaults should match the pre-run snapshot");
+}
+
+async function finishCleanup(primaryError, cleanupTasks) {
+  const cleanupErrors = [];
+  for (const task of cleanupTasks) {
+    try {
+      await task();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (cleanupErrors.length === 0) {
+    return;
+  }
+  if (primaryError) {
+    for (const error of cleanupErrors) {
+      console.error(`A46 cleanup failed after primary error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    }
+    return;
+  }
+  throw cleanupErrors[0];
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -96,7 +225,7 @@ function utf16beHex(value) {
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireJson("/api/inventory/adjustments", {
         method: "POST",
         body: {
@@ -192,7 +321,7 @@ async function createProductionDocuments() {
       lines: [
         { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
         { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
-        { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 20 }
+        { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
       ]
     }
   }), "产品入库套打样本");
@@ -293,29 +422,45 @@ async function openAndPrint(page, document) {
   };
 }
 
-await seedStock();
-const documents = [
-  ...(await createCoreDocuments()),
-  ...(await createProductionDocuments())
-];
-
-const checks = [];
-for (const document of documents) {
-  checks.push({
-    name: document.name,
-    template: await assertTemplate(document),
-    html: await assertHtml(document),
-    pdf: await assertPdf(document)
-  });
-}
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+const templateSnapshot = await captureTemplateSnapshot();
+let browser;
+let documents;
+let checks;
 let frontendCheck;
+let primaryError;
 try {
+  await establishDefaultTemplates();
+  await seedStock();
+  documents = [
+    ...(await createCoreDocuments()),
+    ...(await createProductionDocuments())
+  ];
+
+  checks = [];
+  for (const document of documents) {
+    checks.push({
+      name: document.name,
+      template: await assertTemplate(document),
+      html: await assertHtml(document),
+      pdf: await assertPdf(document)
+    });
+  }
+
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   frontendCheck = await openAndPrint(page, documents[0]);
+} catch (error) {
+  primaryError = error;
+  throw error;
 } finally {
-  await browser.close();
+  await finishCleanup(primaryError, [
+    async () => {
+      if (browser) {
+        await browser.close();
+      }
+    },
+    () => restoreTemplateSnapshot(templateSnapshot)
+  ]);
 }
 
 const result = {

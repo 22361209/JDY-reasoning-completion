@@ -11,7 +11,7 @@ const resultPath = path.join(rootDir, "verification/a88-stock-count-gain-regress
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const billNo = `PY-A88-${batch}`;
+let billNo = "";
 const billDate = "2026-06-26";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
@@ -37,16 +37,21 @@ async function api(pathname, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+const session = await api("/api/system/session", { method: "GET" });
+const accountSetId = String(session?.tenant?.id ?? "");
+assert(/^[0-9a-f-]{36}$/i.test(accountSetId), `current session should expose account set id, got ${JSON.stringify(accountSetId)}`);
+assert(session?.tenant?.schemaName === "public", `A88 direct SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
+
 function dbNumber(sql) {
   return Number(execFileSync("docker", ["exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-tA", "-c", sql], { encoding: "utf8" }).trim() || "0");
 }
 
 function stockQty() {
-  return dbNumber(`SELECT COALESCE(b.qty_on_hand, 0) FROM md_product p JOIN md_warehouse w ON w.code = '${warehouseCode}' LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id WHERE p.code = '${productCode}'`);
+  return dbNumber(`SELECT COALESCE(b.qty_on_hand, 0) FROM md_product p JOIN md_warehouse w ON w.code = '${warehouseCode}' LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid WHERE p.code = '${productCode}'`);
 }
 
 function txnCount(txnType) {
-  return dbNumber(`SELECT count(*) FROM inv_stock_txn t JOIN md_product p ON p.id = t.product_id JOIN md_warehouse w ON w.id = t.warehouse_id WHERE p.code = '${productCode}' AND w.code = '${warehouseCode}' AND t.txn_type = '${txnType}' AND t.source_bill_type = '${txnType}:${billNo}'`);
+  return dbNumber(`SELECT count(*) FROM inv_stock_txn t JOIN md_product p ON p.id = t.product_id JOIN md_warehouse w ON w.id = t.warehouse_id WHERE p.code = '${productCode}' AND w.code = '${warehouseCode}' AND t.account_set_id = '${accountSetId}'::uuid AND t.txn_type = '${txnType}' AND t.source_bill_type = '${txnType}:${billNo}'`);
 }
 
 async function createAndAuditInFrontend() {
@@ -59,11 +64,9 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-stock-count-gain-form").click();
     await page.getByTestId("tab-stock-count-gain-form").waitFor({ state: "visible" });
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="stock-count-gain-bill-no"]');
-      return input instanceof HTMLInputElement && input.value.length > 0;
-    });
-    await page.getByTestId("stock-count-gain-bill-no").fill(billNo);
+    const billNoInput = page.getByTestId("stock-count-gain-bill-no");
+    assert(await billNoInput.inputValue() === "", "new stock count gain bill no should be blank");
+    assert(!(await billNoInput.isEditable()), "new stock count gain bill no should be readonly");
     await page.getByTestId("stock-count-gain-bill-date").fill(billDate);
     await page.getByTestId("stock-count-gain-department").fill("仓储部");
     await page.getByTestId("stock-count-gain-line-product").fill(productCode);
@@ -73,6 +76,12 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("stock-count-gain-line-price").fill(String(unitPrice));
     await page.keyboard.press("Escape");
     await saveDocument(page);
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="stock-count-gain-bill-no"]');
+      return input instanceof HTMLInputElement && /^PY\d{6}$/.test(input.value);
+    });
+    billNo = await billNoInput.inputValue();
+    assert(/^PY\d{6}$/.test(billNo), `saved stock count gain bill no should match PY######, got ${JSON.stringify(billNo)}`);
     await auditDocument(page);
     const formShot = `a88-stock-count-gain-form-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, formShot), fullPage: true });

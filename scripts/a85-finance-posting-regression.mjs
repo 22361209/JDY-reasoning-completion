@@ -76,10 +76,36 @@ async function collectListRows(listKey, keywords) {
   return [...rowsByKey.values()];
 }
 
-function generatedBillNo(row, label) {
+function stableFinanceRows(rows) {
+  return [...rows]
+    .map((row) => Object.fromEntries(Object.entries(row).sort(([left], [right]) => left.localeCompare(right))))
+    .sort((left, right) => `${left.billNo ?? ""}|${left.sourceBillNo ?? ""}`.localeCompare(`${right.billNo ?? ""}|${right.sourceBillNo ?? ""}`));
+}
+
+async function completeFinanceState(listKey) {
+  const pageSize = 1000;
+  const rows = [];
+  let total = 0;
+  for (let page = 1; page === 1 || rows.length < total; page += 1) {
+    const search = new URLSearchParams({ keyword: "", status: "", page: String(page), pageSize: String(pageSize) });
+    const data = await api(`/api/lists/${encodeURIComponent(listKey)}?${search.toString()}`, { method: "GET" });
+    if (page === 1) {
+      total = Number(data.total);
+    } else {
+      assert(Number(data.total) === total, `${listKey} total changed while taking a serial full-state snapshot`);
+    }
+    const pageRows = data.rows ?? [];
+    assert(pageRows.length > 0 || rows.length === total, `${listKey} pagination ended before all ${total} rows were read`);
+    rows.push(...pageRows);
+  }
+  assert(rows.length === total, `${listKey} full-state snapshot should include all rows, got ${rows.length}/${total}`);
+  return { total, rows: stableFinanceRows(rows) };
+}
+
+function generatedBillNo(row, prefix, label) {
   const billNo = String(row?.billNo ?? "");
-  if (!billNo) {
-    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  if (!new RegExp(`^${prefix}\\d{6}$`).test(billNo)) {
+    throw new Error(`${label} did not return a system ${prefix} bill number: ${JSON.stringify(row)}`);
   }
   return billNo;
 }
@@ -129,34 +155,62 @@ async function createFinanceData() {
 
   const salesOutNos = [];
   for (const label of ["审核", "反审核", "红冲来源"]) {
-    const orderNo = generatedBillNo(await post("/api/sales-orders/draft", salesOutPayload()), `A85销售订单${label}`);
+    const orderNo = generatedBillNo(await post("/api/sales-orders/draft", salesOutPayload()), "XSDD", `A85销售订单${label}`);
     await post(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
     const flow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => post(pathname, body), {
       ...salesOutPayload(),
       sourceOrderNo: orderNo
     });
+    assert(/^FHTZD\d{6}$/.test(flow.noticeNo), `A85发货通知${label} should use a system bill number, got ${flow.noticeNo}`);
+    assert(/^XSCKD\d{6}$/.test(flow.salesOutNo), `A85销售出库${label} should use a system bill number, got ${flow.salesOutNo}`);
     await post(`/api/sales-outs/${encodeURIComponent(flow.salesOutNo)}/audit`);
     salesOutNos.push(flow.salesOutNo);
   }
   const [salesOutAudited, salesOutReverse, salesOutRedSource] = salesOutNos;
   await post(`/api/sales-outs/${encodeURIComponent(salesOutReverse)}/reverse`);
-  const salesOutRed = generatedBillNo(await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/red-reverse`, {
+  const salesFinanceBeforeRedDraft = await completeFinanceState("receivable-list");
+  const salesOutRedDraft = await post(`/api/sales-outs/${encodeURIComponent(salesOutRedSource)}/red-reverse`, {
     billDate,
     ownerName: "本地管理员"
-  }), "A85销售出库红冲");
+  });
+  const salesOutRed = generatedBillNo(salesOutRedDraft, "XSCKD", "A85销售出库红冲");
+  assert(/^XSCKD\d{6}$/.test(salesOutRed), `sales red bill no should be generated, got ${salesOutRed}`);
+  assert(salesOutRedDraft.status === "DRAFT", `sales red bill should start as DRAFT, got ${salesOutRedDraft.status}`);
+  const salesFinanceAfterRedDraft = await completeFinanceState("receivable-list");
+  assert(
+    JSON.stringify(salesFinanceAfterRedDraft) === JSON.stringify(salesFinanceBeforeRedDraft),
+    "sales red draft must leave the complete receivable set and every existing row unchanged"
+  );
+  const salesRowsBeforeRedAudit = salesFinanceAfterRedDraft.rows;
+  assert(!rowBySource(salesRowsBeforeRedAudit, salesOutRed), "sales red draft must not create receivable before audit");
+  const salesOutRedAudited = await post(`/api/sales-outs/${encodeURIComponent(salesOutRed)}/audit`);
+  assert(salesOutRedAudited.status === "AUDITED", `sales red bill should be AUDITED after audit, got ${salesOutRedAudited.status}`);
 
   const purchaseInNos = [];
   for (const label of ["审核", "反审核", "红冲来源"]) {
-    const billNo = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), `A85采购入库${label}`);
+    const billNo = generatedBillNo(await post("/api/purchase-ins/draft", purchaseInPayload()), "CGRK", `A85采购入库${label}`);
     await post(`/api/purchase-ins/${encodeURIComponent(billNo)}/audit`);
     purchaseInNos.push(billNo);
   }
   const [purchaseInAudited, purchaseInReverse, purchaseInRedSource] = purchaseInNos;
   await post(`/api/purchase-ins/${encodeURIComponent(purchaseInReverse)}/reverse`);
-  const purchaseInRed = generatedBillNo(await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/red-reverse`, {
+  const purchaseFinanceBeforeRedDraft = await completeFinanceState("payable-list");
+  const purchaseInRedDraft = await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRedSource)}/red-reverse`, {
     billDate,
     ownerName: "本地管理员"
-  }), "A85采购入库红冲");
+  });
+  const purchaseInRed = generatedBillNo(purchaseInRedDraft, "CGRK", "A85采购入库红冲");
+  assert(/^CGRK\d{6}$/.test(purchaseInRed), `purchase red bill no should be generated, got ${purchaseInRed}`);
+  assert(purchaseInRedDraft.status === "DRAFT", `purchase red bill should start as DRAFT, got ${purchaseInRedDraft.status}`);
+  const purchaseFinanceAfterRedDraft = await completeFinanceState("payable-list");
+  assert(
+    JSON.stringify(purchaseFinanceAfterRedDraft) === JSON.stringify(purchaseFinanceBeforeRedDraft),
+    "purchase red draft must leave the complete payable set and every existing row unchanged"
+  );
+  const purchaseRowsBeforeRedAudit = purchaseFinanceAfterRedDraft.rows;
+  assert(!rowBySource(purchaseRowsBeforeRedAudit, purchaseInRed), "purchase red draft must not create payable before audit");
+  const purchaseInRedAudited = await post(`/api/purchase-ins/${encodeURIComponent(purchaseInRed)}/audit`);
+  assert(purchaseInRedAudited.status === "AUDITED", `purchase red bill should be AUDITED after audit, got ${purchaseInRedAudited.status}`);
 
   return {
     salesOutAudited,
@@ -167,6 +221,24 @@ async function createFinanceData() {
     purchaseInReverse,
     purchaseInRedSource,
     purchaseInRed,
+    redLifecycle: {
+      salesOut: {
+        billNo: salesOutRed,
+        draftStatus: salesOutRedDraft.status,
+        auditedStatus: salesOutRedAudited.status,
+        financeRowCountBeforeAudit: salesFinanceAfterRedDraft.total,
+        completeFinanceStateUnchangedBeforeAudit: true,
+        matchingFinanceRowsBeforeAudit: salesRowsBeforeRedAudit.filter((row) => row.sourceBillNo === salesOutRed).length
+      },
+      purchaseIn: {
+        billNo: purchaseInRed,
+        draftStatus: purchaseInRedDraft.status,
+        auditedStatus: purchaseInRedAudited.status,
+        financeRowCountBeforeAudit: purchaseFinanceAfterRedDraft.total,
+        completeFinanceStateUnchangedBeforeAudit: true,
+        matchingFinanceRowsBeforeAudit: purchaseRowsBeforeRedAudit.filter((row) => row.sourceBillNo === purchaseInRed).length
+      }
+    },
     expectedReceivableAmount: 235.04,
     expectedPayableAmount: 370.64
   };
@@ -192,6 +264,7 @@ async function assertFinanceRows(data) {
     }
   });
   assert(manualReceipt.response.status === 409, `manual receipt bill no should be rejected, got ${manualReceipt.response.status}`);
+  assert(manualReceipt.text.includes("单据编号只能由系统自动生成，不能手工指定"), `manual receipt bill no rejection should report the formal numbering reason: ${manualReceipt.text}`);
   const receipt = await post(`/api/finance/receivables/${encodeURIComponent(`YS-${data.salesOutAudited}`)}/receipt`, {
     date: billDate,
     amount: 50

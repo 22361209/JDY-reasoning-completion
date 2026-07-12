@@ -12,7 +12,7 @@ const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
-const billNo = `XSDD-A47-${batch}`;
+let billNo = "";
 const customTemplate = {
   templateCode: "STANDARD",
   templateName: `A47销售套打-${batch}`,
@@ -25,16 +25,24 @@ const customTemplate = {
 const defaultTemplate = {
   templateCode: "STANDARD",
   templateName: "标准套打模板",
+  roleCode: "",
   companyName: "博莱德机械测试账套",
   headerNote: "会计期间 2026-06 / 业务期间 2026-06",
   footerNote: "本单据由 JDY 推理补完 ERP 生成，请按公司制度完成签字、盖章与归档。",
   showSignature: true,
-  showSeal: true
+  showSeal: true,
+  isDefault: true
 };
+const managedRoleCodes = new Set(["", "ADMIN"]);
+const templateFields = [
+  "documentType", "templateCode", "templateName", "roleCode", "companyName", "headerNote", "footerNote",
+  "showSignature", "showSeal", "isDefault", "paperSize", "pageOrientation", "marginTopMm", "marginRightMm",
+  "marginBottomMm", "marginLeftMm", "copyCount", "enabled"
+];
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10, lineRemark: "A47 打印模板备注" },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5, lineRemark: "A47 第二行" },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 30, lineRemark: "A47 第三行" }
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 30, lineRemark: "A47 第三行" }
 ];
 
 await mkdir(screenshotDir, { recursive: true });
@@ -71,6 +79,12 @@ function assert(condition, message) {
   }
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 function utf16beHex(value) {
   let hex = "";
   for (const char of value) {
@@ -86,18 +100,116 @@ function utf16beHex(value) {
   return hex.toUpperCase();
 }
 
-async function restoreDefaultTemplate() {
+async function listPrintTemplates() {
+  return requireJson("/api/documents/print-templates");
+}
+
+function templateRequest(template, isDefault = template.isDefault) {
+  return {
+    templateCode: template.templateCode,
+    templateName: template.templateName,
+    roleCode: template.roleCode || "",
+    companyName: template.companyName,
+    headerNote: template.headerNote,
+    footerNote: template.footerNote,
+    showSignature: template.showSignature,
+    showSeal: template.showSeal,
+    isDefault,
+    paperSize: template.paperSize,
+    pageOrientation: template.pageOrientation,
+    marginTopMm: template.marginTopMm,
+    marginRightMm: template.marginRightMm,
+    marginBottomMm: template.marginBottomMm,
+    marginLeftMm: template.marginLeftMm,
+    copyCount: template.copyCount
+  };
+}
+
+async function saveTemplate(template, isDefault = template.isDefault) {
   return requireJson("/api/documents/sales-order/print-template", {
     method: "PUT",
-    body: defaultTemplate
+    body: templateRequest(template, isDefault)
   });
 }
 
+async function captureTemplateSnapshot() {
+  const templates = await listPrintTemplates();
+  const snapshot = templates.filter((template) =>
+    template.documentType === "sales-order"
+      && (template.templateCode === "STANDARD" || (template.isDefault && managedRoleCodes.has(template.roleCode || "")))
+  );
+  assert(snapshot.some((template) => template.templateCode === "STANDARD"), "sales-order STANDARD template should exist before A47");
+  return snapshot;
+}
+
+async function demoteManagedDefaults() {
+  const templates = await listPrintTemplates();
+  for (const template of templates.filter((item) =>
+    item.documentType === "sales-order" && item.isDefault && managedRoleCodes.has(item.roleCode || "")
+  )) {
+    await saveTemplate(template, false);
+  }
+}
+
+async function establishKnownBaseline() {
+  await demoteManagedDefaults();
+  await requireJson("/api/documents/sales-order/print-template", { method: "PUT", body: defaultTemplate });
+}
+
+function comparableTemplate(template) {
+  return Object.fromEntries(templateFields.map((field) => [field, template[field]]));
+}
+
+function defaultSignatures(templates) {
+  return templates
+    .filter((template) => template.documentType === "sales-order" && template.isDefault && managedRoleCodes.has(template.roleCode || ""))
+    .map((template) => `${template.roleCode || "GENERAL"}|${template.templateCode}`)
+    .sort();
+}
+
+async function restoreTemplateSnapshot(snapshot) {
+  await demoteManagedDefaults();
+  for (const template of snapshot) {
+    await saveTemplate(template, false);
+  }
+  for (const template of snapshot.filter((item) => item.isDefault)) {
+    await saveTemplate(template, true);
+  }
+  const restored = await listPrintTemplates();
+  for (const expected of snapshot) {
+    const actual = restored.find((item) => item.documentType === expected.documentType && item.templateCode === expected.templateCode);
+    assert(actual, `${expected.templateCode} should exist after A47 cleanup`);
+    assert(JSON.stringify(comparableTemplate(actual)) === JSON.stringify(comparableTemplate(expected)), `${expected.templateCode} should be restored exactly after A47`);
+  }
+  assert(JSON.stringify(defaultSignatures(restored)) === JSON.stringify(defaultSignatures(snapshot)), "A47 GENERAL/ADMIN defaults should match the pre-run snapshot");
+}
+
+async function finishCleanup(primaryError, cleanupTasks) {
+  const cleanupErrors = [];
+  for (const task of cleanupTasks) {
+    try {
+      await task();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (cleanupErrors.length === 0) {
+    return;
+  }
+  if (primaryError) {
+    for (const error of cleanupErrors) {
+      console.error(`A47 cleanup failed after primary error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    }
+    return;
+  }
+  throw cleanupErrors[0];
+}
+
 async function createSalesOrder() {
-  await requireJson("/api/sales-orders/draft", {
+  const saved = await requireJson("/api/sales-orders/draft", {
     method: "POST",
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -105,21 +217,29 @@ async function createSalesOrder() {
       lines
     }
   });
+  billNo = generatedSalesOrderNo(saved, "A47 sales order");
   await requireJson(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
 }
 
-await restoreDefaultTemplate();
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+const templateSnapshot = await captureTemplateSnapshot();
+let primaryError;
+let browser;
 let screenshot;
+let savedTemplate;
+let html;
+let pdfText;
 try {
+  await establishKnownBaseline();
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-print-template-settings").click();
   await page.getByTestId("tab-print-template-settings").waitFor({ state: "visible" });
   await page.getByTestId("print-template-document-type").selectOption("sales-order");
+  await page.getByTestId("print-template-code").selectOption("STANDARD");
+  await page.getByTestId("print-template-role-code").selectOption("");
   await page.getByTestId("print-template-name").fill(customTemplate.templateName);
   await page.getByTestId("print-template-company").fill(customTemplate.companyName);
   await page.getByTestId("print-template-header-note").fill(customTemplate.headerNote);
@@ -132,36 +252,43 @@ try {
   await page.getByTestId("print-template-message").getByText("打印模板已保存").waitFor({ state: "visible" });
   screenshot = `a47-print-template-settings-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
+
+  savedTemplate = await requireJson("/api/documents/sales-order/print-template");
+  assert(savedTemplate.companyName === customTemplate.companyName, "backend template should save company name");
+  assert(savedTemplate.templateName === customTemplate.templateName, "backend template should save template name");
+  assert(savedTemplate.footerNote === customTemplate.footerNote, "backend template should save footer note");
+  assert(savedTemplate.showSeal === false, "backend template should save seal switch");
+
+  await createSalesOrder();
+  html = await requireText(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.html`);
+  assert(html.includes(customTemplate.companyName), "HTML should include custom company name");
+  assert(html.includes(customTemplate.templateName), "HTML should include custom template name");
+  assert(html.includes(customTemplate.footerNote), "HTML should include custom footer note");
+  assert(!html.includes("公司章"), "HTML should hide seal when switch is off");
+
+  const pdfResponse = await request(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.pdf`);
+  assert(pdfResponse.ok, `PDF endpoint failed ${pdfResponse.status}`);
+  const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
+  pdfText = pdfBytes.toString("latin1");
+  assert(pdfText.includes(utf16beHex(customTemplate.companyName)), "PDF should include custom company name");
+  assert(pdfText.includes(utf16beHex(customTemplate.templateName)), "PDF should include custom template name");
+  assert(pdfText.includes(utf16beHex(customTemplate.footerNote)), "PDF should include custom footer note");
+  assert(!pdfText.includes(utf16beHex("公司章")), "PDF should hide seal when switch is off");
+} catch (error) {
+  primaryError = error;
+  throw error;
 } finally {
-  await browser.close();
+  await finishCleanup(primaryError, [
+    async () => {
+      if (browser) {
+        await browser.close();
+      }
+    },
+    () => restoreTemplateSnapshot(templateSnapshot)
+  ]);
 }
 
-const savedTemplate = await requireJson("/api/documents/sales-order/print-template");
-assert(savedTemplate.companyName === customTemplate.companyName, "backend template should save company name");
-assert(savedTemplate.templateName === customTemplate.templateName, "backend template should save template name");
-assert(savedTemplate.footerNote === customTemplate.footerNote, "backend template should save footer note");
-assert(savedTemplate.showSeal === false, "backend template should save seal switch");
-
-await createSalesOrder();
-const html = await requireText(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.html`);
-assert(html.includes(customTemplate.companyName), "HTML should include custom company name");
-assert(html.includes(customTemplate.templateName), "HTML should include custom template name");
-assert(html.includes(customTemplate.footerNote), "HTML should include custom footer note");
-assert(!html.includes("公司章"), "HTML should hide seal when switch is off");
-
-const pdfResponse = await request(`/api/documents/sales-order/${encodeURIComponent(billNo)}/print.pdf`);
-assert(pdfResponse.ok, `PDF endpoint failed ${pdfResponse.status}`);
-const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
-const pdfText = pdfBytes.toString("latin1");
-assert(pdfText.includes(utf16beHex(customTemplate.companyName)), "PDF should include custom company name");
-assert(pdfText.includes(utf16beHex(customTemplate.templateName)), "PDF should include custom template name");
-assert(pdfText.includes(utf16beHex(customTemplate.footerNote)), "PDF should include custom footer note");
-assert(!pdfText.includes(utf16beHex("公司章")), "PDF should hide seal when switch is off");
-
-const restoredTemplate = await restoreDefaultTemplate();
-assert(restoredTemplate.companyName === defaultTemplate.companyName, "default template should be restored");
-assert(restoredTemplate.showSeal === true, "default seal switch should be restored");
-
+const restoredTemplate = await requireJson("/api/documents/sales-order/print-template");
 const result = {
   batch,
   generatedAt: new Date().toISOString(),
@@ -175,7 +302,7 @@ const result = {
     htmlUsesCustomTemplate: html.includes(customTemplate.companyName) && html.includes(customTemplate.footerNote),
     pdfUsesCustomTemplate: pdfText.includes(utf16beHex(customTemplate.companyName)) && pdfText.includes(utf16beHex(customTemplate.footerNote)),
     sealHiddenInHtmlAndPdf: !html.includes("公司章") && !pdfText.includes(utf16beHex("公司章")),
-    restoredDefault: restoredTemplate.companyName === defaultTemplate.companyName && restoredTemplate.showSeal === true
+    restoredOriginalDefaults: true
   },
   screenshots: [`verification/playwright/${screenshot}`]
 };

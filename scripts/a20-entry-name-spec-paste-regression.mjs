@@ -13,9 +13,9 @@ await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const pasteText = [
   "物料名称\t规格型号\t仓库\t数量\t单价",
-  "控制臂总成\t左前 / 黑色\t成品仓\t2\t86",
-  "验收商品总成\t左前 / 蓝色\tCK-T413874\t3\t94",
-  "衬套\t65mm / 加强\t原材料仓\t4\t12"
+  "控制臂总成\t左前 / 黑色\t冲压区材料仓\t2\t86",
+  "验收商品总成\t左前 / 蓝色\tCK-003\t3\t94",
+  "衬套\t65mm / 加强\t冲压区片件仓\t4\t12"
 ].join("\n");
 
 await mkdir(screenshotDir, { recursive: true });
@@ -116,7 +116,7 @@ function assertDeepEqual(name, actual, expected) {
 
 const expectedLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 4, unitPrice: 12 }
 ];
 
@@ -130,11 +130,9 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  const billNoInput = page.getByTestId("sales-bill-no");
+  assertDeepEqual("new sales order bill no", await billNoInput.inputValue(), "");
+  assertDeepEqual("new sales order bill no editable", await billNoInput.isEditable(), false);
   await page.getByTestId("sales-party-code").fill("KH-001");
 
   await dispatchPaste(page, "sales-line-product", pasteText);
@@ -149,6 +147,14 @@ try {
   }
 
   await saveDocument(page);
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+  });
+  const billNo = await billNoInput.inputValue();
+  if (!/^XSDD\d{6}$/.test(billNo)) {
+    throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
+  }
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),

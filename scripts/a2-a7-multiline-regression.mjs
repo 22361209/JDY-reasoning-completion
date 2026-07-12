@@ -16,18 +16,18 @@ const bomVariantQty = 2 + (Number(batch.slice(-2)) || 1) / 100;
 
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 4, unitPrice: 12 }
 ];
 const purchaseLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 72 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 6, unitPrice: 81 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 6, unitPrice: 81 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 7, unitPrice: 8 }
 ];
 const completeLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 120 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 2, unitPrice: 130 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 140 }
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 130 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 140 }
 ];
 
 const screenshots = [];
@@ -94,7 +94,7 @@ function assert(condition, message) {
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await post("/api/inventory/adjustments", {
         productCode,
         warehouseCode,
@@ -191,6 +191,7 @@ async function createBusinessData() {
 	  await post(`/api/production/material-issues/${encodeURIComponent(issueRed)}/audit`);
 	  const duplicateIssueRed = await apiStatus(`/api/production/material-issues/${encodeURIComponent(issueRedSource)}/red-reverse`, { body: {} });
 	  assert(duplicateIssueRed.status === 409, `生产领料重复红冲应被拒绝，got ${duplicateIssueRed.status}: ${duplicateIssueRed.text}`);
+	  assert(duplicateIssueRed.text.includes("生产领料单已存在非作废红字单，不能重复创建红冲"), `生产领料重复红冲应返回正式业务原因，got ${duplicateIssueRed.text}`);
   const taskRedRows = await get(`/api/lists/production-task-form-list?keyword=${encodeURIComponent(taskIssueRed)}&pageSize=50`);
   const taskRedRow = taskRedRows.rows.find((row) => row.billNo === taskIssueRed);
   assert(taskRedRow?.status === "未领料", `生产领料红冲后任务应回到未领料，got ${JSON.stringify(taskRedRow)}`);

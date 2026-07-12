@@ -17,7 +17,7 @@ const billDate = "2026-06-24";
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10, lineRemark: "A39 PDF备注：首行" },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5, lineRemark: "A39 PDF备注：第二行" },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 30, lineRemark: "A39 PDF备注：第三行" }
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 30, lineRemark: "A39 PDF备注：第三行" }
 ];
 const expectedTotal = "124.30";
 
@@ -38,6 +38,14 @@ async function requireJson(pathname, options = {}) {
     throw new Error(`${options.method ?? "GET"} ${pathname} failed ${response.status}: ${text}`);
   }
   return text ? JSON.parse(text) : {};
+}
+
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
 }
 
 function assert(condition, message) {
@@ -63,7 +71,7 @@ function utf16beHex(value) {
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireJson("/api/inventory/adjustments", {
         method: "POST",
         body: {
@@ -80,59 +88,50 @@ async function seedStock() {
 
 async function createDocuments() {
   await seedStock();
-  const salesOrderNo = `XSDD-A39-${batch}`;
-  const purchaseOrderNo = `CGDD-A39-${batch}`;
-  const salesOutNo = `XSCK-A39-${batch}`;
-  const purchaseInNo = `CGRK-A39-${batch}`;
-
-  await requireJson("/api/sales-orders/draft", {
+  const salesOrderNo = generatedBillNo(await requireJson("/api/sales-orders/draft", {
     method: "POST",
     body: {
-      billNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
       lines
     }
-  });
+  }), "A39销售订单");
   await requireJson(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`, { method: "POST" });
 
-  await requireJson("/api/purchase-orders/draft", {
+  const purchaseOrderNo = generatedBillNo(await requireJson("/api/purchase-orders/draft", {
     method: "POST",
     body: {
-      billNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
       ownerName: "本地管理员",
       lines
     }
-  });
+  }), "A39采购订单");
   await requireJson(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`, { method: "POST" });
 
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireJson(pathname, { method: "POST", body }), {
-    billNo: salesOutNo,
+  const salesOutNo = (await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireJson(pathname, { method: "POST", body }), {
     sourceOrderNo: salesOrderNo,
     customerCode: "KH-001",
     billDate,
     department: "销售部",
     ownerName: "本地管理员",
     lines
-  });
+  })).salesOutNo;
   await requireJson(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`, { method: "POST" });
 
-  await requireJson("/api/purchase-ins/draft", {
+  const purchaseInNo = generatedBillNo(await requireJson("/api/purchase-ins/draft", {
     method: "POST",
     body: {
-      billNo: purchaseInNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
       ownerName: "本地管理员",
       lines
     }
-  });
+  }), "A39采购入库");
   await requireJson(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`, { method: "POST" });
 
   return [

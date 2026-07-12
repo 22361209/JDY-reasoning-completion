@@ -12,8 +12,8 @@ const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-26";
-const salesOrderNo = `XSDDA89${batch}`;
-const reverseOrderNo = `XSDDA89R${batch}`;
+let salesOrderNo = "";
+let reverseOrderNo = "";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
 const qty = 3;
@@ -25,6 +25,12 @@ await mkdir(path.dirname(resultPath), { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
 }
 
 async function api(pathname, options = {}) {
@@ -46,12 +52,17 @@ async function requireApi(pathname, options = {}) {
   return result.body;
 }
 
+const session = await requireApi("/api/system/session", { method: "GET" });
+const accountSetId = String(session?.tenant?.id ?? "");
+assert(/^[0-9a-f-]{36}$/i.test(accountSetId), `current session should expose account set id, got ${JSON.stringify(accountSetId)}`);
+assert(session?.tenant?.schemaName === "public", `A89 direct SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
+
 function dbNumber(sql) {
   return Number(execFileSync("docker", ["exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-tA", "-c", sql], { encoding: "utf8" }).trim() || "0");
 }
 
 function stockQty() {
-  return dbNumber(`SELECT COALESCE(b.qty_on_hand, 0) FROM md_product p JOIN md_warehouse w ON w.code = '${warehouseCode}' LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id WHERE p.code = '${productCode}'`);
+  return dbNumber(`SELECT COALESCE(b.qty_on_hand, 0) FROM md_product p JOIN md_warehouse w ON w.code = '${warehouseCode}' LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid WHERE p.code = '${productCode}'`);
 }
 
 function salesOutCount() {
@@ -68,19 +79,24 @@ async function seed() {
       sourceBillType: `A89_DETAIL_PUSH:${batch}`
     }
   });
-  for (const billNo of [salesOrderNo, reverseOrderNo]) {
-    await requireApi("/api/sales-orders/draft", {
+  const generatedOrders = [];
+  for (const label of ["source", "reverse"]) {
+    const saved = await requireApi("/api/sales-orders/draft", {
       body: {
-        billNo,
+        billNo: null,
         customerCode: "KH-001",
         billDate,
         department: "销售部",
         ownerName: "本地管理员",
+        remark: `A89 ${label} ${batch}`,
         lines: [{ productCode, warehouseCode, qty, unitPrice, lineRemark: "A89详情下推回归" }]
       }
     });
-    await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
+    const actualBillNo = generatedSalesOrderNo(saved, `A89 ${label} sales order`);
+    await requireApi(`/api/sales-orders/${encodeURIComponent(actualBillNo)}/audit`);
+    generatedOrders.push(actualBillNo);
   }
+  [salesOrderNo, reverseOrderNo] = generatedOrders;
 }
 
 async function openSalesOrderDetail(page, billNo) {
@@ -112,9 +128,11 @@ async function runFrontendFlow() {
 
     await page.getByTestId("push-delivery-notice-from-order-detail").click();
     await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
-    generatedDeliveryNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
-    assert(/^FHTZD\d{6}$/.test(generatedDeliveryNoticeNo), `expected generated delivery notice bill no, got ${generatedDeliveryNoticeNo}`);
+    assert(await page.getByTestId("delivery-notice-bill-no").inputValue() === "", "new delivery notice bill no should stay empty before first save");
     await saveDocument(page);
+    await page.waitForFunction(() => /^FHTZD\d{6}$/.test(document.querySelector('[data-testid="delivery-notice-bill-no"]')?.value ?? ""));
+    generatedDeliveryNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
+    assert(/^FHTZD\d{6}$/.test(generatedDeliveryNoticeNo), `expected generated delivery notice bill no after save, got ${generatedDeliveryNoticeNo}`);
     await auditDocument(page);
     const noticeShot = `a89-delivery-notice-from-detail-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, noticeShot), fullPage: true });
@@ -122,9 +140,11 @@ async function runFrontendFlow() {
 
     await page.getByTestId("push-sales-out-from-delivery-notice").click();
     await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
-    generatedSalesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
-    assert(/^XSCKD\d{6}$/.test(generatedSalesOutNo), `expected generated sales out bill no, got ${generatedSalesOutNo}`);
+    assert(await page.getByTestId("sales-out-bill-no").inputValue() === "", "new sales out bill no should stay empty before first save");
     await saveDocument(page);
+    await page.waitForFunction(() => /^XSCKD\d{6}$/.test(document.querySelector('[data-testid="sales-out-bill-no"]')?.value ?? ""));
+    generatedSalesOutNo = await page.getByTestId("sales-out-bill-no").inputValue();
+    assert(/^XSCKD\d{6}$/.test(generatedSalesOutNo), `expected generated sales out bill no after save, got ${generatedSalesOutNo}`);
     await auditDocument(page);
     const outShot = `a89-sales-out-from-detail-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, outShot), fullPage: true });
@@ -169,6 +189,7 @@ assert(sourceDetail.lines.every((line) => Number(line.remainingQty ?? 0) === 0),
 assert(reverseOk.status === "DRAFT", `reverse response should be DRAFT, got ${reverseOk.status}`);
 assert(reverseDetail.order.status === "DRAFT", `reverse order should be DRAFT, got ${reverseDetail.order.status}`);
 assert(reverseBlocked.status === 409, `source order reverse with audited downstream should be blocked with 409, got ${reverseBlocked.status}`);
+assert(JSON.stringify(reverseBlocked.body).includes("销售订单已有已审核发货通知单，不能反审核"), `reverse guard should report audited delivery notice dependency: ${JSON.stringify(reverseBlocked.body)}`);
 
 const result = {
   batch,

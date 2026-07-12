@@ -12,8 +12,10 @@ const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const kingdeeListReference = "/Users/linzhenyue/Projects/JDY-复刻-local/01_金蝶调研/截图/采购管理/采购报表H3/2034_purchase-detail-report-query-result.png";
 const kingdeeEntryReference = "/Users/linzhenyue/Projects/JDY-复刻-local/01_金蝶调研/截图/采购管理/采购H3/1434_采购申请_新增单据首屏态.png";
-const sharedTableRowMinHeight = 30;
-const sharedTableRowMaxHeight = 33;
+const denseTableRowMinHeight = 20;
+const denseTableRowMaxHeight = 22.5;
+const documentEntryRowMinHeight = 30;
+const documentEntryRowMaxHeight = 33;
 
 await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
@@ -21,6 +23,12 @@ await mkdir(path.dirname(resultPath), { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
 }
 
 async function api(pathname, options = {}) {
@@ -38,7 +46,6 @@ async function api(pathname, options = {}) {
 }
 
 async function createAuditedOrder() {
-  const billNo = `XSDD-A99-${batch}`;
   const lines = [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 3, unitPrice: 86, lineRemark: "A99 row 1", planDeliveryDate: "2026-07-03" },
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12, lineRemark: "A99 row 2", planDeliveryDate: "2026-07-04" }
@@ -54,9 +61,9 @@ async function createAuditedOrder() {
       }
     });
   }
-  await api("/api/sales-orders/draft", {
+  const savedOrder = await api("/api/sales-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       customerCode: "KH-001",
       billDate: "2026-06-26",
       department: "销售部",
@@ -65,11 +72,11 @@ async function createAuditedOrder() {
       lines
     }
   });
+  const billNo = generatedBillNo(savedOrder, "XSDD", "A99 sales order");
   await api(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
-  const noticeNo = `FHTZ-A99-${batch}`;
-  await api("/api/delivery-notices/draft", {
+  const savedNotice = await api("/api/delivery-notices/draft", {
     body: {
-      billNo: noticeNo,
+      billNo: null,
       sourceOrderNo: billNo,
       customerCode: "KH-001",
       billDate: "2026-06-26",
@@ -79,6 +86,7 @@ async function createAuditedOrder() {
       lines: lines.map((line, index) => ({ ...line, sourceOrderNo: billNo, sourceLineNo: index + 1 }))
     }
   });
+  const noticeNo = generatedBillNo(savedNotice, "FHTZD", "A99 delivery notice");
   await api(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
   return { orderNo: billNo, noticeNo };
 }
@@ -166,8 +174,8 @@ try {
   const moreVisible = await page.getByTestId("list-more-actions").isVisible();
   assert(listRowHeights.length >= 1, "list should render at least one row");
   assert(
-    Math.max(...listRowHeights) <= sharedTableRowMaxHeight && Math.min(...listRowHeights) >= sharedTableRowMinHeight,
-    `list rows should match document entry density around 32px, got ${listRowHeights.join(",")}`
+    Math.max(...listRowHeights) <= denseTableRowMaxHeight && Math.min(...listRowHeights) >= denseTableRowMinHeight,
+    `list rows should keep 20-22px high-density contract, got ${listRowHeights.join(",")}`
   );
   assert(listHeaderHeight <= 29, `list header should match shared table header density around 28px, got ${listHeaderHeight}`);
   assert(listToolbarHeight <= 34, `list toolbar should be compact, got ${listToolbarHeight}`);
@@ -180,8 +188,8 @@ try {
   await markDocumentRoot(page, "sales-bill-no", source.orderNo, "a99-audited-root");
   const auditedEntryHeights = await waitForHeights(page, '[data-a99-root="a99-audited-root"] [data-testid="sales-entry-row"]');
   assert(
-    Math.max(...auditedEntryHeights) <= sharedTableRowMaxHeight && Math.min(...auditedEntryHeights) >= sharedTableRowMinHeight,
-    `audited entry rows should match list density around 32px, got ${auditedEntryHeights.join(",")}`
+    Math.max(...auditedEntryHeights) <= documentEntryRowMaxHeight && Math.min(...auditedEntryHeights) >= documentEntryRowMinHeight,
+    `audited document entry rows should keep the shared 32px document contract, got ${auditedEntryHeights.join(",")}`
   );
   const formScreenshot = `a99-density-audited-entry-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, formScreenshot), fullPage: true });
@@ -190,15 +198,20 @@ try {
   await page.getByTestId("list-create").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   const draftEntryHeights = await waitForHeights(page, '[data-testid="sales-entry-row"]');
-  assert(Math.max(...draftEntryHeights) <= 33, `draft entry rows may expand only for editing, got ${draftEntryHeights.join(",")}`);
-  assert(Math.max(...draftEntryHeights) >= 26, `draft entry rows should preserve editable input height, got ${draftEntryHeights.join(",")}`);
+  assert(
+    Math.max(...draftEntryHeights) <= documentEntryRowMaxHeight && Math.min(...draftEntryHeights) >= documentEntryRowMinHeight,
+    `draft document entry rows should keep the shared 32px editing contract, got ${draftEntryHeights.join(",")}`
+  );
 
   await page.getByTestId("sales-line-product-open-selector").click();
-  await page.getByTestId("master-selector-dialog").waitFor({ state: "visible" });
-  const masterDialogRows = await waitForHeights(page, ".master-selector-dialog__table tbody tr");
+  await page.getByTestId("master-selector-source-selector-dialog").waitFor({ state: "visible" });
+  const masterDialogRows = await waitForHeights(page, '[data-testid="master-selector-source-selector-dialog"] .vxe-body--row');
   assert(masterDialogRows.length >= 1, "master selector should render rows");
-  assert(Math.max(...masterDialogRows) <= 22.5, `master selector rows should be 20-22px, got ${masterDialogRows.join(",")}`);
-  await page.getByTestId("master-selector-cancel").click();
+  assert(
+    Math.max(...masterDialogRows) <= denseTableRowMaxHeight && Math.min(...masterDialogRows) >= denseTableRowMinHeight,
+    `master selector rows should keep 20-22px high-density contract, got ${masterDialogRows.join(",")}`
+  );
+  await page.getByTestId("master-selector-source-selector-cancel").click();
 
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-out-form").click();
@@ -209,7 +222,10 @@ try {
   await page.getByTestId("sales-out-source-selector-query").click();
   await page.locator(".source-selector-table tbody tr", { hasText: source.noticeNo }).first().waitFor({ state: "visible" });
   const sourceSelectorRows = await waitForHeights(page, ".source-selector-table tbody tr");
-  assert(Math.max(...sourceSelectorRows) <= 22.5, `source selector rows should be 20-22px, got ${sourceSelectorRows.join(",")}`);
+  assert(
+    Math.max(...sourceSelectorRows) <= denseTableRowMaxHeight && Math.min(...sourceSelectorRows) >= denseTableRowMinHeight,
+    `source selector rows should keep 20-22px high-density contract, got ${sourceSelectorRows.join(",")}`
+  );
   const sourceScreenshot = `a99-density-source-selector-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, sourceScreenshot), fullPage: true });
 

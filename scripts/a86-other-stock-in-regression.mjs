@@ -11,7 +11,7 @@ const resultPath = path.join(rootDir, "verification/a86-other-stock-in-regressio
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const billNo = `QTRK-A86-${batch}`;
+let billNo = "";
 const billDate = "2026-06-25";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
@@ -41,6 +41,11 @@ async function api(pathname, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+const session = await api("/api/system/session", { method: "GET" });
+const accountSetId = String(session?.tenant?.id ?? "");
+assert(/^[0-9a-f-]{36}$/i.test(accountSetId), `current session should expose account set id, got ${JSON.stringify(accountSetId)}`);
+assert(session?.tenant?.schemaName === "public", `A86 direct SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
+
 function dbScalar(sql) {
   const output = execFileSync("docker", [
     "exec",
@@ -67,7 +72,7 @@ function stockQty() {
     SELECT COALESCE(b.qty_on_hand, 0)
     FROM md_product p
     JOIN md_warehouse w ON w.code = '${warehouseCode}'
-    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id
+    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid
     WHERE p.code = '${productCode}'
   `);
 }
@@ -80,6 +85,7 @@ function txnCount(txnType) {
     JOIN md_warehouse w ON w.id = t.warehouse_id
     WHERE p.code = '${productCode}'
       AND w.code = '${warehouseCode}'
+      AND t.account_set_id = '${accountSetId}'::uuid
       AND t.txn_type = '${txnType}'
       AND t.source_bill_type = '${txnType}:${billNo}'
   `);
@@ -95,11 +101,9 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-other-in-form").click();
     await page.getByTestId("tab-other-in-form").waitFor({ state: "visible" });
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="other-stock-in-bill-no"]');
-      return input instanceof HTMLInputElement && input.value.length > 0;
-    });
-    await page.getByTestId("other-stock-in-bill-no").fill(billNo);
+    const billNoInput = page.getByTestId("other-stock-in-bill-no");
+    assert(await billNoInput.inputValue() === "", "new other stock in bill no should be blank");
+    assert(!(await billNoInput.isEditable()), "new other stock in bill no should be readonly");
     await page.getByTestId("other-stock-in-bill-date").fill(billDate);
     await page.getByTestId("other-stock-in-department").fill("仓储部");
     await page.getByTestId("other-stock-in-line-product").fill(productCode);
@@ -109,6 +113,12 @@ async function createAndAuditInFrontend() {
     await page.getByTestId("other-stock-in-line-price").fill(String(unitPrice));
     await page.keyboard.press("Escape");
     await saveDocument(page);
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="other-stock-in-bill-no"]');
+      return input instanceof HTMLInputElement && /^QTRK\d{6}$/.test(input.value);
+    });
+    billNo = await billNoInput.inputValue();
+    assert(/^QTRK\d{6}$/.test(billNo), `saved other stock in bill no should match QTRK######, got ${JSON.stringify(billNo)}`);
     await auditDocument(page);
     await page.getByTestId("document-status").filter({ hasText: "已审核" }).waitFor({ state: "visible" });
     await page.locator(".business-head h2").filter({ hasText: "其他入库单" }).click();
@@ -141,7 +151,7 @@ const auditTxnCount = txnCount("OTHER_STOCK_IN");
 
 assert(detailAfterAudit.document.status === "AUDITED", `expected AUDITED, got ${detailAfterAudit.document.status}`);
 assert(afterAuditQty === beforeQty + qty, `stock should increase from ${beforeQty} to ${beforeQty + qty}, got ${afterAuditQty}`);
-assert(auditTxnCount >= 1, "audit should write positive inventory txn");
+assert(auditTxnCount === 1, `audit should write exactly one positive inventory txn, got ${auditTxnCount}`);
 
 await api(`/api/other-stock-ins/${encodeURIComponent(billNo)}/reverse`);
 const detailAfterReverse = await api(`/api/other-stock-ins/${encodeURIComponent(billNo)}`, { method: "GET" });
@@ -150,7 +160,7 @@ const reverseTxnCount = txnCount("OTHER_STOCK_IN_REVERSE");
 
 assert(detailAfterReverse.document.status === "DRAFT", `expected DRAFT, got ${detailAfterReverse.document.status}`);
 assert(afterReverseQty === beforeQty, `stock should return to ${beforeQty}, got ${afterReverseQty}`);
-assert(reverseTxnCount >= 1, "reverse should write negative inventory txn");
+assert(reverseTxnCount === 1, `reverse should write exactly one negative inventory txn, got ${reverseTxnCount}`);
 
 const result = {
   batch,

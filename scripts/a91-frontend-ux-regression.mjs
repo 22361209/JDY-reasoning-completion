@@ -19,6 +19,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function generatedSalesOrderNo(row, label) {
+  const value = String(row?.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(value), `${label} should return a system sales order number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 async function api(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "POST",
@@ -40,14 +46,19 @@ function salesOrderPayload(billNo) {
     billDate,
     department: "销售部",
     ownerName: "本地管理员",
+    remark: `A91 ${batch}`,
     lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 86, lineRemark: `A91-${batch}` }]
   };
 }
 
-const firstBillNo = `XSDD-A91-1-${batch}`;
-const secondBillNo = `XSDD-A91-2-${batch}`;
-await api("/api/sales-orders/draft", { body: salesOrderPayload(firstBillNo) });
-await api("/api/sales-orders/draft", { body: salesOrderPayload(secondBillNo) });
+async function createSalesOrder(label) {
+  const result = await api("/api/sales-orders/draft", { body: salesOrderPayload(null) });
+  assert(result.ok, `${label} create should succeed: ${result.text}`);
+  return generatedSalesOrderNo(result.data, label);
+}
+
+const firstBillNo = await createSalesOrder("A91 first sales order");
+const secondBillNo = await createSalesOrder("A91 second sales order");
 const errorResponse = await api(`/api/sales-orders/${encodeURIComponent(firstBillNo)}/reverse`, { expectFailure: true });
 assert(errorResponse.status === 409, `reverse draft should be 409, got ${errorResponse.status}`);
 assert(errorResponse.data?.reason === "销售订单不存在或不能反审核", `error reason should be backend reason, got ${JSON.stringify(errorResponse.data)}`);
@@ -65,14 +76,12 @@ try {
 
   await page.getByTestId("list-create").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
-  });
   const confirmDialogsAfterCreate = await page.getByTestId("batch-confirm-dialog").count();
-  const newBillNo = await page.getByTestId("sales-bill-no").inputValue();
+  const newBillNoInput = page.getByTestId("sales-bill-no");
+  const newBillNo = await newBillNoInput.inputValue();
   assert(confirmDialogsAfterCreate === 0, "document list create should not open generic batch confirm dialog");
-  assert(/^XSDD\d{6}$/.test(newBillNo), `list create should open new sales order form, got billNo=${newBillNo}`);
+  assert(newBillNo === "", `unsaved sales order should keep bill no empty, got billNo=${newBillNo}`);
+  assert(!(await newBillNoInput.isEditable()), "unsaved sales order bill no should be readonly");
 
   await page.getByTestId("sales-line-product").fill("CP-001");
   await page.getByTestId("sales-line-qty").fill("123456789012345");
@@ -90,11 +99,14 @@ try {
   assert(totalBox && priceTaxTotalBox && Math.abs(totalBox.x - priceTaxTotalBox.x) < 2, "total amount should align under price-tax-total column");
 
   await page.getByTestId("tab-sales-order-form-list").click();
-  await page.getByTestId("list-keyword").fill("XSDD-A91");
+  await page.getByTestId("list-keyword").fill(`A91 ${batch}`);
   await page.getByTestId("list-query").click();
   await page.getByTestId(`open-document-${firstBillNo}`).waitFor({ state: "visible" });
   await page.getByTestId(`open-document-${firstBillNo}`).click();
-  await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
+  await page.waitForFunction((expectedBillNo) => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && input.value === expectedBillNo;
+  }, firstBillNo);
   await page.getByTestId("tab-sales-order-form-list").click();
   const firstDisabled = await page.getByTestId(`open-document-${firstBillNo}`).isDisabled();
   const secondDisabled = await page.getByTestId(`open-document-${secondBillNo}`).isDisabled();

@@ -14,22 +14,22 @@ const billDate = "2026-06-24";
 
 const salesLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86, lineRemark: "A9 销售第一行", planDeliveryDate: "2026-07-01" },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94, lineRemark: "A9 销售第二行", planDeliveryDate: "2026-07-02" },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 8, unitPrice: 94, lineRemark: "A9 销售第二行", planDeliveryDate: "2026-07-02" },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12, lineRemark: "A9 销售第三行", planDeliveryDate: "2026-07-03" }
 ];
 const salesFirstOutLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 3, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 12 }
 ];
 const purchaseLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 11, unitPrice: 72 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 9, unitPrice: 81 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 9, unitPrice: 81 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 7, unitPrice: 8 }
 ];
 const purchaseFirstInLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 72 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 4, unitPrice: 81 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 4, unitPrice: 81 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 8 }
 ];
 
@@ -69,7 +69,7 @@ function generatedBillNo(row, label) {
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -151,6 +151,9 @@ async function createOverPushChecks(data) {
   if (salesOverAudit.ok || salesOverAudit.status !== 409) {
     throw new Error(`sales over-push delivery notice audit should fail with 409, got ${salesOverAudit.status}`);
   }
+  if (!JSON.stringify(salesOverAudit.data).includes("发货通知数量不能超过销售订单剩余可通知数量")) {
+    throw new Error(`sales over-push delivery notice audit should return formal business reason, got ${JSON.stringify(salesOverAudit.data)}`);
+  }
 
   const overPurchaseInNo = generatedBillNo(await requireApi("/api/purchase-ins/draft", {
     body: {
@@ -165,6 +168,9 @@ async function createOverPushChecks(data) {
   const purchaseOverAudit = await api(`/api/purchase-ins/${encodeURIComponent(overPurchaseInNo)}/audit`);
   if (purchaseOverAudit.ok || purchaseOverAudit.status !== 409) {
     throw new Error(`purchase over-push audit should fail with 409, got ${purchaseOverAudit.status}`);
+  }
+  if (!JSON.stringify(purchaseOverAudit.data).includes("采购入库数量不能超过采购订单剩余可入数量")) {
+    throw new Error(`purchase over-push audit should return formal business reason, got ${JSON.stringify(purchaseOverAudit.data)}`);
   }
 
   return [

@@ -39,6 +39,14 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -47,7 +55,7 @@ function assert(condition, message) {
 
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -62,10 +70,8 @@ async function seedStock() {
 }
 
 async function createOrder(suffix, lines) {
-  const billNo = `XSDD-A93-${suffix}-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const billNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
@@ -73,16 +79,14 @@ async function createOrder(suffix, lines) {
       remark: `A93 ${suffix}`,
       lines
     }
-  });
+  }), `A93销售订单${suffix}`);
   await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }
 
 async function createDeliveryNotice(orderNo, suffix, lines) {
-  const billNo = `FHTZ-A93-${suffix}-${batch}`;
-  await requireApi("/api/delivery-notices/draft", {
+  const billNo = generatedBillNo(await requireApi("/api/delivery-notices/draft", {
     body: {
-      billNo,
       sourceOrderNo: orderNo,
       customerCode: "KH-001",
       billDate,
@@ -95,7 +99,7 @@ async function createDeliveryNotice(orderNo, suffix, lines) {
         sourceLineNo: index + 1
       }))
     }
-  });
+  }), `A93发货通知${suffix}`);
   await requireApi(`/api/delivery-notices/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }
@@ -145,8 +149,15 @@ try {
   await openSalesOrderListAndSelect(page, data.listPushOrderNo);
   await page.getByTestId("push-sales-out").click();
   await page.getByTestId("delivery-notice-party-code").waitFor({ state: "visible" });
-  const listPushNoticeNo = await page.getByTestId("delivery-notice-bill-no").inputValue();
+  const noticeNoInput = page.getByTestId("delivery-notice-bill-no");
+  assert(await noticeNoInput.inputValue() === "", "new delivery notice should not have a bill number before save");
   await saveDocument(page);
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="delivery-notice-bill-no"]');
+    return input instanceof HTMLInputElement && /^FHTZD\d{6}$/.test(input.value);
+  });
+  const listPushNoticeNo = await noticeNoInput.inputValue();
+  assert(/^FHTZD\d{6}$/.test(listPushNoticeNo), `saved delivery notice should use system number, got ${listPushNoticeNo}`);
   await auditDocument(page);
   await page.getByTestId("push-sales-out-from-delivery-notice").click();
   await page.getByTestId("sales-out-party-code").waitFor({ state: "visible" });
@@ -179,7 +190,11 @@ try {
   await loginAsAdmin(page);
   await openNewSalesOut(page);
   await page.getByTestId("sales-out-party-code").fill("KH-001");
-  await chooseSalesOutSourceLines(page, { billNo: data.customerPickNoticeNo, lineNos: [1, 2] });
+  await chooseSalesOutSourceLines(page, {
+    billNo: data.customerPickNoticeNo,
+    lineNos: [1, 2],
+    search: data.customerPickNoticeNo
+  });
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "customer selector should not put source order on header");
   const customerPickLines = await readSalesOutLines(page);
   assertSalesOutLines("customer selector", customerPickLines, data.expected);

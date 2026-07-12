@@ -21,6 +21,12 @@ function assert(condition, message) {
   }
 }
 
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
+}
+
 function assertArray(name, actual, expected) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`${name} expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -48,10 +54,9 @@ async function requireApi(pathname, options = {}) {
 }
 
 async function createPurchaseOrder(suffix, lines) {
-  const billNo = `CGDD-A100-${suffix}-${batch}`;
-  await requireApi("/api/purchase-orders/draft", {
+  const saved = await requireApi("/api/purchase-orders/draft", {
     body: {
-      billNo,
+      billNo: null,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
@@ -59,6 +64,7 @@ async function createPurchaseOrder(suffix, lines) {
       lines
     }
   });
+  const billNo = generatedBillNo(saved, "CGDD", `A100 ${suffix} purchase order`);
   await requireApi(`/api/purchase-orders/${encodeURIComponent(billNo)}/audit`);
   return billNo;
 }
@@ -66,14 +72,13 @@ async function createPurchaseOrder(suffix, lines) {
 async function createData() {
   const directLines = [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 11, unitPrice: 72, lineRemark: "A100 采购第一行" },
-    { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 9, unitPrice: 81, lineRemark: "A100 采购第二行" },
+    { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 9, unitPrice: 81, lineRemark: "A100 采购第二行" },
     { productCode: "PJ-014", warehouseCode: "CK-002", qty: 7, unitPrice: 8, lineRemark: "A100 采购第三行" }
   ];
-  const partialInNo = `CGRK-A100-PART-${batch}`;
   const directOrderNo = await createPurchaseOrder("PUSH", directLines);
-  await requireApi("/api/purchase-ins/draft", {
+  const partialInDraft = await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: partialInNo,
+      billNo: null,
       sourceOrderNo: directOrderNo,
       supplierCode: "GYS-001",
       billDate,
@@ -81,11 +86,12 @@ async function createData() {
       ownerName: "本地管理员",
       lines: [
         { productCode: "CP-001", warehouseCode: "CK-001", qty: 5, unitPrice: 72 },
-        { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 4, unitPrice: 81 },
+        { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 4, unitPrice: 81 },
         { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 8 }
       ]
     }
   });
+  const partialInNo = generatedBillNo(partialInDraft, "CGRK", "A100 partial purchase in");
   await requireApi(`/api/purchase-ins/${encodeURIComponent(partialInNo)}/audit`);
 
   const orderA = await createPurchaseOrder("A", [
@@ -97,10 +103,9 @@ async function createData() {
   const draftOccupiedOrderNo = await createPurchaseOrder("DRAFT-OCCUPY", [
     { productCode: "CP-001", warehouseCode: "CK-001", qty: 4, unitPrice: 72, lineRemark: "A100 草稿不占用源单" }
   ]);
-  const draftOccupiedInNo = `CGRK-A100-DRAFT-OCCUPY-${batch}`;
-  await requireApi("/api/purchase-ins/draft", {
+  const draftOccupiedIn = await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: draftOccupiedInNo,
+      billNo: null,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
@@ -110,6 +115,7 @@ async function createData() {
       ]
     }
   });
+  const draftOccupiedInNo = generatedBillNo(draftOccupiedIn, "CGRK", "A100 draft-occupancy purchase in");
   return {
     directOrderNo,
     partialInNo,
@@ -120,7 +126,7 @@ async function createData() {
     expectedDirect: {
       sources: [`${directOrderNo} / #1`, `${directOrderNo} / #2`, `${directOrderNo} / #3`],
       products: ["CP-001", "CP-T413874", "PJ-014"],
-      warehouses: ["CK-001", "CK-T413874", "CK-002"],
+      warehouses: ["CK-001", "CK-003", "CK-002"],
       qtys: [6, 5, 4],
       prices: [72, 81, 8],
       remarks: ["A100 采购第一行", "A100 采购第二行", "A100 采购第三行"]
@@ -192,10 +198,9 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, directShot), fullPage: true });
   screenshots.push(`verification/playwright/${directShot}`);
 
-  const multiInNo = `CGRK-A100-MULTI-${batch}`;
-  await requireApi("/api/purchase-ins/draft", {
+  const multiInDraft = await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: multiInNo,
+      billNo: null,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
@@ -206,6 +211,7 @@ try {
       ]
     }
   });
+  const multiInNo = generatedBillNo(multiInDraft, "CGRK", "A100 multi-source purchase in");
   const draftDetail = await requireApi(`/api/purchase-ins/${encodeURIComponent(multiInNo)}`, { method: "GET" });
   assert(!draftDetail.document.sourceOrderNo, "purchase in header source order should stay empty");
   assertArray("multi-source draft line sources", draftDetail.lines.map((line) => line.sourceOrderNo), [data.orderA, data.orderB]);
@@ -221,10 +227,9 @@ try {
   const occupiedSelectableLine = selectableAfterDraft.lines.find((line) => line.billNo === data.draftOccupiedOrderNo);
   assert(Number(occupiedSelectableLine?.remainingQty) === 4, `draft purchase in should not occupy purchase order source qty: ${JSON.stringify(occupiedSelectableLine)}`);
 
-  const duplicateNo = `CGRK-A100-OVER-${batch}`;
-  await requireApi("/api/purchase-ins/draft", {
+  const duplicateDraft = await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: duplicateNo,
+      billNo: null,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
@@ -234,8 +239,10 @@ try {
       ]
     }
   });
+  const duplicateNo = generatedBillNo(duplicateDraft, "CGRK", "A100 over-push purchase in");
   const duplicateAudit = await api(`/api/purchase-ins/${encodeURIComponent(duplicateNo)}/audit`, { expectFailure: true });
   assert(duplicateAudit.status === 409, `duplicate purchase over-push audit should be blocked with 409, got ${duplicateAudit.status}`);
+  assert(JSON.stringify(duplicateAudit.data).includes("采购入库数量不能超过采购订单剩余可入数量"), `duplicate purchase over-push should report the formal remaining-quantity guard: ${JSON.stringify(duplicateAudit.data)}`);
 
   const result = {
     batch,

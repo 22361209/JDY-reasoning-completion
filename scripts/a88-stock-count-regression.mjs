@@ -11,9 +11,9 @@ const resultPath = path.join(rootDir, "verification/a88-stock-count-regression.j
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const billNo = `PD-A88-${batch}`;
-const gainBillNo = `PY-${billNo}`;
-const lossBillNo = `PK-${billNo}`;
+let billNo = "";
+let gainBillNo = "";
+let lossBillNo = "";
 const billDate = "2026-06-26";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
@@ -40,6 +40,11 @@ async function api(pathname, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+const session = await api("/api/system/session", { method: "GET" });
+const accountSetId = String(session?.tenant?.id ?? "");
+assert(/^[0-9a-f-]{36}$/i.test(accountSetId), `current session should expose account set id, got ${JSON.stringify(accountSetId)}`);
+assert(session?.tenant?.schemaName === "public", `A88 direct SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
+
 function dbScalar(sql) {
   return execFileSync("docker", ["exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-tA", "-c", sql], { encoding: "utf8" }).trim();
 }
@@ -53,7 +58,7 @@ function stockQty() {
     SELECT COALESCE(b.qty_on_hand, 0)
     FROM md_product p
     JOIN md_warehouse w ON w.code = '${warehouseCode}'
-    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id
+    LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid
     WHERE p.code = '${productCode}'
   `);
 }
@@ -61,16 +66,17 @@ function stockQty() {
 async function ensureStockAtLeast(minQty) {
   const before = stockQty();
   if (before >= minQty) return;
-  const seedBillNo = `QTRK-A88-SEED-${batch}`;
-  await api("/api/other-stock-ins/draft", {
+  const seedDraft = await api("/api/other-stock-ins/draft", {
     body: {
-      billNo: seedBillNo,
+      billNo: "",
       billDate,
       department: "仓储部",
       ownerName: "本地管理员",
       lines: [{ productCode, warehouseCode, qty: minQty - before, unitPrice, lineRemark: "A88盘点基线补库" }]
     }
   });
+  const seedBillNo = String(seedDraft.billNo ?? "");
+  assert(/^QTRK\d{6}$/.test(seedBillNo), `seed other stock in bill no should match QTRK######, got ${JSON.stringify(seedBillNo)}`);
   await api(`/api/other-stock-ins/${encodeURIComponent(seedBillNo)}/audit`);
 }
 
@@ -84,11 +90,9 @@ async function createAndAuditInFrontend(countedQty) {
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("entry-stock-count-form").click();
     await page.getByTestId("tab-stock-count-form").waitFor({ state: "visible" });
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="stock-count-bill-no"]');
-      return input instanceof HTMLInputElement && input.value.length > 0;
-    });
-    await page.getByTestId("stock-count-bill-no").fill(billNo);
+    const billNoInput = page.getByTestId("stock-count-bill-no");
+    assert(await billNoInput.inputValue() === "", "new stock count bill no should be blank");
+    assert(!(await billNoInput.isEditable()), "new stock count bill no should be readonly");
     await page.getByTestId("stock-count-bill-date").fill(billDate);
     await page.getByTestId("stock-count-department").fill("仓储部");
     await page.getByTestId("stock-count-line-product").fill(productCode);
@@ -98,7 +102,22 @@ async function createAndAuditInFrontend(countedQty) {
     await page.getByTestId("stock-count-line-price").fill(String(unitPrice));
     await page.keyboard.press("Escape");
     await saveDocument(page);
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="stock-count-bill-no"]');
+      return input instanceof HTMLInputElement && /^PD\d{6}$/.test(input.value);
+    });
+    billNo = await billNoInput.inputValue();
+    assert(/^PD\d{6}$/.test(billNo), `saved stock count bill no should match PD######, got ${JSON.stringify(billNo)}`);
+    const auditResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === "POST"
+      && response.url().endsWith(`/api/stock-counts/${encodeURIComponent(billNo)}/audit`)
+    );
     await auditDocument(page);
+    const auditResult = await (await auditResponsePromise).json();
+    gainBillNo = String(auditResult.gainBillNo ?? "");
+    lossBillNo = String(auditResult.lossBillNo ?? "");
+    assert(gainBillNo === `PY-${billNo}`, `stock count gain bill no should derive from source, got ${JSON.stringify(gainBillNo)}`);
+    assert(lossBillNo === `PK-${billNo}`, `stock count loss bill no should derive from source, got ${JSON.stringify(lossBillNo)}`);
     await page.getByTestId("document-status").filter({ hasText: "已审核" }).waitFor({ state: "visible" });
     const formShot = `a88-stock-count-form-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, formShot), fullPage: true });
@@ -125,7 +144,7 @@ const screenshots = await createAndAuditInFrontend(countedQty);
 const afterAuditQty = stockQty();
 const detail = await api(`/api/stock-counts/${encodeURIComponent(billNo)}`, { method: "GET" });
 const gainDetail = await api(`/api/stock-count-gains/${encodeURIComponent(gainBillNo)}`, { method: "GET" });
-const lossExists = dbNumber(`SELECT count(*) FROM stock_count_loss WHERE bill_no = '${lossBillNo}'`);
+const lossExists = lossBillNo === "" ? 0 : dbNumber(`SELECT count(*) FROM stock_count_loss WHERE bill_no = '${lossBillNo}'`);
 const financeCount = dbNumber(`SELECT (SELECT count(*) FROM ar_receivable WHERE source_bill_no IN ('${billNo}', '${gainBillNo}', '${lossBillNo}')) + (SELECT count(*) FROM ap_payable WHERE source_bill_no IN ('${billNo}', '${gainBillNo}', '${lossBillNo}'))`);
 
 assert(detail.document.status === "AUDITED", `expected stock count AUDITED, got ${detail.document.status}`);

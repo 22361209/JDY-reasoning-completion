@@ -15,12 +15,12 @@ const billDate = "2026-06-24";
 
 const salesLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 10, unitPrice: 86 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 8, unitPrice: 94 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 8, unitPrice: 94 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 6, unitPrice: 12 }
 ];
 const purchaseLines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 11, unitPrice: 72 },
-  { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 9, unitPrice: 81 },
+  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 9, unitPrice: 81 },
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 7, unitPrice: 8 }
 ];
 
@@ -46,9 +46,17 @@ async function requireApi(pathname, options = {}) {
   return result.data;
 }
 
+function generatedBillNo(row, label) {
+  const billNo = String(row?.billNo ?? "");
+  if (!billNo) {
+    throw new Error(`${label} did not return billNo: ${JSON.stringify(row)}`);
+  }
+  return billNo;
+}
+
 async function seedStock() {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
-    for (const warehouseCode of ["CK-001", "CK-002", "CK-T413874"]) {
+    for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireApi("/api/inventory/adjustments", {
         body: {
           productCode,
@@ -64,22 +72,17 @@ async function seedStock() {
 
 async function createData() {
   await seedStock();
-  const salesOrderNo = `XSDD-A22-${batch}`;
-  const salesOutNo = `XSCK-A22-${batch}`;
-  await requireApi("/api/sales-orders/draft", {
+  const salesOrderNo = generatedBillNo(await requireApi("/api/sales-orders/draft", {
     body: {
-      billNo: salesOrderNo,
       customerCode: "KH-001",
       billDate,
       department: "销售部",
       ownerName: "本地管理员",
       lines: salesLines
     }
-  });
+  }), "A22销售订单");
   await requireApi(`/api/sales-orders/${encodeURIComponent(salesOrderNo)}/audit`);
-  const deliveryNoticeNo = `FHTZ-A22-${batch}`;
-  await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
-    billNo: salesOutNo,
+  const salesFlow = await createSalesOutDraftViaDeliveryNotice((pathname, body) => requireApi(pathname, { body }), {
     sourceOrderNo: salesOrderNo,
     customerCode: "KH-001",
     billDate,
@@ -89,25 +92,22 @@ async function createData() {
       { ...salesLines[2], sourceLineNo: 3, qty: 2 },
       { ...salesLines[0], sourceLineNo: 1, qty: 4 }
     ]
-  }, deliveryNoticeNo);
+  });
+  const { noticeNo: deliveryNoticeNo, salesOutNo } = salesFlow;
   await requireApi(`/api/sales-outs/${encodeURIComponent(salesOutNo)}/audit`);
 
-  const purchaseOrderNo = `CGDD-A22-${batch}`;
-  const purchaseInNo = `CGRK-A22-${batch}`;
-  await requireApi("/api/purchase-orders/draft", {
+  const purchaseOrderNo = generatedBillNo(await requireApi("/api/purchase-orders/draft", {
     body: {
-      billNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
       department: "采购部",
       ownerName: "本地管理员",
       lines: purchaseLines
     }
-  });
+  }), "A22采购订单");
   await requireApi(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`);
-  await requireApi("/api/purchase-ins/draft", {
+  const purchaseInNo = generatedBillNo(await requireApi("/api/purchase-ins/draft", {
     body: {
-      billNo: purchaseInNo,
       sourceOrderNo: purchaseOrderNo,
       supplierCode: "GYS-001",
       billDate,
@@ -118,19 +118,20 @@ async function createData() {
         { ...purchaseLines[0], sourceLineNo: 1, qty: 5 }
       ]
     }
-  });
+  }), "A22采购入库");
   await requireApi(`/api/purchase-ins/${encodeURIComponent(purchaseInNo)}/audit`);
 
   return { salesOrderNo, deliveryNoticeNo, salesOutNo, purchaseOrderNo, purchaseInNo };
 }
 
-async function openDetailFromList(page, moduleName, entryId, listId, billNo) {
+async function openDetailFromList(page, moduleName, entryId, listId, billNo, billNoTestId) {
   await page.getByTestId(`module-${moduleName}`).hover();
   await page.getByTestId(`query-${entryId}`).click();
   await page.getByTestId(`tab-${listId}`).waitFor({ state: "visible" });
   await page.getByTestId("list-keyword").fill(billNo);
   await page.getByTestId("list-keyword").press("Enter");
   await page.getByTestId(`open-document-${billNo}`).click();
+  await waitInputValue(page, billNoTestId, billNo);
 }
 
 async function waitInputValue(page, testId, expected) {
@@ -181,7 +182,7 @@ const screenshots = [];
 try {
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
-  await openDetailFromList(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo);
+  await openDetailFromList(page, "销售管理", "sales-order-form", "sales-order-form-list", data.salesOrderNo, "sales-bill-no");
   await page.getByTestId("sales-line-downstream-trace-3").click();
   await page.getByTestId("downstream-trace-dialog").waitFor({ state: "visible" });
   const salesDialogText = await page.getByTestId("downstream-trace-dialog").innerText();
@@ -202,7 +203,7 @@ try {
 
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
-  await openDetailFromList(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo);
+  await openDetailFromList(page, "采购管理", "purchase-order-form", "purchase-order-form-list", data.purchaseOrderNo, "purchase-bill-no");
   await page.getByTestId("purchase-line-downstream-trace-3").click();
   await page.getByTestId("downstream-trace-dialog").waitFor({ state: "visible" });
   const purchaseDialogText = await page.getByTestId("downstream-trace-dialog").innerText();

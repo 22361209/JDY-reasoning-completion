@@ -93,11 +93,9 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  const billNoInput = page.getByTestId("sales-bill-no");
+  assertEqual("new sales order bill no", await billNoInput.inputValue(), "");
+  assertEqual("new sales order bill no editable", await billNoInput.isEditable(), false);
 
   await chooseByKeyboard(page, "sales-party-code", "KH-001", "Enter");
   const focusAfterParty = await activeTestId(page);
@@ -122,6 +120,14 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
 
   await saveDocument(page);
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+  });
+  const billNo = await billNoInput.inputValue();
+  if (!/^XSDD\d{6}$/.test(billNo)) {
+    throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
+  }
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),

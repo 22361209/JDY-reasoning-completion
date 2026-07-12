@@ -61,11 +61,9 @@ try {
   await page.getByTestId("entry-sales-order-form").click();
   await page.getByTestId("sales-line-product").waitFor({ state: "visible" });
   await clickNewDocument(page);
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="sales-bill-no"]');
-    return input instanceof HTMLInputElement && input.value.length > 0;
-  });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  const billNoInput = page.getByTestId("sales-bill-no");
+  assertEqual("new sales order bill no", await billNoInput.inputValue(), "");
+  assertEqual("new sales order bill no editable", await billNoInput.isEditable(), false);
   await page.getByTestId("sales-party-code").fill("KH-001");
 
   await page.getByTestId("sales-line-product").fill("CP-001");
@@ -83,7 +81,7 @@ try {
   assertDeepEqual("new line blank after add button", newLineAfterAddButton, { productCode: "", warehouseCode: "", qty: "0", unitPrice: "0" });
 
   await page.getByTestId("sales-line-product-2").fill("PJ-014");
-  await page.getByTestId("sales-line-warehouse-2").fill("CK-T413874");
+  await page.getByTestId("sales-line-warehouse-2").fill("CK-003");
   await page.getByTestId("sales-line-qty-2").fill("4");
   await page.getByTestId("sales-line-price-2").fill("6");
   await page.keyboard.press("Enter");
@@ -109,7 +107,7 @@ try {
   assertDeepEqual("new line blank after enter", newLineAfterEnter, { productCode: "", warehouseCode: "", qty: "0", unitPrice: "0" });
 
   await page.getByTestId("sales-line-product-3").fill("CP-T413874");
-  await page.getByTestId("sales-line-warehouse-3").fill("CK-T413874");
+  await page.getByTestId("sales-line-warehouse-3").fill("CK-003");
   await page.keyboard.press("Escape");
   await page.getByTestId("sales-line-qty-3").fill("1");
   await page.getByTestId("sales-line-price-3").fill("8");
@@ -128,6 +126,14 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
 
   await saveDocument(page);
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="sales-bill-no"]');
+    return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
+  });
+  const billNo = await billNoInput.inputValue();
+  if (!/^XSDD\d{6}$/.test(billNo)) {
+    throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
+  }
   const detail = await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`);
   const savedLines = detail.lines.map((line) => ({
     productCode: String(line.productCode ?? ""),
@@ -137,8 +143,8 @@ try {
   }));
   assertDeepEqual("saved lines", savedLines, [
     { productCode: "CP-001", warehouseCode: "CK-002", qty: 2, unitPrice: 30 },
-    { productCode: "PJ-014", warehouseCode: "CK-T413874", qty: 4, unitPrice: 6 },
-    { productCode: "CP-T413874", warehouseCode: "CK-T413874", qty: 1, unitPrice: 8 }
+    { productCode: "PJ-014", warehouseCode: "CK-003", qty: 4, unitPrice: 6 },
+    { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 1, unitPrice: 8 }
   ]);
 
   const result = {

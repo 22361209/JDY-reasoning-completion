@@ -11,8 +11,10 @@ const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-26";
-const orderNo = `XSDD-A112-${batch}`;
-const noticeNo = `FHTZD-A112-${batch}`;
+let orderNo = "";
+let noticeNo = "";
+const listKeyword = `A112 table core ${batch}`;
+const seededOrderNos = [];
 
 await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
@@ -20,6 +22,12 @@ await mkdir(path.dirname(resultPath), { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function generatedBillNo(row, prefix, label) {
+  const value = String(row?.billNo ?? "");
+  assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number, got ${JSON.stringify(row)}`);
+  return value;
 }
 
 async function api(pathname, options = {}) {
@@ -37,24 +45,32 @@ async function api(pathname, options = {}) {
 }
 
 async function seed() {
-  await api("/api/sales-orders/draft", {
+  for (let index = 0; index < 11; index += 1) {
+    const lines = index === 0
+      ? [
+          { productCode: "CP-001", warehouseCode: "CK-001", qty: 8, unitPrice: 86, taxRate: 13, lineRemark: "A112 line 1", planDeliveryDate: "2026-07-06" },
+          { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 12, taxRate: 13, lineRemark: "A112 line 2", planDeliveryDate: "2026-07-07" }
+        ]
+      : [{ productCode: "CP-001", warehouseCode: "CK-001", qty: index + 1, unitPrice: 86, taxRate: 13, lineRemark: `A112 flex row ${index + 1}`, planDeliveryDate: "2026-07-06" }];
+    const savedOrder = await api("/api/sales-orders/draft", {
+      body: {
+        billNo: null,
+        customerCode: "KH-001",
+        billDate,
+        department: "销售部",
+        ownerName: "本地管理员",
+        remark: listKeyword,
+        lines
+      }
+    });
+    const generatedNo = generatedBillNo(savedOrder, "XSDD", `A112 sales order ${index + 1}`);
+    await api(`/api/sales-orders/${encodeURIComponent(generatedNo)}/audit`);
+    seededOrderNos.push(generatedNo);
+  }
+  [orderNo] = seededOrderNos;
+  const savedNotice = await api("/api/delivery-notices/draft", {
     body: {
-      billNo: orderNo,
-      customerCode: "KH-001",
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      remark: `A112 table core ${batch}`,
-      lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 8, unitPrice: 86, taxRate: 13, lineRemark: "A112 line 1", planDeliveryDate: "2026-07-06" },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 3, unitPrice: 12, taxRate: 13, lineRemark: "A112 line 2", planDeliveryDate: "2026-07-07" }
-      ]
-    }
-  });
-  await api(`/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
-  await api("/api/delivery-notices/draft", {
-    body: {
-      billNo: noticeNo,
+      billNo: null,
       sourceOrderNo: orderNo,
       customerCode: "KH-001",
       billDate,
@@ -66,6 +82,7 @@ async function seed() {
       ]
     }
   });
+  noticeNo = generatedBillNo(savedNotice, "FHTZD", "A112 delivery notice");
   await api(`/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
 }
 
@@ -227,7 +244,7 @@ async function dragBillNoWidth(page, deltaX) {
 
 await seed();
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+const page = await browser.newPage({ viewport: { width: 1366, height: 710 } });
 const screenshots = [];
 
 try {
@@ -251,19 +268,21 @@ try {
   await page.locator("[data-testid^='open-document-XSBJ']").first().waitFor({ state: "visible" });
   const quoteListText = await page.locator(".data-list-page").innerText();
   assert(quoteListText.includes("XSBJ-"), `sales quote list should render quote rows after sales order tab: ${quoteListText.slice(0, 500)}`);
-  assert(!quoteListText.includes("XSDD-A112"), `sales quote list must not retain sales order rows: ${quoteListText.slice(0, 500)}`);
+  assert(!quoteListText.includes(orderNo), `sales quote list must not retain seeded sales order ${orderNo}: ${quoteListText.slice(0, 500)}`);
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("query-sales-order-form").click();
   await page.getByTestId("column-drag-outStatus").waitFor({ state: "visible" });
   await page.locator("[data-testid^='open-document-XSDD']").first().waitFor({ state: "visible" });
   const orderListText = await page.locator(".data-list-page").innerText();
-  assert(orderListText.includes("XSDD-"), `sales order list should render order rows after quote tab: ${orderListText.slice(0, 500)}`);
+  assert(orderListText.includes(orderNo), `sales order list should render seeded system-numbered order after quote tab: ${orderListText.slice(0, 500)}`);
   await page.getByTestId("list-keyword").fill(orderNo);
   await page.getByTestId("list-query").click();
   await page.getByTestId(`open-document-${orderNo}`).waitFor({ state: "visible" });
-  const salesListApiState = await page.evaluate(async () => {
+  const isolatedHeaderRowCount = await page.locator(".vxe-wrap .vxe-body--row").count();
+  assert(isolatedHeaderRowCount === 1, `exact bill filter should isolate one self-owned header row, got ${isolatedHeaderRowCount}`);
+  const salesListApiState = await page.evaluate(async (expectedBillNo) => {
     const read = async (view) => {
-      const response = await fetch(`/api/lists/sales-order-form-list?page=1&pageSize=20&view=${view}`);
+      const response = await fetch(`/api/lists/sales-order-form-list?keyword=${encodeURIComponent(expectedBillNo)}&page=1&pageSize=20&view=${view}`);
       const data = await response.json();
       return {
         view,
@@ -277,27 +296,43 @@ try {
       header: await read("header"),
       detail: await read("detail")
     };
-  });
+  }, orderNo);
   assert(salesListApiState.header.status === 200, `sales order header list should load: ${JSON.stringify(salesListApiState)}`);
   assert(salesListApiState.detail.status === 200, `sales order detail list should load: ${JSON.stringify(salesListApiState)}`);
-  assert(salesListApiState.header.total > 100, `sales order header total should not shrink: ${JSON.stringify(salesListApiState)}`);
-  assert(salesListApiState.detail.total > salesListApiState.header.total, `sales order detail total should exceed header total: ${JSON.stringify(salesListApiState)}`);
+  assert(salesListApiState.header.total === 1 && salesListApiState.header.rows === 1, `seeded sales order should produce one isolated header row: ${JSON.stringify(salesListApiState)}`);
+  assert(salesListApiState.detail.total === 2 && salesListApiState.detail.rows === 2, `seeded two-line sales order should produce two isolated detail rows: ${JSON.stringify(salesListApiState)}`);
+  assert(salesListApiState.header.first?.billNo === orderNo && salesListApiState.detail.first?.billNo === orderNo, `isolated list queries should return the seeded order: ${JSON.stringify(salesListApiState)}`);
   assert(
     salesListApiState.header.first?.billNo && salesListApiState.header.first?.customer && salesListApiState.header.first?.amount,
     `sales order header rows should keep non-status fields: ${JSON.stringify(salesListApiState)}`
   );
-  await screenshot(page, "a112b-header-core-scrollbar", screenshots);
-  const headerMetrics = await tableMetrics(page);
-  assert(headerMetrics.listScroll.overflowX === "scroll", `header view outer scrollbar should be always on: ${JSON.stringify(headerMetrics.listScroll)}`);
-  assert(headerMetrics.listBodyScroll.overflowX === "hidden", `header view body should not own horizontal scroll: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
-  assert(headerMetrics.listBodyScroll.overflowY === "auto", `header view body should use auto vertical scroll: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
-  assert(headerMetrics.listBodyScroll.clientHeight > 336, `header view body should grow beyond legacy fixed 336px: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
-  assert(headerMetrics.listBodyScroll.backgroundImage.includes("repeating-linear-gradient"), `header view empty space should continue grid lines: ${JSON.stringify(headerMetrics.listBodyScroll)}`);
+  await screenshot(page, "a112b-header-sparse-fill", screenshots);
+  const sparseHeaderMetrics = await tableMetrics(page);
+  const sparseBodyFillsAvailable = sparseHeaderMetrics.listBodyScroll.clientHeight > 336;
+  assert(sparseHeaderMetrics.listScroll.overflowX === "scroll", `header view outer scrollbar should be always on: ${JSON.stringify(sparseHeaderMetrics.listScroll)}`);
+  assert(sparseHeaderMetrics.listBodyScroll.overflowX === "hidden", `header view body should not own horizontal scroll: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`);
+  assert(sparseHeaderMetrics.listBodyScroll.overflowY === "auto", `header view body should use auto vertical scroll: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`);
+  assert(sparseHeaderMetrics.listBodyScroll.backgroundImage.includes("repeating-linear-gradient"), `header view empty space should continue grid lines: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`);
   assert(
-    headerMetrics.listPaginationRect && headerMetrics.listFrameRect && headerMetrics.listPaginationRect.y >= headerMetrics.listFrameRect.bottom - 1,
-    `pagination should stay directly below the flexed table frame: ${JSON.stringify(headerMetrics)}`
+    sparseHeaderMetrics.listPaginationRect && sparseHeaderMetrics.listFrameRect && sparseHeaderMetrics.listPaginationRect.y >= sparseHeaderMetrics.listFrameRect.bottom - 1,
+    `pagination should stay directly below the flexed table frame: ${JSON.stringify(sparseHeaderMetrics)}`
   );
-  assert(headerMetrics.listCoreHeaderCount > 0, `header view should render shared table core header cells: ${JSON.stringify(headerMetrics)}`);
+  assert(sparseHeaderMetrics.listCoreHeaderCount > 0, `header view should render shared table core header cells: ${JSON.stringify(sparseHeaderMetrics)}`);
+
+  await page.getByTestId("list-keyword").fill(listKeyword);
+  await page.getByTestId("list-query").click();
+  await page.waitForFunction(
+    (expectedCount) => document.querySelectorAll(".vxe-wrap .vxe-body--row").length === expectedCount,
+    seededOrderNos.length
+  );
+  const batchHeaderRowCount = await page.locator(".vxe-wrap .vxe-body--row").count();
+  assert(batchHeaderRowCount === seededOrderNos.length, `batch keyword should isolate ${seededOrderNos.length} self-owned header rows, got ${batchHeaderRowCount}`);
+  const denseHeaderMetrics = await tableMetrics(page);
+  assert(
+    denseHeaderMetrics.listBodyScroll.scrollHeight > denseHeaderMetrics.listBodyScroll.clientHeight + 8,
+    `eleven self-owned rows should create real vertical overflow: ${JSON.stringify(denseHeaderMetrics.listBodyScroll)}`
+  );
+  await screenshot(page, "a112b-header-eleven-row-scroll", screenshots);
   const beforeResize = await headerWidths(page);
   await dragBillNoWidth(page, 44);
   const afterResize = await headerWidths(page);
@@ -402,12 +437,16 @@ try {
   const result = {
     batch,
     generatedAt: new Date().toISOString(),
-    ok: true,
+    ok: sparseBodyFillsAvailable,
     orderNo,
     noticeNo,
     checks: {
-      header: headerMetrics,
+      sparseHeader: sparseHeaderMetrics,
+      denseHeader: denseHeaderMetrics,
       salesListApiState,
+      isolatedHeaderRowCount,
+      batchHeaderRowCount,
+      seededOrderCount: seededOrderNos.length,
       headerResize: { beforeResize, afterResize },
       tabState: { openedBillNo, restoredBillNo, restoredProduct },
       newLine,
@@ -420,6 +459,10 @@ try {
   };
   await writeFile(resultPath, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
+  assert(
+    sparseBodyFillsAvailable,
+    `one-row sparse header body should still fill the available area above 336px: ${JSON.stringify(sparseHeaderMetrics.listBodyScroll)}`
+  );
 } finally {
   await browser.close();
 }
