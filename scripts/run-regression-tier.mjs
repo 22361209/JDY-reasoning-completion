@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadRegressionManifest } from "./validate-regression-manifest.mjs";
 
@@ -43,6 +43,9 @@ if (listOnly) {
     scripts
   }, null, 2));
   process.exit(0);
+}
+if (await requiresTestInventoryAdjustmentApi(scripts)) {
+  await requireTestInventoryAdjustmentCapability(tier);
 }
 const safeTier = resultTier.replace(/[^a-zA-Z0-9_-]/g, "-");
 const resultPath = path.join(verificationDir, `regression-tier-${safeTier}-latest.json`);
@@ -139,6 +142,39 @@ function runScript(script) {
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
     child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
+}
+
+async function requiresTestInventoryAdjustmentApi(scripts) {
+  for (const script of scripts) {
+    const source = await readFile(path.join(rootDir, script), "utf8");
+    if (source.includes("/api/inventory/adjustments")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function requireTestInventoryAdjustmentCapability(selectedTier) {
+  const healthUrl = "http://127.0.0.1:8080/api/system/health";
+  let response;
+  try {
+    response = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) });
+  } catch (error) {
+    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API, but backend health is unavailable at ${healthUrl}: ${error}`);
+  }
+  if (!response.ok) {
+    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API, but ${healthUrl} returned ${response.status}`);
+  }
+  let health;
+  try {
+    health = await response.json();
+  } catch (error) {
+    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API, but backend health was not JSON: ${error}`);
+  }
+  if (health?.testInventoryAdjustmentApi !== true) {
+    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API. Restart with ./scripts/dev-down.sh && ./scripts/dev-up.sh before running the tier.`);
+  }
+  console.log(JSON.stringify({ tier: selectedTier, preflight: "controlled-bld-test-inventory-fixture", ok: true }));
 }
 
 function unique(values) {

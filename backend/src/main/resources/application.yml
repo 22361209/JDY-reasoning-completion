@@ -40,3 +40,7 @@ management:
 jdy:
   security:
     dev-open-api: ${JDY_DEV_OPEN_API:true}
+  inventory:
+    test-adjustment-api:
+      enabled: ${JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED:false}
+      allowed-account-set-codes: ${JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS:}

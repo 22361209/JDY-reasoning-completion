@@ -13,6 +13,9 @@ BACKEND_SESSION="jdy-erp-backend"
 FRONTEND_SESSION="jdy-erp-frontend"
 FRONTEND_URL="http://127.0.0.1:5173/"
 BACKEND_HEALTH_URL="http://127.0.0.1:8080/actuator/health"
+BACKEND_SYSTEM_HEALTH_URL="http://127.0.0.1:8080/api/system/health"
+BACKEND_PROFILE="local"
+TEST_ADJUSTMENT_ACCOUNT_SETS="BLD-TEST"
 
 source "$ROOT_DIR/scripts/java-env.sh"
 
@@ -45,6 +48,27 @@ wait_for_url() {
   done
 
   log "$label did not become ready: $url"
+  return 1
+}
+
+test_adjustment_capability_ready() {
+  curl -fsS --max-time 3 "$BACKEND_SYSTEM_HEALTH_URL" 2>/dev/null \
+    | grep -Eq '"testInventoryAdjustmentApi"[[:space:]]*:[[:space:]]*true'
+}
+
+wait_for_test_adjustment_capability() {
+  local attempts="${1:-40}"
+  local delay="${2:-1}"
+
+  for ((i = 1; i <= attempts; i += 1)); do
+    if test_adjustment_capability_ready; then
+      log "controlled BLD-TEST inventory fixture capability is ready"
+      return 0
+    fi
+    sleep "$delay"
+  done
+
+  log "backend is reachable but controlled BLD-TEST inventory fixture capability is unavailable"
   return 1
 }
 
@@ -84,8 +108,12 @@ ensure_docker_deps() {
 
 start_backend() {
   if port_listening 8080; then
+    if ! test_adjustment_capability_ready; then
+      log "backend on 8080 is not verified for controlled BLD-TEST fixtures; run ./scripts/dev-down.sh before retrying"
+      return 1
+    fi
     listening_pid 8080 > "$BACKEND_PID_FILE" || true
-    log "backend already listening on 8080"
+    log "backend already listening on 8080 with controlled BLD-TEST fixtures enabled"
     return
   fi
 
@@ -93,17 +121,18 @@ start_backend() {
 
   log "starting backend; log: $BACKEND_LOG"
   if screen_available; then
-    start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec env JAVA_HOME='$JAVA_HOME' PATH='$PATH' ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
+    start_screen_session "$BACKEND_SESSION" "cd '$BACKEND_DIR' && exec env JAVA_HOME='$JAVA_HOME' PATH='$PATH' SPRING_PROFILES_ACTIVE='$BACKEND_PROFILE' JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED='true' JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS='$TEST_ADJUSTMENT_ACCOUNT_SETS' ./mvnw spring-boot:run > '$BACKEND_LOG' 2>&1"
     printf 'screen:%s\n' "$BACKEND_SESSION" > "$BACKEND_PID_FILE"
   else
     (
       cd "$BACKEND_DIR"
-      nohup env JAVA_HOME="$JAVA_HOME" PATH="$PATH" ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
+      nohup env JAVA_HOME="$JAVA_HOME" PATH="$PATH" SPRING_PROFILES_ACTIVE="$BACKEND_PROFILE" JDY_TEST_INVENTORY_ADJUSTMENT_API_ENABLED=true JDY_TEST_INVENTORY_ADJUSTMENT_ALLOWED_ACCOUNT_SETS="$TEST_ADJUSTMENT_ACCOUNT_SETS" ./mvnw spring-boot:run > "$BACKEND_LOG" 2>&1 &
       printf '%s\n' "$!" > "$BACKEND_PID_FILE"
     )
   fi
 
   wait_for_url "$BACKEND_HEALTH_URL" "backend" 60 1
+  wait_for_test_adjustment_capability 60 1
   sleep 2
   listening_pid 8080 > "$BACKEND_PID_FILE" || true
   if ! port_listening 8080 && ! pid_alive "$BACKEND_PID_FILE" && ! screen_running "$BACKEND_SESSION"; then
