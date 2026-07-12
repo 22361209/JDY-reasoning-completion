@@ -143,6 +143,15 @@ returnShape=header
 
 操作日志预设继续保存模块、动作、操作人、对象类型和日期范围，但状态仍走 `columnFilters.status`。
 
+预设创建者合同：
+
+- PERSONAL scope 由后端按当前 immutable username + role 固定，忽略客户端传入的 `userName/role`；ROLE/GENERAL 的保存与删除继续要求共享预设管理权限。
+- 读取优先级保持 PERSONAL → ROLE → GENERAL，再按 default 与更新时间排序；`shared=true` 不突破 user/role scope，不等于全局可见。
+- 新建预设的 `created_by` 由后端从当前认证 session 取得不可变用户 UUID；请求体不得指定或覆盖创建者。
+- 更新已有预设时必须保留原 `created_by`。历史行为创建的 `created_by IS NULL` 行继续为 NULL，普通更新不得顺便回填。
+- 不根据名称、账套、最近操作人或其他弱证据推断 legacy 行所有者。A135 验证基线为 136 条 legacy 预设、迁移 0 条。
+- `account_set_code` 表示账套归属，`created_by` 表示创建者归属，两者不得互相替代。
+
 ## 落地顺序
 
 1. 更新 `docs/13-列表API契约.md` 和本文。
@@ -195,6 +204,7 @@ node scripts/a128-list-query-unification-regression.mjs
 - 状态筛选只通过 `columnFilters` 完成。
 - 查询、重置、分页、排序、列筛选、导出结果一致。
 - 旧 `query.status` 预设可继续应用，新保存预设不再写顶部 `status`。
+- 新建预设记录当前认证用户的不可变 UUID；更新保持原创建者，legacy NULL 不回填，136 条基线数据零迁移。
 - A128 静态扫描能阻止后续页面私写筛选栏。
 - A124 生命周期扫描通过，证明查询协议没有污染生命周期能力判断。
 - 选源单页面统一接入 `useSourceSelectorLifecycle`，A128 静态扫描禁止新增页面私有源单过滤、选择、汇总协议。
