@@ -9,7 +9,7 @@ const screenshotDir = path.join(verificationDir, "playwright");
 const resultPath = path.join(verificationDir, "a57-session-user-switch-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const billNo = `A57-XSDD-${batch}`;
+let billNo = "";
 
 await mkdir(screenshotDir, { recursive: true });
 
@@ -52,7 +52,6 @@ try {
   const draftResponse = await browserFetch(page, "/api/sales-orders/draft", {
     method: "POST",
     body: {
-      billNo,
       customerCode: "KH-001",
       billDate: "2026-06-24",
       department: "销售部",
@@ -63,6 +62,9 @@ try {
     }
   });
   assert(draftResponse.status >= 200 && draftResponse.status < 300, `admin should create sales order draft, got ${draftResponse.status}`);
+  const draftPayload = JSON.parse(draftResponse.text);
+  billNo = String(draftPayload.billNo ?? "");
+  assert(/^XSDD\d{6}$/.test(billNo), `admin draft should use backend automatic numbering, got ${JSON.stringify(billNo)}`);
 
   await logout(page);
   await loginAs(page, "warehouse", "warehouse123", "仓库员");
