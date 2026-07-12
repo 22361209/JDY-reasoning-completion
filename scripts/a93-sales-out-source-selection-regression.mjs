@@ -165,7 +165,7 @@ try {
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "direct push should not keep source order on header");
   const directPushLines = await readSalesOutLines(page);
   assertSalesOutLines("direct push", directPushLines, data.expected);
-  assertLineSources("direct push", directPushLines, listPushNoticeNo);
+  assertLineSources("direct push", directPushLines, data.listPushOrderNo);
   await page.getByTestId("sales-out-line-qty").fill("5");
   assert(Number(await page.getByTestId("sales-out-line-qty").inputValue()) === 5, "direct push qty should be edited in sales out form");
   const directShot = `a93-sales-direct-push-${batch}.png`;
@@ -181,7 +181,7 @@ try {
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "source input should be removed after A102");
   const sourceInputLines = await readSalesOutLines(page);
   assertSalesOutLines("source order input", sourceInputLines, data.expected);
-  assertLineSources("source order input", sourceInputLines, data.sourceInputNoticeNo);
+  assertLineSources("source order input", sourceInputLines, data.sourceInputOrderNo);
   const sourceShot = `a93-sales-source-order-load-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, sourceShot), fullPage: true });
   screenshots.push(`verification/playwright/${sourceShot}`);
@@ -198,7 +198,7 @@ try {
   assert(await page.getByTestId("sales-out-source-order-no").count() === 0, "customer selector should not put source order on header");
   const customerPickLines = await readSalesOutLines(page);
   assertSalesOutLines("customer selector", customerPickLines, data.expected);
-  assertLineSources("customer selector", customerPickLines, data.customerPickNoticeNo);
+  assertLineSources("customer selector", customerPickLines, data.customerPickOrderNo);
   const selectorShot = `a93-sales-customer-source-selector-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, selectorShot), fullPage: true });
   screenshots.push(`verification/playwright/${selectorShot}`);
