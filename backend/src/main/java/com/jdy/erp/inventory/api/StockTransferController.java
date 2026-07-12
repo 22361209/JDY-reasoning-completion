@@ -33,6 +33,7 @@ public class StockTransferController {
     }
 
     @PostMapping("/draft")
+    @RequirePermission("inventory.stock_transfer.audit")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody StockTransferDraftRequest request) {
         lockService.assertWritable("stockTransfer", request.billNo());

@@ -4,6 +4,9 @@ import java.util.Map;
 
 import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.system.security.RequirePermission;
+import com.jdy.erp.system.security.RequireDocumentPermission;
+import com.jdy.erp.system.security.WriteAccess;
+import com.jdy.erp.system.security.WriteAccess.Mode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,11 +24,13 @@ public class DocumentLockController {
     }
 
     @GetMapping("/{type}/{billNo}")
+    @RequireDocumentPermission
     public Map<String, Object> status(@PathVariable String type, @PathVariable String billNo) {
         return lockService.status(type, billNo);
     }
 
     @PostMapping("/{type}/{billNo}/acquire")
+    @RequireDocumentPermission
     public Map<String, Object> acquire(@PathVariable String type, @PathVariable String billNo) {
         return lockService.acquire(type, billNo);
     }
@@ -37,6 +42,7 @@ public class DocumentLockController {
     }
 
     @DeleteMapping("/{type}/{billNo}")
+    @WriteAccess(Mode.AUTHENTICATED)
     public Map<String, Object> release(@PathVariable String type, @PathVariable String billNo) {
         return lockService.release(type, billNo);
     }

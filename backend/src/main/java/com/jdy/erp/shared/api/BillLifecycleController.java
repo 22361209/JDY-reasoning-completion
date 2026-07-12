@@ -5,6 +5,7 @@ import java.util.Map;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
+import com.jdy.erp.system.security.RequireDocumentPermission;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/document-lifecycle")
+@RequireDocumentPermission
 public class BillLifecycleController {
     private static final Map<String, BillLifecycleTarget> TARGETS = Map.ofEntries(
         Map.entry("salesQuote", new BillLifecycleTarget("sales_quote", "sales_quote_line", "quote_id", "SALES", "sales_quote")),

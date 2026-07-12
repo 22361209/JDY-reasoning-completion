@@ -34,6 +34,7 @@ public class DeliveryNoticeController {
     }
 
     @PostMapping("/draft")
+    @RequirePermission("sales.out.audit")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody DeliveryNoticeDraftRequest request) {
         lockService.assertWritable("deliveryNotice", request.billNo());

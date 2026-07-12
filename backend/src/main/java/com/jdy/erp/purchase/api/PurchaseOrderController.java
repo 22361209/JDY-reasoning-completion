@@ -43,6 +43,7 @@ public class PurchaseOrderController {
     }
 
     @PostMapping("/draft")
+    @RequirePermission("purchase.order.audit")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody PurchaseOrderDraftRequest request) {
         lockService.assertWritable("purchaseOrder", request.billNo());

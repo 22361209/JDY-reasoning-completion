@@ -33,6 +33,7 @@ public class OtherStockInController {
     }
 
     @PostMapping("/draft")
+    @RequirePermission("inventory.other_stock_in.audit")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody OtherStockInDraftRequest request) {
         lockService.assertWritable("otherStockIn", request.billNo());

@@ -40,6 +40,7 @@ public class PurchaseReturnController {
     }
 
     @PostMapping("/draft")
+    @RequirePermission("purchase.return.audit")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody PurchaseReturnDraftRequest request) {
         lockService.assertWritable("purchaseReturn", request.billNo());
