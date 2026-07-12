@@ -25,4 +25,14 @@ public class ValidationService {
         }
         return value;
     }
+
+    public BigDecimal nonNegative(BigDecimal value, String label) {
+        if (value == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能为空");
+        }
+        if (value.compareTo(BigDecimal.ZERO) < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能小于 0");
+        }
+        return value;
+    }
 }

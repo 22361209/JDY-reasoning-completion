@@ -417,6 +417,7 @@ public class SalesOutAppService {
 	        }
 	        refreshSalesSourceStatuses(lines);
 	        postingPipeline.post(financeContext(row, "SALES_OUT_RED"));
+	        operationLogService.log("SALES", "RED_REVERSE", "sales_out", String.valueOf(row.get("id")), true, null);
 	        return row;
 	    }
 

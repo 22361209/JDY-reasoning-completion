@@ -408,6 +408,7 @@ public class PurchaseInAppService {
 	        }
 	        refreshPurchaseSourceStatuses(lines);
 	        postingPipeline.post(financeContext(row, "PURCHASE_IN_RED"));
+	        operationLogService.log("PURCHASE", "RED_REVERSE", "purchase_in", String.valueOf(row.get("id")), true, null);
 	        return row;
 	    }
 

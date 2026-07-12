@@ -92,6 +92,32 @@ class CoreBusinessFastIntegrationTest {
     }
 
     @Test
+    void salesOrderDraftAllowsZeroWithoutReasonButAuditRequiresPositiveQuantity() {
+        var saved = salesOrderAppService.saveDraft(salesOrderDraftRequest(BigDecimal.ZERO, null));
+        var billNo = String.valueOf(saved.get("billNo"));
+        var savedLine = firstLine(salesOrderAppService.detail(billNo));
+
+        assertThat((BigDecimal) saved.get("totalAmount")).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat((BigDecimal) savedLine.get("qty")).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(savedLine.get("lineRemark")).isEqualTo("");
+        assertThatThrownBy(() -> salesOrderAppService.audit(billNo))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("销售订单数量必须大于 0");
+        assertThat(statusOf("sales_order", billNo)).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void salesOrderDraftRejectsNegativeQuantity() {
+        var countBefore = jdbcTemplate.queryForObject("SELECT COUNT(*)::int FROM sales_order", Integer.class);
+
+        assertThatThrownBy(() -> salesOrderAppService.saveDraft(salesOrderDraftRequest(new BigDecimal("-1"), null)))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("销售订单数量不能小于 0");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*)::int FROM sales_order", Integer.class))
+            .isEqualTo(countBefore);
+    }
+
+    @Test
     void billLifecycleClosesFreezesAndBlocksExecutableSourceLines() {
         var closedBillNo = billNo("XSDD-A111-CLOSE");
         var frozenBillNo = billNo("XSDD-A111-FREEZE");
@@ -372,6 +398,31 @@ class CoreBusinessFastIntegrationTest {
 
     private void insertSalesOrder(String billNo, String status) {
         insertSalesOrder(billNo, status, "CP-001", "CK-001");
+    }
+
+    private SalesOrderAppService.SalesOrderDraftRequest salesOrderDraftRequest(BigDecimal qty, String lineRemark) {
+        return new SalesOrderAppService.SalesOrderDraftRequest(
+            null,
+            "KH-001",
+            "2026-07-12",
+            "销售部",
+            "本地管理员",
+            null,
+            List.of(new SalesOrderAppService.SalesOrderLineRequest(
+                null,
+                "CP-001",
+                "CK-001",
+                null,
+                null,
+                qty,
+                new BigDecimal("10"),
+                new BigDecimal("13"),
+                "",
+                "",
+                lineRemark,
+                "2026-07-12"
+            ))
+        );
     }
 
     private void insertSalesOrder(String billNo, String status, String productCode, String warehouseCode) {
