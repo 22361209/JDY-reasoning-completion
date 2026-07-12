@@ -73,6 +73,13 @@
 
 这些模块进入下一轮可用化改造时，必须接入本协议，不允许另起一套状态体系、按钮体系或下推判断体系。已经局部做到“反审核回 `DRAFT`”的，只能说明口径收紧，不代表完整接入。
 
+### 生命周期权限
+
+- 共享生命周期 API 必须使用 `@RequireDocumentPermission`，由 `DocumentPermissionPolicy` 根据 `{type}` 映射到该单据现有模块权限；权限检查发生在 `BillLifecycleService` 修改状态、版本、分录或成功业务日志之前。
+- `BillLifecycleController` 登记的每一个 type 都必须在权限表中有且只有一项映射，权限表也不得出现没有 Controller target 的孤立 type。
+- 单据锁 status/acquire 复用同一权限表，防止无权用户读取持锁人或抢占无权单据；release 只释放当前 session 本人持有的锁，override 继续要求 `document.lock.override`。
+- 前端隐藏或禁用动作不构成权限；低权限直接调用生命周期和锁 URL 必须返回 403 且业务事实、状态、版本、锁和成功业务日志不变。
+
 ## 源单与下推
 
 - 源单和源单行必须同时满足：主状态 `AUDITED`、关闭状态 `OPEN`、冻结状态 `NORMAL`、行关闭状态 `OPEN`、行冻结状态 `NORMAL`。
@@ -153,11 +160,11 @@
 
 1. 在本节补齐生命周期登记记录和能力判断。
 2. 在后端 `BillLifecyclePolicy` 登记单据能力。
-3. 如需共享生命周期 API，在 `BillLifecycleController` 登记目标表、分录表和权限模块。
+3. 如需共享生命周期 API，在 `BillLifecycleController` 登记目标表、分录表，并在 `DocumentPermissionPolicy` 登记唯一权限映射。
 4. 在前端 `documentLifecyclePolicy.ts` 登记同一份能力。
 5. 单据详情页通过 `StandardDocument` / `DocumentForm` 使用统一动作按钮。
 6. 列表页通过 `DataListPage` 的 `documentActionTypeByListKey` 接入同一能力。
 7. 下推、选源和批量动作只能依赖事实字段；`outStatus` / `inStatus`、已出库/已入库等展示状态不得作为核心判断。
 8. 后端 API 不能只依赖前端隐藏按钮，必须重复校验权限、状态、能力和下游影响。
 9. 添加或更新测试，至少覆盖草稿不可关闭/冻结、未审核源单不可执行、事实类单据不显示关闭/冻结、红冲仅事实类单据可见、作废受 `voidAllowed` 后端守卫控制。
-10. 运行 `node scripts/a124-lifecycle-contract-scan.mjs`。该脚本是第一层静态门禁：前后端能力不一致、列表动作未登记、反审核写回 `REVERSED`、展示状态驱动下推、批量动作占位等情况必须失败。
+10. 运行 `node scripts/a124-lifecycle-contract-scan.mjs`。该脚本是第一层静态门禁：前后端能力不一致、单据权限映射或运行时 wiring 缺失、列表动作未登记、反审核写回 `REVERSED`、展示状态驱动下推、批量动作占位等情况必须失败；同时必须有真实 HTTP 负向测试，静态扫描不能替代 401/403 和零副作用证据。

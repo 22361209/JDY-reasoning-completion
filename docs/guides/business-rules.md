@@ -165,6 +165,9 @@ A116 起生产计划升级为生产/采购任务的统一入口：新增生产�
 
 - 库存查询、可用量、审核状态和单据列表不缓存，直查数据库。
 - 可用库存口径：即时库存 - 已锁库数量 + 在途；第一版在途只考虑采购在途和生产在途，暂不考虑委外在途和调拨在途。
+- 生产环境不提供任何绕正式单据直接调整库存的 HTTP 能力，管理员也没有例外。库存余额和流水只能由期初库存或其他入库/出库、调拨、盘点、盘盈、盘亏、采购入库、销售出库、生产领料、产品入库等正式单据按各自规则审核后写入。
+- `/api/inventory/sales-out` 与 `/api/inventory/purchase-in` 历史直写路由已删除。内部 `InventoryPostingService` 只供正式 AppService 审核过账和受控测试夹具调用，不能重新包装成生产直写 Controller。
+- `/api/inventory/adjustments` 只属于本地测试/回归夹具：必须同时满足有效登录、管理员级 `system.account_set.manage`、active profile 仅为 `local/test/regression`、显式开关开启、当前账套在测试 allowlist；本项目本地回归只允许 `BLD-TEST`。默认/生产式配置为关闭和空 allowlist，任一门禁不满足时不得改变库存余额、版本或流水。
 - 成本价第一版可占位，不作为阻断主链路的条件。
 
 ## 源单占用与释放
