@@ -3,8 +3,10 @@ package com.jdy.erp.system.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +70,20 @@ class WriteEndpointPermissionCoverageTest {
         assertThat(violations)
             .as("Every registered /api write handler must have one fixed, document, request-scoped, authenticated, or public access semantic")
             .isEmpty();
+
+        WriteAccessPolicyContract.validate(handlerMapping.getHandlerMethods());
+    }
+
+    @Test
+    void namedWritePoliciesKeepTheA134ThreeThreeTwoBoundary() {
+        var counts = Arrays.stream(WriteAccess.Policy.values())
+            .collect(Collectors.groupingBy(WriteAccess.Policy::mode, Collectors.counting()));
+
+        assertThat(counts)
+            .containsEntry(WriteAccess.Mode.PUBLIC, 3L)
+            .containsEntry(WriteAccess.Mode.AUTHENTICATED, 3L)
+            .containsEntry(WriteAccess.Mode.REQUEST_SCOPED_PERMISSION, 2L);
+        assertThat(WriteAccess.Policy.values()).hasSize(8);
     }
 
     private int accessSemanticCount(HandlerMethod handler) {

@@ -10,7 +10,7 @@ import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
 import com.jdy.erp.system.security.WriteAccess;
-import com.jdy.erp.system.security.WriteAccess.Mode;
+import com.jdy.erp.system.security.WriteAccess.Policy;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -138,7 +138,7 @@ public class UserManagementController {
     }
 
     @PostMapping("/password-reset-requests")
-    @WriteAccess(Mode.PUBLIC)
+    @WriteAccess(Policy.REQUEST_PASSWORD_RESET)
     @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> requestPasswordReset(@RequestBody PasswordResetRequest request) {
         var username = required(request.username(), "用户名");
@@ -356,7 +356,7 @@ public class UserManagementController {
     }
 
     @PutMapping("/password")
-    @WriteAccess(Mode.AUTHENTICATED)
+    @WriteAccess(Policy.CHANGE_OWN_PASSWORD)
     public Map<String, Object> changePassword(@RequestBody ChangePasswordRequest request) {
         var currentPassword = required(request.currentPassword(), "当前密码");
         var newPassword = required(request.newPassword(), "新密码");

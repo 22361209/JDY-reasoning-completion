@@ -7,7 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdy.erp.system.application.ListFilterPresetAccessPolicy;
 import com.jdy.erp.system.security.WriteAccess;
-import com.jdy.erp.system.security.WriteAccess.Mode;
+import com.jdy.erp.system.security.WriteAccess.Policy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -89,7 +89,7 @@ public class ListFilterPresetController {
     }
 
     @PostMapping("/{listKey}")
-    @WriteAccess(Mode.REQUEST_SCOPED_PERMISSION)
+    @WriteAccess(Policy.SAVE_LIST_PRESET)
     public Map<String, Object> save(@PathVariable String listKey, @RequestBody PresetRequest request) {
         var name = request.name == null || request.name.isBlank() ? "未命名预设" : request.name.trim();
         var scope = accessPolicy.resolveWriteScope(request.scope, request.roleCode);
@@ -171,7 +171,7 @@ public class ListFilterPresetController {
     }
 
     @DeleteMapping("/{listKey}/{id}")
-    @WriteAccess(Mode.REQUEST_SCOPED_PERMISSION)
+    @WriteAccess(Policy.DELETE_LIST_PRESET)
     public Map<String, Object> delete(@PathVariable String listKey, @PathVariable String id) {
         var targetRows = jdbcTemplate.queryForList("""
             SELECT role_code AS "roleCode",

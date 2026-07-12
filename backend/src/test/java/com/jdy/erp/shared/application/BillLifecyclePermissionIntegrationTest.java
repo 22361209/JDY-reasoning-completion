@@ -129,7 +129,8 @@ class BillLifecyclePermissionIntegrationTest {
         assertThat(method(DocumentLockController.class, "acquire").isAnnotationPresent(RequireDocumentPermission.class)).isTrue();
         var releaseAccess = method(DocumentLockController.class, "release").getAnnotation(WriteAccess.class);
         assertThat(releaseAccess).isNotNull();
-        assertThat(releaseAccess.value()).isEqualTo(WriteAccess.Mode.AUTHENTICATED);
+        assertThat(releaseAccess.value()).isEqualTo(WriteAccess.Policy.RELEASE_OWN_DOCUMENT_LOCK);
+        assertThat(releaseAccess.value().mode()).isEqualTo(WriteAccess.Mode.AUTHENTICATED);
     }
 
     private Method method(Class<?> type, String name) {

@@ -43,10 +43,7 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
         if (documentPermission == null) {
             documentPermission = AnnotationUtils.findAnnotation(handlerMethod.getBeanType(), RequireDocumentPermission.class);
         }
-        var writeAccess = AnnotationUtils.findAnnotation(handlerMethod.getMethod(), WriteAccess.class);
-        if (writeAccess == null) {
-            writeAccess = AnnotationUtils.findAnnotation(handlerMethod.getBeanType(), WriteAccess.class);
-        }
+        var writeAccess = WriteAccessPolicyContract.find(handlerMethod);
         var declarationCount = (required == null ? 0 : 1)
             + (documentPermission == null ? 0 : 1)
             + (writeAccess == null ? 0 : 1);
@@ -64,6 +61,7 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
             return true;
         }
         if (writeAccess != null) {
+            requireMatchingWritePolicy(request, writeAccess.value());
             return true;
         }
         if (WRITE_METHODS.contains(request.getMethod())) {
@@ -80,5 +78,14 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "单据权限路由缺少 type 参数");
         }
         return type;
+    }
+
+    private void requireMatchingWritePolicy(HttpServletRequest request, WriteAccess.Policy policy) {
+        var matchingPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        var methodMatches = policy.method().name().equals(request.getMethod());
+        var pathMatches = matchingPattern != null && policy.path().equals(matchingPattern.toString());
+        if (!methodMatches || !pathMatches) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "接口访问 policy 与实际映射不一致");
+        }
     }
 }

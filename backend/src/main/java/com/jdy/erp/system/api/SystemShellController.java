@@ -7,7 +7,7 @@ import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.PasswordPolicy;
 import com.jdy.erp.system.security.RequirePermission;
 import com.jdy.erp.system.security.WriteAccess;
-import com.jdy.erp.system.security.WriteAccess.Mode;
+import com.jdy.erp.system.security.WriteAccess.Policy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -98,14 +98,14 @@ public class SystemShellController {
     }
 
     @PostMapping("/login")
-    @WriteAccess(Mode.PUBLIC)
+    @WriteAccess(Policy.LOGIN)
     public Map<String, Object> login(@RequestBody LoginRequest request) {
         currentSessionService.login(request.username(), request.password(), request.accountSetCode());
         return session();
     }
 
     @PostMapping("/logout")
-    @WriteAccess(Mode.PUBLIC)
+    @WriteAccess(Policy.LOGOUT)
     public Map<String, Object> logout() {
         currentSessionService.logout();
         return Map.of("ok", true);

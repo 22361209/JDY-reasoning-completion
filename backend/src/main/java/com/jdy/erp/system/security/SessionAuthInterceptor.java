@@ -13,13 +13,10 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component
 public class SessionAuthInterceptor implements HandlerInterceptor {
-    private static final Set<PublicEndpoint> PUBLIC_API_ENDPOINTS = Set.of(
-        new PublicEndpoint("GET", "/api/system/health"),
-        new PublicEndpoint("GET", "/api/system/session"),
-        new PublicEndpoint("GET", "/api/system/account-sets"),
-        new PublicEndpoint("POST", "/api/system/login"),
-        new PublicEndpoint("POST", "/api/system/logout"),
-        new PublicEndpoint("POST", "/api/system/password-reset-requests")
+    private static final Set<PublicReadEndpoint> PUBLIC_READ_ENDPOINTS = Set.of(
+        new PublicReadEndpoint("GET", "/api/system/health"),
+        new PublicReadEndpoint("GET", "/api/system/session"),
+        new PublicReadEndpoint("GET", "/api/system/account-sets")
     );
 
     private final CurrentSessionService currentSessionService;
@@ -30,10 +27,10 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        if (!(handler instanceof HandlerMethod)) {
+        if (!(handler instanceof HandlerMethod handlerMethod)) {
             return true;
         }
-        if (isPublicApiEndpoint(request.getMethod(), request.getRequestURI())) {
+        if (isPublicRead(request) || isPublicWrite(request, handlerMethod)) {
             return true;
         }
         if (currentSessionService.isAuthenticated()) {
@@ -42,10 +39,24 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
     }
 
-    private boolean isPublicApiEndpoint(String method, String requestUri) {
-        return PUBLIC_API_ENDPOINTS.contains(new PublicEndpoint(method, requestUri));
+    private boolean isPublicRead(HttpServletRequest request) {
+        return PUBLIC_READ_ENDPOINTS.contains(new PublicReadEndpoint(request.getMethod(), requestPath(request)));
     }
 
-    private record PublicEndpoint(String method, String path) {
+    private boolean isPublicWrite(HttpServletRequest request, HandlerMethod handler) {
+        var declaration = WriteAccessPolicyContract.find(handler);
+        if (declaration == null || declaration.value().mode() != WriteAccess.Mode.PUBLIC) {
+            return false;
+        }
+        return declaration.value().matches(request.getMethod(), requestPath(request));
+    }
+
+    private String requestPath(HttpServletRequest request) {
+        var requestUri = request.getRequestURI();
+        var contextPath = request.getContextPath();
+        return contextPath.isEmpty() ? requestUri : requestUri.substring(contextPath.length());
+    }
+
+    private record PublicReadEndpoint(String method, String path) {
     }
 }

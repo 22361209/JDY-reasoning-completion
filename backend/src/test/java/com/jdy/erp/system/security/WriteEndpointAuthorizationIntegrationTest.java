@@ -75,9 +75,41 @@ class WriteEndpointAuthorizationIntegrationTest {
     void explicitPublicAuthenticatedAndRequestScopedWritesReachTheirDedicatedPolicies() throws Exception {
         var interceptor = permissionInterceptor(mock(CurrentPermissionService.class), mock(DocumentPermissionPolicy.class));
 
-        assertThat(interceptor.preHandle(request("POST", "/api/system/login"), response, handler("publicWrite"))).isTrue();
-        assertThat(interceptor.preHandle(request("PUT", "/api/system/password"), response, handler("authenticatedWrite"))).isTrue();
-        assertThat(interceptor.preHandle(request("POST", "/api/list-presets/test"), response, handler("requestScopedWrite"))).isTrue();
+        assertThat(interceptor.preHandle(
+            mappedRequest("POST", "/api/system/login", "/api/system/login"),
+            response,
+            handler("publicWrite")
+        )).isTrue();
+        assertThat(interceptor.preHandle(
+            mappedRequest("PUT", "/api/system/password", "/api/system/password"),
+            response,
+            handler("authenticatedWrite")
+        )).isTrue();
+        assertThat(interceptor.preHandle(
+            mappedRequest("POST", "/api/list-presets/test", "/api/list-presets/{listKey}"),
+            response,
+            handler("requestScopedWrite")
+        )).isTrue();
+    }
+
+    @Test
+    void runtimeWritePolicyMethodOrMappingDriftFailsClosed() throws Exception {
+        var interceptor = permissionInterceptor(mock(CurrentPermissionService.class), mock(DocumentPermissionPolicy.class));
+        var wrongPattern = request("POST", "/api/system/login");
+        wrongPattern.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/api/system/logout");
+
+        assertStatus(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            () -> interceptor.preHandle(request("POST", "/api/system/login"), response, handler("publicWrite"))
+        );
+        assertStatus(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            () -> interceptor.preHandle(request("GET", "/api/system/login"), response, handler("publicWrite"))
+        );
+        assertStatus(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            () -> interceptor.preHandle(wrongPattern, response, handler("publicWrite"))
+        );
     }
 
     @Test
@@ -85,21 +117,32 @@ class WriteEndpointAuthorizationIntegrationTest {
         var sessionService = mock(CurrentSessionService.class);
         when(sessionService.isAuthenticated()).thenReturn(false);
         var interceptor = new SessionAuthInterceptor(sessionService);
-        var handler = handler("unclassified");
 
-        assertThat(interceptor.preHandle(request("POST", "/api/system/login"), response, handler)).isTrue();
-        assertThat(interceptor.preHandle(request("POST", "/api/system/password-reset-requests"), response, handler)).isTrue();
+        assertThat(interceptor.preHandle(request("POST", "/api/system/login"), response, handler("publicWrite"))).isTrue();
+        assertThat(interceptor.preHandle(
+            request("POST", "/api/system/password-reset-requests"),
+            response,
+            handler("passwordResetPublicWrite")
+        )).isTrue();
         assertStatus(
             HttpStatus.UNAUTHORIZED,
-            () -> interceptor.preHandle(request("GET", "/api/system/login"), response, handler)
+            () -> interceptor.preHandle(request("GET", "/api/system/login"), response, handler("publicWrite"))
         );
         assertStatus(
             HttpStatus.UNAUTHORIZED,
-            () -> interceptor.preHandle(request("GET", "/api/system/users"), response, handler)
+            () -> interceptor.preHandle(request("POST", "/api/system/logout"), response, handler("publicWrite"))
         );
         assertStatus(
             HttpStatus.UNAUTHORIZED,
-            () -> interceptor.preHandle(request("PUT", "/api/system/password-reset-requests/request-id"), response, handler)
+            () -> interceptor.preHandle(request("GET", "/api/system/users"), response, handler("unclassified"))
+        );
+        assertStatus(
+            HttpStatus.UNAUTHORIZED,
+            () -> interceptor.preHandle(
+                request("PUT", "/api/system/password-reset-requests/request-id"),
+                response,
+                handler("unclassified")
+            )
         );
     }
 
@@ -112,6 +155,12 @@ class WriteEndpointAuthorizationIntegrationTest {
 
     private MockHttpServletRequest request(String method, String path) {
         return new MockHttpServletRequest(method, path);
+    }
+
+    private MockHttpServletRequest mappedRequest(String method, String path, String matchingPattern) {
+        var request = request(method, path);
+        request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, matchingPattern);
+        return request;
     }
 
     private HandlerMethod handler(String methodName) throws Exception {
@@ -142,20 +191,24 @@ class WriteEndpointAuthorizationIntegrationTest {
         void documentScoped() {
         }
 
-        @WriteAccess(WriteAccess.Mode.PUBLIC)
+        @WriteAccess(WriteAccess.Policy.LOGIN)
         void publicWrite() {
         }
 
-        @WriteAccess(WriteAccess.Mode.AUTHENTICATED)
+        @WriteAccess(WriteAccess.Policy.REQUEST_PASSWORD_RESET)
+        void passwordResetPublicWrite() {
+        }
+
+        @WriteAccess(WriteAccess.Policy.CHANGE_OWN_PASSWORD)
         void authenticatedWrite() {
         }
 
-        @WriteAccess(WriteAccess.Mode.REQUEST_SCOPED_PERMISSION)
+        @WriteAccess(WriteAccess.Policy.SAVE_LIST_PRESET)
         void requestScopedWrite() {
         }
 
         @RequirePermission("sales.order.audit")
-        @WriteAccess(WriteAccess.Mode.AUTHENTICATED)
+        @WriteAccess(WriteAccess.Policy.CHANGE_OWN_PASSWORD)
         void conflicting() {
         }
     }

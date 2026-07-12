@@ -8,7 +8,7 @@ import com.jdy.erp.system.application.AccountSetInitializationService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.RequirePermission;
 import com.jdy.erp.system.security.WriteAccess;
-import com.jdy.erp.system.security.WriteAccess.Mode;
+import com.jdy.erp.system.security.WriteAccess.Policy;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,7 +43,7 @@ public class AccountSetController {
     }
 
     @PostMapping("/current")
-    @WriteAccess(Mode.AUTHENTICATED)
+    @WriteAccess(Policy.SWITCH_AUTHORIZED_ACCOUNT_SET)
     public Map<String, Object> switchCurrent(@RequestBody SwitchAccountSetRequest request) {
         currentSessionService.switchAccountSet(request.accountSetCode());
         return Map.of("current", currentSessionService.currentAccountSet());

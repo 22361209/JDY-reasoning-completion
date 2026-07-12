@@ -6,7 +6,7 @@ import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.system.security.RequirePermission;
 import com.jdy.erp.system.security.RequireDocumentPermission;
 import com.jdy.erp.system.security.WriteAccess;
-import com.jdy.erp.system.security.WriteAccess.Mode;
+import com.jdy.erp.system.security.WriteAccess.Policy;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,7 +42,7 @@ public class DocumentLockController {
     }
 
     @DeleteMapping("/{type}/{billNo}")
-    @WriteAccess(Mode.AUTHENTICATED)
+    @WriteAccess(Policy.RELEASE_OWN_DOCUMENT_LOCK)
     public Map<String, Object> release(@PathVariable String type, @PathVariable String billNo) {
         return lockService.release(type, billNo);
     }
