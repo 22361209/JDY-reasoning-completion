@@ -51,7 +51,7 @@
 
 <script setup lang="ts">
 import { watch } from "vue";
-import type { SystemSession } from "../../../services/systemApi";
+import type { AuthenticatedSystemSession } from "../../../services/systemApi";
 import { useLoginPage, type LoginPageAccountSet } from "./useAuthForms";
 
 const props = defineProps<{
@@ -60,7 +60,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  loginSuccess: [session: SystemSession];
+  loginSuccess: [session: AuthenticatedSystemSession];
 }>();
 
 const auth = useLoginPage();

@@ -30,6 +30,9 @@ public class SystemShellController {
 
     @GetMapping("/session")
     public Map<String, Object> session() {
+        if (!currentSessionService.isAuthenticated()) {
+            return Map.of("authenticated", false);
+        }
         var accountSet = currentSessionService.currentAccountSet();
         var tenant = Map.of(
             "id", accountSet.get("id"),
@@ -46,14 +49,6 @@ public class SystemShellController {
             "accounting", accountSet.get("accountingPeriod"),
             "business", accountSet.get("businessPeriod")
         );
-        if (!currentSessionService.isAuthenticated()) {
-            return Map.of(
-                "authenticated", false,
-                "tenant", tenant,
-                "period", period,
-                "security", sessionSecurity()
-            );
-        }
         return Map.of(
             "authenticated", true,
             "user", currentSessionService.currentUser(),
@@ -91,6 +86,15 @@ public class SystemShellController {
 
     @GetMapping("/account-sets")
     public Map<String, Object> accountSets() {
+        if (!currentSessionService.isAuthenticated()) {
+            var publicChoices = currentSessionService.availableAccountSets().stream()
+                .map(accountSet -> Map.of(
+                    "code", accountSet.get("code"),
+                    "name", accountSet.get("name")
+                ))
+                .toList();
+            return Map.of("accountSets", publicChoices);
+        }
         return Map.of(
             "accountSets", currentSessionService.availableAccountSets(),
             "current", currentSessionService.currentAccountSet()

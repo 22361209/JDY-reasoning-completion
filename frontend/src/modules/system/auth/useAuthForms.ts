@@ -3,9 +3,9 @@ import {
   changeSystemPassword,
   loginSystemUser,
   requestPasswordReset,
+  type AuthenticatedSystemSession,
   type PasswordPolicySettings,
-  type SystemAccountSet,
-  type SystemSession
+  type PublicAccountSetChoice
 } from "../../../services/systemApi";
 
 export function passwordPolicyRules(policy: PasswordPolicySettings, password: string) {
@@ -41,7 +41,7 @@ export function useLoginPage() {
     contactNote: ""
   });
 
-  async function loginCurrentUser(): Promise<SystemSession | null> {
+  async function loginCurrentUser(): Promise<AuthenticatedSystemSession | null> {
     loginMessage.value = "";
     const loginResult = await loginSystemUser(loginForm.username, loginForm.password, loginForm.accountSetCode);
     const remoteSession = loginResult.session;
@@ -177,7 +177,7 @@ export function usePasswordChangeDialog(options: {
   };
 }
 
-export type LoginPageAccountSet = SystemAccountSet;
+export type LoginPageAccountSet = PublicAccountSetChoice;
 
 const CACHED_LOGIN_KEY = "jdy:cached-login";
 

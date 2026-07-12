@@ -1,15 +1,24 @@
-export interface SystemSession {
-  authenticated?: boolean;
-  user?: { name: string; username?: string; role: string; roleCode?: string; permissionCodes?: string[] };
+export interface AnonymousSystemSession {
+  authenticated: false;
+}
+
+export interface AuthenticatedSystemSession {
+  authenticated: true;
+  user: { name: string; username?: string; role: string; roleCode?: string; permissionCodes?: string[] };
   tenant: SystemAccountSet;
   period: { accounting: string; business: string };
   security?: { sessionTimeoutMinutes: number; sessionMaxInactiveSeconds: number; passwordPolicy?: PasswordPolicySettings };
 }
 
-export interface SystemAccountSet {
-  id?: string;
+export type SystemSession = AnonymousSystemSession | AuthenticatedSystemSession;
+
+export interface PublicAccountSetChoice {
   code: string;
   name: string;
+}
+
+export interface SystemAccountSet extends PublicAccountSetChoice {
+  id?: string;
   environment: string;
   databaseName?: string;
   schemaName?: string;
@@ -196,7 +205,7 @@ export interface LoginResult {
   ok: boolean;
   status: number;
   message: string;
-  session: SystemSession | null;
+  session: AuthenticatedSystemSession | null;
 }
 
 export async function fetchSystemSession(): Promise<SystemSession | null> {
@@ -225,9 +234,25 @@ export async function loginSystemUser(username: string, password: string, accoun
       const message = parsedMessage && !["Locked", "Unauthorized"].includes(parsedMessage) ? parsedMessage : fallbackMessage;
       return { ok: false, status: response.status, message, session: null };
     }
-    return { ok: true, status: response.status, message: "", session: await response.json() as SystemSession };
+    return { ok: true, status: response.status, message: "", session: await response.json() as AuthenticatedSystemSession };
   } catch {
     return { ok: false, status: 0, message: "登录失败。", session: null };
+  }
+}
+
+export async function fetchPublicAccountSetChoices(): Promise<PublicAccountSetChoice[]> {
+  try {
+    const response = await fetch("/api/system/account-sets");
+    if (!response.ok) {
+      return [];
+    }
+    const payload = await response.json() as { accountSets?: PublicAccountSetChoice[] };
+    return (payload.accountSets ?? []).map((accountSet) => ({
+      code: accountSet.code,
+      name: accountSet.name
+    }));
+  } catch {
+    return [];
   }
 }
 

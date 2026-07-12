@@ -1,11 +1,13 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import {
   fetchAccountSets,
+  fetchPublicAccountSetChoices,
   fetchSystemSession,
   logoutSystemUser,
+  type AuthenticatedSystemSession,
   type PasswordPolicySettings,
-  type SystemAccountSet,
-  type SystemSession
+  type PublicAccountSetChoice,
+  type SystemAccountSet
 } from "../../services/systemApi";
 import { useSessionStore } from "../../stores/session";
 import { useTabStore } from "../../stores/tabs";
@@ -44,6 +46,7 @@ export function useShellSession(handles: {
     requireDigit: true,
     requireSymbol: true
   });
+  const loginAccountSets = ref<PublicAccountSetChoice[]>([]);
   const accountSets = ref<SystemAccountSet[]>([]);
   const isAuthenticated = ref(false);
   const loginPageMessage = ref("");
@@ -53,11 +56,13 @@ export function useShellSession(handles: {
     window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
     window.addEventListener("storage", handleSessionStorageEvent);
     window.addEventListener("focus", verifyActiveSession);
-    accountSets.value = (await fetchAccountSets()).accountSets;
     const remoteSession = await fetchSystemSession();
-    if (remoteSession?.authenticated && remoteSession.user) {
+    if (remoteSession?.authenticated) {
+      await refreshAuthorizedAccountSets();
       applySystemSession(remoteSession);
+      return;
     }
+    await refreshPublicAccountSets();
   });
 
   onBeforeUnmount(() => {
@@ -66,10 +71,7 @@ export function useShellSession(handles: {
     window.removeEventListener("focus", verifyActiveSession);
   });
 
-  function applySystemSession(remoteSession: SystemSession) {
-    if (!remoteSession.user) {
-      return;
-    }
+  function applySystemSession(remoteSession: AuthenticatedSystemSession) {
     session.userName.value = remoteSession.user.name;
     session.userRole.value = remoteSession.user.role;
     session.userRoleCode.value = remoteSession.user.roleCode || "";
@@ -89,8 +91,17 @@ export function useShellSession(handles: {
     loginPageMessage.value = "";
   }
 
-  async function handleLoginSuccess(remoteSession: SystemSession) {
+  async function handleLoginSuccess(remoteSession: AuthenticatedSystemSession) {
+    await refreshAuthorizedAccountSets();
     applySystemSession(remoteSession);
+  }
+
+  async function refreshAuthorizedAccountSets() {
+    accountSets.value = (await fetchAccountSets()).accountSets;
+  }
+
+  async function refreshPublicAccountSets() {
+    loginAccountSets.value = await fetchPublicAccountSetChoices();
   }
 
   async function logoutCurrentUser() {
@@ -116,10 +127,12 @@ export function useShellSession(handles: {
     session.accountSetCode.value = "";
     session.accountSetId.value = "";
     session.accountSetInitialized.value = false;
+    accountSets.value = [];
     loginPageMessage.value = message;
     handles.loginPageRef.value?.clearPassword(message);
     handles.passwordChangeDialogRef.value?.resetPasswordForm();
     tabs.activeTabId.value = "home";
+    void refreshPublicAccountSets();
     if (broadcast) {
       broadcastSessionInvalidation(reason, message);
     }
@@ -155,7 +168,7 @@ export function useShellSession(handles: {
       return;
     }
     const remoteSession = await fetchSystemSession();
-    if (!remoteSession?.authenticated || !remoteSession.user) {
+    if (!remoteSession?.authenticated) {
       clearLocalSession("登录状态已失效，请重新登录。", "session-expired", false);
       return;
     }
@@ -193,6 +206,7 @@ export function useShellSession(handles: {
 
   return {
     activePasswordPolicy,
+    loginAccountSets,
     accountSets,
     isAuthenticated,
     loginPageMessage,

@@ -1,5 +1,5 @@
 <template>
-  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :account-sets="accountSets" :message="loginPageMessage" @login-success="handleLoginSuccess" />
+  <LoginPage v-if="!isAuthenticated" ref="loginPageRef" :account-sets="loginAccountSets" :message="loginPageMessage" @login-success="handleLoginSuccess" />
   <div v-else class="erp-shell" :class="{ compact: preferences.compactDensity.value, 'module-panel-open': modulePanelOpen }">
     <div class="navigation-zone" @mouseleave="closeNavigation">
       <aside class="primary-nav" aria-label="主模块导航">
@@ -898,6 +898,7 @@ const loginPageRef = ref<InstanceType<typeof LoginPage> | null>(null);
 const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | null>(null);
 const shellSession = useShellSession({ loginPageRef, passwordChangeDialogRef });
 const activePasswordPolicy = shellSession.activePasswordPolicy;
+const loginAccountSets = shellSession.loginAccountSets;
 const accountSets = shellSession.accountSets;
 const isAuthenticated = shellSession.isAuthenticated;
 const loginPageMessage = shellSession.loginPageMessage;
