@@ -141,7 +141,7 @@ assert(purchaseOrderStatus(secondDraft.billNo) === "DRAFT", "failed over-quantit
 assert(orderedQty() === 4, "failed over-quantity audit must not change ordered qty", { orderedQty: orderedQty() });
 
 await expectFailure("/api/purchase-orders/draft", { method: "POST", body: purchaseOrderPayload(0) }, 400, "采购订单数量必须大于 0");
-await expectFailure("/api/sales-orders/draft", {
+const zeroSalesDraftResult = await request("/api/sales-orders/draft", {
   method: "POST",
   body: {
     customerCode: "KH-001",
@@ -158,13 +158,23 @@ await expectFailure("/api/sales-orders/draft", {
       }
     ]
   }
-}, 400, "销售订单数量必须大于 0");
+});
+assert(zeroSalesDraftResult.response.status === 201, "zero-quantity sales order draft should return 201", { status: zeroSalesDraftResult.response.status, text: zeroSalesDraftResult.text });
+const zeroSalesDraft = zeroSalesDraftResult.data;
+const zeroSalesBeforeAudit = await requireJson(`/api/sales-orders/${encodeURIComponent(zeroSalesDraft.billNo)}`);
+assert(zeroSalesBeforeAudit.order?.status === "DRAFT", "zero-quantity sales order should be saved as draft", { zeroSalesBeforeAudit });
+assert(Number(zeroSalesBeforeAudit.lines?.[0]?.qty) === 0, "zero-quantity sales order draft should preserve qty=0", { zeroSalesBeforeAudit });
+assert(String(zeroSalesBeforeAudit.lines?.[0]?.lineRemark ?? "") === "", "zero-quantity sales order draft should not require a reason remark", { zeroSalesBeforeAudit });
+await expectFailure(`/api/sales-orders/${encodeURIComponent(zeroSalesDraft.billNo)}/audit`, { method: "POST" }, 400, "销售订单数量必须大于 0");
+const zeroSalesAfterAudit = await requireJson(`/api/sales-orders/${encodeURIComponent(zeroSalesDraft.billNo)}`);
+assert(zeroSalesAfterAudit.order?.status === "DRAFT", "rejected zero-quantity sales order audit must keep DRAFT", { zeroSalesAfterAudit });
 
 const evidence = {
   batch,
   requisitionNo,
   firstPurchaseOrderNo: firstDraft.billNo,
   secondPurchaseOrderNo: secondDraft.billNo,
+  zeroSalesOrderNo: zeroSalesDraft.billNo,
   beforeDraft,
   afterDraft,
   afterAudit,

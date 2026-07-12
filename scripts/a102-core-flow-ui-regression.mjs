@@ -219,7 +219,8 @@ try {
   await page.getByTestId("sales-out-line-source-order-no").waitFor({ state: "visible" });
   const sourceOrderCell = (await page.getByTestId("sales-out-line-source-order-no").textContent())?.trim();
   const sourceLineCell = (await page.getByTestId("sales-out-line-source-line-no").textContent())?.replace(/\s+/g, " ").trim();
-  assert(sourceOrderCell === source.noticeNo, `source column should show delivery notice no only, got ${sourceOrderCell}`);
+  assert(sourceOrderCell === source.orderNo, `source column should show the exact original sales order no, got ${sourceOrderCell}`);
+  assert(sourceOrderCell !== source.noticeNo, `visible source trace should not replace the sales order with delivery notice ${source.noticeNo}`);
   assert(sourceLineCell?.includes("#1"), `source line column should show line no, got ${sourceLineCell}`);
   assert(await page.locator(".table-core-header-cell", { hasText: "源单号" }).count() > 0, "entry table should have source order header");
   assert(await page.locator(".table-core-header-cell", { hasText: "源单行号" }).count() > 0, "entry table should have source line header");
