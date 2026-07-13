@@ -14,17 +14,25 @@ const runtimeGuardMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V99__tenant_schema_exemption_runtime_guard.sql"
 );
+const employeeAccountMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V100__employee_financial_account_master_data.sql"
+);
+const sessionScopeMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V101__session_account_scope_authority.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 72,
-  managedTables: 72,
-  primaryKeys: 72,
-  uniqueConstraints: 64,
+  baseTables: 74,
+  managedTables: 74,
+  primaryKeys: 74,
+  uniqueConstraints: 66,
   foreignKeys: 153,
-  checkConstraints: 11,
+  checkConstraints: 16,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
@@ -106,6 +114,8 @@ let primaryError = null;
 try {
   const migrationSource = await readFile(migrationPath, "utf8");
   const runtimeGuardMigrationSource = await readFile(runtimeGuardMigrationPath, "utf8");
+  const employeeAccountMigrationSource = await readFile(employeeAccountMigrationPath, "utf8");
+  const sessionScopeMigrationSource = await readFile(sessionScopeMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -118,13 +128,37 @@ try {
       && migrationSource.includes("V98 tenant scope FK reserved-name drifted"),
     runtimeExemptionGuard:
       runtimeGuardMigrationSource.includes("reserved_name_count <> 4 OR exact_exemption_count <> 4")
-      && runtimeGuardMigrationSource.includes("jdy_sync_tenant_schema_v98")
+      && runtimeGuardMigrationSource.includes("jdy_sync_tenant_schema_v98"),
+    employeeAccountManagedGuard:
+      employeeAccountMigrationSource.includes("CREATE TABLE md_employee")
+      && employeeAccountMigrationSource.includes("CREATE TABLE md_financial_account")
+      && employeeAccountMigrationSource.includes("('md_employee', 135)")
+      && employeeAccountMigrationSource.includes("('md_financial_account', 136)")
+      && employeeAccountMigrationSource.includes("currency IN ('CNY', 'USD')")
+      && employeeAccountMigrationSource.includes("expected=74/66/153/16"),
+    sessionScopeAuthorityGuard:
+      sessionScopeMigrationSource.includes("CREATE TABLE sys_session_account_scope")
+      && sessionScopeMigrationSource.includes("session_token UUID PRIMARY KEY")
+      && sessionScopeMigrationSource.includes("scope_token UUID NOT NULL")
+      && sessionScopeMigrationSource.includes("REFERENCES sys_user(id) ON DELETE CASCADE")
+      && sessionScopeMigrationSource.includes("REFERENCES sys_account_set(id) ON DELETE CASCADE")
+      && !sessionScopeMigrationSource.includes("sys_tenant_managed_table")
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
   assert(result.migrationGuards.runtimeExemptionGuard, "V99 must guard the four FK exemptions on every sync");
+  assert(
+    result.migrationGuards.employeeAccountManagedGuard,
+    "V100 must register both masters and retain the exact 74-table constraint topology"
+  );
+  assert(
+    result.migrationGuards.sessionScopeAuthorityGuard,
+    "V101 must keep the session scope authority platform-owned and keyed by session token"
+  );
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
+  const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
+  const sessionScopeSourceChecksum = flywayChecksum(sessionScopeMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -135,17 +169,25 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99')
+    WHERE version IN ('98', '99', '100', '101')
   `);
-  assert(migrationRows.length === 2, `expected installed V98 and V99 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 4, `expected installed V98 through V101 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
+  const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
+  const sessionScopeMigration = migrationRows.find((row) => row.version === "101");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
+  assert(employeeAccountMigration, "installed V100 row is missing");
+  assert(sessionScopeMigration, "installed V101 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
+  assert(employeeAccountMigration.success === true, "V100 is not marked successful");
+  assert(sessionScopeMigration.success === true, "V101 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
+  assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
+  assert(Number.isInteger(sessionScopeMigration.checksum), "V101 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -163,6 +205,24 @@ try {
     ...runtimeGuardMigration,
     sourceChecksum: runtimeGuardSourceChecksum,
     sourceSha256: createHash("sha256").update(runtimeGuardMigrationSource).digest("hex")
+  };
+  assert(
+    employeeAccountMigration.checksum === employeeAccountSourceChecksum,
+    `V100 checksum drift: installed=${employeeAccountMigration.checksum} source=${employeeAccountSourceChecksum}`
+  );
+  result.employeeAccountMigration = {
+    ...employeeAccountMigration,
+    sourceChecksum: employeeAccountSourceChecksum,
+    sourceSha256: createHash("sha256").update(employeeAccountMigrationSource).digest("hex")
+  };
+  assert(
+    sessionScopeMigration.checksum === sessionScopeSourceChecksum,
+    `V101 checksum drift: installed=${sessionScopeMigration.checksum} source=${sessionScopeSourceChecksum}`
+  );
+  result.sessionScopeMigration = {
+    ...sessionScopeMigration,
+    sourceChecksum: sessionScopeSourceChecksum,
+    sourceSha256: createHash("sha256").update(sessionScopeMigrationSource).digest("hex")
   };
 
   const registeredSchemas = sqlJson(`
@@ -187,7 +247,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 72, `${schema} first sync returned ${firstManagedCount}, expected 72`);
+    assert(firstManagedCount === 74, `${schema} first sync returned ${firstManagedCount}, expected 74`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -195,7 +255,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 72, `${schema} second sync returned ${secondManagedCount}, expected 72`);
+    assert(secondManagedCount === 74, `${schema} second sync returned ${secondManagedCount}, expected 74`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -489,7 +549,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 72 OR second_count <> 72 THEN
+      IF first_count <> 74 OR second_count <> 74 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;

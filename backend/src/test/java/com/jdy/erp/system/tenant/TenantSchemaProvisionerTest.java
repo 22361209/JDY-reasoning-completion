@@ -25,7 +25,7 @@ class TenantSchemaProvisionerTest {
             Integer.class,
             "tenant_a137",
             true
-        )).thenReturn(72);
+        )).thenReturn(74);
 
         provisioner.provisionNewSchema("tenant_a137");
 
@@ -45,11 +45,11 @@ class TenantSchemaProvisionerTest {
     @Test
     void provisionRefusesAnIncompleteManagedTablePlan() {
         when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("tenant_incomplete"), eq(false)))
-            .thenReturn(71);
+            .thenReturn(73);
 
         assertThatThrownBy(() -> provisioner.provisionSchema("tenant_incomplete"))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("72 张受管表");
+            .hasMessageContaining("74 张受管表");
 
         verify(jdbcTemplate, never()).update(anyString());
     }
@@ -75,9 +75,10 @@ class TenantSchemaProvisionerTest {
     @Test
     void tenantTableNamesComeFromTheVersionedRestoreOrder() {
         when(jdbcTemplate.queryForList(anyString(), eq(String.class)))
-            .thenReturn(List.of("md_product", "sales_order"));
+            .thenReturn(List.of("md_employee", "md_financial_account", "md_product", "sales_order"));
 
-        assertThat(provisioner.tenantTableNames()).containsExactly("md_product", "sales_order");
+        assertThat(provisioner.tenantTableNames())
+            .containsExactly("md_employee", "md_financial_account", "md_product", "sales_order");
         verify(jdbcTemplate).queryForList(
             org.mockito.ArgumentMatchers.contains("ORDER BY restore_order"),
             eq(String.class)

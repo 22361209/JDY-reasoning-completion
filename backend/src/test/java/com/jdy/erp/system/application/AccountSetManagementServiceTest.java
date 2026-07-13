@@ -102,13 +102,15 @@ class AccountSetManagementServiceTest {
 
         assertThat(schema).startsWith("tenant_a119c");
         assertThat(tableExists(schema, "md_product")).isTrue();
+        assertThat(tableExists(schema, "md_employee")).isTrue();
+        assertThat(tableExists(schema, "md_financial_account")).isTrue();
         assertThat(tableExists(schema, "sales_order")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
-        assertThat(managedConstraintCount(schema, "p")).isEqualTo(72);
-        assertThat(managedConstraintCount(schema, "u")).isEqualTo(64);
+        assertThat(managedConstraintCount(schema, "p")).isEqualTo(74);
+        assertThat(managedConstraintCount(schema, "u")).isEqualTo(66);
         assertThat(managedConstraintCount(schema, "f")).isEqualTo(153);
         assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
-        assertThat(managedConstraintCount(schema, "c")).isEqualTo(11);
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(16);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
@@ -262,12 +264,25 @@ class AccountSetManagementServiceTest {
                 enabled = TRUE,
                 audit_status = 'AUDITED'
             """.formatted(quoteIdentifier(schema)));
+        platformJdbcTemplate.update("""
+            INSERT INTO %s.md_employee (code, name, department, enabled, audit_status)
+            VALUES ('OPS-E', '运维恢复员工', '财务部', TRUE, 'AUDITED')
+            """.formatted(quoteIdentifier(schema)));
+        platformJdbcTemplate.update("""
+            INSERT INTO %s.md_financial_account (
+                code, name, account_type, bank_name, account_no, account_holder,
+                currency, enabled, audit_status
+            )
+            VALUES ('OPS-USD', '运维恢复美元账户', 'BANK', 'Test Bank', '00123', 'Test Holder',
+                    'USD', TRUE, 'AUDITED')
+            """.formatted(quoteIdentifier(schema)));
 
         var backupResult = maintenanceService.backupCurrentAccountSet();
         @SuppressWarnings("unchecked")
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
         var backupSchema = String.valueOf(backup.get("backupSchemaName"));
         createdBackupSchemas.add(backupSchema);
+        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("74");
         platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
         platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
         var backupLogId = platformJdbcTemplate.queryForObject("""
@@ -279,11 +294,23 @@ class AccountSetManagementServiceTest {
             """.formatted(quoteIdentifier(schema)), String.class);
 
         platformJdbcTemplate.update("DELETE FROM %s.md_product_category WHERE code = 'OPS'".formatted(quoteIdentifier(schema)));
+        platformJdbcTemplate.update("DELETE FROM %s.md_employee WHERE code = 'OPS-E'".formatted(quoteIdentifier(schema)));
+        platformJdbcTemplate.update("DELETE FROM %s.md_financial_account WHERE code = 'OPS-USD'".formatted(quoteIdentifier(schema)));
         assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isZero();
+        assertThat(countRowsWhere(schema, "md_employee", "code = 'OPS-E'")).isZero();
+        assertThat(countRowsWhere(schema, "md_financial_account", "code = 'OPS-USD'")).isZero();
 
         maintenanceService.restoreCurrentAccountSet(String.valueOf(backup.get("backupName")));
 
         assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isEqualTo(1);
+        assertThat(countRowsWhere(schema, "md_employee", "code = 'OPS-E'")).isEqualTo(1);
+        assertThat(platformJdbcTemplate.queryForMap("""
+            SELECT currency, account_no AS "accountNo"
+            FROM %s.md_financial_account
+            WHERE code = 'OPS-USD'
+            """.formatted(quoteIdentifier(schema))))
+            .containsEntry("currency", "USD")
+            .containsEntry("accountNo", "00123");
         var logRows = platformJdbcTemplate.queryForList("""
             SELECT account_set_code AS "accountSetCode",
                    account_set_name AS "accountSetName"
