@@ -169,13 +169,13 @@ function financeFixtureSnapshot() {
       'receipts', COALESCE((
         SELECT jsonb_agg(to_jsonb(row_value) ORDER BY row_value.id::text)
         FROM public.ar_receipt row_value
-        WHERE row_value.receivable_id = (SELECT id FROM public.ar_receivable WHERE bill_no = ${sqlLiteral(receivableBillNo)})
+        WHERE row_value.legacy_receivable_id = (SELECT id FROM public.ar_receivable WHERE bill_no = ${sqlLiteral(receivableBillNo)})
       ), '[]'::jsonb),
       'payable', (SELECT to_jsonb(row_value) FROM public.ap_payable row_value WHERE row_value.bill_no = ${sqlLiteral(payableBillNo)}),
       'payments', COALESCE((
         SELECT jsonb_agg(to_jsonb(row_value) ORDER BY row_value.id::text)
         FROM public.ap_payment row_value
-        WHERE row_value.payable_id = (SELECT id FROM public.ap_payable WHERE bill_no = ${sqlLiteral(payableBillNo)})
+        WHERE row_value.legacy_payable_id = (SELECT id FROM public.ap_payable WHERE bill_no = ${sqlLiteral(payableBillNo)})
       ), '[]'::jsonb),
       'successLogs', COALESCE((
         SELECT jsonb_agg(to_jsonb(row_value) ORDER BY row_value.operated_at, row_value.id::text)
@@ -585,8 +585,8 @@ try {
   addCleanup("finance fixtures", async () => {
     sqlScalar(`
       BEGIN;
-      DELETE FROM public.ar_receipt WHERE receivable_id IN (SELECT id FROM public.ar_receivable WHERE bill_no = ${sqlLiteral(receivableBillNo)});
-      DELETE FROM public.ap_payment WHERE payable_id IN (SELECT id FROM public.ap_payable WHERE bill_no = ${sqlLiteral(payableBillNo)});
+      DELETE FROM public.ar_receipt WHERE legacy_receivable_id IN (SELECT id FROM public.ar_receivable WHERE bill_no = ${sqlLiteral(receivableBillNo)});
+      DELETE FROM public.ap_payment WHERE legacy_payable_id IN (SELECT id FROM public.ap_payable WHERE bill_no = ${sqlLiteral(payableBillNo)});
       DELETE FROM public.sys_operation_log
       WHERE target_id IN (
         SELECT id FROM public.ar_receivable WHERE bill_no = ${sqlLiteral(receivableBillNo)}
@@ -600,20 +600,20 @@ try {
     assert(same(financeFingerprint(), financeBaseline), "finance cleanup must restore the exact complete finance fingerprint");
   });
   const receivableId = sqlScalar(`
-    INSERT INTO public.ar_receivable (bill_no, source_bill_no, customer_id, bill_date, amount, received_amount, status)
-    SELECT ${sqlLiteral(receivableBillNo)}, ${sqlLiteral(fixtureKey)}, id, DATE '2026-07-12', 100, 0, 'OPEN'
+    INSERT INTO public.ar_receivable (bill_no, source_bill_no, customer_id, bill_date, currency, amount, received_amount, status)
+    SELECT ${sqlLiteral(receivableBillNo)}, ${sqlLiteral(fixtureKey)}, id, DATE '2026-07-12', 'CNY', 100, 0, 'OPEN'
     FROM public.md_customer WHERE code = 'KH-001'
     RETURNING id::text
   `);
   const payableId = sqlScalar(`
-    INSERT INTO public.ap_payable (bill_no, source_bill_no, supplier_id, bill_date, amount, paid_amount, status)
-    SELECT ${sqlLiteral(payableBillNo)}, ${sqlLiteral(fixtureKey)}, id, DATE '2026-07-12', 100, 0, 'OPEN'
+    INSERT INTO public.ap_payable (bill_no, source_bill_no, supplier_id, bill_date, currency, amount, paid_amount, status)
+    SELECT ${sqlLiteral(payableBillNo)}, ${sqlLiteral(fixtureKey)}, id, DATE '2026-07-12', 'CNY', 100, 0, 'OPEN'
     FROM public.md_supplier WHERE code = 'GYS-001'
     RETURNING id::text
   `);
   assert(receivableId && payableId, "finance fixture insertion should return both target IDs");
   const financeBeforeDenied = financeFixtureSnapshot();
-  const settlementBody = { date: "2026-07-12", amount: 1 };
+  const settlementBody = { date: "2026-07-12", currency: "CNY", amount: 1 };
   const anonymousReceipt = await request("", `/api/finance/receivables/${encodeURIComponent(receivableBillNo)}/receipt`, { method: "POST", body: settlementBody });
   const anonymousPayment = await request("", `/api/finance/payables/${encodeURIComponent(payableBillNo)}/payment`, { method: "POST", body: settlementBody });
   expectStatus("anonymous receivable settlement", anonymousReceipt, 401);
@@ -626,22 +626,18 @@ try {
   assert(same(financeFixtureSnapshot(), financeBeforeDenied), "WAREHOUSE settlement denials must leave valid finance targets, settlements, and successful logs unchanged");
   const financeReceipt = await request(financeCookie, `/api/finance/receivables/${encodeURIComponent(receivableBillNo)}/receipt`, { method: "POST", body: settlementBody });
   const financePayment = await request(financeCookie, `/api/finance/payables/${encodeURIComponent(payableBillNo)}/payment`, { method: "POST", body: settlementBody });
-  expectStatus("FINANCE receivable settlement", financeReceipt, 201);
-  expectStatus("FINANCE payable settlement", financePayment, 201);
-  assert(/^SKD\d{6}$/.test(String(financeReceipt.data?.receiptBillNo ?? "")), `FINANCE receipt must use automatic numbering: ${financeReceipt.text}`);
-  assert(/^FKD\d{6}$/.test(String(financePayment.data?.paymentBillNo ?? "")), `FINANCE payment must use automatic numbering: ${financePayment.text}`);
-  const financeAfterAllowed = financeFixtureSnapshot();
-  assert(Number(financeAfterAllowed.receivable.received_amount) === 1 && financeAfterAllowed.receivable.status === "PART_SETTLED", "FINANCE receipt must settle exactly one unit on the real receivable");
-  assert(Number(financeAfterAllowed.payable.paid_amount) === 1 && financeAfterAllowed.payable.status === "PART_SETTLED", "FINANCE payment must settle exactly one unit on the real payable");
-  assert(financeAfterAllowed.receipts.length === 1 && Number(financeAfterAllowed.receipts[0].amount) === 1, "FINANCE receipt must create exactly one receipt fact");
-  assert(financeAfterAllowed.payments.length === 1 && Number(financeAfterAllowed.payments[0].amount) === 1, "FINANCE payment must create exactly one payment fact");
-  assert(financeAfterAllowed.successLogs.filter((log) => log.action_code === "RECEIVE").length === 1, "FINANCE receipt must create exactly one successful RECEIVE log");
-  assert(financeAfterAllowed.successLogs.filter((log) => log.action_code === "PAY").length === 1, "FINANCE payment must create exactly one successful PAY log");
-  pass("finance settlement 401/403 and FINANCE positive success with exact facts", {
+  expectStatus("FINANCE retired receivable settlement", financeReceipt, 410);
+  expectStatus("FINANCE retired payable settlement", financePayment, 410);
+  assert(financeReceipt.text.includes("/api/finance/receipts/draft"), `FINANCE retired receipt must point to formal entry: ${financeReceipt.text}`);
+  assert(financePayment.text.includes("/api/finance/payments/draft"), `FINANCE retired payment must point to formal entry: ${financePayment.text}`);
+  const financeAfterRetired = financeFixtureSnapshot();
+  assert(same(financeAfterRetired, financeBeforeDenied), "FINANCE 410 retirement must leave AR/AP, legacy settlement rows, and all successful logs unchanged");
+  assert(financeAfterRetired.successLogs.filter((log) => ["RECEIVE", "PAY"].includes(log.action_code)).length === 0, "retired endpoints must create zero legacy RECEIVE/PAY success logs");
+  pass("finance settlement retired boundary: anonymous 401, WAREHOUSE 403, FINANCE 410, zero business facts", {
     receivableId,
     payableId,
-    receiptBillNo: financeReceipt.data.receiptBillNo,
-    paymentBillNo: financePayment.data.paymentBillNo
+    receiptStatus: financeReceipt.status,
+    paymentStatus: financePayment.status
   });
 
   inventoryBaseline = inventorySnapshot();

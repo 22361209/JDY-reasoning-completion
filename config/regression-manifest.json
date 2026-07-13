@@ -23,7 +23,8 @@
       "scripts/a103-price-memory-regression.mjs",
       "scripts/a108-delivery-notice-reservation-regression.mjs",
       "scripts/a113b-unit-price-bulk-fill-regression.mjs",
-      "scripts/a126-sales-daily-usability-regression.mjs"
+      "scripts/a126-sales-daily-usability-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs"
     ],
     "purchase": [
       "scripts/a92-sales-document-fields-regression.mjs",
@@ -31,7 +32,8 @@
       "scripts/a100-purchase-direct-push-regression.mjs",
       "scripts/a116-production-plan-pushdown-regression.mjs",
       "scripts/a116b-production-source-chain-regression.mjs",
-      "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs"
+      "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs"
     ],
     "inventory": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -50,14 +52,17 @@
       "scripts/a85-finance-posting-regression.mjs",
       "scripts/a94-tax-amount-regression.mjs",
       "scripts/a134-security-boundary-regression.mjs",
-      "scripts/a140-employee-financial-account-regression.mjs"
+      "scripts/a140-employee-financial-account-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs",
+      "scripts/a141-settlement-migration-regression.mjs"
     ],
     "lifecycle": [
       "scripts/a95-lifecycle-workbench-regression.mjs",
       "scripts/a104-document-lock-regression.mjs",
       "scripts/a105-bill-lifecycle-regression.mjs",
       "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
-      "scripts/a134-security-boundary-regression.mjs"
+      "scripts/a134-security-boundary-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs"
     ],
     "table": [
       "scripts/a91-frontend-ux-regression.mjs",
@@ -69,7 +74,8 @@
       "scripts/a110-table-display-brand-regression.mjs",
       "scripts/a128-list-query-unification-regression.mjs",
       "scripts/a139-list-fail-closed-regression.mjs",
-      "scripts/a140-employee-financial-account-regression.mjs"
+      "scripts/a140-employee-financial-account-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -85,7 +91,8 @@
       "scripts/a71-password-policy-settings-regression.mjs",
       "scripts/a134-security-boundary-regression.mjs",
       "scripts/a135-public-security-boundary-regression.mjs",
-      "scripts/a136-operation-log-actor-regression.mjs"
+      "scripts/a136-operation-log-actor-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs"
     ],
     "system": [
       "scripts/a119-account-set-switch-ui-regression.mjs",
@@ -94,7 +101,9 @@
       "scripts/a136-operation-log-actor-regression.mjs",
       "scripts/a137-tenant-schema-constraint-regression.mjs",
       "scripts/a139-list-fail-closed-regression.mjs",
-      "scripts/a140-employee-financial-account-regression.mjs"
+      "scripts/a140-employee-financial-account-regression.mjs",
+      "scripts/a141-formal-settlement-regression.mjs",
+      "scripts/a141-settlement-migration-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -247,7 +256,9 @@
     "scripts/a137-tenant-schema-constraint-regression.mjs",
     "scripts/a138-master-data-sparse-patch-regression.mjs",
     "scripts/a139-list-fail-closed-regression.mjs",
-    "scripts/a140-employee-financial-account-regression.mjs"
+    "scripts/a140-employee-financial-account-regression.mjs",
+    "scripts/a141-formal-settlement-regression.mjs",
+    "scripts/a141-settlement-migration-regression.mjs"
   ],
   "exemptions": [
     {

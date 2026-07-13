@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
@@ -11,6 +12,14 @@ const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-25";
+const cleanupFixture = {
+  accountCode: "",
+  accountCreated: false,
+  receiptBillNo: "",
+  receiptAudited: false,
+  paymentBillNo: "",
+  paymentAudited: false
+};
 
 await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
@@ -20,6 +29,18 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function sqlLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function dbScalar(sql) {
+  return execFileSync(
+    "docker",
+    ["exec", "jdy-erp-postgres", "psql", "-X", "-U", "jdy", "-d", "jdy_erp", "-v", "ON_ERROR_STOP=1", "-tAq", "-c", sql],
+    { encoding: "utf8" }
+  ).trim();
 }
 
 async function request(pathname, options = {}) {
@@ -46,6 +67,29 @@ async function api(pathname, options = {}) {
 
 async function post(pathname, body) {
   return api(pathname, { method: "POST", body });
+}
+
+async function ensureCnySettlementAccount() {
+  let rows = (await getList("financial-account-settlement-selector", "")).rows ?? [];
+  let account = rows.find((row) => row.currency === "CNY");
+  if (account?.id) return { account, created: false };
+
+  const code = `A85-CNY-${batch}`;
+  await post("/api/master-data/financialAccount", {
+    code,
+    name: `A85 回归现金账户 ${batch}`,
+    accountType: "CASH",
+    currency: "CNY",
+    remark: "A85 正式收付款自包含夹具",
+    status: "启用"
+  });
+  cleanupFixture.accountCode = code;
+  cleanupFixture.accountCreated = true;
+  await post(`/api/master-data/financialAccount/${encodeURIComponent(code)}/audit`, {});
+  rows = (await getList("financial-account-settlement-selector", code)).rows ?? [];
+  account = rows.find((row) => row.code === code && row.currency === "CNY");
+  assert(account?.id, `A85 self-seeded audited CNY account must enter settlement selector: ${JSON.stringify(rows)}`);
+  return { account, created: true };
 }
 
 async function getList(listKey, keyword = "") {
@@ -128,6 +172,7 @@ function salesOutPayload() {
   return {
     customerCode: "KH-001",
     billDate,
+    currency: "CNY",
     department: "销售部",
     ownerName: "本地管理员",
     lines: [
@@ -141,6 +186,7 @@ function purchaseInPayload() {
   return {
     supplierCode: "GYS-001",
     billDate,
+    currency: "CNY",
     department: "采购部",
     ownerName: "本地管理员",
     lines: [
@@ -256,25 +302,69 @@ async function assertRetiredEndpoints(data) {
 }
 
 async function assertFinanceRows(data) {
-  const manualReceipt = await request(`/api/finance/receivables/${encodeURIComponent(`YS-${data.salesOutAudited}`)}/receipt`, {
-    body: {
-      billNo: `SK-A85-${batch}`,
-      date: billDate,
-      amount: 1
-    }
+  const arBillNo = `YS-${data.salesOutAudited}`;
+  const apBillNo = `YF-${data.purchaseInAudited}`;
+  const beforeRetired = {
+    receivables: await completeFinanceState("receivable-list"),
+    payables: await completeFinanceState("payable-list"),
+    receipts: await completeFinanceState("ar-receipt-form-list"),
+    payments: await completeFinanceState("ap-payment-form-list")
+  };
+  const successLogCount = async (action) => {
+    const search = new URLSearchParams({ keyword: "", action, page: "1", pageSize: "1" });
+    const rows = await api(`/api/lists/operation-log-list?${search}`, { method: "GET" });
+    return Number(rows.total);
+  };
+  const oldLogBaseline = { receive: await successLogCount("RECEIVE"), pay: await successLogCount("PAY") };
+  const retiredReceipt = await request(`/api/finance/receivables/${encodeURIComponent(arBillNo)}/receipt`, {
+    body: { billNo: `SK-A85-${batch}`, date: billDate, amount: 1, currency: "CNY" }
   });
-  assert(manualReceipt.response.status === 409, `manual receipt bill no should be rejected, got ${manualReceipt.response.status}`);
-  assert(manualReceipt.text.includes("单据编号只能由系统自动生成，不能手工指定"), `manual receipt bill no rejection should report the formal numbering reason: ${manualReceipt.text}`);
-  const receipt = await post(`/api/finance/receivables/${encodeURIComponent(`YS-${data.salesOutAudited}`)}/receipt`, {
-    date: billDate,
-    amount: 50
+  const retiredPayment = await request(`/api/finance/payables/${encodeURIComponent(apBillNo)}/payment`, {
+    body: { billNo: `FK-A85-${batch}`, date: billDate, amount: 1, currency: "CNY" }
   });
-  const payment = await post(`/api/finance/payables/${encodeURIComponent(`YF-${data.purchaseInAudited}`)}/payment`, {
-    date: billDate,
-    amount: 60
+  assert(retiredReceipt.response.status === 410, `retired receipt endpoint should return 410, got ${retiredReceipt.response.status}`);
+  assert(retiredPayment.response.status === 410, `retired payment endpoint should return 410, got ${retiredPayment.response.status}`);
+  assert(retiredReceipt.text.includes("/api/finance/receipts/draft"), `retired receipt should point to formal draft endpoint: ${retiredReceipt.text}`);
+  assert(retiredPayment.text.includes("/api/finance/payments/draft"), `retired payment should point to formal draft endpoint: ${retiredPayment.text}`);
+  const afterRetired = {
+    receivables: await completeFinanceState("receivable-list"),
+    payables: await completeFinanceState("payable-list"),
+    receipts: await completeFinanceState("ar-receipt-form-list"),
+    payments: await completeFinanceState("ap-payment-form-list")
+  };
+  assert(JSON.stringify(afterRetired) === JSON.stringify(beforeRetired), "retired receipt/payment endpoints must leave all finance business facts unchanged");
+  assert(await successLogCount("RECEIVE") === oldLogBaseline.receive && await successLogCount("PAY") === oldLogBaseline.pay, "retired endpoints must not create legacy RECEIVE/PAY success logs");
+
+  const accountFixture = await ensureCnySettlementAccount();
+  const cnyAccount = accountFixture.account;
+  assert(!Object.prototype.hasOwnProperty.call(cnyAccount, "accountNo") && !Object.prototype.hasOwnProperty.call(cnyAccount, "accountHolder"), "settlement selector must not expose account number or holder");
+  const paymentMethod = cnyAccount.accountType === "CASH" ? "CASH" : "BANK_TRANSFER";
+  const arSources = (await getList("ar-receivable-settlement-source-selector", arBillNo)).rows ?? [];
+  const apSources = (await getList("ap-payable-settlement-source-selector", apBillNo)).rows ?? [];
+  const arSource = arSources.find((row) => row.billNo === arBillNo);
+  const apSource = apSources.find((row) => row.billNo === apBillNo);
+  assert(arSource?.id && arSource.currency === "CNY", `formal receipt source must be explicit CNY: ${JSON.stringify(arSources)}`);
+  assert(apSource?.id && apSource.currency === "CNY", `formal payment source must be explicit CNY: ${JSON.stringify(apSources)}`);
+
+  const formalPayload = (partyId, sourceId, amount, label) => ({
+    partyId,
+    billDate,
+    currency: "CNY",
+    amount,
+    remark: `A85 ${label} ${batch}`,
+    fundLines: [{ lineNo: 1, accountId: cnyAccount.id, paymentMethod, amount, fee: 0, transactionNo: `A85-${batch}-${label}`, remark: "A85 formal fund" }],
+    allocations: [{ lineNo: 1, sourceId, settlementAmount: amount, remark: "A85 formal allocation" }]
   });
-  assert(/^SKD\d{6}$/.test(String(receipt.receiptBillNo ?? "")), `receipt bill no should be generated, got ${JSON.stringify(receipt)}`);
-  assert(/^FKD\d{6}$/.test(String(payment.paymentBillNo ?? "")), `payment bill no should be generated, got ${JSON.stringify(payment)}`);
+  const receipt = await post("/api/finance/receipts/draft", formalPayload(arSource.partyId, arSource.id, 50, "receipt"));
+  cleanupFixture.receiptBillNo = String(receipt.billNo ?? "");
+  const payment = await post("/api/finance/payments/draft", formalPayload(apSource.partyId, apSource.id, 60, "payment"));
+  cleanupFixture.paymentBillNo = String(payment.billNo ?? "");
+  assert(/^SKD\d{6}$/.test(String(receipt.billNo ?? "")) && receipt.status === "DRAFT" && receipt.currency === "CNY", `formal receipt draft should be generated in CNY, got ${JSON.stringify(receipt)}`);
+  assert(/^FKD\d{6}$/.test(String(payment.billNo ?? "")) && payment.status === "DRAFT" && payment.currency === "CNY", `formal payment draft should be generated in CNY, got ${JSON.stringify(payment)}`);
+  await post(`/api/finance/receipts/${encodeURIComponent(receipt.billNo)}/audit`);
+  cleanupFixture.receiptAudited = true;
+  await post(`/api/finance/payments/${encodeURIComponent(payment.billNo)}/audit`);
+  cleanupFixture.paymentAudited = true;
 
   const receivables = await collectListRows("receivable-list", [
     `YS-${data.salesOutAudited}`,
@@ -311,7 +401,14 @@ async function assertFinanceRows(data) {
   assert(reversedAp && amountOf(reversedAp) === -data.expectedPayableAmount, "purchase in reverse should create negative payable reversal");
   assert(redAp && amountOf(redAp) === -data.expectedPayableAmount, "purchase in red reverse should create negative payable");
 
-  return { receivables, payables, receiptBillNo: receipt.receiptBillNo, paymentBillNo: payment.paymentBillNo };
+  return {
+    receivables,
+    payables,
+    receiptBillNo: receipt.billNo,
+    paymentBillNo: payment.billNo,
+    settlementAccount: { code: cnyAccount.code, created: accountFixture.created },
+    retiredStatuses: [retiredReceipt.response.status, retiredPayment.response.status]
+  };
 }
 
 async function assertFrontendHasNoManualOrderGeneration() {
@@ -355,21 +452,108 @@ async function captureFinanceLists(data) {
   return screenshots;
 }
 
-const data = await createFinanceData();
-const retiredEndpoints = await assertRetiredEndpoints(data);
-const financeRows = await assertFinanceRows(data);
-await assertFrontendHasNoManualOrderGeneration();
-const screenshots = await captureFinanceLists(data);
+async function cleanupSettlementFixtures() {
+  const cleanup = { attempted: true, remaining: null, cleanupError: "" };
+  const errors = [];
+  for (const fixture of [
+    { collection: "receipts", billNo: cleanupFixture.receiptBillNo, audited: cleanupFixture.receiptAudited },
+    { collection: "payments", billNo: cleanupFixture.paymentBillNo, audited: cleanupFixture.paymentAudited }
+  ]) {
+    if (!fixture.billNo) continue;
+    if (fixture.audited) {
+      try {
+        await post(`/api/finance/${fixture.collection}/${encodeURIComponent(fixture.billNo)}/reverse`, {});
+      } catch (error) {
+        errors.push(`reverse ${fixture.billNo}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    try {
+      await api(`/api/finance/${fixture.collection}/${encodeURIComponent(fixture.billNo)}`, { method: "DELETE" });
+    } catch (error) {
+      errors.push(`delete ${fixture.billNo}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const exactTargets = [cleanupFixture.accountCode, cleanupFixture.receiptBillNo, cleanupFixture.paymentBillNo].filter(Boolean);
+  if (exactTargets.length > 0) {
+    try {
+      const targetSql = exactTargets.map(sqlLiteral).join(", ");
+      dbScalar(`DELETE FROM public.sys_operation_log WHERE target_no IN (${targetSql})`);
+    } catch (error) {
+      errors.push(`delete exact fixture logs: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (cleanupFixture.accountCreated && cleanupFixture.accountCode) {
+    try {
+      dbScalar(`DELETE FROM public.md_financial_account WHERE code = ${sqlLiteral(cleanupFixture.accountCode)}`);
+    } catch (error) {
+      errors.push(`delete account ${cleanupFixture.accountCode}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  try {
+    const targetFilter = exactTargets.length > 0
+      ? `target_no IN (${exactTargets.map(sqlLiteral).join(", ")})`
+      : "FALSE";
+    cleanup.remaining = {
+      account: cleanupFixture.accountCreated && cleanupFixture.accountCode
+        ? Number(dbScalar(`SELECT count(*) FROM public.md_financial_account WHERE code = ${sqlLiteral(cleanupFixture.accountCode)}`))
+        : 0,
+      receipt: cleanupFixture.receiptBillNo
+        ? Number(dbScalar(`SELECT count(*) FROM public.ar_receipt WHERE bill_no = ${sqlLiteral(cleanupFixture.receiptBillNo)}`))
+        : 0,
+      payment: cleanupFixture.paymentBillNo
+        ? Number(dbScalar(`SELECT count(*) FROM public.ap_payment WHERE bill_no = ${sqlLiteral(cleanupFixture.paymentBillNo)}`))
+        : 0,
+      logs: Number(dbScalar(`SELECT count(*) FROM public.sys_operation_log WHERE ${targetFilter}`))
+    };
+    if (Object.values(cleanup.remaining).some((value) => value !== 0)) {
+      errors.push(`fixture residue remains: ${JSON.stringify(cleanup.remaining)}`);
+    }
+  } catch (error) {
+    errors.push(`verify cleanup: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  cleanup.cleanupError = errors.join(" | ");
+  return cleanup;
+}
 
 const result = {
   batch,
   generatedAt: new Date().toISOString(),
-  data,
-  retiredEndpoints,
-  receivableBills: financeRows.receivables.map((row) => ({ billNo: row.billNo, sourceBillNo: row.sourceBillNo, amount: row.amount, status: row.status })),
-  payableBills: financeRows.payables.map((row) => ({ billNo: row.billNo, sourceBillNo: row.sourceBillNo, amount: row.amount, status: row.status })),
-  settlementBills: { receiptBillNo: financeRows.receiptBillNo, paymentBillNo: financeRows.paymentBillNo },
-  screenshots
+  ok: false,
+  data: null,
+  retiredEndpoints: null,
+  receivableBills: [],
+  payableBills: [],
+  settlementBills: null,
+  screenshots: [],
+  cleanup: { attempted: false, remaining: null, cleanupError: "" },
+  failure: null
 };
-await writeFile(resultPath, JSON.stringify(result, null, 2));
+let runError = null;
+try {
+  const data = await createFinanceData();
+  const retiredEndpoints = await assertRetiredEndpoints(data);
+  const financeRows = await assertFinanceRows(data);
+  await assertFrontendHasNoManualOrderGeneration();
+  const screenshots = await captureFinanceLists(data);
+  Object.assign(result, {
+    data,
+    retiredEndpoints,
+    receivableBills: financeRows.receivables.map((row) => ({ billNo: row.billNo, sourceBillNo: row.sourceBillNo, amount: row.amount, status: row.status })),
+    payableBills: financeRows.payables.map((row) => ({ billNo: row.billNo, sourceBillNo: row.sourceBillNo, amount: row.amount, status: row.status })),
+    settlementBills: { receiptBillNo: financeRows.receiptBillNo, paymentBillNo: financeRows.paymentBillNo, account: financeRows.settlementAccount },
+    screenshots
+  });
+} catch (error) {
+  runError = error;
+  result.failure = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { message: String(error) };
+} finally {
+  result.cleanup = await cleanupSettlementFixtures();
+  result.ok = runError === null && result.cleanup.cleanupError === "";
+  await writeFile(resultPath, JSON.stringify(result, null, 2));
+}
+
+if (runError) throw runError;
+assert(result.cleanup.cleanupError === "", `A85 cleanup must be residue-free: ${result.cleanup.cleanupError}`);
 console.log(JSON.stringify(result, null, 2));
