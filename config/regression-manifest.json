@@ -83,6 +83,13 @@
       "scripts/a135-public-security-boundary-regression.mjs",
       "scripts/a136-operation-log-actor-regression.mjs"
     ],
+    "system": [
+      "scripts/a119-account-set-switch-ui-regression.mjs",
+      "scripts/a119-full-isolation-regression.mjs",
+      "scripts/a135-public-security-boundary-regression.mjs",
+      "scripts/a136-operation-log-actor-regression.mjs",
+      "scripts/a137-tenant-schema-constraint-regression.mjs"
+    ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
       "scripts/a39-core-document-pdf-regression.mjs",
@@ -216,7 +223,8 @@
     "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
     "scripts/a134-security-boundary-regression.mjs",
     "scripts/a135-public-security-boundary-regression.mjs",
-    "scripts/a136-operation-log-actor-regression.mjs"
+    "scripts/a136-operation-log-actor-regression.mjs",
+    "scripts/a137-tenant-schema-constraint-regression.mjs"
   ],
   "exemptions": [
     {

@@ -104,6 +104,11 @@ class AccountSetManagementServiceTest {
         assertThat(tableExists(schema, "md_product")).isTrue();
         assertThat(tableExists(schema, "sales_order")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
+        assertThat(managedConstraintCount(schema, "p")).isEqualTo(72);
+        assertThat(managedConstraintCount(schema, "u")).isEqualTo(64);
+        assertThat(managedConstraintCount(schema, "f")).isEqualTo(153);
+        assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(11);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
@@ -131,6 +136,58 @@ class AccountSetManagementServiceTest {
         bindRequest();
         currentSessionService.login("admin", "admin123", code);
         assertThat(currentSessionService.currentAccountSetCode()).isEqualTo(code);
+    }
+
+    @Test
+    void createAccountSetRefusesASecondRegistrationForTheSameTenantSchema() {
+        var firstCode = nextCode("A137S1");
+        var secondCode = nextCode("A137S2");
+        var schema = "tenant_a137_shared_" + UUID.randomUUID().toString().substring(0, 8);
+        var first = accountSetManagementService.createAccountSet(new AccountSetManagementService.AccountSetCreateRequest(
+            firstCode, firstCode + " 账套", "测试", null, schema, null, null, "2026-07", "2026-07"
+        ));
+        @SuppressWarnings("unchecked")
+        var firstRow = (Map<String, Object>) first.get("accountSet");
+        createdSchemas.add(String.valueOf(firstRow.get("schemaName")));
+
+        assertThatThrownBy(() -> accountSetManagementService.createAccountSet(
+            new AccountSetManagementService.AccountSetCreateRequest(
+                secondCode, secondCode + " 账套", "测试", null, schema, null, null, "2026-07", "2026-07"
+            )
+        ))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("schema 已被其他账套使用");
+        assertThat(platformJdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM sys_account_set WHERE lower(btrim(schema_name)) = lower(btrim(?))",
+            Integer.class,
+            schema
+        )).isEqualTo(1);
+        assertThat(platformJdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM sys_account_set WHERE code = ?",
+            Integer.class,
+            secondCode
+        )).isZero();
+    }
+
+    @Test
+    void createAccountSetRefusesToAdoptAnExistingUnregisteredSchema() {
+        var code = nextCode("A137EX");
+        var schema = "tenant_a137_existing_" + UUID.randomUUID().toString().substring(0, 8);
+        createdSchemas.add(schema);
+        platformJdbcTemplate.execute("CREATE SCHEMA " + quoteIdentifier(schema));
+
+        assertThatThrownBy(() -> accountSetManagementService.createAccountSet(
+            new AccountSetManagementService.AccountSetCreateRequest(
+                code, code + " 账套", "测试", null, schema, null, null, "2026-07", "2026-07"
+            )
+        ))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("不允许收编现有 schema");
+        assertThat(platformJdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM sys_account_set WHERE code = ?",
+            Integer.class,
+            code
+        )).isZero();
     }
 
     @Test
@@ -170,14 +227,8 @@ class AccountSetManagementServiceTest {
         var schemaA = schemaFor(codeA);
         var schemaB = schemaFor(codeB);
 
-        platformJdbcTemplate.update("""
-            INSERT INTO %s.sales_order (bill_no, customer_id, bill_date)
-            VALUES (?, gen_random_uuid(), current_date)
-            """.formatted(quoteIdentifier(schemaA)), codeA + "-SO");
-        platformJdbcTemplate.update("""
-            INSERT INTO %s.sales_order (bill_no, customer_id, bill_date)
-            VALUES (?, gen_random_uuid(), current_date)
-            """.formatted(quoteIdentifier(schemaB)), codeB + "-SO");
+        createSalesOrderFixture(schemaA, codeA);
+        createSalesOrderFixture(schemaB, codeB);
 
         bindRequest();
         currentSessionService.login("admin", "admin123", codeA);
@@ -215,7 +266,10 @@ class AccountSetManagementServiceTest {
         var backupResult = maintenanceService.backupCurrentAccountSet();
         @SuppressWarnings("unchecked")
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
-        createdBackupSchemas.add(String.valueOf(backup.get("backupSchemaName")));
+        var backupSchema = String.valueOf(backup.get("backupSchemaName"));
+        createdBackupSchemas.add(backupSchema);
+        platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
+        platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
         var backupLogId = platformJdbcTemplate.queryForObject("""
             SELECT id::text
             FROM %s.sys_operation_log
@@ -247,6 +301,12 @@ class AccountSetManagementServiceTest {
             WHERE id = ?::uuid
               AND action_code = 'BACKUP_ACCOUNT_SET'
             """.formatted(quoteIdentifier(schema)), Integer.class, backupLogId)).isEqualTo(1);
+
+        platformJdbcTemplate.execute("DROP TABLE %s.md_unit".formatted(quoteIdentifier(backupSchema)));
+        assertThatThrownBy(() -> maintenanceService.restoreCurrentAccountSet(String.valueOf(backup.get("backupName"))))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("备份缺少受管表：md_unit");
+        assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isEqualTo(1);
 
         assertThatThrownBy(() -> maintenanceService.restoreCurrentAccountSet("missing-" + code))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
@@ -318,6 +378,48 @@ class AccountSetManagementServiceTest {
             "SELECT count(*)::int FROM " + quoteIdentifier(schema) + "." + quoteIdentifier(tableName) + " WHERE " + whereClause,
             Integer.class
         );
+    }
+
+    private int managedConstraintCount(String schema, String constraintType) {
+        return platformJdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM pg_constraint constraint_row
+            JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+            JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+            JOIN public.sys_tenant_managed_table managed ON managed.table_name = table_row.relname
+            WHERE schema_row.nspname = ?
+              AND constraint_row.contype = ?
+            """, Integer.class, schema, constraintType);
+    }
+
+    private int tenantScopeAccountSetForeignKeyCount(String schema) {
+        return platformJdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM pg_constraint constraint_row
+            JOIN pg_class child_table ON child_table.oid = constraint_row.conrelid
+            JOIN pg_namespace child_schema ON child_schema.oid = child_table.relnamespace
+            JOIN pg_class parent_table ON parent_table.oid = constraint_row.confrelid
+            JOIN pg_namespace parent_schema ON parent_schema.oid = parent_table.relnamespace
+            WHERE constraint_row.contype = 'f'
+              AND child_schema.nspname = ?
+              AND parent_schema.nspname = 'public'
+              AND parent_table.relname = 'sys_account_set'
+              AND child_table.relname IN (
+                  'document_number_sequence', 'inv_stock_balance', 'inv_stock_opening', 'inv_stock_txn'
+              )
+            """, Integer.class, schema);
+    }
+
+    private void createSalesOrderFixture(String schema, String code) {
+        var customerId = platformJdbcTemplate.queryForObject("""
+            INSERT INTO %s.md_customer (code, name, audit_status)
+            VALUES (?, ?, 'AUDITED')
+            RETURNING id::text
+            """.formatted(quoteIdentifier(schema)), String.class, code + "-C", code + " 客户");
+        platformJdbcTemplate.update("""
+            INSERT INTO %s.sales_order (bill_no, customer_id, bill_date)
+            VALUES (?, ?::uuid, current_date)
+            """.formatted(quoteIdentifier(schema)), code + "-SO", customerId);
     }
 
     private List<String> productionDepartmentCodes(String schema) {

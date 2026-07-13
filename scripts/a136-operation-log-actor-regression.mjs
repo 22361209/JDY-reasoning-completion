@@ -677,6 +677,7 @@ async function cleanup() {
           OR target_id = ${sqlLiteral(fixture.billId)}::uuid
           OR target_no = ${sqlLiteral(fixture.billNo)}
         );
+      DELETE FROM ${schema}.stock_count_line WHERE bill_id = ${sqlLiteral(fixture.billId)}::uuid;
       DELETE FROM ${schema}.stock_count WHERE id = ${sqlLiteral(fixture.billId)}::uuid;
       DELETE FROM ${schema}.md_product WHERE id = ${sqlLiteral(fixture.productId)}::uuid;
       COMMIT;
@@ -718,6 +719,7 @@ async function cleanup() {
     ? "0"
     : lifecycleFixtures.map((fixture) => `(
         (SELECT count(*) FROM ${quoteIdentifier(fixture.accountSet.schemaName)}.stock_count WHERE id = ${sqlLiteral(fixture.billId)}::uuid)
+        + (SELECT count(*) FROM ${quoteIdentifier(fixture.accountSet.schemaName)}.stock_count_line WHERE bill_id = ${sqlLiteral(fixture.billId)}::uuid)
         + (SELECT count(*) FROM ${quoteIdentifier(fixture.accountSet.schemaName)}.md_product WHERE id = ${sqlLiteral(fixture.productId)}::uuid)
       )`).join(" + ");
   const lifecycleLogCountSql = lifecycleFixtures.length === 0
