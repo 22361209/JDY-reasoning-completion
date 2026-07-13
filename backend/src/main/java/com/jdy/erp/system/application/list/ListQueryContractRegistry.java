@@ -21,7 +21,8 @@ public class ListQueryContractRegistry {
 
     private static final Set<String> MASTER_SELECTOR_KEYS = Set.of(
         "employee-master-selector",
-        "financial-account-master-selector"
+        "financial-account-master-selector",
+        "financial-account-settlement-selector"
     );
 
     private static final Set<String> SOURCE_SELECTOR_KEYS = Set.of(
@@ -31,6 +32,8 @@ public class ListQueryContractRegistry {
         "purchase-requisition-source-selector",
         "purchase-order-source-selector",
         "purchase-in-source-selector",
+        "ar-receivable-settlement-source-selector",
+        "ap-payable-settlement-source-selector",
         "production-task-source-selector",
         "outsourcing-work-order-issue-source-selector",
         "outsourcing-work-order-receipt-source-selector",
@@ -50,8 +53,10 @@ public class ListQueryContractRegistry {
         "stock-transfer-form-list",
         "receivable-list",
         "ar-receivable-list",
+        "ar-receipt-form-list",
         "payable-list",
         "ap-payable-list",
+        "ap-payment-form-list",
         "bom-list",
         "production-plan-list",
         "kit-analysis-list",
@@ -116,6 +121,10 @@ public class ListQueryContractRegistry {
                     "customerMaterialCode",
                     "customerOrderNo",
                     "supplierMaterialCode",
+                    "partyId",
+                    "partyCode",
+                    "partyName",
+                    "currency",
                     "lineRemark"
                 ),
                 "billDate",
@@ -140,6 +149,8 @@ public class ListQueryContractRegistry {
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "customerCode", "customer", "partner", "productCode", "productName", "spec", "customerMaterialCode", "customerOrderNo", "remark", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
             case "purchase-order-form-list", "purchase-in-list", "purchase-in-form-list", "purchase-return-list", "purchase-return-form-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "supplierCode", "supplier", "partner", "productCode", "productName", "spec", "sourceBillNo", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
+            case "ar-receipt-form-list", "ap-payment-form-list" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourceBillNo", "partyCode", "partyName", "currency", "remark"), "billDate", "row", normalizedView, "default", false);
             case "inventory-query-list", "stock-alert-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("code", "name", "productCode", "productName", "spec", "warehouse", "warehouseCode", "warehouseName", "status"), "", "row", normalizedView, "default", false);
             case "purchase-summary-report" ->
@@ -179,12 +190,15 @@ public class ListQueryContractRegistry {
 
     private ListQueryContract masterSelectorContract(String listKey, String view) {
         var employee = "employee-master-selector".equals(listKey);
+        var settlementAccount = "financial-account-settlement-selector".equals(listKey);
         return new ListQueryContract(
             listKey,
             view,
             employee
                 ? List.of("code", "name", "position", "department")
-                : List.of("code", "name", "accountType", "bankName", "accountNo", "accountHolder", "currency"),
+                : settlementAccount
+                    ? List.of("code", "name", "accountType", "bankName", "currency")
+                    : List.of("code", "name", "accountType", "bankName", "accountNo", "accountHolder", "currency"),
             "updatedAt",
             "row",
             view,

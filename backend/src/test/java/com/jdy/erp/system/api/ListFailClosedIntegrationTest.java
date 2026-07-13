@@ -173,6 +173,150 @@ class ListFailClosedIntegrationTest {
     }
 
     @Test
+    void formalSettlementListsAndSelectorsUseExactKeysAndFinancePermissionMatrix() {
+        var registry = new ListQueryContractRegistry();
+        var listKeys = List.of("ar-receipt-form-list", "ap-payment-form-list");
+        var selectorKeys = List.of(
+            "ar-receivable-settlement-source-selector",
+            "ap-payable-settlement-source-selector"
+        );
+        for (var listKey : listKeys) {
+            assertThatCode(() -> registry.contractFor(listKey, "header"))
+                .as(listKey)
+                .doesNotThrowAnyException();
+        }
+        for (var listKey : selectorKeys) {
+            assertThat(registry.contractFor(listKey, "header").adapterKey()).isEqualTo("sourceSelector");
+        }
+        assertNotFound(() -> registry.contractFor("ar-receipt-list", "header"));
+        assertNotFound(() -> registry.contractFor("ap-payment-source-selector", "header"));
+
+        var reportPermission = mock(CurrentPermissionService.class);
+        when(reportPermission.hasPermission("finance.report.view")).thenReturn(true);
+        var reportGuard = new ListStubStateGuard(registry, reportPermission);
+        listKeys.forEach(reportGuard::assertReadable);
+        selectorKeys.forEach(key -> assertForbidden(() -> reportGuard.assertReadable(key)));
+        assertForbidden(() -> reportGuard.assertReadable("financial-account-settlement-selector"));
+
+        var masterPermission = mock(CurrentPermissionService.class);
+        when(masterPermission.hasPermission("master.data.manage")).thenReturn(true);
+        var masterGuard = new ListStubStateGuard(registry, masterPermission);
+        masterGuard.assertReadable("financial-account-master-selector");
+        assertForbidden(() -> masterGuard.assertReadable("financial-account-settlement-selector"));
+
+        var settlePermission = mock(CurrentPermissionService.class);
+        when(settlePermission.hasPermission("finance.settle")).thenReturn(true);
+        var settleGuard = new ListStubStateGuard(registry, settlePermission);
+        listKeys.forEach(settleGuard::assertReadable);
+        selectorKeys.forEach(settleGuard::assertReadable);
+        settleGuard.assertReadable("financial-account-settlement-selector");
+
+        assertThat(registry.contractFor("financial-account-settlement-selector", "detail").keywordFields())
+            .contains("currency", "bankName")
+            .doesNotContain("accountNo", "accountHolder");
+    }
+
+    @Test
+    void formalSettlementSourceSelectorsArePositiveSameCurrencyRealFinanceQueries() {
+        var jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.eq(Long.class), org.mockito.ArgumentMatchers.any(Object[].class)))
+            .thenReturn(0L);
+        when(jdbcTemplate.queryForList(anyString(), org.mockito.ArgumentMatchers.any(Object[].class))).thenReturn(List.of());
+        var tenantDataScopeService = mock(TenantDataScopeService.class);
+        var selector = new SourceSelectorListQueryAdapter(jdbcTemplate, tenantDataScopeService);
+        var registry = new ListQueryContractRegistry();
+        var support = new ListQuerySupport(new ObjectMapper());
+
+        for (var listKey : List.of(
+            "ar-receivable-settlement-source-selector",
+            "ap-payable-settlement-source-selector"
+        )) {
+            var request = new ListQueryRequest(
+                listKey,
+                "A141",
+                "",
+                1,
+                200,
+                "detail",
+                "billDate",
+                "desc",
+                "{\"currency\":{\"operator\":\"等于\",\"value\":\"USD\"},\"partyId\":{\"operator\":\"等于\",\"value\":\"00000000-0000-0000-0000-000000000141\"}}",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "current",
+                "",
+                "",
+                false
+            );
+            assertThat(selector.query(request, registry.contractFor(listKey, "detail"), support, mock(ListSeedRowsProvider.class)).rows())
+                .isEmpty();
+        }
+
+        var sql = org.mockito.Mockito.mockingDetails(jdbcTemplate).getInvocations().stream()
+            .filter(invocation -> List.of("queryForObject", "queryForList").contains(invocation.getMethod().getName()))
+            .map(invocation -> String.valueOf((Object) invocation.getArgument(0)))
+            .toList();
+        assertThat(sql).hasSize(4);
+        assertThat(String.join("\n", sql))
+            .contains("FROM ar_receivable ar", "FROM ap_payable ap")
+            .contains("amount > 0", "unsettledAmount", "source.\"currency\"", "source.\"partyId\"")
+            .doesNotContain("md_product", "sales_order_line");
+        verifyNoInteractions(tenantDataScopeService);
+    }
+
+    @Test
+    void formalSettlementListProvidersReadTheirRealHeadersAndExposeCurrency() {
+        var jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        var tenantDataScopeService = mock(TenantDataScopeService.class);
+        var provider = new StubListSeedRowsProvider(jdbcTemplate, tenantDataScopeService);
+
+        provider.seedRows("ar-receipt-form-list", "header", 200);
+        provider.seedRows("ap-payment-form-list", "header", 200);
+        provider.seedRows("ar-receivable-list", "header", 200);
+        provider.seedRows("ap-payable-list", "header", 200);
+        provider.seedRows("financial-account-settlement-selector", "detail", 200);
+
+        var sql = org.mockito.Mockito.mockingDetails(jdbcTemplate).getInvocations().stream()
+            .filter(invocation -> "queryForList".equals(invocation.getMethod().getName()))
+            .map(invocation -> String.valueOf((Object) invocation.getArgument(0)))
+            .toList();
+        assertThat(sql).hasSize(5);
+        assertThat(sql.get(0)).contains(
+            "FROM ar_receipt h",
+            "h.currency",
+            "h.amount::text AS amount",
+            "h.version::text AS version",
+            "h.legacy_imported"
+        );
+        assertThat(sql.get(1)).contains(
+            "FROM ap_payment h",
+            "h.currency",
+            "h.amount::text AS amount",
+            "h.version::text AS version",
+            "h.legacy_imported"
+        );
+        assertThat(sql.get(2)).contains("FROM ar_receivable ar", "ar.currency");
+        assertThat(sql.get(3)).contains("FROM ap_payable ap", "ap.currency");
+        assertThat(sql.get(4))
+            .contains("FROM md_financial_account", "enabled = TRUE", "audit_status = 'AUDITED'")
+            .doesNotContain("account_no", "account_holder");
+        verifyNoInteractions(tenantDataScopeService);
+    }
+
+    @Test
+    void formalSettlementHeaderSqlExecutesAgainstTheConfiguredDataSchema() {
+        for (var listKey : List.of("ar-receipt-form-list", "ap-payment-form-list")) {
+            assertThatCode(() -> realSeedRowsProvider.seedRows(listKey, "header", 200))
+                .as(listKey)
+                .doesNotThrowAnyException();
+        }
+    }
+
+    @Test
     void stockCountHeaderProvidersUseOnlyTheirRealTablesAndFixedFields() {
         var jdbcTemplate = mock(JdbcTemplate.class);
         var tenantDataScopeService = mock(TenantDataScopeService.class);

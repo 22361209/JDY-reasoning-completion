@@ -72,6 +72,8 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             case "purchase-requisition-source-selector" -> purchaseRequisitionSpec();
             case "purchase-order-source-selector" -> purchaseOrderSpec();
             case "purchase-in-source-selector" -> purchaseInSpec();
+            case "ar-receivable-settlement-source-selector" -> receivableSettlementSpec();
+            case "ap-payable-settlement-source-selector" -> payableSettlementSpec();
             case "production-task-source-selector" -> productionTaskSpec();
             case "outsourcing-work-order-issue-source-selector" -> outsourcingWorkOrderIssueSpec();
             case "outsourcing-work-order-receipt-source-selector" -> outsourcingWorkOrderReceiptSpec();
@@ -259,6 +261,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    c.code AS "customerCode",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   so.currency,
                    so.department,
                    so.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
@@ -319,7 +322,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
               AND l.line_frozen_status = 'NORMAL'
               AND GREATEST(0, l.qty - COALESCE(notice.noticed_qty, 0)) > 0
             """, List.of(inventoryScopeId()), sourceFields(
-                "billNo", "customerCode", "customer", "billDate", "department", "ownerName",
+                "billNo", "customerCode", "customer", "billDate", "currency", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "shippedQty", "remainingQty", "availableNoticeQty",
                 "lineCloseStatus", "lineFrozenStatus", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal", "customerMaterialCode",
@@ -334,6 +337,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    c.code AS "customerCode",
                    c.name AS customer,
                    to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   dn.currency,
                    dn.department,
                    dn.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
@@ -389,7 +393,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             WHERE dn.status = 'AUDITED'
               AND GREATEST(0, l.qty - COALESCE(out_qty.shipped_qty, 0)) > 0
             """, List.of(inventoryScopeId()), sourceFields(
-                "billNo", "customerCode", "customer", "billDate", "department", "ownerName",
+                "billNo", "customerCode", "customer", "billDate", "currency", "department", "ownerName",
                 "lineNo", "sourceOrderNo", "sourceLineNo", "productId", "productCode", "productName", "spec",
                 "unit", "netWeight", "grossWeight", "warehouseCode", "sourceQty", "shippedQty", "remainingQty",
                 "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal", "customerMaterialCode", "customerOrderNo", "lineRemark",
@@ -447,6 +451,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   po.currency,
                    po.department,
                    po.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
@@ -492,7 +497,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
               AND l.line_frozen_status = 'NORMAL'
               AND GREATEST(0, l.qty - GREATEST(COALESCE(l.received_qty, 0), COALESCE(in_qty.received_qty, 0))) > 0
             """, List.of(), sourceFields(
-                "billNo", "supplierCode", "supplier", "billDate", "department", "ownerName",
+                "billNo", "supplierCode", "supplier", "billDate", "currency", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "receivedQty", "remainingQty", "lineCloseStatus",
                 "lineFrozenStatus", "supplierMaterialCode", "unitPrice", "taxInclusiveUnitPrice", "taxRate", "taxAmount",
@@ -506,6 +511,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   pi.currency,
                    pi.department,
                    pi.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
@@ -541,10 +547,70 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             WHERE pi.status = 'AUDITED'
               AND GREATEST(0, l.qty - COALESCE(returned.returned_qty, 0)) > 0
             """, List.of(), sourceFields(
-                "billNo", "supplierCode", "supplier", "billDate", "department", "ownerName",
+                "billNo", "supplierCode", "supplier", "billDate", "currency", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
                 "warehouseCode", "sourceQty", "returnedQty", "remainingQty", "unitPrice", "taxInclusiveUnitPrice", "taxRate",
                 "taxAmount", "priceTaxTotal", "lineRemark"
+            ));
+    }
+
+    private SourceQuerySpec receivableSettlementSpec() {
+        return new SourceQuerySpec("""
+            SELECT ar.id::text AS id,
+                   ar.id::text AS "sourceId",
+                   ar.bill_no AS "billNo",
+                   COALESCE(ar.source_bill_no, '') AS "sourceBillNo",
+                   ar.customer_id::text AS "partyId",
+                   c.code AS "partyCode",
+                   c.name AS "partyName",
+                   c.code AS "customerCode",
+                   c.name AS customer,
+                   to_char(ar.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   ar.currency,
+                   ar.amount::text AS amount,
+                   ar.received_amount::text AS "settledAmount",
+                   ar.received_amount::text AS "receivedAmount",
+                   (ar.amount - ar.received_amount)::text AS "unsettledAmount",
+                   ar.status
+            FROM ar_receivable ar
+            JOIN md_customer c ON c.id = ar.customer_id
+            WHERE ar.amount > 0
+              AND ar.amount - ar.received_amount > 0
+              AND ar.status IN ('OPEN', 'PART_SETTLED')
+            """, List.of(), sourceFields(
+                "id", "sourceId", "billNo", "sourceBillNo", "partyId", "partyCode", "partyName",
+                "customerCode", "customer", "billDate", "currency", "amount", "settledAmount",
+                "receivedAmount", "unsettledAmount", "status"
+            ));
+    }
+
+    private SourceQuerySpec payableSettlementSpec() {
+        return new SourceQuerySpec("""
+            SELECT ap.id::text AS id,
+                   ap.id::text AS "sourceId",
+                   ap.bill_no AS "billNo",
+                   COALESCE(ap.source_bill_no, '') AS "sourceBillNo",
+                   ap.supplier_id::text AS "partyId",
+                   s.code AS "partyCode",
+                   s.name AS "partyName",
+                   s.code AS "supplierCode",
+                   s.name AS supplier,
+                   to_char(ap.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   ap.currency,
+                   ap.amount::text AS amount,
+                   ap.paid_amount::text AS "settledAmount",
+                   ap.paid_amount::text AS "paidAmount",
+                   (ap.amount - ap.paid_amount)::text AS "unsettledAmount",
+                   ap.status
+            FROM ap_payable ap
+            JOIN md_supplier s ON s.id = ap.supplier_id
+            WHERE ap.amount > 0
+              AND ap.amount - ap.paid_amount > 0
+              AND ap.status IN ('OPEN', 'PART_SETTLED')
+            """, List.of(), sourceFields(
+                "id", "sourceId", "billNo", "sourceBillNo", "partyId", "partyCode", "partyName",
+                "supplierCode", "supplier", "billDate", "currency", "amount", "settledAmount",
+                "paidAmount", "unsettledAmount", "status"
             ));
     }
 

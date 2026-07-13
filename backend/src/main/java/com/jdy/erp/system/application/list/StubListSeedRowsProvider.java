@@ -46,6 +46,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "employee-master-selector" -> employeeRows(true);
             case "financial-account-master-list" -> financialAccountRows(false);
             case "financial-account-master-selector" -> financialAccountRows(true);
+            case "financial-account-settlement-selector" -> financialSettlementAccountRows();
             case "production-department-list" -> realProductionDepartmentRows();
             case "sales-quote-form-list" -> salesQuoteRows();
             case "purchase-requisition-list" -> purchaseRequisitionRows();
@@ -64,7 +65,9 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "inventory-query-list" -> realInventoryRows();
             case "stock-alert-list" -> stockAlertRows();
             case "receivable-list", "ar-receivable-list" -> receivableRows();
+            case "ar-receipt-form-list" -> settlementDocumentRows(true);
             case "payable-list", "ap-payable-list" -> payableRows();
+            case "ap-payment-form-list" -> settlementDocumentRows(false);
             case "bom-list" -> bomRows();
             case "production-plan-list" -> productionPlanRows();
             case "kit-analysis-list" -> kitAnalysisRows();
@@ -877,6 +880,23 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             """.formatted(selectorFilter)));
     }
 
+    private List<Map<String, ?>> financialSettlementAccountRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   account_type AS "accountType",
+                   COALESCE(bank_name, '') AS "bankName",
+                   currency,
+                   '启用' AS status,
+                   '已审核' AS "auditStatus"
+            FROM md_financial_account
+            WHERE enabled = TRUE
+              AND audit_status = 'AUDITED'
+            ORDER BY code
+            """));
+    }
+
     private List<Map<String, ?>> realProductionDepartmentRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
@@ -988,6 +1008,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   po.currency,
                    CASE WHEN po.status = 'DRAFT' THEN '草稿' WHEN po.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
                    CASE
                        WHEN po.in_status = 'ALL_IN' THEN '全部入库'
@@ -1071,6 +1092,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   pi.currency,
                    CASE
                        WHEN pi.status = 'DRAFT' THEN '草稿'
                        WHEN pi.status = 'REVERSED' THEN '已反审核'
@@ -1222,6 +1244,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    c.code AS "customerCode",
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   so.currency,
                    COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
                    CASE
                        WHEN so.status = 'DRAFT' THEN '草稿'
@@ -1263,6 +1286,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    c.code AS "customerCode",
                    c.name AS customer,
                    to_char(dn.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   dn.currency,
                    COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
                    CASE
                        WHEN dn.status = 'DRAFT' THEN '草稿'
@@ -1395,6 +1419,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(ar.source_bill_no, '') AS "sourceBillNo",
                    c.name AS customer,
                    to_char(ar.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   ar.currency,
                    trim(to_char(ar.amount, 'FM9999999990.00')) AS amount,
                    trim(to_char(ar.received_amount, 'FM9999999990.00')) AS "receivedAmount",
                    CASE
@@ -1415,6 +1440,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(ap.source_bill_no, '') AS "sourceBillNo",
                    s.name AS supplier,
                    to_char(ap.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   ap.currency,
                    trim(to_char(ap.amount, 'FM9999999990.00')) AS amount,
                    trim(to_char(ap.paid_amount, 'FM9999999990.00')) AS "paidAmount",
                    CASE
@@ -1426,6 +1452,52 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             JOIN md_supplier s ON s.id = ap.supplier_id
             ORDER BY ap.updated_at DESC
             """));
+    }
+
+    private List<Map<String, ?>> settlementDocumentRows(boolean receipt) {
+        var headerTable = receipt ? "ar_receipt" : "ap_payment";
+        var partyTable = receipt ? "md_customer" : "md_supplier";
+        var fundTable = receipt ? "ar_receipt_fund_line" : "ap_payment_fund_line";
+        var allocationTable = receipt ? "ar_receipt_allocation" : "ap_payment_allocation";
+        var sourceTable = receipt ? "ar_receivable" : "ap_payable";
+        var ownerColumn = receipt ? "receipt_id" : "payment_id";
+        var sourceIdColumn = receipt ? "receivable_id" : "payable_id";
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT h.id::text AS id,
+                   h.bill_no AS "billNo",
+                   p.id::text AS "partyId",
+                   p.code AS "partyCode",
+                   p.name AS "partyName",
+                   to_char(h.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   h.currency,
+                   h.amount::text AS amount,
+                   h.status AS "statusCode",
+                   CASE WHEN h.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status,
+                   h.version::text AS version,
+                   h.legacy_imported AS legacy,
+                   CASE WHEN h.legacy_imported THEN '历史直接结算记录' ELSE '正式单据' END AS "legacyLabel",
+                   (SELECT COUNT(*) FROM %3$s fund WHERE fund.%6$s = h.id) AS "accountCount",
+                   (SELECT COUNT(*) FROM %4$s allocation WHERE allocation.%6$s = h.id) AS "sourceCount",
+                   COALESCE((
+                       SELECT string_agg(source.bill_no, '、' ORDER BY allocation.line_no)
+                       FROM %4$s allocation
+                       JOIN %5$s source ON source.id = allocation.%7$s
+                       WHERE allocation.%6$s = h.id
+                   ), '') AS "sourceBillNo",
+                   COALESCE(h.remark, '') AS remark,
+                   to_char(h.updated_at, 'YYYY-MM-DD HH24:MI:SS') AS "updatedAt"
+            FROM %1$s h
+            JOIN %2$s p ON p.id = h.party_id
+            ORDER BY h.updated_at DESC, h.bill_no DESC
+            """.formatted(
+                headerTable,
+                partyTable,
+                fundTable,
+                allocationTable,
+                sourceTable,
+                ownerColumn,
+                sourceIdColumn
+            )));
     }
 
     private List<Map<String, ?>> productionTaskRows() {
