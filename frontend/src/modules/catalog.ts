@@ -11,10 +11,6 @@ export const moduleCatalog = [
         { id: "delivery-notice-form", label: "发货通知单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-return-form", label: "销售退货申请", module: "销售管理", mode: "form" }
-      ] },
-      { title: "报表查询", entries: [
-        { id: "sales-detail-report", label: "销售明细表", module: "销售管理", mode: "report", queryable: true },
-        { id: "sales-profit-report", label: "销售利润表", module: "销售管理", mode: "report" }
       ] }
     ]
   },
@@ -29,7 +25,7 @@ export const moduleCatalog = [
         { id: "purchase-return-form", label: "采购退货单", module: "采购管理", mode: "form", queryable: true, dirty: true, permission: "purchase.return.audit" }
       ] },
       { title: "报表查询", entries: [
-        { id: "purchase-summary-report", label: "采购汇总表", module: "采购管理", mode: "report", queryable: true }
+        { id: "purchase-summary-report", label: "采购汇总表", module: "采购管理", mode: "report", queryable: true, permission: "purchase.order.audit" }
       ] }
     ]
   },
@@ -47,10 +43,6 @@ export const moduleCatalog = [
         { id: "stock-count-loss-form", label: "盘亏单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count_loss.audit" },
         { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_in.audit" },
         { id: "other-out-form", label: "其他出库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_out.audit" }
-      ] },
-      { title: "流水报表", entries: [
-        { id: "stock-flow-report", label: "商品收发明细表", module: "库存管理", mode: "report", queryable: true },
-        { id: "scrap-report", label: "材料报废统计表", module: "库存管理", mode: "report" }
       ] }
     ]
   },
@@ -61,9 +53,6 @@ export const moduleCatalog = [
       { title: "往来单据", entries: [
         { id: "receivable-list", label: "应收单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
         { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" }
-      ] },
-      { title: "往来报表", entries: [
-        { id: "ar-summary-report", label: "应收汇总表", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" }
       ] }
     ]
   },
@@ -80,7 +69,7 @@ export const moduleCatalog = [
       { title: "BOM 与报表", entries: [
         { id: "bom-list", label: "BOM维护", module: "生产管理", mode: "list", queryable: true },
         { id: "kit-analysis-list", label: "齐套分析", module: "生产管理", mode: "list", queryable: true, permission: "production.task.audit" },
-        { id: "task-track-report", label: "生产任务跟踪表", module: "生产管理", mode: "report", queryable: true }
+        { id: "task-track-report", label: "生产任务跟踪表", module: "生产管理", mode: "report", queryable: true, permission: "production.task.audit" }
       ] }
     ]
   },
@@ -117,7 +106,6 @@ export const moduleCatalog = [
     short: "设",
     groups: [
       { title: "系统基础", entries: [
-        { id: "coding-rule-list", label: "编码规则", module: "系统设置", mode: "list", queryable: true },
         { id: "account-set-settings", label: "账套管理", module: "系统设置", mode: "shell", permission: "system.account_set.manage" },
         { id: "numbering-rule-settings", label: "单据编号规则", module: "系统设置", mode: "shell", permission: "system.numbering_rule.manage" },
         { id: "security-settings", label: "安全设置", module: "系统设置", mode: "shell", permission: "system.security.manage" },

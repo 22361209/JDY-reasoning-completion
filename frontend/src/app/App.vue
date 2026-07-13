@@ -51,7 +51,7 @@
                   class="entry-query"
                   type="button"
                   :data-testid="`query-${entry.id}`"
-                  @click="openEntry({ ...entry, mode: 'list' })"
+                  @click="openQueryEntry(entry)"
                 >
                   查询
                 </button>
@@ -1035,7 +1035,7 @@ function openEntry(entry: ShellEntry) {
   }
   activeModuleName.value = entry.module;
   const isQuery = entry.mode === "list" || entry.mode === "report";
-  const id = entry.mode === "list" && !entry.id.endsWith("-list") ? `${entry.id}-list` : entry.id;
+  const id = entry.mode === "list" && !entry.id.endsWith("-list") && !entry.id.endsWith("-report") ? `${entry.id}-list` : entry.id;
   const opened = tabs.openTab({
     id,
     title: isQuery && !entry.label.includes("表") && !entry.label.includes("查询") ? `${entry.label}列表` : entry.label,
@@ -1051,6 +1051,10 @@ function openEntry(entry: ShellEntry) {
   }
   modulePanelOpen.value = false;
   suppressNavigationUntil.value = Date.now() + 250;
+}
+
+function openQueryEntry(entry: ShellEntry) {
+  openEntry(entry.mode === "report" ? entry : { ...entry, mode: "list" });
 }
 
 function openAccountSetSettings() {

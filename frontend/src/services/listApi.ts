@@ -130,7 +130,11 @@ export async function fetchListRows(listKey: string, query: ListQuery): Promise<
         ok: false,
         status: response.status,
         forbidden: response.status === 403,
-        message: response.status === 403 ? "当前账号无权查看该列表。" : "列表数据加载失败，请稍后重试。",
+        message: response.status === 403
+          ? "当前账号无权查看该列表。"
+          : response.status === 404
+            ? "该列表未定义或尚未开放。"
+            : "列表数据加载失败，请稍后重试。",
         data: null
       };
     }
@@ -160,7 +164,11 @@ export async function exportListRows(listKey: string, query: ListQuery): Promise
       return {
         ok: false,
         status: response.status,
-        message: response.status === 403 ? "当前账号无权引出该列表。" : "列表引出失败，请稍后重试。",
+        message: response.status === 403
+          ? "当前账号无权引出该列表。"
+          : response.status === 404
+            ? "该列表未定义或尚未开放，无法引出。"
+            : "列表引出失败，请稍后重试。",
         blob: null,
         fileName: ""
       };

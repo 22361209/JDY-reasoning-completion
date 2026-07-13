@@ -740,16 +740,16 @@ const rawDefinitions: Record<string, RawListDefinition> = {
   }
 };
 
-const fallbackDefinition: ListDefinition = {
-  title: "标准列表",
-  subtitle: "该入口暂用 B1 标准列表骨架承载。",
-  keywordPlaceholder: "编码、名称、单据编号",
-  statuses: ["草稿", "已审核", "启用"],
-  columns: rawDefinitions["sales-order-form-list"].columns,
-  searchFields: ["code", "name", "billNo"],
-  dateField: "billDate",
-  supportsQuickDateFilter: true,
-  lifecycleColumns: ["status"]
+const unavailableDefinition: ListDefinition = {
+  title: "列表不可用",
+  subtitle: "当前列表未定义或尚未开放。",
+  keywordPlaceholder: "",
+  statuses: [],
+  columns: [],
+  searchFields: [],
+  dateField: "",
+  supportsQuickDateFilter: false,
+  lifecycleColumns: []
 };
 
 const definitions: Record<string, ListDefinition> = Object.fromEntries(
@@ -870,9 +870,12 @@ export function useDataListDefinition(listKey: () => string) {
         searchFields: searchFieldsFromPlaceholder(metadataDefinition.keywordPlaceholder, metadataDefinition.listViews.header.map((column) => column.field))
       });
     }
-    return definitions[listKey()] ?? fallbackDefinition;
+    return definitions[listKey()] ?? unavailableDefinition;
   });
   function detailColumnsForList(): ListColumn[] {
+    if (!billDefinition.value && !definitions[listKey()]) {
+      return [];
+    }
     if (listKey() === "purchase-summary-report") {
       return definition.value.columns.map((column) => ({ ...column }));
     }
