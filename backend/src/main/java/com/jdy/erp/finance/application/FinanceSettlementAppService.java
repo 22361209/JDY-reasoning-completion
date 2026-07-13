@@ -226,6 +226,7 @@ public class FinanceSettlementAppService {
                 headerId,
                 allocation.sourceId()
             );
+            var effectiveSettled = effectiveSettledExpression(kind, "");
             var changed = jdbcTemplate.update("""
                 UPDATE %s
                 SET %s = %s + ?,
@@ -238,15 +239,17 @@ public class FinanceSettlementAppService {
                 WHERE id = ?::uuid
                   AND amount > 0
                   AND %s >= 0
+                  AND %s >= 0
                   AND %s + ? <= amount
                 """.formatted(
                     kind.sourceTable,
                     kind.settledColumn,
                     kind.settledColumn,
+                    effectiveSettled,
+                    effectiveSettled,
                     kind.settledColumn,
-                    kind.settledColumn,
-                    kind.settledColumn,
-                    kind.settledColumn
+                    effectiveSettled,
+                    effectiveSettled
                 ),
                 allocation.settlementAmount(),
                 allocation.settlementAmount(),
@@ -292,6 +295,9 @@ public class FinanceSettlementAppService {
             throw conflict(kind.label + "缺少可释放的核销明细");
         }
         var sources = lockSources(kind, allocations);
+        if (kind == SettlementKind.RECEIPT) {
+            assertNoAuditedSalesReturnAllocations(sources.keySet());
+        }
         validateSources(kind, lockedHeader, allocations, sources, false);
 
         for (var allocation : allocations) {
@@ -299,9 +305,10 @@ public class FinanceSettlementAppService {
             if (source.amount().compareTo(allocation.sourceAmount()) != 0) {
                 throw conflict(kind.sourceLabel + "原币金额已变化，无法安全反审核");
             }
-            if (source.settledAmount().compareTo(allocation.settlementAmount()) < 0) {
+            if (source.actualSettledAmount().compareTo(allocation.settlementAmount()) < 0) {
                 throw conflict(kind.sourceLabel + "已核销金额不足，无法安全释放");
             }
+            var effectiveSettled = effectiveSettledExpression(kind, "");
             var changed = jdbcTemplate.update("""
                 UPDATE %s
                 SET %s = %s - ?,
@@ -317,8 +324,8 @@ public class FinanceSettlementAppService {
                     kind.sourceTable,
                     kind.settledColumn,
                     kind.settledColumn,
-                    kind.settledColumn,
-                    kind.settledColumn,
+                    effectiveSettled,
+                    effectiveSettled,
                     kind.settledColumn
                 ),
                 allocation.settlementAmount(),
@@ -598,7 +605,9 @@ public class FinanceSettlementAppService {
         if (source.amount().compareTo(BigDecimal.ZERO) <= 0) {
             throw conflict(kind.sourceLabel + "金额必须大于 0");
         }
-        if (source.settledAmount().compareTo(BigDecimal.ZERO) < 0
+        if (source.actualSettledAmount().compareTo(BigDecimal.ZERO) < 0
+            || source.returnOffsetAmount().compareTo(BigDecimal.ZERO) < 0
+            || source.settledAmount().compareTo(BigDecimal.ZERO) < 0
             || source.settledAmount().compareTo(source.amount()) > 0) {
             throw conflict(kind.sourceLabel + "已核销金额异常");
         }
@@ -630,6 +639,8 @@ public class FinanceSettlementAppService {
     }
 
     private SourceState loadSource(SettlementKind kind, UUID sourceId, boolean lock) {
+        var effectiveSettled = effectiveSettledExpression(kind, "");
+        var returnOffset = kind == SettlementKind.RECEIPT ? "return_offset_amount" : "0";
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    bill_no AS "billNo",
@@ -637,6 +648,8 @@ public class FinanceSettlementAppService {
                    to_char(bill_date, 'YYYY-MM-DD') AS "billDate",
                    currency,
                    amount,
+                   %s AS "actualSettledAmount",
+                   %s AS "returnOffsetAmount",
                    %s AS "settledAmount",
                    status
             FROM %s
@@ -645,6 +658,8 @@ public class FinanceSettlementAppService {
             """.formatted(
                 kind.sourcePartyColumn,
                 kind.settledColumn,
+                returnOffset,
+                effectiveSettled,
                 kind.sourceTable,
                 lock ? "FOR UPDATE" : ""
             ), sourceId);
@@ -653,6 +668,8 @@ public class FinanceSettlementAppService {
         }
         var row = rows.getFirst();
         var amount = decimal(row.get("amount"));
+        var actualSettled = decimal(row.get("actualSettledAmount"));
+        var returnOffsetAmount = decimal(row.get("returnOffsetAmount"));
         var settled = decimal(row.get("settledAmount"));
         return new SourceState(
             sourceId,
@@ -661,6 +678,8 @@ public class FinanceSettlementAppService {
             String.valueOf(row.get("billDate")),
             String.valueOf(row.get("currency")),
             amount,
+            actualSettled,
+            returnOffsetAmount,
             settled,
             amount.subtract(settled),
             String.valueOf(row.get("status"))
@@ -791,6 +810,7 @@ public class FinanceSettlementAppService {
     }
 
     private List<Map<String, Object>> allocationDetail(SettlementKind kind, String headerId) {
+        var effectiveSettled = effectiveSettledExpression(kind, "source.");
         return jdbcTemplate.queryForList("""
             SELECT line.id::text AS id,
                    line.line_no AS "lineNo",
@@ -800,8 +820,8 @@ public class FinanceSettlementAppService {
                    line.source_amount::text AS "sourceAmount",
                    line.settled_before::text AS "settledBefore",
                    line.unsettled_before::text AS "unsettledBefore",
-                   source.%s::text AS "currentSettledAmount",
-                   (source.amount - source.%s)::text AS "currentUnsettledAmount",
+                   (%s)::text AS "currentSettledAmount",
+                   (source.amount - (%s))::text AS "currentUnsettledAmount",
                    line.settlement_amount::text AS "settlementAmount",
                    COALESCE(line.remark, '') AS remark
             FROM %s line
@@ -810,8 +830,8 @@ public class FinanceSettlementAppService {
             ORDER BY line.line_no
             """.formatted(
                 kind.sourceIdColumn,
-                kind.settledColumn,
-                kind.settledColumn,
+                effectiveSettled,
+                effectiveSettled,
                 kind.allocationTable,
                 kind.sourceTable,
                 kind.sourceIdColumn,
@@ -1058,6 +1078,30 @@ public class FinanceSettlementAppService {
         return "PART_SETTLED";
     }
 
+    private String effectiveSettledExpression(SettlementKind kind, String prefix) {
+        if (kind == SettlementKind.RECEIPT) {
+            return prefix + "received_amount + " + prefix + "return_offset_amount";
+        }
+        return prefix + kind.settledColumn;
+    }
+
+    private void assertNoAuditedSalesReturnAllocations(Set<UUID> receivableIds) {
+        for (var receivableId : receivableIds) {
+            var blocked = jdbcTemplate.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM sales_return_finance_allocation allocation
+                    JOIN sales_return header ON header.id = allocation.sales_return_id
+                    WHERE allocation.receivable_id = ?::uuid
+                      AND header.status = 'AUDITED'
+                )
+                """, Boolean.class, receivableId);
+            if (Boolean.TRUE.equals(blocked)) {
+                throw conflict("来源应收存在已审核销售退货分配，请先反审核相关销售退货单");
+            }
+        }
+    }
+
     private void requireKind(SettlementKind kind) {
         if (kind == null) {
             throw new IllegalArgumentException("收付款类型不能为空");
@@ -1250,6 +1294,8 @@ public class FinanceSettlementAppService {
         String billDate,
         String currency,
         BigDecimal amount,
+        BigDecimal actualSettledAmount,
+        BigDecimal returnOffsetAmount,
         BigDecimal settledAmount,
         BigDecimal unsettledAmount,
         String status

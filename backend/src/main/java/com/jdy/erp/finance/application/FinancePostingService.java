@@ -57,15 +57,18 @@ public class FinancePostingService implements FinancePosting {
                 amount = EXCLUDED.amount,
                 currency = EXCLUDED.currency,
                 status = CASE
-                    WHEN ar_receivable.received_amount = 0 THEN 'OPEN'
-                    WHEN ar_receivable.received_amount = EXCLUDED.amount THEN 'SETTLED'
+                    WHEN ar_receivable.received_amount + ar_receivable.return_offset_amount = 0 THEN 'OPEN'
+                    WHEN ar_receivable.received_amount + ar_receivable.return_offset_amount = EXCLUDED.amount THEN 'SETTLED'
                     ELSE 'PART_SETTLED'
                 END,
                 updated_at = now()
-            WHERE ar_receivable.received_amount = 0
+            WHERE (
+                    ar_receivable.received_amount = 0
+                AND ar_receivable.return_offset_amount = 0
+               )
                OR (
-                    ar_receivable.received_amount > 0
-                AND ar_receivable.received_amount <= EXCLUDED.amount
+                    ar_receivable.received_amount + ar_receivable.return_offset_amount > 0
+                AND ar_receivable.received_amount + ar_receivable.return_offset_amount <= EXCLUDED.amount
                 AND ar_receivable.amount = EXCLUDED.amount
                 AND ar_receivable.customer_id = EXCLUDED.customer_id
                 AND ar_receivable.currency = EXCLUDED.currency

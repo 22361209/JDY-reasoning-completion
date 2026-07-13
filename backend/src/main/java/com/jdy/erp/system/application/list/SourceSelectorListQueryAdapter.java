@@ -568,19 +568,20 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(ar.bill_date, 'YYYY-MM-DD') AS "billDate",
                    ar.currency,
                    ar.amount::text AS amount,
-                   ar.received_amount::text AS "settledAmount",
+                   (ar.received_amount + ar.return_offset_amount)::text AS "settledAmount",
                    ar.received_amount::text AS "receivedAmount",
-                   (ar.amount - ar.received_amount)::text AS "unsettledAmount",
+                   ar.return_offset_amount::text AS "returnOffsetAmount",
+                   (ar.amount - ar.received_amount - ar.return_offset_amount)::text AS "unsettledAmount",
                    ar.status
             FROM ar_receivable ar
             JOIN md_customer c ON c.id = ar.customer_id
             WHERE ar.amount > 0
-              AND ar.amount - ar.received_amount > 0
+              AND ar.amount - ar.received_amount - ar.return_offset_amount > 0
               AND ar.status IN ('OPEN', 'PART_SETTLED')
             """, List.of(), sourceFields(
                 "id", "sourceId", "billNo", "sourceBillNo", "partyId", "partyCode", "partyName",
                 "customerCode", "customer", "billDate", "currency", "amount", "settledAmount",
-                "receivedAmount", "unsettledAmount", "status"
+                "receivedAmount", "returnOffsetAmount", "unsettledAmount", "status"
             ));
     }
 
