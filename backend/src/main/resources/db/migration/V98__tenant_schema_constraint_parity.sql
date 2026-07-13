@@ -111,6 +111,7 @@ CREATE UNIQUE INDEX uq_sys_account_set_tenant_schema_name
 DO $$
 DECLARE
     exemption_count INTEGER;
+    reserved_name_count INTEGER;
 BEGIN
     WITH expected(child_table, constraint_name) AS (
         VALUES
@@ -149,21 +150,32 @@ BEGIN
     IF exemption_count <> 4 THEN
         RAISE EXCEPTION 'V98 tenant scope FK exemption drifted: expected=4 actual=%', exemption_count;
     END IF;
+
+    SELECT count(*)::INTEGER
+    INTO reserved_name_count
+    FROM pg_constraint constraint_row
+    JOIN pg_class child_table ON child_table.oid = constraint_row.conrelid
+    JOIN pg_namespace child_namespace
+      ON child_namespace.oid = child_table.relnamespace
+     AND child_namespace.nspname = 'public'
+    JOIN public.sys_tenant_managed_table managed
+      ON managed.table_name = child_table.relname
+    WHERE constraint_row.contype = 'f'
+      AND constraint_row.conname IN (
+          'document_number_sequence_account_set_id_fkey',
+          'inv_stock_balance_account_set_id_fkey',
+          'inv_stock_opening_account_set_id_fkey',
+          'inv_stock_txn_account_set_id_fkey'
+      );
+    IF reserved_name_count <> 4 THEN
+        RAISE EXCEPTION 'V98 tenant scope FK reserved-name drifted: expected=4 actual=%', reserved_name_count;
+    END IF;
 END $$;
 
 -- A136 actor regression cleanup was authorized only for these seven exact fixture rows.
 -- Any partial match, changed marker, restored parent, or additional orphan is rejected.
 DO $$
 DECLARE
-    fixture_ids UUID[] := ARRAY[
-        '131e93c0-5271-460e-8d8f-431ec03986e4'::UUID,
-        '9a5fb2f7-309c-45a3-8d5b-5aae3a34f92e'::UUID,
-        'ae91013b-2044-44ed-909c-ee51d3e61e8e'::UUID,
-        'c11247c8-5fdc-4210-b045-8297116630b5'::UUID,
-        'd7d8f88f-f93d-41f0-8e7f-04614ce959c1'::UUID,
-        'd7d99356-4a97-45cd-a967-bec759abf4bc'::UUID,
-        'f38e869c-bd8d-4d1c-93fe-e94390d44298'::UUID
-    ];
     matched_count INTEGER;
     invalid_count INTEGER;
     deleted_count INTEGER;
@@ -172,10 +184,22 @@ BEGIN
         RETURN;
     END IF;
 
+    WITH expected(id, line_remark, product_code_snapshot, bill_id, product_id) AS (
+        VALUES
+            ('131e93c0-5271-460e-8d8f-431ec03986e4'::UUID, 'A136_ACTOR_20260713005422_92a8c216bd', 'A136P-92a8c216bd-TENANT', '40f4917f-0a91-4485-8b72-fe4597088341'::UUID, '8b19c2c6-c5fe-46e5-9adf-b9384583bdb3'::UUID),
+            ('9a5fb2f7-309c-45a3-8d5b-5aae3a34f92e'::UUID, 'A136_ACTOR_20260713004744_42b0b1841a', 'A136P-42b0b1841a-TENANT', '57fa5ec5-4a8a-42e6-92fb-14472e57e325'::UUID, '17e2c9e9-f8ee-4c2c-8d57-28370450f989'::UUID),
+            ('ae91013b-2044-44ed-909c-ee51d3e61e8e'::UUID, 'A136_ACTOR_20260713010433_d9a3c1fec3', 'A136P-d9a3c1fec3-TENANT', '2600dd78-c5ab-4502-b7c1-3a5159836436'::UUID, 'dc996541-5778-445b-8e78-eaab1be5608c'::UUID),
+            ('c11247c8-5fdc-4210-b045-8297116630b5'::UUID, 'A136_ACTOR_20260713011750_c92416b00b', 'A136P-c92416b00b-TENANT', 'bbea603c-323c-4ac9-b880-83d10e888a74'::UUID, 'f1e0ebdc-adc9-4979-aa21-59587e1e3d10'::UUID),
+            ('d7d8f88f-f93d-41f0-8e7f-04614ce959c1'::UUID, 'A136_ACTOR_20260713003821_18addb5df7', 'A136P-18addb5df7-TENANT', 'e087314f-adc5-4b8d-81b2-6f33bf90a041'::UUID, '0ab2df00-f1bc-4bf9-bede-0e24fff42b41'::UUID),
+            ('d7d99356-4a97-45cd-a967-bec759abf4bc'::UUID, 'A136_ACTOR_20260713010936_d3ae85cc07', 'A136P-d3ae85cc07-TENANT', 'f142ba4c-84a6-4e9d-a8d4-fd78b9d2fc51'::UUID, '7cd966b5-df1b-42d7-8f3c-de860a348f5e'::UUID),
+            ('f38e869c-bd8d-4d1c-93fe-e94390d44298'::UUID, 'A136_ACTOR_20260713013041_569a349279', 'A136P-569a349279-TENANT', '73e99c0f-fb11-421c-b19d-9519c70dcf55'::UUID, 'ecea285e-80a3-4679-b3b7-9d57f01e52bf'::UUID)
+    )
     SELECT count(*)::INTEGER,
            count(*) FILTER (
-               WHERE line_remark NOT LIKE 'A136_ACTOR_%'
-                  OR product_code_snapshot NOT LIKE 'A136P-%-TENANT'
+               WHERE line.line_remark IS DISTINCT FROM expected.line_remark
+                  OR line.product_code_snapshot IS DISTINCT FROM expected.product_code_snapshot
+                  OR line.bill_id IS DISTINCT FROM expected.bill_id
+                  OR line.product_id IS DISTINCT FROM expected.product_id
                   OR EXISTS (
                       SELECT 1
                       FROM tenant_a119ops_49f5546b.stock_count bill
@@ -189,7 +213,7 @@ BEGIN
            )::INTEGER
     INTO matched_count, invalid_count
     FROM tenant_a119ops_49f5546b.stock_count_line line
-    WHERE line.id = ANY (fixture_ids);
+    JOIN expected ON expected.id = line.id;
 
     IF matched_count NOT IN (0, 7) THEN
         RAISE EXCEPTION 'V98 refused A136 fixture cleanup: expected 0 or 7 exact rows, found %', matched_count;
@@ -198,10 +222,23 @@ BEGIN
         RAISE EXCEPTION 'V98 refused A136 fixture cleanup: % exact rows no longer satisfy marker and missing-parent contract', invalid_count;
     END IF;
 
+    WITH expected(id, line_remark, product_code_snapshot, bill_id, product_id) AS (
+        VALUES
+            ('131e93c0-5271-460e-8d8f-431ec03986e4'::UUID, 'A136_ACTOR_20260713005422_92a8c216bd', 'A136P-92a8c216bd-TENANT', '40f4917f-0a91-4485-8b72-fe4597088341'::UUID, '8b19c2c6-c5fe-46e5-9adf-b9384583bdb3'::UUID),
+            ('9a5fb2f7-309c-45a3-8d5b-5aae3a34f92e'::UUID, 'A136_ACTOR_20260713004744_42b0b1841a', 'A136P-42b0b1841a-TENANT', '57fa5ec5-4a8a-42e6-92fb-14472e57e325'::UUID, '17e2c9e9-f8ee-4c2c-8d57-28370450f989'::UUID),
+            ('ae91013b-2044-44ed-909c-ee51d3e61e8e'::UUID, 'A136_ACTOR_20260713010433_d9a3c1fec3', 'A136P-d9a3c1fec3-TENANT', '2600dd78-c5ab-4502-b7c1-3a5159836436'::UUID, 'dc996541-5778-445b-8e78-eaab1be5608c'::UUID),
+            ('c11247c8-5fdc-4210-b045-8297116630b5'::UUID, 'A136_ACTOR_20260713011750_c92416b00b', 'A136P-c92416b00b-TENANT', 'bbea603c-323c-4ac9-b880-83d10e888a74'::UUID, 'f1e0ebdc-adc9-4979-aa21-59587e1e3d10'::UUID),
+            ('d7d8f88f-f93d-41f0-8e7f-04614ce959c1'::UUID, 'A136_ACTOR_20260713003821_18addb5df7', 'A136P-18addb5df7-TENANT', 'e087314f-adc5-4b8d-81b2-6f33bf90a041'::UUID, '0ab2df00-f1bc-4bf9-bede-0e24fff42b41'::UUID),
+            ('d7d99356-4a97-45cd-a967-bec759abf4bc'::UUID, 'A136_ACTOR_20260713010936_d3ae85cc07', 'A136P-d3ae85cc07-TENANT', 'f142ba4c-84a6-4e9d-a8d4-fd78b9d2fc51'::UUID, '7cd966b5-df1b-42d7-8f3c-de860a348f5e'::UUID),
+            ('f38e869c-bd8d-4d1c-93fe-e94390d44298'::UUID, 'A136_ACTOR_20260713013041_569a349279', 'A136P-569a349279-TENANT', '73e99c0f-fb11-421c-b19d-9519c70dcf55'::UUID, 'ecea285e-80a3-4679-b3b7-9d57f01e52bf'::UUID)
+    )
     DELETE FROM tenant_a119ops_49f5546b.stock_count_line line
-    WHERE line.id = ANY (fixture_ids)
-      AND line.line_remark LIKE 'A136_ACTOR_%'
-      AND line.product_code_snapshot LIKE 'A136P-%-TENANT'
+    USING expected
+    WHERE line.id = expected.id
+      AND line.line_remark IS NOT DISTINCT FROM expected.line_remark
+      AND line.product_code_snapshot IS NOT DISTINCT FROM expected.product_code_snapshot
+      AND line.bill_id IS NOT DISTINCT FROM expected.bill_id
+      AND line.product_id IS NOT DISTINCT FROM expected.product_id
       AND NOT EXISTS (
           SELECT 1
           FROM tenant_a119ops_49f5546b.stock_count bill
