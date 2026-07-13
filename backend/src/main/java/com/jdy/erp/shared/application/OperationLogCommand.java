@@ -67,6 +67,7 @@ public record OperationLogCommand(
         CURRENCY("currency"),
         VERSION("version"),
         SOURCE_COUNT("sourceCount"),
+        QUANTITY("quantity"),
         ACCOUNT_COUNT("accountCount"),
         SETTLED_AMOUNT("settledAmount"),
         OUTSTANDING_AMOUNT("outstandingAmount"),

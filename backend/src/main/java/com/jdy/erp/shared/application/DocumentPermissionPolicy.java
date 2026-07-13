@@ -15,6 +15,7 @@ public class DocumentPermissionPolicy {
         Map.entry("salesOrder", "sales.order.audit"),
         Map.entry("deliveryNotice", "sales.out.audit"),
         Map.entry("salesOut", "sales.out.audit"),
+        Map.entry("salesReturn", "sales.out.audit"),
         Map.entry("purchaseOrder", "purchase.order.audit"),
         Map.entry("purchaseIn", "purchase.in.audit"),
         Map.entry("purchaseReturn", "purchase.return.audit"),

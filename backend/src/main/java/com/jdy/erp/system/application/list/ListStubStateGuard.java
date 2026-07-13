@@ -10,17 +10,19 @@ import com.jdy.erp.system.security.CurrentPermissionService;
 
 @Component
 public class ListStubStateGuard {
-    private static final Map<String, String> READ_PERMISSIONS = Map.of(
-        "purchase-summary-report", "purchase.order.audit",
-        "task-track-report", "production.task.audit",
-        "production-task-list", "production.task.audit",
-        "production-task-form-list", "production.task.audit",
-        "stock-count-list", "inventory.stock_count.audit",
-        "stock-count-form-list", "inventory.stock_count.audit",
-        "stock-count-gain-list", "inventory.stock_count_gain.audit",
-        "stock-count-gain-form-list", "inventory.stock_count_gain.audit",
-        "stock-count-loss-list", "inventory.stock_count_loss.audit",
-        "stock-count-loss-form-list", "inventory.stock_count_loss.audit"
+    private static final Map<String, String> READ_PERMISSIONS = Map.ofEntries(
+        Map.entry("purchase-summary-report", "purchase.order.audit"),
+        Map.entry("task-track-report", "production.task.audit"),
+        Map.entry("production-task-list", "production.task.audit"),
+        Map.entry("production-task-form-list", "production.task.audit"),
+        Map.entry("stock-count-list", "inventory.stock_count.audit"),
+        Map.entry("stock-count-form-list", "inventory.stock_count.audit"),
+        Map.entry("stock-count-gain-list", "inventory.stock_count_gain.audit"),
+        Map.entry("stock-count-gain-form-list", "inventory.stock_count_gain.audit"),
+        Map.entry("stock-count-loss-list", "inventory.stock_count_loss.audit"),
+        Map.entry("stock-count-loss-form-list", "inventory.stock_count_loss.audit"),
+        Map.entry("sales-return-form-list", "sales.out.audit"),
+        Map.entry("sales-out-return-source-selector", "sales.out.audit")
     );
     private static final Map<String, List<String>> READ_PERMISSION_ALTERNATIVES = Map.of(
         "employee-master-list", List.of("master.data.manage", "system.role_permission.manage"),

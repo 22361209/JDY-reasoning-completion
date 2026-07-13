@@ -56,6 +56,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "purchase-return-list", "purchase-return-form-list" -> purchaseReturnRows();
             case "purchase-summary-report" -> purchaseSummaryRows();
             case "sales-out-list", "sales-out-form-list" -> salesOutRows();
+            case "sales-return-form-list" -> salesReturnRows();
             case "other-in-list", "other-in-form-list" -> otherStockInRows();
             case "other-out-list", "other-out-form-list" -> otherStockOutRows();
             case "stock-transfer-list", "stock-transfer-form-list" -> stockTransferRows();
@@ -502,6 +503,56 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 JOIN md_product p ON p.id = l.product_id
                 JOIN md_warehouse w ON w.id = l.warehouse_id
                 ORDER BY pr.updated_at DESC, l.line_no
+                """);
+            case "sales-return-form-list" -> queryDetailRows("""
+                SELECT concat(sr.id::text, '-', l.line_no) AS id,
+                       sr.bill_no AS "billNo",
+                       c.code AS "customerCode",
+                       to_char(sr.bill_date, 'YYYY-MM-DD') AS "billDate",
+                       c.name AS partner,
+                       sr.currency,
+                       CASE
+                           WHEN sr.status = 'DRAFT' THEN '草稿'
+                           WHEN sr.status = 'REVERSED' THEN '已反审核'
+                           WHEN sr.status = 'VOID' THEN '已作废'
+                           ELSE '已审核'
+                       END AS status,
+                       sr.status AS "statusCode",
+                       sr.close_status AS "closeStatus",
+                       sr.frozen_status AS "frozenStatus",
+                       l.line_no AS "lineNo",
+                       COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                       COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                       COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                       COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                       trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                       trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                       w.name AS warehouse,
+                       trim(to_char(l.qty, 'FM9999999990.9999')) AS qty,
+                       trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
+                       trim(to_char(round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2), 'FM9999999990.00')) AS "taxInclusiveUnitPrice",
+                       trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
+                       trim(to_char(l.tax_rate, 'FM9999999990.9999')) AS "taxRate",
+                       trim(to_char(l.tax_amount, 'FM9999999990.00')) AS "taxAmount",
+                       trim(to_char(l.price_tax_total, 'FM9999999990.00')) AS "priceTaxTotal",
+                       l.source_out_no AS "sourceBillNo",
+                       l.source_line_no AS "sourceLineNo",
+                       COALESCE(l.line_remark, '') AS "lineRemark",
+                       trim(to_char(COALESCE(finance.offset_amount, 0), 'FM9999999990.00')) AS "receivableOffsetAmount",
+                       trim(to_char(COALESCE(finance.pending_refund_amount, 0), 'FM9999999990.00')) AS "pendingRefundAmount"
+                FROM sales_return sr
+                JOIN sales_return_line l ON l.bill_id = sr.id
+                JOIN md_customer c ON c.id = sr.customer_id
+                JOIN md_product p ON p.id = l.product_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                LEFT JOIN (
+                    SELECT sales_return_id,
+                           SUM(offset_amount) AS offset_amount,
+                           SUM(pending_refund_amount) AS pending_refund_amount
+                    FROM sales_return_finance_allocation
+                    GROUP BY sales_return_id
+                ) finance ON finance.sales_return_id = sr.id
+                ORDER BY sr.updated_at DESC, l.line_no
                 """);
             case "material-issue-list", "material-issue-form-list" -> queryDetailRows("""
                 SELECT concat(i.id::text, '-', l.line_no) AS id,
@@ -1276,6 +1327,60 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             ) extra ON extra.bill_id = so.id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             ORDER BY so.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> salesReturnRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT sr.id::text AS id,
+                   sr.bill_no AS "billNo",
+                   c.code AS "customerCode",
+                   c.name AS customer,
+                   to_char(sr.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   sr.currency,
+                   CASE
+                       WHEN sr.status = 'DRAFT' THEN '草稿'
+                       WHEN sr.status = 'REVERSED' THEN '已反审核'
+                       WHEN sr.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   sr.status AS "statusCode",
+                   sr.close_status AS "closeStatus",
+                   sr.frozen_status AS "frozenStatus",
+                   trim(to_char(COALESCE(lines.qty, 0), 'FM9999999990.9999')) AS qty,
+                   trim(to_char(COALESCE(lines.amount, 0), 'FM9999999990.00')) AS amount,
+                   trim(to_char(sr.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
+                   trim(to_char(COALESCE(finance.offset_amount, 0), 'FM9999999990.00')) AS "receivableOffsetAmount",
+                   trim(to_char(COALESCE(finance.pending_refund_amount, 0), 'FM9999999990.00')) AS "pendingRefundAmount",
+                   COALESCE(sources.source_bill_no, '') AS "sourceBillNo",
+                   COALESCE(w.name, '') AS warehouse,
+                   COALESCE(sr.remark, '') AS remark,
+                   COALESCE(sr.owner_name, '') AS owner
+            FROM sales_return sr
+            JOIN md_customer c ON c.id = sr.customer_id
+            LEFT JOIN sales_return_line first_line ON first_line.bill_id = sr.id AND first_line.line_no = 1
+            LEFT JOIN md_warehouse w ON w.id = first_line.warehouse_id
+            LEFT JOIN (
+                SELECT bill_id,
+                       SUM(qty) AS qty,
+                       SUM(amount) AS amount
+                FROM sales_return_line
+                GROUP BY bill_id
+            ) lines ON lines.bill_id = sr.id
+            LEFT JOIN (
+                SELECT bill_id,
+                       string_agg(DISTINCT source_out_no, '、' ORDER BY source_out_no) AS source_bill_no
+                FROM sales_return_line
+                GROUP BY bill_id
+            ) sources ON sources.bill_id = sr.id
+            LEFT JOIN (
+                SELECT sales_return_id,
+                       SUM(offset_amount) AS offset_amount,
+                       SUM(pending_refund_amount) AS pending_refund_amount
+                FROM sales_return_finance_allocation
+                GROUP BY sales_return_id
+            ) finance ON finance.sales_return_id = sr.id
+            ORDER BY sr.updated_at DESC
             """));
     }
 

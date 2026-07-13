@@ -25,6 +25,7 @@ public class BillLifecycleController {
         Map.entry("purchaseOrder", new BillLifecycleTarget("purchase_order", "purchase_order_line", "order_id", "PURCHASE", "purchase_order")),
         Map.entry("productionTask", new BillLifecycleTarget("production_task", "production_task_material_snapshot", "task_id", "PRODUCTION", "production_task")),
         Map.entry("salesOut", new BillLifecycleTarget("sales_out", "sales_out_line", "bill_id", "SALES", "sales_out")),
+        Map.entry("salesReturn", new BillLifecycleTarget("sales_return", "sales_return_line", "bill_id", "SALES", "sales_return")),
         Map.entry("purchaseIn", new BillLifecycleTarget("purchase_in", "purchase_in_line", "bill_id", "PURCHASE", "purchase_in")),
         Map.entry("purchaseReturn", new BillLifecycleTarget("purchase_return", "purchase_return_line", "bill_id", "PURCHASE", "purchase_return")),
         Map.entry("receipt", new BillLifecycleTarget("ar_receipt", "ar_receipt_fund_line", "receipt_id", "FINANCE", "ar_receipt")),

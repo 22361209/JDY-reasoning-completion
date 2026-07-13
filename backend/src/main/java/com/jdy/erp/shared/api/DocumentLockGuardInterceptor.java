@@ -14,6 +14,7 @@ public class DocumentLockGuardInterceptor implements HandlerInterceptor {
     private static final Map<String, String> API_PREFIX_TO_TYPE = Map.ofEntries(
         Map.entry("/api/sales-orders/", "salesOrder"),
         Map.entry("/api/sales-outs/", "salesOut"),
+        Map.entry("/api/sales-returns/", "salesReturn"),
         Map.entry("/api/purchase-orders/", "purchaseOrder"),
         Map.entry("/api/purchase-ins/", "purchaseIn"),
         Map.entry("/api/purchase-returns/", "purchaseReturn"),

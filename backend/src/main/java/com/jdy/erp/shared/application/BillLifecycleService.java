@@ -24,6 +24,7 @@ public class BillLifecycleService {
         "sales_quote",
         "delivery_notice",
         "sales_out",
+        "sales_return",
         "purchase_order",
         "purchase_in",
         "purchase_return",
@@ -500,6 +501,12 @@ public class BillLifecycleService {
         }
         currentSessionService.verifyPassword(username, request == null ? null : request.password());
         var reason = requiredReason(request == null ? null : request.reason(), "作废原因");
+        if (isSalesReturnTarget(target)) {
+            lockSalesReturnHeader(billNo);
+        }
+        var beforeState = isSalesReturnTarget(target)
+            ? salesReturnLifecycleLogState(billNo)
+            : OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name());
         var downstream = downstreamImpact(target, billNo);
         if (!downstream.isEmpty()) {
             var failureReason = "已有下游影响，禁止作废：" + downstream;
@@ -524,14 +531,19 @@ public class BillLifecycleService {
             logLifecycleFailure(target.module(), "VOID", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
             throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
-        logLifecycleSuccess(
-            target.module(),
-            "VOID",
-            target.targetType(),
-            billNo,
-            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
-            rows.get(0)
-        );
+        if (isSalesReturnTarget(target)) {
+            logLifecycleSuccess(
+                target.module(),
+                "VOID",
+                target.targetType(),
+                billNo,
+                beforeState,
+                salesReturnLifecycleLogState(billNo),
+                String.valueOf(rows.get(0).get("id"))
+            );
+        } else {
+            logLifecycleSuccess(target.module(), "VOID", target.targetType(), billNo, beforeState, rows.get(0));
+        }
         return rows.get(0);
     }
 
@@ -842,6 +854,13 @@ public class BillLifecycleService {
         if (hasFinancePosting(billNo)) {
             impacts.add("已生应收应付");
         }
+        if (isSalesReturnTarget(target) && count("""
+            SELECT COUNT(*)
+            FROM sales_return_finance_allocation
+            WHERE sales_return_id = ?::uuid
+            """, id) > 0) {
+            impacts.add("已生成退货财务分配");
+        }
         if (RED_REVERSE_SOURCE_TABLES.contains(target.headerTable()) && count("""
             SELECT COUNT(*) FROM %s WHERE red_source_bill_id = ?::uuid AND status <> 'VOID'
             """.formatted(target.headerTable()), id) > 0) {
@@ -921,6 +940,57 @@ public class BillLifecycleService {
 
     private boolean isSalesOrderTarget(BillLifecycleTarget target) {
         return "sales_order".equals(target.headerTable());
+    }
+
+    private boolean isSalesReturnTarget(BillLifecycleTarget target) {
+        return "sales_return".equals(target.headerTable());
+    }
+
+    private void lockSalesReturnHeader(String billNo) {
+        jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM sales_return
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+    }
+
+    private Map<OperationLogCommand.StateField, Object> salesReturnLifecycleLogState(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT header.status,
+                   header.currency,
+                   header.total_amount AS amount,
+                   header.version,
+                   COUNT(line.id)::int AS "sourceCount",
+                   COALESCE(SUM(line.qty), 0) AS quantity,
+                   COALESCE(finance.offset_amount, 0) AS "settledAmount",
+                   COALESCE(finance.pending_refund_amount, 0) AS "outstandingAmount"
+            FROM sales_return header
+            LEFT JOIN sales_return_line line ON line.bill_id = header.id
+            LEFT JOIN (
+                SELECT sales_return_id,
+                       SUM(offset_amount) AS offset_amount,
+                       SUM(pending_refund_amount) AS pending_refund_amount
+                FROM sales_return_finance_allocation
+                GROUP BY sales_return_id
+            ) finance ON finance.sales_return_id = header.id
+            WHERE header.bill_no = ?
+            GROUP BY header.id, finance.offset_amount, finance.pending_refund_amount
+            """, billNo);
+        if (rows.isEmpty()) {
+            return Map.of();
+        }
+        var row = rows.getFirst();
+        return OperationLogCommand.state(
+            OperationLogCommand.StateField.STATUS, row.get("status"),
+            OperationLogCommand.StateField.CURRENCY, row.get("currency"),
+            OperationLogCommand.StateField.AMOUNT, row.get("amount"),
+            OperationLogCommand.StateField.VERSION, row.get("version"),
+            OperationLogCommand.StateField.SOURCE_COUNT, row.get("sourceCount"),
+            OperationLogCommand.StateField.QUANTITY, row.get("quantity"),
+            OperationLogCommand.StateField.SETTLED_AMOUNT, row.get("settledAmount"),
+            OperationLogCommand.StateField.OUTSTANDING_AMOUNT, row.get("outstandingAmount")
+        );
     }
 
     private String requiredReason(String reason, String label) {

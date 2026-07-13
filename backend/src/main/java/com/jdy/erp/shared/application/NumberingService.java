@@ -18,6 +18,7 @@ public class NumberingService {
         Map.entry("salesQuote", new NumberingRule("XSBJ", "sales_quote", "销售报价单")),
         Map.entry("deliveryNotice", new NumberingRule("FHTZD", "delivery_notice", "发货通知单")),
         Map.entry("salesOut", new NumberingRule("XSCKD", "sales_out", "销售出库单")),
+        Map.entry("salesReturn", new NumberingRule("XSTH", "sales_return", "销售退货单")),
         Map.entry("arReceipt", new NumberingRule("SKD", "ar_receipt", "收款单")),
         Map.entry("purchaseOrder", new NumberingRule("CGDD", "purchase_order", "采购订单")),
         Map.entry("purchaseRequisition", new NumberingRule("CGSQ", "purchase_requisition", "采购申请单")),

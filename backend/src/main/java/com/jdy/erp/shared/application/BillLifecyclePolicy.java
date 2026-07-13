@@ -15,6 +15,7 @@ public final class BillLifecyclePolicy {
         Map.entry("purchase_order", new LifecycleCapabilities(true, true, false, true)),
         Map.entry("production_task", new LifecycleCapabilities(true, true, false, true)),
         Map.entry("sales_out", new LifecycleCapabilities(false, false, true, true)),
+        Map.entry("sales_return", FACT_DOCUMENT),
         Map.entry("purchase_in", new LifecycleCapabilities(false, false, true, true)),
         Map.entry("purchase_return", FACT_DOCUMENT),
         Map.entry("ar_receipt", new LifecycleCapabilities(false, false, false, false)),

@@ -29,6 +29,7 @@ public class ListQueryContractRegistry {
         "sales-quote-source-selector",
         "sales-order-source-selector",
         "delivery-notice-source-selector",
+        "sales-out-return-source-selector",
         "purchase-requisition-source-selector",
         "purchase-order-source-selector",
         "purchase-in-source-selector",
@@ -147,6 +148,8 @@ public class ListQueryContractRegistry {
             );
             case "sales-quote-form-list", "delivery-notice-form-list", "sales-out-list", "sales-out-form-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "customerCode", "customer", "partner", "productCode", "productName", "spec", "customerMaterialCode", "customerOrderNo", "remark", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
+            case "sales-return-form-list" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourceBillNo", "customerCode", "customer", "partner", "currency", "productCode", "productName", "spec", "remark", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
             case "purchase-order-form-list", "purchase-in-list", "purchase-in-form-list", "purchase-return-list", "purchase-return-form-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "supplierCode", "supplier", "partner", "productCode", "productName", "spec", "sourceBillNo", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
             case "ar-receipt-form-list", "ap-payment-form-list" ->

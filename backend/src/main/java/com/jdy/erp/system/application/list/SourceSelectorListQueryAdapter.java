@@ -69,6 +69,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             case "sales-quote-source-selector" -> salesQuoteSpec();
             case "sales-order-source-selector" -> salesOrderSpec();
             case "delivery-notice-source-selector" -> deliveryNoticeSpec();
+            case "sales-out-return-source-selector" -> salesOutReturnSpec();
             case "purchase-requisition-source-selector" -> purchaseRequisitionSpec();
             case "purchase-order-source-selector" -> purchaseOrderSpec();
             case "purchase-in-source-selector" -> purchaseInSpec();
@@ -398,6 +399,66 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "unit", "netWeight", "grossWeight", "warehouseCode", "sourceQty", "shippedQty", "remainingQty",
                 "unitPrice", "taxInclusiveUnitPrice", "taxRate", "amount", "taxAmount", "priceTaxTotal", "customerMaterialCode", "customerOrderNo", "lineRemark",
                 "planDeliveryDate", "stockOnHand", "stockReserved", "stockAvailable", "stockInTransit"
+            ));
+    }
+
+    private SourceQuerySpec salesOutReturnSpec() {
+        return new SourceQuerySpec("""
+            SELECT so.bill_no AS "billNo",
+                   so.bill_no AS "sourceOutNo",
+                   l.line_no AS "lineNo",
+                   l.line_no AS "sourceLineNo",
+                   l.id::text AS "sourceOutLineId",
+                   c.id::text AS "customerId",
+                   c.code AS "customerCode",
+                   c.name AS customer,
+                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   so.currency,
+                   l.product_id::text AS "productId",
+                   COALESCE(l.product_code_snapshot, p.code) AS "productCode",
+                   COALESCE(l.product_name_snapshot, p.name) AS "productName",
+                   COALESCE(l.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(l.product_unit_snapshot, p.unit, '') AS unit,
+                   trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
+                   trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
+                   l.warehouse_id::text AS "warehouseId",
+                   w.code AS "warehouseCode",
+                   w.name AS warehouse,
+                   l.qty AS "sourceQty",
+                   COALESCE(returned.returned_qty, 0) AS "returnedQty",
+                   GREATEST(0, l.qty - COALESCE(returned.returned_qty, 0)) AS "remainingQty",
+                   l.unit_price AS "unitPrice",
+                   round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
+                   COALESCE(l.tax_rate, 0) AS "taxRate",
+                   COALESCE(l.line_remark, '') AS "lineRemark"
+            FROM sales_out so
+            JOIN sales_out_line l ON l.bill_id = so.id
+            JOIN md_customer c ON c.id = so.customer_id
+            JOIN md_product p ON p.id = l.product_id
+            JOIN md_warehouse w ON w.id = l.warehouse_id
+            LEFT JOIN (
+                SELECT return_line.source_out_line_id,
+                       SUM(return_line.qty) AS returned_qty
+                FROM sales_return_line return_line
+                JOIN sales_return return_bill ON return_bill.id = return_line.bill_id
+                WHERE return_bill.status = 'AUDITED'
+                GROUP BY return_line.source_out_line_id
+            ) returned ON returned.source_out_line_id = l.id
+            WHERE so.status = 'AUDITED'
+              AND so.red_source_bill_id IS NULL
+              AND l.qty > 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM sales_out red
+                  WHERE red.red_source_bill_id = so.id
+                    AND red.status <> 'VOID'
+              )
+              AND GREATEST(0, l.qty - COALESCE(returned.returned_qty, 0)) > 0
+            """, List.of(), sourceFields(
+                "billNo", "sourceOutNo", "lineNo", "sourceLineNo", "sourceOutLineId", "customerId", "customerCode", "customer",
+                "billDate", "currency", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",
+                "warehouseId", "warehouseCode", "warehouse", "sourceQty", "returnedQty", "remainingQty", "unitPrice",
+                "taxInclusiveUnitPrice", "taxRate", "lineRemark"
             ));
     }
 

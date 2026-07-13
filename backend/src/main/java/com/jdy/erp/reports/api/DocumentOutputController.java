@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.DocumentPermissionPolicy;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -31,9 +32,14 @@ public class DocumentOutputController {
     private static final String CURRENT_ROLE_CODE = "ADMIN";
 
     private final JdbcTemplate jdbcTemplate;
+    private final DocumentPermissionPolicy documentPermissionPolicy;
 
-    public DocumentOutputController(JdbcTemplate jdbcTemplate) {
+    public DocumentOutputController(
+        JdbcTemplate jdbcTemplate,
+        DocumentPermissionPolicy documentPermissionPolicy
+    ) {
         this.jdbcTemplate = jdbcTemplate;
+        this.documentPermissionPolicy = documentPermissionPolicy;
     }
 
     @GetMapping("/{documentType}/{billNo}/export.csv")
@@ -272,6 +278,7 @@ public class DocumentOutputController {
     }
 
     private DocumentPayload payload(String documentType, String billNo) {
+        documentPermissionPolicy.requirePermission(permissionDocumentType(documentType));
         return switch (documentType) {
             case "sales-quote" -> salesQuotePayload(billNo);
             case "sales-order" -> salesOrderPayload(billNo);
@@ -279,11 +286,30 @@ public class DocumentOutputController {
             case "purchase-in" -> stockBillPayload("purchase_in", "purchase_in_line", "md_supplier", "供应商", billNo);
             case "purchase-return" -> stockBillPayload("purchase_return", "purchase_return_line", "md_supplier", "供应商", billNo, "source_in_no");
             case "sales-out" -> stockBillPayload("sales_out", "sales_out_line", "md_customer", "客户", billNo);
+            case "sales-return" -> stockBillPayload("sales_return", "sales_return_line", "md_customer", "客户", billNo, "source_out_no");
             case "material-issue" -> productionBillPayload("production_material_issue", "production_material_issue_line", "issue_id", "生产领料单", billNo);
             case "product-in" -> productionBillPayload("production_completion", "production_completion_line", "completion_id", "产品入库单", billNo);
             case "other-stock-in" -> inventoryBillPayload("other_stock_in", "other_stock_in_line", "其他入库单", billNo);
             case "other-stock-out" -> inventoryBillPayload("other_stock_out", "other_stock_out_line", "其他出库单", billNo);
             case "stock-transfer" -> stockTransferPayload(billNo);
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据输出");
+        };
+    }
+
+    private String permissionDocumentType(String documentType) {
+        return switch (documentType) {
+            case "sales-quote" -> "salesQuote";
+            case "sales-order" -> "salesOrder";
+            case "purchase-order" -> "purchaseOrder";
+            case "purchase-in" -> "purchaseIn";
+            case "purchase-return" -> "purchaseReturn";
+            case "sales-out" -> "salesOut";
+            case "sales-return" -> "salesReturn";
+            case "material-issue" -> "materialIssue";
+            case "product-in" -> "productIn";
+            case "other-stock-in" -> "otherStockIn";
+            case "other-stock-out" -> "otherStockOut";
+            case "stock-transfer" -> "stockTransfer";
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据输出");
         };
     }
@@ -377,7 +403,7 @@ public class DocumentOutputController {
     }
 
     private DocumentPayload stockBillPayload(String table, String lineTable, String counterpartyTable, String counterpartyAlias, String billNo, String sourceColumn) {
-        var counterpartyColumn = "sales_out".equals(table) ? "customer_id" : "supplier_id";
+        var counterpartyColumn = "sales_out".equals(table) || "sales_return".equals(table) ? "customer_id" : "supplier_id";
         var header = jdbcTemplate.queryForList("""
             SELECT b.bill_no AS "billNo",
                    c.name AS counterparty,
@@ -401,7 +427,7 @@ public class DocumentOutputController {
                    trim(to_char(COALESCE(l.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
                    trim(to_char(COALESCE(l.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
                    w.name AS warehouse,
-                   trim(to_char(l.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(l.qty, 'FM9999999990.9999')) AS qty,
                    trim(to_char(l.unit_price, 'FM9999999990.00')) AS "unitPrice",
                    trim(to_char(l.amount, 'FM9999999990.00')) AS amount,
                    COALESCE(l.line_remark, '') AS "lineRemark"
@@ -540,6 +566,7 @@ public class DocumentOutputController {
             case "purchase-in" -> "采购入库单";
             case "purchase-return" -> "采购退货单";
             case "sales-out" -> "销售出库单";
+            case "sales-return" -> "销售退货单";
             case "material-issue" -> "生产领料单";
             case "product-in" -> "产品入库单";
             case "other-stock-in" -> "其他入库单";
@@ -550,7 +577,7 @@ public class DocumentOutputController {
     }
 
     private List<String> supportedDocumentTypes() {
-        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "purchase-in", "purchase-return", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
+        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "sales-return", "purchase-in", "purchase-return", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
     }
 
     private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {

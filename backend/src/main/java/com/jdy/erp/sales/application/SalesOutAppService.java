@@ -283,6 +283,11 @@ public class SalesOutAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
+        var lockedSource = lockSourceHeader(billNo, "销售出库单不存在或不能反审核");
+        if (!BillStatus.AUDITED.name().equals(String.valueOf(lockedSource.get("status")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库单不存在或不能反审核");
+        }
+        assertNoNonVoidSalesReturn(lockedSource.get("id"), "反审核");
         redReverseGuardService.assertNoNonVoidRedBillForBillNo(BILL_TABLE, billNo, "销售出库单", "反审核");
         var row = lifecycleService.transition(
             BILL_TABLE,
@@ -342,13 +347,16 @@ public class SalesOutAppService {
                    department,
                    total_amount,
                    currency,
-                   owner_name AS "ownerName"
+                   owner_name AS "ownerName",
+                   status
             FROM sales_out
-            WHERE bill_no = ? AND status = ?
-            """, billNo, BillStatus.AUDITED.name());
-        if (sourceRows.isEmpty()) {
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+        if (sourceRows.isEmpty() || !BillStatus.AUDITED.name().equals(String.valueOf(sourceRows.get(0).get("status")))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核销售出库单可以红冲");
         }
+        assertNoNonVoidSalesReturn(sourceRows.get(0).get("id"), "红冲");
         redReverseGuardService.assertNoNonVoidRedBill(BILL_TABLE, sourceRows.get(0).get("id"), "销售出库单");
         var redBillNo = numberingService.nextBillNo("salesOut");
         var source = sourceRows.get(0);
@@ -546,6 +554,36 @@ public class SalesOutAppService {
             WHERE so.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
+    }
+
+    private Map<String, Object> lockSourceHeader(String billNo, String conflictMessage) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, status
+            FROM sales_out
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflictMessage);
+        }
+        return rows.getFirst();
+    }
+
+    private void assertNoNonVoidSalesReturn(Object sourceBillId, String actionLabel) {
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM sales_return return_bill
+            JOIN sales_return_line return_line ON return_line.bill_id = return_bill.id
+            JOIN sales_out_line source_line ON source_line.id = return_line.source_out_line_id
+            WHERE source_line.bill_id = ?::uuid
+              AND return_bill.status <> 'VOID'
+            """, Long.class, sourceBillId);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "销售出库单已关联非作废销售退货单，不能" + actionLabel
+            );
+        }
     }
 
     private PostingContext financeContext(Map<String, Object> row, String txnType) {

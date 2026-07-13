@@ -474,7 +474,9 @@ class RedReverseOperationLogIntegrationTest {
         row.put("customerId", PARTY_ID);
         row.put("department", "销售部");
         row.put("total_amount", new BigDecimal("22.60"));
+        row.put("currency", "CNY");
         row.put("ownerName", "tester");
+        row.put("status", "AUDITED");
         return row;
     }
 
