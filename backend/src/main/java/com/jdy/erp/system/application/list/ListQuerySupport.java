@@ -59,33 +59,6 @@ public class ListQuerySupport {
             && (dateTo == null || dateTo.isBlank() || date.compareTo(dateTo) <= 0);
     }
 
-    public boolean matchesOperationLogFilters(
-        String listKey,
-        Map<String, ?> row,
-        String module,
-        String action,
-        String operator,
-        String targetType,
-        String dateFrom,
-        String dateTo
-    ) {
-        if (!"operation-log-list".equals(listKey)) {
-            return true;
-        }
-        var rowModule = String.valueOf(row.get("module") == null ? "" : row.get("module"));
-        var rowAction = String.valueOf(row.get("action") == null ? "" : row.get("action"));
-        var rowOperator = String.valueOf(row.get("operator") == null ? "" : row.get("operator"));
-        var rowTargetType = String.valueOf(row.get("targetType") == null ? "" : row.get("targetType"));
-        var operatedAt = String.valueOf(row.get("operatedAt") == null ? "" : row.get("operatedAt"));
-        var operatedDate = operatedAt.length() >= 10 ? operatedAt.substring(0, 10) : "";
-        return (module == null || module.isBlank() || module.equals(rowModule))
-            && (action == null || action.isBlank() || action.equals(rowAction))
-            && (operator == null || operator.isBlank() || rowOperator.contains(operator))
-            && (targetType == null || targetType.isBlank() || targetType.equals(rowTargetType))
-            && (dateFrom == null || dateFrom.isBlank() || operatedDate.compareTo(dateFrom) >= 0)
-            && (dateTo == null || dateTo.isBlank() || operatedDate.compareTo(dateTo) <= 0);
-    }
-
     public boolean matchesColumnFilters(Map<String, ?> row, Map<String, Map<String, String>> filters) {
         return filters.entrySet().stream().allMatch(entry -> {
             var filter = entry.getValue();

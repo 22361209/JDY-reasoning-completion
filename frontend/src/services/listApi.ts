@@ -10,6 +10,8 @@ export interface ListQuery {
   action?: string;
   operator?: string;
   targetType?: string;
+  actorType?: string;
+  scope?: "current" | "platform" | "historical";
   dateFrom?: string;
   dateTo?: string;
   columnFilters?: Record<string, { operator: string; value: string }>;
@@ -22,7 +24,30 @@ export interface ListResponse {
   total: number;
   sortField?: string;
   sortOrder?: string;
+  scope?: "current" | "platform" | "historical";
   rows: Record<string, unknown>[];
+}
+
+export interface OperationLogDetail {
+  id: string;
+  operatedAt: string;
+  module: string;
+  action: string;
+  actorType: string;
+  actorUsername: string;
+  actorDisplayName: string;
+  operator: string;
+  accountSetId: string;
+  accountSetCode: string;
+  accountSetName: string;
+  targetType: string;
+  targetId: string;
+  targetNo: string;
+  success: boolean;
+  status: string;
+  reason: string;
+  beforeState: Record<string, unknown> | null;
+  afterState: Record<string, unknown> | null;
 }
 
 export interface ListFetchResult {
@@ -151,6 +176,27 @@ export async function exportListRows(listKey: string, query: ListQuery): Promise
   }
 }
 
+export async function fetchOperationLogDetail(
+  id: string,
+  scope: "current" | "platform" | "historical"
+): Promise<{ ok: boolean; status: number; message: string; data: OperationLogDetail | null }> {
+  try {
+    const search = new URLSearchParams({ scope });
+    const response = await fetch(`/api/lists/operation-log-list/rows/${encodeURIComponent(id)}?${search.toString()}`);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        message: response.status === 404 ? "该日志不属于当前查看范围或已不存在。" : "操作日志详情加载失败。",
+        data: null
+      };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as OperationLogDetail };
+  } catch {
+    return { ok: false, status: 0, message: "网络异常，操作日志详情加载失败。", data: null };
+  }
+}
+
 export async function fetchListPresets(listKey: string): Promise<ListPresetResult> {
   try {
     const response = await fetch(`/api/list-presets/${encodeURIComponent(listKey)}`);
@@ -261,6 +307,12 @@ function buildListSearch(query: ListQuery) {
   }
   if (query.targetType) {
     search.set("targetType", query.targetType);
+  }
+  if (query.actorType) {
+    search.set("actorType", query.actorType);
+  }
+  if (query.scope) {
+    search.set("scope", query.scope);
   }
   if (query.dateFrom) {
     search.set("dateFrom", query.dateFrom);

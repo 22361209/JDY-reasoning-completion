@@ -31,22 +31,8 @@ class ListQueryServiceTest {
             List.of(new DefaultStubListQueryAdapter())
         );
         var request = new ListQueryRequest(
-            "test-list",
-            "",
-            "",
-            1,
-            200,
-            "header",
-            "",
-            "asc",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            false
+            "test-list", "", "", 1, 200, "header", "", "asc", "",
+            "", "", "", "", "", "current", "", "", false
         );
 
         assertThatThrownBy(() -> service.query(request, (listKey, view, pageSize) -> List.of()))

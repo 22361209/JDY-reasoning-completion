@@ -2,13 +2,24 @@ package com.jdy.erp.system.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+
+import java.util.List;
+import java.util.Map;
 
 import com.jdy.erp.system.application.list.ListExportColumnProvider;
 import com.jdy.erp.system.application.list.ListQueryService;
+import com.jdy.erp.system.application.list.ListQueryResult;
 import com.jdy.erp.system.application.list.ListSeedRowsProvider;
 import com.jdy.erp.system.application.list.ListStubStateGuard;
+import com.jdy.erp.system.application.list.OperationLogListQueryAdapter;
+import com.jdy.erp.system.security.CurrentPermissionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -16,11 +27,14 @@ import org.springframework.web.server.ResponseStatusException;
 class ListStubControllerTest {
     private final ListQueryService listQueryService = mock(ListQueryService.class);
     private final ListSeedRowsProvider seedRowsProvider = mock(ListSeedRowsProvider.class);
+    private final CurrentPermissionService currentPermissionService = mock(CurrentPermissionService.class);
+    private final OperationLogListQueryAdapter operationLogListQueryAdapter = mock(OperationLogListQueryAdapter.class);
     private final ListStubController controller = new ListStubController(
         listQueryService,
         seedRowsProvider,
         new ListExportColumnProvider(),
-        new ListStubStateGuard()
+        new ListStubStateGuard(currentPermissionService),
+        operationLogListQueryAdapter
     );
 
     @Test
@@ -40,6 +54,8 @@ class ListStubControllerTest {
             "",
             "",
             "",
+            "current",
+            "",
             ""
         ));
 
@@ -57,10 +73,54 @@ class ListStubControllerTest {
             "",
             "",
             "",
+            "current",
+            "",
             ""
         ));
 
         verifyNoInteractions(listQueryService, seedRowsProvider);
+    }
+
+    @Test
+    void operationLogScopesEnforceRoleAndPermissionMatrix() {
+        var guard = new ListStubStateGuard(currentPermissionService);
+        when(currentPermissionService.currentRoleCode()).thenReturn("FINANCE");
+        doNothing().when(currentPermissionService).requirePermission("system.audit_log.view");
+        guard.assertReadable("operation-log-list", "current");
+        assertForbidden(() -> guard.assertReadable("operation-log-list", "platform"));
+        assertForbidden(() -> guard.assertReadable("operation-log-list", "historical"));
+
+        when(currentPermissionService.currentRoleCode()).thenReturn("ADMIN");
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission"))
+            .when(currentPermissionService).requirePermission("system.account_set.manage");
+        assertForbidden(() -> guard.assertReadable("operation-log-list", "platform"));
+
+        doNothing().when(currentPermissionService).requirePermission("system.account_set.manage");
+        guard.assertReadable("operation-log-list", "platform");
+        guard.assertReadable("operation-log-list", "historical");
+
+        when(currentPermissionService.currentRoleCode()).thenReturn("WAREHOUSE");
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission"))
+            .when(currentPermissionService).requirePermission("system.audit_log.view");
+        assertForbidden(() -> guard.assertReadable("operation-log-list", "current"));
+    }
+
+    @Test
+    void operationLogCsvIncludesStableIdentityColumn() {
+        when(currentPermissionService.hasPermission("system.audit_log.view")).thenReturn(true);
+        when(listQueryService.query(any(), eq(seedRowsProvider))).thenReturn(new ListQueryResult(
+            1, 1000, "header", "operatedAt", "desc", 1,
+            List.<Map<String, ?>>of(Map.of("id", "00000000-0000-0000-0000-000000000123", "operatedAt", "2026-07-13 10:00:00"))
+        ));
+
+        var response = controller.exportCsv(
+            "operation-log-list", "", "", 1000, "header", "", "asc", "",
+            "", "", "", "", "", "current", "", ""
+        );
+
+        assertThat(response.getBody())
+            .contains("日志ID,操作时间,模块,动作,主体类型")
+            .contains("00000000-0000-0000-0000-000000000123");
     }
 
     private void assertForbidden(Runnable action) {

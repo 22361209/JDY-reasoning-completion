@@ -20,7 +20,6 @@ public class DefaultStubListQueryAdapter implements ListQueryAdapter {
             .stream()
             .filter(row -> support.matchesKeywordTokens(row, contract.keywordFields(), tokens))
             .filter(row -> support.matchesDateRange(row, contract.dateField(), request.dateFrom(), request.dateTo()))
-            .filter(row -> support.matchesOperationLogFilters(request.listKey(), row, request.module(), request.action(), request.operator(), request.targetType(), request.dateFrom(), request.dateTo()))
             .filter(row -> support.matchesColumnFilters(row, filters))
             .toList();
         if (support.hasText(request.sortField())) {

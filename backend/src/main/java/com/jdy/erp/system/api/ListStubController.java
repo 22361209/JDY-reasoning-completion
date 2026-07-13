@@ -8,6 +8,8 @@ import com.jdy.erp.system.application.list.ListQueryService;
 import com.jdy.erp.system.application.list.ListSeedRowsProvider;
 import com.jdy.erp.system.application.list.ListExportColumnProvider;
 import com.jdy.erp.system.application.list.ListStubStateGuard;
+import com.jdy.erp.system.application.list.OperationLogListQueryAdapter;
+import com.jdy.erp.system.application.list.OperationLogRow;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,17 +26,20 @@ public class ListStubController {
     private final ListSeedRowsProvider seedRowsProvider;
     private final ListExportColumnProvider exportColumnProvider;
     private final ListStubStateGuard stateGuard;
+    private final OperationLogListQueryAdapter operationLogListQueryAdapter;
 
     public ListStubController(
         ListQueryService listQueryService,
         ListSeedRowsProvider seedRowsProvider,
         ListExportColumnProvider exportColumnProvider,
-        ListStubStateGuard stateGuard
+        ListStubStateGuard stateGuard,
+        OperationLogListQueryAdapter operationLogListQueryAdapter
     ) {
         this.listQueryService = listQueryService;
         this.seedRowsProvider = seedRowsProvider;
         this.exportColumnProvider = exportColumnProvider;
         this.stateGuard = stateGuard;
+        this.operationLogListQueryAdapter = operationLogListQueryAdapter;
     }
 
     @GetMapping("/{listKey}")
@@ -52,21 +57,47 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String action,
         @RequestParam(defaultValue = "") String operator,
         @RequestParam(defaultValue = "") String targetType,
+        @RequestParam(defaultValue = "") String actorType,
+        @RequestParam(defaultValue = "current") String scope,
         @RequestParam(defaultValue = "") String dateFrom,
         @RequestParam(defaultValue = "") String dateTo
     ) {
-        stateGuard.assertReadable(listKey);
+        stateGuard.assertReadable(listKey, scope);
 
-        var request = listQueryRequest(listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo, false);
+        var request = listQueryRequest(listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, actorType, scope, dateFrom, dateTo, false);
         var result = listQueryService.query(request, seedRowsProvider);
-        return Map.of(
-            "page", result.page(),
-            "pageSize", result.pageSize(),
-            "view", result.view(),
-            "sortField", result.sortField(),
-            "sortOrder", result.sortOrder(),
-            "total", result.total(),
-            "rows", result.rows()
+        var response = new java.util.LinkedHashMap<String, Object>();
+        response.put("page", result.page());
+        response.put("pageSize", result.pageSize());
+        response.put("view", result.view());
+        response.put("sortField", result.sortField());
+        response.put("sortOrder", result.sortOrder());
+        response.put("scope", scope == null || scope.isBlank() ? "current" : scope.trim().toLowerCase(java.util.Locale.ROOT));
+        response.put("total", result.total());
+        response.put("rows", result.rows());
+        return response;
+    }
+
+    public Map<String, Object> rows(
+        String listKey,
+        String keyword,
+        String status,
+        int page,
+        int pageSize,
+        String view,
+        String sortField,
+        String sortOrder,
+        String columnFilters,
+        String module,
+        String action,
+        String operator,
+        String targetType,
+        String dateFrom,
+        String dateTo
+    ) {
+        return rows(
+            listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters,
+            module, action, operator, targetType, "", "current", dateFrom, dateTo
         );
     }
 
@@ -84,12 +115,14 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String action,
         @RequestParam(defaultValue = "") String operator,
         @RequestParam(defaultValue = "") String targetType,
+        @RequestParam(defaultValue = "") String actorType,
+        @RequestParam(defaultValue = "current") String scope,
         @RequestParam(defaultValue = "") String dateFrom,
         @RequestParam(defaultValue = "") String dateTo
     ) {
-        stateGuard.assertReadable(listKey);
+        stateGuard.assertReadable(listKey, scope);
 
-        var request = listQueryRequest(listKey, keyword, status, 1, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, dateFrom, dateTo, true);
+        var request = listQueryRequest(listKey, keyword, status, 1, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, actorType, scope, dateFrom, dateTo, true);
         var rows = listQueryService.query(request, seedRowsProvider).rows();
         var columns = exportColumnProvider.columnsFor(listKey, rows);
         var csv = new StringBuilder();
@@ -108,6 +141,37 @@ public class ListStubController {
             .body(csv.toString());
     }
 
+    public ResponseEntity<String> exportCsv(
+        String listKey,
+        String keyword,
+        String status,
+        int pageSize,
+        String view,
+        String sortField,
+        String sortOrder,
+        String columnFilters,
+        String module,
+        String action,
+        String operator,
+        String targetType,
+        String dateFrom,
+        String dateTo
+    ) {
+        return exportCsv(
+            listKey, keyword, status, pageSize, view, sortField, sortOrder, columnFilters,
+            module, action, operator, targetType, "", "current", dateFrom, dateTo
+        );
+    }
+
+    @GetMapping("/operation-log-list/rows/{id}")
+    public OperationLogRow operationLogDetail(
+        @PathVariable String id,
+        @RequestParam(defaultValue = "current") String scope
+    ) {
+        stateGuard.assertReadable("operation-log-list", scope);
+        return operationLogListQueryAdapter.detail(id, scope);
+    }
+
     private ListQueryRequest listQueryRequest(
         String listKey,
         String keyword,
@@ -122,6 +186,8 @@ public class ListStubController {
         String action,
         String operator,
         String targetType,
+        String actorType,
+        String scope,
         String dateFrom,
         String dateTo,
         boolean exportMode
@@ -140,6 +206,8 @@ public class ListStubController {
             action == null ? "" : action,
             operator == null ? "" : operator,
             targetType == null ? "" : targetType,
+            actorType == null ? "" : actorType,
+            scope == null || scope.isBlank() ? "current" : scope,
             dateFrom == null ? "" : dateFrom,
             dateTo == null ? "" : dateTo,
             exportMode

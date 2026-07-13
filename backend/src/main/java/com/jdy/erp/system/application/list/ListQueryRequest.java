@@ -14,6 +14,8 @@ public record ListQueryRequest(
     String action,
     String operator,
     String targetType,
+    String actorType,
+    String scope,
     String dateFrom,
     String dateTo,
     boolean exportMode

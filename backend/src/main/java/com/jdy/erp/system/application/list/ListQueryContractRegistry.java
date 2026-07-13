@@ -57,12 +57,12 @@ public class ListQueryContractRegistry {
             case "operation-log-list" -> new ListQueryContract(
                 listKey,
                 normalizedView,
-                List.of("module", "action", "targetType", "targetNo", "operator", "reason", "operatedAt"),
+                List.of("id", "module", "action", "actorType", "actorUsername", "actorDisplayName", "operator", "accountSetCode", "accountSetName", "targetType", "targetId", "targetNo", "reason", "operatedAt"),
                 "operatedAt",
                 "row",
                 normalizedView,
-                "default",
-                false
+                "operationLog",
+                true
             );
             case "sales-quote-form-list", "delivery-notice-form-list", "sales-out-list", "sales-out-form-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "customerCode", "customer", "partner", "productCode", "productName", "spec", "customerMaterialCode", "customerOrderNo", "remark", "lineRemark"), "billDate", "exists", normalizedView, "default", false);

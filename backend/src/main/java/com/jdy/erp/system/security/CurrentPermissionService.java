@@ -3,6 +3,8 @@ package com.jdy.erp.system.security;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class CurrentPermissionService {
@@ -31,5 +33,11 @@ public class CurrentPermissionService {
               AND c.enabled = TRUE
             """, Integer.class, currentRoleCode(), permissionCode);
         return count != null && count > 0;
+    }
+
+    public void requirePermission(String permissionCode) {
+        if (!hasPermission(permissionCode)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission: " + permissionCode);
+        }
     }
 }

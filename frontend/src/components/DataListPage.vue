@@ -23,6 +23,14 @@
     >
       <template #expanded-fields="{ expanded }">
         <label v-if="expanded && isOperationLogList">
+          查看范围
+          <select v-model="query.scope" data-testid="operation-log-scope">
+            <option value="current">当前账套</option>
+            <option v-if="canViewOperationLogPlatformScopes" value="platform">平台</option>
+            <option v-if="canViewOperationLogPlatformScopes" value="historical">历史未归属</option>
+          </select>
+        </label>
+        <label v-if="expanded && isOperationLogList">
           模块
           <select v-model="query.module" data-testid="operation-log-module">
             <option value="">全部</option>
@@ -34,6 +42,16 @@
           <select v-model="query.action" data-testid="operation-log-action">
             <option value="">全部</option>
             <option v-for="action in operationLogActions" :key="action" :value="action">{{ action }}</option>
+          </select>
+        </label>
+        <label v-if="expanded && isOperationLogList">
+          主体类型
+          <select v-model="query.actorType" data-testid="operation-log-actor-type">
+            <option value="">全部</option>
+            <option value="USER">用户</option>
+            <option value="SYSTEM">系统任务</option>
+            <option value="ANONYMOUS">未认证请求</option>
+            <option value="HISTORICAL_UNKNOWN">历史未知</option>
           </select>
         </label>
         <label v-if="expanded && isOperationLogList">
@@ -91,7 +109,7 @@
         {{ isDetailView ? "整单视图" : "明细视图" }}
       </button>
       <button type="button" data-testid="column-settings" @click="openColumnSettings">列设置</button>
-      <button type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
+      <button v-if="!isOperationLogList" type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
     </div>
 
     <div class="data-list-content" :class="{ 'has-product-category-sidebar': isProductMasterList }">
@@ -188,6 +206,16 @@
             </template>
             <div v-else class="vxe-cell">
               <span v-if="isStatusColumn(column.key)" class="status-pill" :class="statusClass(row[column.key])">{{ row[column.key] }}</span>
+              <span v-else-if="isOperationLogList && column.key === 'actorType'">{{ operationLogActorTypeLabel(row.actorType) }}</span>
+              <button
+                v-else-if="isOperationLogList && column.key === 'operatedAt'"
+                class="list-cell-link"
+                type="button"
+                :data-testid="`operation-log-open-detail-${row.id}`"
+                @click.stop="openOperationLogDetail(row)"
+              >
+                {{ cellValue(row, listColumnByKey(column.key)) }}
+              </button>
               <button
                 v-else-if="isOpenableListRecord && column.key === 'billNo'"
                 class="list-cell-link"
@@ -370,6 +398,15 @@
         </div>
       </div>
     </div>
+
+    <OperationLogDetailDrawer
+      :open="operationLogDetailOpen"
+      :loading="operationLogDetailLoading"
+      :message="operationLogDetailMessage"
+      :scope="query.scope"
+      :detail="operationLogDetail"
+      @close="closeOperationLogDetail"
+    />
   </div>
 </template>
 
@@ -388,13 +425,15 @@ import {
   deleteListPreset,
   deleteStockAlertSetting,
   exportListRows,
+  fetchOperationLogDetail,
   fetchListPresets,
   fetchListRows,
   fetchStockAlertSettings,
   saveListPreset,
   saveStockAlertSetting,
   type StockAlertSetting,
-  type ListFilterPreset
+  type ListFilterPreset,
+  type OperationLogDetail
 } from "../services/listApi";
 import { auditDocument, deleteDocument, lifecycleDocument, reverseDocument, voidDocumentHardened, type DocumentType } from "../services/documentApi";
 import { setBomEnabled } from "../services/productionApi";
@@ -418,6 +457,7 @@ import { useDataListSummary } from "./list/useDataListSummary";
 import ListQueryBar from "./list/ListQueryBar.vue";
 import ProductCategorySidebar from "./ProductCategorySidebar.vue";
 import { useProductCategoryFacet } from "./useProductCategoryFacet";
+import OperationLogDetailDrawer from "../modules/system/operation-log/OperationLogDetailDrawer.vue";
 
 const props = defineProps<{
   listKey: string;
@@ -441,6 +481,8 @@ const loading = ref(false);
 const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
 const stateMessage = ref("");
 let reloadSerial = 0;
+let exportSerial = 0;
+let operationLogDetailSerial = 0;
 const filtersExpanded = ref(false);
 const columnDialogOpen = ref(false);
 const selectedProductCategory = ref("");
@@ -457,6 +499,10 @@ const presetMessage = ref("");
 const presetName = ref("");
 const selectedPresetId = ref("");
 const operationLogPresets = ref<ListFilterPreset[]>([]);
+const operationLogDetailOpen = ref(false);
+const operationLogDetailLoading = ref(false);
+const operationLogDetailMessage = ref("");
+const operationLogDetail = ref<OperationLogDetail | null>(null);
 const stockAlertSettings = ref<StockAlertSetting[]>([]);
 const stockAlertSettingsOpen = ref(false);
 const stockAlertSettingsMessage = ref("");
@@ -477,6 +523,8 @@ const query = reactive({
   action: "",
   operator: "",
   targetType: "",
+  actorType: "",
+  scope: "current" as "current" | "platform" | "historical",
   dateFrom: "",
   dateTo: ""
 });
@@ -547,6 +595,11 @@ const canCopyCurrentRecord = computed(() => canCopyMasterRecord.value || isBomLi
 const isSalesOrderList = computed(() => props.listKey === "sales-order-form-list");
 const isPurchaseOrderList = computed(() => props.listKey === "purchase-order-form-list");
 const isOperationLogList = computed(() => props.listKey === "operation-log-list");
+const canViewOperationLogPlatformScopes = computed(() =>
+  session.userRoleCode.value === "ADMIN"
+    && session.hasPermission("system.audit_log.view")
+    && session.hasPermission("system.account_set.manage")
+);
 const isStockAlertList = computed(() => props.listKey === "stock-alert-list");
 const isDetailView = ref(false);
 const auditPermissionByListKey: Partial<Record<string, string>> = {
@@ -934,6 +987,8 @@ const deleteSupportedDocumentTypes = new Set<DocumentType>([
 ]);
 
 watch(() => props.listKey, () => {
+  exportSerial += 1;
+  closeOperationLogDetail();
   loadDetailViewPreference();
   selectedProductCategory.value = "";
   resetColumns();
@@ -948,6 +1003,34 @@ watch(() => props.listKey, () => {
   }
   void reload();
 }, { immediate: false });
+
+watch(canViewOperationLogPlatformScopes, (allowed) => {
+  if (!allowed && query.scope !== "current") {
+    query.scope = "current";
+  }
+});
+
+watch(() => query.scope, (scope, previousScope) => {
+  if (!isOperationLogList.value || scope === previousScope) {
+    return;
+  }
+  reloadSerial += 1;
+  exportSerial += 1;
+  query.page = 1;
+  loading.value = true;
+  exportMessage.value = "";
+  selectedRows.value = [];
+  rows.value = [];
+  total.value = 0;
+  listState.value = "ready";
+  stateMessage.value = "";
+  closeOperationLogDetail();
+  void nextTick(() => {
+    if (isOperationLogList.value && query.scope === scope) {
+      void reload();
+    }
+  });
+}, { flush: "sync" });
 
 onMounted(() => {
   loadDetailViewPreference();
@@ -1036,8 +1119,20 @@ function productCategoryColumnFilters(filters: Record<string, TableColumnFilter>
 }
 
 async function exportCurrentList() {
+  const serial = ++exportSerial;
+  const listKey = props.listKey;
+  const view = isDetailView.value ? "detail" : "header";
+  const scope = isOperationLogList.value ? query.scope : null;
   exportMessage.value = "";
-  const result = await exportListRows(props.listKey, { ...query, view: isDetailView.value ? "detail" : "header", columnFilters: productCategoryColumnFilters(snapshotColumnFilters()) });
+  const result = await exportListRows(listKey, { ...query, view, columnFilters: productCategoryColumnFilters(snapshotColumnFilters()) });
+  if (
+    serial !== exportSerial
+    || listKey !== props.listKey
+    || view !== (isDetailView.value ? "detail" : "header")
+    || (scope !== null && scope !== query.scope)
+  ) {
+    return;
+  }
   if (!result.ok || !result.blob) {
     exportMessage.value = result.message;
     return;
@@ -1187,6 +1282,8 @@ function snapshotOperationLogQuery(): Record<string, string> {
     action: query.action,
     operator: query.operator,
     targetType: query.targetType,
+    actorType: query.actorType,
+    scope: query.scope,
     dateFrom: query.dateFrom,
     dateTo: query.dateTo
   };
@@ -1254,17 +1351,21 @@ async function loadOperationLogPresets(applyDefault = false) {
 }
 
 function applyOperationLogPreset(preset: ListFilterPreset, message = "") {
+  const previousScope = query.scope;
   const migrated = migratePresetStatusFilter(preset);
   Object.assign(query, {
     ...migrated.query,
     page: 1
   });
+  query.scope = normalizeOperationLogScope(migrated.query.scope);
   replaceColumnFilters(migrated.columnFilters);
   filtersExpanded.value = true;
   selectedPresetId.value = preset.id;
   presetName.value = preset.name;
   presetMessage.value = message;
-  reload();
+  if (query.scope === previousScope) {
+    reload();
+  }
 }
 
 function persistOperationLogPresets() {
@@ -1276,6 +1377,7 @@ function operationLogPresetKey() {
 }
 
 function resetQuery(shouldReload = true) {
+  const previousScope = query.scope;
   query.keyword = "";
   query.status = defaultListStatus();
   selectedProductCategory.value = "";
@@ -1283,12 +1385,14 @@ function resetQuery(shouldReload = true) {
   query.action = "";
   query.operator = "";
   query.targetType = "";
+  query.actorType = "";
+  query.scope = "current";
   query.dateFrom = "";
   query.dateTo = "";
   query.page = 1;
   replaceColumnFilters({});
   presetMessage.value = "";
-  if (shouldReload) {
+  if (shouldReload && (!isOperationLogList.value || query.scope === previousScope)) {
     reload();
   }
 }
@@ -1311,7 +1415,57 @@ function migratePresetStatusFilter(preset: ListFilterPreset) {
     columnFilterSnapshot.status = { operator: "等于", value: legacyStatus };
   }
   querySnapshot.status = "";
+  querySnapshot.actorType = String(querySnapshot.actorType ?? "");
+  querySnapshot.scope = normalizeOperationLogScope(querySnapshot.scope);
   return { query: querySnapshot, columnFilters: columnFilterSnapshot };
+}
+
+function normalizeOperationLogScope(scope: unknown): "current" | "platform" | "historical" {
+  const normalized = String(scope ?? "current").trim().toLowerCase();
+  if ((normalized === "platform" || normalized === "historical") && canViewOperationLogPlatformScopes.value) {
+    return normalized;
+  }
+  return "current";
+}
+
+function operationLogActorTypeLabel(actorType: unknown) {
+  return ({
+    USER: "用户",
+    SYSTEM: "系统任务",
+    ANONYMOUS: "未认证请求",
+    HISTORICAL_UNKNOWN: "历史未知"
+  } as Record<string, string>)[String(actorType ?? "")] ?? String(actorType ?? "-");
+}
+
+async function openOperationLogDetail(row: Record<string, unknown>) {
+  const id = String(row.id ?? "").trim();
+  if (!id) {
+    return;
+  }
+  const serial = ++operationLogDetailSerial;
+  const scope = query.scope;
+  operationLogDetailOpen.value = true;
+  operationLogDetailLoading.value = true;
+  operationLogDetailMessage.value = "";
+  operationLogDetail.value = null;
+  const response = await fetchOperationLogDetail(id, scope);
+  if (serial !== operationLogDetailSerial || !operationLogDetailOpen.value || scope !== query.scope) {
+    return;
+  }
+  operationLogDetailLoading.value = false;
+  if (!response.ok || !response.data) {
+    operationLogDetailMessage.value = response.message;
+    return;
+  }
+  operationLogDetail.value = response.data;
+}
+
+function closeOperationLogDetail() {
+  operationLogDetailSerial += 1;
+  operationLogDetailOpen.value = false;
+  operationLogDetailLoading.value = false;
+  operationLogDetailMessage.value = "";
+  operationLogDetail.value = null;
 }
 
 function applyQueryBarDateRange(range: { from: string; to: string }) {
