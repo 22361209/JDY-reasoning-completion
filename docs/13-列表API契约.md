@@ -134,6 +134,23 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 - 内部 alias 和 source-selector 也必须进入显式登记集；不作为 catalog 入口暴露，但不得依赖通配/default。
 - 未交付入口必须从 catalog 移除并在 delivery status 中标记 `exposure=hidden`、`surface=none`，不能以空表或其他业务数据伪装完成。
 
+### 员工与财务账户主数据
+
+A140 新增四个精确登记 key，后缀不构成通配：
+
+| key | 用途 | 读取权限 | 数据范围 |
+| --- | --- | --- | --- |
+| `employee-master-list` | 员工正式列表 | `master.data.manage` 或 `system.role_permission.manage` | tenant 内全部员工 |
+| `employee-master-selector` | 员工内部选择器 | `master.data.manage` 或 `system.role_permission.manage` | 仅 `AUDITED + enabled` |
+| `financial-account-master-list` | 财务账户正式列表 | `master.data.manage` 或 `finance.settle` | tenant 内全部账户 |
+| `financial-account-master-selector` | 财务账户内部选择器 | `master.data.manage` 或 `finance.settle` | 仅 `AUDITED + enabled` |
+
+- 两个正式列表是 catalog 入口；两个 selector 只供内部选择，不得发布为 catalog 入口。
+- OR 权限由后端契约显式声明，不能通过角色名、前端隐藏或给只读角色补 `master.data.manage` 实现。
+- selector 的审核/启用条件必须在服务端查询中强制；查询和导出不得依赖前端过滤。
+- 员工、财务账户都使用真实 tenant 表，不扩展样本行；两个 tenant 可以有相同编码，但列表、详情、选择器不得串数据。
+- 未登记的普通/master/selector key 必须在权限、adapter/provider 选择和 JDBC 访问之前返回 `404`。
+
 ### 选源单查询
 
 - 选源单候选数据属于正式列表查询协议，统一走 `Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter`。

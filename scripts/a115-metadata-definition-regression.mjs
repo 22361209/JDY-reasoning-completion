@@ -721,7 +721,9 @@ const catalogEntries = [...catalogSources.matchAll(/\{\s*id:\s*"([^"]+)"([^{}]*)
   body: match[2],
   mode: match[2].match(/mode:\s*"([^"]+)"/)?.[1] ?? "",
   queryable: /queryable:\s*true/.test(match[2]),
-  permission: match[2].match(/permission:\s*"([^"]+)"/)?.[1] ?? ""
+  permission: match[2].match(/permission:\s*"([^"]+)"/)?.[1] ?? "",
+  permissions: [...(match[2].match(/permissions:\s*\[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([^"]+)"/g)]
+    .map((permissionMatch) => permissionMatch[1])
 }));
 const catalogIds = new Set(catalogEntries.map((entry) => entry.id));
 const ownerCounts = new Map();
@@ -745,7 +747,21 @@ for (const catalogEntry of catalogEntries) {
     `可查询 catalog 入口 ${catalogEntry.id} 必须有 provider/adapter 处置 ${listKey}`
   );
   assertTrue(ownerCounts.get(catalogEntry.id) === 1, `可查询 catalog 入口 ${catalogEntry.id} 必须有唯一 delivery-status owner`);
-  assertTrue(catalogEntry.permission || catalogEntry.id === "bom-list", `可查询 catalog 入口 ${catalogEntry.id} 必须显式声明权限或登记认证用户例外`);
+  assertTrue(
+    catalogEntry.permission || catalogEntry.permissions.length > 0 || catalogEntry.id === "bom-list",
+    `可查询 catalog 入口 ${catalogEntry.id} 必须显式声明权限或登记认证用户例外`
+  );
+}
+
+for (const [entryId, permissions] of [
+  ["employee-master-list", ["master.data.manage", "system.role_permission.manage"]],
+  ["financial-account-master-list", ["master.data.manage", "finance.settle"]]
+]) {
+  const entry = catalogEntries.find((candidate) => candidate.id === entryId);
+  assertTrue(
+    JSON.stringify(entry?.permissions ?? []) === JSON.stringify(permissions),
+    `${entryId} catalog 必须保留显式 OR 权限 ${permissions.join(" OR ")}`
+  );
 }
 
 for (const retiredEntryId of [

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-13",
+  "updatedAt": "2026-07-14",
   "source": {
     "effectiveScope": "config/effective-feature-scope.json"
   },
@@ -415,44 +415,51 @@
     {
       "id": "F016",
       "state": "verified",
-      "level": "A1",
-      "exposure": "hold",
-      "surface": "shared",
-      "catalogEntryIds": [],
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "employee-master-list"
+      ],
       "evidence": [
         "docs/验收报告/验收报告-A58-用户维护页-20260624.md",
-        "docs/验收报告/验收报告-A59-正式登录与退出-20260624.md"
+        "docs/验收报告/验收报告-A59-正式登录与退出-20260624.md",
+        "docs/验收报告/验收报告-A140-账户资料与员工主档-20260713.md"
       ],
       "knownGaps": [
-        "登录用户和角色维护已有证据，但独立员工主档及员工与账号关联未完成。"
+        "员工与登录账号的关联仅支持当前账套一对一；暂不提供组织树。"
       ],
       "capabilityChecks": {
         "entry": "verified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
     {
       "id": "F017",
-      "state": "unverified",
-      "level": null,
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
-      "evidence": [],
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "financial-account-master-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A140-账户资料与员工主档-20260713.md"
+      ],
       "knownGaps": [
-        "审批范围要求现金、银行和存款账户；仓库中尚无可确认的独立账户主档页面与闭环证据。"
+        "账户主档暂不提供余额、期初、汇率、换算和结算能力；正式结算闭环留待 6B。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "not_applicable"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {

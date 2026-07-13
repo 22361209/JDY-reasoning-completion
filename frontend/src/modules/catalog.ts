@@ -97,7 +97,9 @@ export const moduleCatalog = [
         { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "supplier-master-list", label: "供应商", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "warehouse-master-list", label: "仓库", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
-        { id: "production-department-list", label: "生产部门", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" }
+        { id: "production-department-list", label: "生产部门", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "employee-master-list", label: "员工", module: "基础资料", mode: "list", queryable: true, permissions: ["master.data.manage", "system.role_permission.manage"] },
+        { id: "financial-account-master-list", label: "账户资料", module: "基础资料", mode: "list", queryable: true, permissions: ["master.data.manage", "finance.settle"] }
       ] }
     ]
   },

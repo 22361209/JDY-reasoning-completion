@@ -49,7 +49,8 @@
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
       "scripts/a94-tax-amount-regression.mjs",
-      "scripts/a134-security-boundary-regression.mjs"
+      "scripts/a134-security-boundary-regression.mjs",
+      "scripts/a140-employee-financial-account-regression.mjs"
     ],
     "lifecycle": [
       "scripts/a95-lifecycle-workbench-regression.mjs",
@@ -67,7 +68,8 @@
       "scripts/a107-table-structure-regression.mjs",
       "scripts/a110-table-display-brand-regression.mjs",
       "scripts/a128-list-query-unification-regression.mjs",
-      "scripts/a139-list-fail-closed-regression.mjs"
+      "scripts/a139-list-fail-closed-regression.mjs",
+      "scripts/a140-employee-financial-account-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -91,7 +93,8 @@
       "scripts/a135-public-security-boundary-regression.mjs",
       "scripts/a136-operation-log-actor-regression.mjs",
       "scripts/a137-tenant-schema-constraint-regression.mjs",
-      "scripts/a139-list-fail-closed-regression.mjs"
+      "scripts/a139-list-fail-closed-regression.mjs",
+      "scripts/a140-employee-financial-account-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -124,7 +127,8 @@
       "scripts/a115-metadata-definition-regression.mjs",
       "scripts/a116-production-plan-pushdown-regression.mjs",
       "scripts/a116b-production-source-chain-regression.mjs",
-      "scripts/a138-master-data-sparse-patch-regression.mjs"
+      "scripts/a138-master-data-sparse-patch-regression.mjs",
+      "scripts/a140-employee-financial-account-regression.mjs"
     ]
   },
   "full": [
@@ -242,7 +246,8 @@
     "scripts/a136-operation-log-actor-regression.mjs",
     "scripts/a137-tenant-schema-constraint-regression.mjs",
     "scripts/a138-master-data-sparse-patch-regression.mjs",
-    "scripts/a139-list-fail-closed-regression.mjs"
+    "scripts/a139-list-fail-closed-regression.mjs",
+    "scripts/a140-employee-financial-account-regression.mjs"
   ],
   "exemptions": [
     {
