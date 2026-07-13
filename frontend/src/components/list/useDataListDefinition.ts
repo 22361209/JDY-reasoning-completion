@@ -29,7 +29,7 @@ export interface ListDefinition {
 
 type RawListDefinition = Omit<ListDefinition, "searchFields" | "dateField" | "supportsQuickDateFilter" | "lifecycleColumns"> & Partial<Pick<ListDefinition, "searchFields" | "dateField" | "supportsQuickDateFilter" | "lifecycleColumns">>;
 
-export type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
+export type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "salesReturn" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
 const voidableDocumentListKeys = new Set([
   "sales-quote-form-list",
@@ -37,6 +37,7 @@ const voidableDocumentListKeys = new Set([
   "delivery-notice-form-list",
   "sales-out-list",
   "sales-out-form-list",
+  "sales-return-form-list",
   "purchase-order-form-list",
   "purchase-in-list",
   "purchase-in-form-list",
@@ -278,6 +279,28 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
       { field: "remark", title: "整单备注", width: 180, visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "sales-return-form-list": {
+    title: "销售退货单",
+    subtitle: "销售退货单从已审核销售出库单选源，审核后回补原出库仓并形成冲应收与待退款事实。",
+    keywordPlaceholder: "单据编号、客户、销售出库单、物料",
+    statuses: ["草稿", "已审核", "已反审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "单据编号", width: 150, fixed: "left", visible: true },
+      { field: "customerCode", title: "客户编码", width: 120, visible: true },
+      { field: "customer", title: "客户名称", width: 200, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "currency", title: "币种", width: 80, visible: true },
+      { field: "qty", title: "退货数量", width: 110, align: "right", visible: true },
+      { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+      { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+      { field: "receivableOffsetAmount", title: "冲应收金额", width: 130, align: "right", visible: true },
+      { field: "pendingRefundAmount", title: "待退款金额", width: 130, align: "right", visible: true },
+      { field: "sourceBillNo", title: "源销售出库单", width: 170, visible: true },
+      { field: "remark", title: "整单备注", width: 180, visible: true },
+      { field: "owner", title: "经办人", width: 120, visible: true }
     ]
   },
   "inventory-query-list": {
@@ -918,6 +941,34 @@ export function useDataListDefinition(listKey: () => string) {
     }
     if (listKey() === "purchase-summary-report") {
       return definition.value.columns.map((column) => ({ ...column }));
+    }
+    if (listKey() === "sales-return-form-list") {
+      return [
+        { field: "billNo", title: "单据编号", width: 170, fixed: "left", visible: true },
+        { field: "customerCode", title: "客户编码", width: 120, visible: true },
+        { field: "partner", title: "客户名称", width: 180, visible: true },
+        { field: "billDate", title: "单据日期", width: 120, visible: true },
+        { field: "status", title: "审核状态", width: 100, visible: true },
+        { field: "currency", title: "币种", width: 80, visible: true },
+        { field: "receivableOffsetAmount", title: "冲应收金额", width: 130, align: "right", visible: true },
+        { field: "pendingRefundAmount", title: "待退款金额", width: 130, align: "right", visible: true },
+        { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
+        { field: "sourceBillNo", title: "源销售出库单", width: 170, visible: true },
+        { field: "sourceLineNo", title: "源行号", width: 90, align: "right", visible: true },
+        { field: "productCode", title: "物料编码", width: 130, visible: true },
+        { field: "productName", title: "物料名称", width: 180, visible: true },
+        { field: "spec", title: "规格型号", width: 150, visible: true },
+        { field: "unit", title: "单位", width: 80, visible: true },
+        { field: "netWeight", title: "净重", width: 90, align: "right", visible: true },
+        { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: true },
+        { field: "warehouse", title: "原出库仓", width: 150, visible: true },
+        { field: "qty", title: "退货数量", width: 110, align: "right", visible: true },
+        { field: "unitPrice", title: "单价", width: 120, align: "right", visible: true },
+        { field: "taxInclusiveUnitPrice", title: "含税单价", width: 120, align: "right", visible: true },
+        { field: "amount", title: "金额", width: 120, align: "right", visible: true },
+        { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
+        { field: "lineRemark", title: "行备注", width: 180, visible: true }
+      ];
     }
     const metadataDefinition = billDefinition.value;
     if (metadataDefinition) {

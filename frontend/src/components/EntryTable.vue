@@ -52,7 +52,7 @@
               <span class="master-selector in-cell">
                 <input
                   v-model="line.productCode"
-                  :disabled="!isDraft"
+                  :disabled="!isDraft || sourceLockedLines"
                   :data-testid="lineProductTestId(lineIndex)"
                   @focus="emit('searchMasterOptions', 'product', line.productCode, selectorIdForLine(lineIndex, 'product'))"
                   @input="emit('handleMasterInput', 'product', line.productCode, selectorIdForLine(lineIndex, 'product'))"
@@ -62,7 +62,7 @@
                 <button
                   class="master-selector__open"
                   type="button"
-                  :disabled="!isDraft"
+                  :disabled="!isDraft || sourceLockedLines"
                   :data-testid="`${lineProductTestId(lineIndex)}-open-selector`"
                   title="整列表选择"
                   aria-label="整列表选择"
@@ -87,6 +87,7 @@
               <span class="entry-row-no__value">{{ lineLineNo(line, lineIndex) }}</span>
               <span class="entry-row-no__quick-actions">
                 <button
+                  v-if="!sourceLockedLines"
                   type="button"
                   :disabled="!isDraft"
                   :data-testid="lineInsertTestId(lineIndex)"
@@ -95,7 +96,7 @@
                 >+</button>
                 <button
                   type="button"
-                  :disabled="!isDraft || lines.length <= 1"
+                  :disabled="!isDraft || (!sourceLockedLines && lines.length <= 1)"
                   :data-testid="lineDeleteTestId(lineIndex)"
                   title="删除本行"
                   @click.stop="emit('removeLine', lineIndex)"
@@ -106,7 +107,7 @@
             <input
               v-else-if="column.key === 'customerMaterialCode'"
               v-model="line.customerMaterialCode"
-              :disabled="!isDraft"
+              :disabled="!isDraft || sourceLockedLines"
               :data-testid="lineCustomerMaterialCodeTestId(lineIndex)"
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'customerMaterialCode')"
@@ -114,7 +115,7 @@
             <input
               v-else-if="column.key === 'supplierMaterialCode'"
               v-model="line.supplierMaterialCode"
-              :disabled="!isDraft"
+              :disabled="!isDraft || sourceLockedLines"
               :data-testid="lineSupplierMaterialCodeTestId(lineIndex)"
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'supplierMaterialCode')"
@@ -122,7 +123,7 @@
             <input
               v-else-if="column.key === 'customerOrderNo'"
               v-model="line.customerOrderNo"
-              :disabled="!isDraft"
+              :disabled="!isDraft || sourceLockedLines"
               :data-testid="lineCustomerOrderNoTestId(lineIndex)"
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'customerOrderNo')"
@@ -136,7 +137,7 @@
               <span class="master-selector in-cell">
                 <input
                   v-model="line.warehouseCode"
-                  :disabled="!isDraft"
+                  :disabled="!isDraft || sourceLockedLines"
                   :data-testid="lineWarehouseTestId(lineIndex)"
                   @focus="emit('searchMasterOptions', 'warehouse', line.warehouseCode, selectorIdForLine(lineIndex, 'warehouse'))"
                   @input="emit('handleMasterInput', 'warehouse', line.warehouseCode, selectorIdForLine(lineIndex, 'warehouse'))"
@@ -146,7 +147,7 @@
                 <button
                   class="master-selector__open"
                   type="button"
-                  :disabled="!isDraft"
+                  :disabled="!isDraft || sourceLockedLines"
                   :data-testid="`${lineWarehouseTestId(lineIndex)}-open-selector`"
                   title="整列表选择"
                   aria-label="整列表选择"
@@ -171,7 +172,7 @@
               <span class="master-selector in-cell">
                 <input
                   v-model="line.targetWarehouseCode"
-                  :disabled="!isDraft"
+                  :disabled="!isDraft || sourceLockedLines"
                   :data-testid="lineTargetWarehouseTestId(lineIndex)"
                   @focus="emit('searchMasterOptions', 'warehouse', line.targetWarehouseCode || '', selectorIdForLine(lineIndex, 'target-warehouse'))"
                   @input="emit('handleMasterInput', 'warehouse', line.targetWarehouseCode || '', selectorIdForLine(lineIndex, 'target-warehouse'))"
@@ -181,7 +182,7 @@
                 <button
                   class="master-selector__open"
                   type="button"
-                  :disabled="!isDraft"
+                  :disabled="!isDraft || sourceLockedLines"
                   :data-testid="`${lineTargetWarehouseTestId(lineIndex)}-open-selector`"
                   title="整列表选择"
                   aria-label="整列表选择"
@@ -261,7 +262,7 @@
               v-else-if="column.key === 'unitPrice'"
               v-model.number="line.unitPrice"
               class="entry-number-input"
-              :disabled="!isDraft"
+              :disabled="!isDraft || sourceLockedLines"
               :data-testid="linePriceTestId(lineIndex)"
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'price')"
@@ -272,7 +273,7 @@
               v-else-if="column.key === 'taxRate'"
               v-model.number="line.taxRate"
               class="entry-number-input"
-              :disabled="!isDraft"
+              :disabled="!isDraft || sourceLockedLines"
               :data-testid="lineTaxRateTestId(lineIndex)"
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'taxRate')"
@@ -283,11 +284,11 @@
             <span
               v-else-if="column.key === 'planDeliveryDate'"
               class="entry-date-cell"
-              :class="{ 'is-disabled': !isDraft }"
+              :class="{ 'is-disabled': !isDraft || sourceLockedLines }"
             >
               <input
                 :value="line.planDeliveryDate || ''"
-                :disabled="!isDraft"
+                :disabled="!isDraft || sourceLockedLines"
                 :data-testid="linePlanDeliveryDateTestId(lineIndex)"
                 placeholder="2026-05-01"
                 @input="line.planDeliveryDate = ($event.target as HTMLInputElement).value; emit('markDirty')"
@@ -297,7 +298,7 @@
               <button
                 type="button"
                 class="entry-date-picker-button"
-                :disabled="!isDraft"
+                :disabled="!isDraft || sourceLockedLines"
                 :data-testid="`${linePlanDeliveryDateTestId(lineIndex)}-calendar`"
                 title="选择日期"
                 @mousedown.prevent
@@ -549,8 +550,10 @@ const props = withDefaults(defineProps<{
   totalAmount: string;
   showTaxColumns?: boolean;
   showLineCloseStatus?: boolean;
+  sourceLockedLines?: boolean;
 }>(), {
-  showPriceAmountColumns: true
+  showPriceAmountColumns: true,
+  sourceLockedLines: false
 });
 
 const emit = defineEmits<{
@@ -668,7 +671,7 @@ const entryCoreColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.
   filterable: column.configurable !== false,
   resizable: column.configurable !== false,
   filterActive: isFilterActive(column.key),
-  bulkFillable: Boolean(column.bulkFillable) && props.isDraft,
+  bulkFillable: Boolean(column.bulkFillable) && props.isDraft && (!props.sourceLockedLines || column.key === "qty"),
   dragging: columnReorder.draggingKey.value === column.key,
   dragOver: columnReorder.dragOverKey.value === column.key,
   dragTestId: `entry-column-drag-${column.key}`,
@@ -1264,7 +1267,7 @@ function handleLineCellKeydown(event: KeyboardEvent, lineIndex: number, cell: Ed
   if (!props.isDraft || selectorWasOpen || event.defaultPrevented) {
     return;
   }
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+  if (!props.sourceLockedLines && event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     emit("insertLineAfter", lineIndex);
     return;
@@ -1293,11 +1296,21 @@ function advanceLineCellOnEnter(lineIndex: number, cell: EditableLineCell) {
     void focusLineCell(lineIndex, nextCell);
     return;
   }
+  if (props.sourceLockedLines) {
+    const nextLineIndex = Math.min(lineIndex + 1, props.lines.length - 1);
+    if (nextLineIndex !== lineIndex) {
+      void focusLineCell(nextLineIndex, order[0] ?? "qty");
+    }
+    return;
+  }
   emit("insertLineAfter", lineIndex);
   void focusLineCell(Math.min(lineIndex + 1, props.lines.length), order[0] ?? "product");
 }
 
 function editableCellOrder(): EditableLineCell[] {
+  if (props.sourceLockedLines) {
+    return ["qty", "remark"];
+  }
   return [
     "product",
     props.showCustomerMaterialCodeColumn ? "customerMaterialCode" : "",

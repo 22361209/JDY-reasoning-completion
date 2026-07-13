@@ -437,6 +437,24 @@
           @request-open-document="openDocumentFromModule"
           @request-settlement="openSettlementFromSource('receipt', $event)"
         />
+        <SalesReturnForm
+          v-else-if="tabs.activeTab.value.id === salesReturnTabId"
+          ref="salesReturnFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="activeLockReadOnly"
+          :lock-message="activeLockMessage"
+          :can-override-lock="activeLockCanOverride"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :user-name="session.userName.value"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = salesReturnTabId"
+          @override-lock="overrideActiveDocumentLock"
+          @request-open-document="openDocumentFromModule"
+        />
         <DeliveryNoticeForm
           v-else-if="tabs.activeTab.value.id === deliveryNoticeTabId"
           ref="deliveryNoticeFormRef"
@@ -813,6 +831,7 @@ import SalesQuoteForm from "../modules/sales/sales-quote/SalesQuoteForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
+import SalesReturnForm from "../modules/sales/sales-return/SalesReturnForm.vue";
 import SettlementDocumentForm from "../modules/finance/SettlementDocumentForm.vue";
 import type { SettlementCurrency, SettlementKind } from "../services/financeApi";
 import MasterDataRecordPage from "../modules/master-data/MasterDataRecordPage.vue";
@@ -878,6 +897,7 @@ const tabs = useTabStore();
 const preferences = usePreferenceStore();
 const outboundTabId = "sales-out-form";
 const outboundDocumentType = ("sales" + "Out") as OpenableDocumentType;
+const salesReturnTabId = "sales-return-form";
 const salesQuoteTabId = "sales-quote-form";
 const deliveryNoticeTabId = "delivery-notice-form";
 const purchaseOrderTabId = "purchase-order-form";
@@ -921,6 +941,7 @@ const salesOrderFormRef = ref<InstanceType<typeof SalesOrderForm> | null>(null);
 const salesQuoteFormRef = ref<InstanceType<typeof SalesQuoteForm> | null>(null);
 const deliveryNoticeFormRef = ref<InstanceType<typeof DeliveryNoticeForm> | null>(null);
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
+const salesReturnFormRef = ref<InstanceType<typeof SalesReturnForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
 const receiptFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
@@ -1188,6 +1209,8 @@ function startNewModuleDocument(entryId: string) {
     deliveryNoticeFormRef.value?.startNew();
   } else if (entryId === outboundTabId) {
     outboundFormRef.value?.startNew();
+  } else if (entryId === salesReturnTabId) {
+    salesReturnFormRef.value?.startNew();
   } else if (entryId === purchaseOrderTabId) {
     purchaseOrderFormRef.value?.startNew();
   } else if (entryId === purchaseInTabId) {
@@ -1449,6 +1472,7 @@ function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
     "delivery-notice-form-list": "deliveryNotice",
     "sales-out-list": "salesOut",
     "sales-out-form-list": "salesOut",
+    "sales-return-form-list": "salesReturn",
     "purchase-order-form-list": "purchaseOrder",
     "purchase-in-list": "purchaseIn",
     "purchase-in-form-list": "purchaseIn",
@@ -1472,6 +1496,7 @@ function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
     "sales-order-form": "salesOrder",
     [deliveryNoticeTabId]: "deliveryNotice",
     [outboundTabId]: "salesOut",
+    [salesReturnTabId]: "salesReturn",
     [purchaseOrderTabId]: "purchaseOrder",
     [purchaseInTabId]: "purchaseIn",
     [purchaseReturnTabId]: "purchaseReturn",
@@ -1783,6 +1808,8 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: purchaseInTabId, title: "采购入库单", module: "采购管理", ref: purchaseInFormRef };
     case "purchaseReturn":
       return { tabId: purchaseReturnTabId, title: "采购退货单", module: "采购管理", ref: purchaseReturnFormRef };
+    case "salesReturn":
+      return { tabId: salesReturnTabId, title: "销售退货单", module: "销售管理", ref: salesReturnFormRef };
     case "materialIssue":
       return { tabId: materialIssueTabId, title: "生产领料单", module: "生产管理", ref: materialIssueFormRef };
     case "productIn":

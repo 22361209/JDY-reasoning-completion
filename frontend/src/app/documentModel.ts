@@ -97,6 +97,7 @@ export interface DownstreamTraceState {
 
 export interface OrderForm {
   billNo: string;
+  version?: string;
   sourceOrderNo?: string;
   redReverseBillNo?: string;
   redSourceBillNo?: string;
@@ -113,6 +114,9 @@ export interface OrderForm {
   closeStatus?: "OPEN" | "CLOSED" | string;
   closeMode?: "AUTO" | "MANUAL" | string | null;
   frozenStatus?: "NORMAL" | "FROZEN" | string;
+  totalAmount?: number | string;
+  receivableOffsetAmount?: number | string;
+  pendingRefundAmount?: number | string;
   productInfo?: {
     productCode?: string;
     productName?: string;
@@ -152,6 +156,7 @@ export const printTemplateDocumentTypes = [
   { documentType: "delivery-notice", documentTitle: "发货通知单" },
   { documentType: "purchase-order", documentTitle: "采购订单" },
   { documentType: "sales-out", documentTitle: "销售出库单" },
+  { documentType: "sales-return", documentTitle: "销售退货单" },
   { documentType: "purchase-in", documentTitle: "采购入库单" },
   { documentType: "purchase-return", documentTitle: "采购退货单" },
   { documentType: "material-issue", documentTitle: "生产领料单" },
@@ -240,6 +245,19 @@ export const initialPurchaseReturnForm: OrderForm = {
   ownerName: "本地管理员",
   status: "DRAFT",
   lines: [{ productCode: "", warehouseCode: "", qty: 0, unitPrice: 0, taxRate: 13 }]
+};
+
+export const initialSalesReturnForm: OrderForm = {
+  billNo: "",
+  version: undefined,
+  sourceOrderNo: "",
+  partyCode: "",
+  billDate: "2026-06-23",
+  currency: undefined,
+  department: "销售部",
+  ownerName: "本地管理员",
+  status: "DRAFT",
+  lines: []
 };
 
 export const initialSalesOutForm: OrderForm = {

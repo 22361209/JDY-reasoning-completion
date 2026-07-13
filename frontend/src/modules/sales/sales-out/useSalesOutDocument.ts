@@ -1296,6 +1296,7 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     salesOrder: "销售订单",
     deliveryNotice: "发货通知单",
     salesOut: "销售出库单",
+    salesReturn: "销售退货单",
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",
     purchaseReturn: "采购退货单",

@@ -39,6 +39,7 @@ const endpointByType = {
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
   purchaseReturn: "/api/purchase-returns",
+  salesReturn: "/api/sales-returns",
   productionTask: "/api/production/tasks",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
@@ -60,6 +61,7 @@ const detailEndpointByType = {
   purchaseOrder: "/api/purchase-orders",
   purchaseIn: "/api/purchase-ins",
   purchaseReturn: "/api/purchase-returns",
+  salesReturn: "/api/sales-returns",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
   productIn: "/api/production/product-ins",
@@ -78,6 +80,7 @@ const outputTypeByDocumentType = {
   purchaseOrder: "purchase-order",
   purchaseIn: "purchase-in",
   purchaseReturn: "purchase-return",
+  salesReturn: "sales-return",
   salesOut: "sales-out",
   materialIssue: "material-issue",
   productIn: "product-in",
@@ -145,6 +148,7 @@ export interface DocumentDetail {
   action?: string;
   document: {
     billNo: string;
+    version?: string | number;
     sourceOrderNo?: string;
     customerCode?: string;
     supplierCode?: string;
@@ -164,6 +168,9 @@ export interface DocumentDetail {
     redSourceBillNo?: string;
     enabled?: boolean;
     validUntil?: string;
+    totalAmount?: number | string;
+    receivableOffsetAmount?: number | string;
+    pendingRefundAmount?: number | string;
   };
   productInfo?: {
     productCode?: string;
@@ -179,6 +186,7 @@ export interface DocumentDetail {
   lines: Array<{
     lineNo?: number | string;
     sourceOrderNo?: string;
+    sourceOutNo?: string;
     sourceLineNo?: number | string;
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number | string;
@@ -422,7 +430,18 @@ function normalizeDocumentDetail(raw: unknown): { ok: boolean; message: string; 
   if (!document || typeof document !== "object") {
     return { ok: false, message: "单据详情缺少单头信息。" };
   }
-  const lines = Array.isArray(payload.lines) ? payload.lines : [];
+  const lines = Array.isArray(payload.lines)
+    ? payload.lines.map((line) => {
+        if (!line || typeof line !== "object") {
+          return line;
+        }
+        const typedLine = line as Record<string, unknown>;
+        return {
+          ...typedLine,
+          sourceOrderNo: typedLine.sourceOrderNo ?? typedLine.sourceOutNo
+        };
+      })
+    : [];
   return {
     ok: true,
     message: "",

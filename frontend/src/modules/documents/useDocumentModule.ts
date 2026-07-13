@@ -77,6 +77,10 @@ export interface DocumentModuleOptions {
   reverseImpact?: string;
   allowDraftDelete?: boolean;
   allowZeroQty?: boolean;
+  skipZeroEntryWarnings?: boolean;
+  sourceLockedLines?: boolean;
+  reloadAfterLifecycle?: boolean;
+  saveDraft?: (form: OrderForm, lines: OrderLineForm[]) => Promise<{ ok: boolean; message: string; data?: unknown }>;
 }
 
 interface RuntimeOptions {
@@ -236,6 +240,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   async function startNew() {
     form.billDate = todayText();
     form.billNo = "";
+    form.version = undefined;
     form.sourceOrderNo = config.sourceTraceType ? "" : undefined;
     form.currency = config.initialForm.currency;
     form.redReverseBillNo = undefined;
@@ -251,7 +256,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.closeMode = null;
     form.frozenStatus = "NORMAL";
     form.productInfo = undefined;
-    form.lines = [blankLine()];
+    form.totalAmount = undefined;
+    form.receivableOffsetAmount = undefined;
+    form.pendingRefundAmount = undefined;
+    form.lines = config.sourceLockedLines ? [] : [blankLine()];
     hasPersistedDraft.value = false;
     message.value = "新单据将在首次保存时生成编号";
     runtime.markDirty();
@@ -260,6 +268,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   function fillFromDetail(detail: DocumentDetail) {
     const document = detail.document;
     form.billNo = document.billNo;
+    form.version = normalizeDocumentVersion(document.version);
     form.sourceOrderNo = document.sourceOrderNo || undefined;
     form.redReverseBillNo = document.redReverseBillNo || undefined;
     form.redSourceBillNo = document.redSourceBillNo || undefined;
@@ -270,12 +279,19 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       : document.customerCode || config.defaultPartyCode;
     form.partyName = config.partyKind === "supplier" ? document.supplier || "" : document.customer || "";
     form.billDate = document.billDate;
-    form.currency = document.currency === "USD" ? "USD" : (config.initialForm.currency ? "CNY" : undefined);
+    form.currency = document.currency === "USD"
+      ? "USD"
+      : document.currency === "CNY"
+        ? "CNY"
+        : config.initialForm.currency;
     form.department = document.department || config.defaultDepartment;
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
     form.enabled = document.enabled ?? true;
     form.validUntil = document.validUntil || (config.documentType === "salesQuote" ? defaultSalesQuoteValidUntil() : undefined);
+    form.totalAmount = document.totalAmount;
+    form.receivableOffsetAmount = document.receivableOffsetAmount;
+    form.pendingRefundAmount = document.pendingRefundAmount;
     form.status = formStatusByBackendStatus[document.status] ?? "DRAFT";
     form.closeStatus = document.closeStatus ?? "OPEN";
     form.closeMode = document.closeMode ?? null;
@@ -318,7 +334,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         planDeliveryDate: String(line.planDeliveryDate ?? "") || defaultPlanDeliveryDateForDocument(),
         downstreamDocs: normalizeDownstreamDocs(line.downstreamDocs)
       }))
-      : [defaultLine()];
+      : config.sourceLockedLines ? [] : [defaultLine()];
     hasPersistedDraft.value = true;
   }
 
@@ -440,24 +456,28 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       message.value = preparedLines.message;
       return;
     }
-    const zeroWarnings = zeroEntryWarnings(preparedLines.formLines, Boolean(config.allowZeroQty));
+    const zeroWarnings = config.skipZeroEntryWarnings
+      ? []
+      : zeroEntryWarnings(preparedLines.formLines, Boolean(config.allowZeroQty));
     if (!allowZeroValues && zeroWarnings.length > 0) {
       pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
       return;
     }
     form.lines = preparedLines.formLines;
-    const result = await saveDocumentDraft(config.saveType, {
-      billNo: form.billNo,
-      sourceOrderNo: form.sourceOrderNo,
-      partyCode: form.partyCode,
-      billDate: form.billDate,
-      currency: form.currency,
-      department: form.department,
-      ownerName: form.ownerName,
-      remark: form.remark,
-      validUntil: form.validUntil,
-      lines: preparedLines.documentLines
-    });
+    const result = config.saveDraft
+      ? await config.saveDraft(form, preparedLines.formLines)
+      : await saveDocumentDraft(config.saveType, {
+          billNo: form.billNo,
+          sourceOrderNo: form.sourceOrderNo,
+          partyCode: form.partyCode,
+          billDate: form.billDate,
+          currency: form.currency,
+          department: form.department,
+          ownerName: form.ownerName,
+          remark: form.remark,
+          validUntil: form.validUntil,
+          lines: preparedLines.documentLines
+        });
     const successMessage = saveSuccessMessage(preparedLines.removedBlankCount, allowZeroValues ? zeroWarnings.length : 0);
     message.value = result.ok ? successMessage : result.message;
     if (result.ok) {
@@ -485,6 +505,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     const result = await auditDocument(config.saveType, form.billNo);
     message.value = result.ok ? "审核成功" : result.message;
     if (result.ok) {
+      if (config.reloadAfterLifecycle && form.billNo) {
+        await loadByBillNo(form.billNo, "审核成功");
+        return;
+      }
       form.status = "AUDITED";
       runtime.clearDirty();
     }
@@ -523,6 +547,10 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     const result = await reverseDocument(config.saveType, form.billNo);
     message.value = result.ok ? "反审核成功，状态回到草稿；库存流水已冲销" : result.message;
     if (result.ok) {
+      if (config.reloadAfterLifecycle && form.billNo) {
+        await loadByBillNo(form.billNo, "反审核成功，状态回到草稿；库存流水已冲销");
+        return;
+      }
       const reversed = result.data as { status?: unknown } | undefined;
       form.status = typeof reversed?.status === "string" ? formStatusByBackendStatus[reversed.status] ?? "DRAFT" : "DRAFT";
       runtime.clearDirty();
@@ -683,7 +711,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function addLine() {
-    if (!isDraft.value) {
+    if (!isDraft.value || config.sourceLockedLines) {
       return;
     }
     form.lines.push(blankLine());
@@ -691,7 +719,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function insertLineAfter(index: number) {
-    if (!isDraft.value) {
+    if (!isDraft.value || config.sourceLockedLines) {
       return;
     }
     form.lines.splice(index + 1, 0, blankLine());
@@ -700,7 +728,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function copyLine(index: number) {
-    if (!isDraft.value) {
+    if (!isDraft.value || config.sourceLockedLines) {
       return;
     }
     const source = form.lines[index];
@@ -713,7 +741,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function removeLine(index: number) {
-    if (!isDraft.value || form.lines.length <= 1) {
+    if (!isDraft.value || (!config.sourceLockedLines && form.lines.length <= 1)) {
       return;
     }
     form.lines.splice(index, 1);
@@ -788,7 +816,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   async function handleEntryPaste(event: ClipboardEvent, startIndex: number) {
-    if (!isDraft.value) {
+    if (!isDraft.value || config.sourceLockedLines) {
       return;
     }
     const text = event.clipboardData?.getData("text/plain") ?? "";
@@ -1303,6 +1331,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     stockAvailableLabel: config.stockAvailableLabel ?? "可用库存",
     showExecutedQtyColumn: config.showExecutedQtyColumn ?? true,
     showPriceAmountColumns: config.showPriceAmountColumns ?? true,
+    sourceLockedLines: computed(() => Boolean(config.sourceLockedLines)),
     entryTableColspan,
     entryTotalColspan,
     totalAmount,
@@ -1450,7 +1479,17 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       .map((line, index) => ({ line, index }))
       .filter(({ line }) => !isBlankEntryLine(line));
     if (nonBlankLines.length === 0) {
-      return { ok: false, message: "至少保留一行有效分录。" };
+      return { ok: false, message: config.sourceLockedLines ? "请先选择至少一行销售出库源单。" : "至少保留一行有效分录。" };
+    }
+    if (config.sourceLockedLines) {
+      const missingSource = nonBlankLines.find(({ line }) => !String(line.sourceOrderNo ?? "").trim() || !normalizedOptionalInt(line.sourceLineNo));
+      if (missingSource) {
+        return { ok: false, message: `第 ${missingSource.index + 1} 行必须来自销售出库源单。` };
+      }
+      const invalidQty = nonBlankLines.find(({ line }) => !Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0);
+      if (invalidQty) {
+        return { ok: false, message: `第 ${invalidQty.index + 1} 行退货数量必须大于 0。` };
+      }
     }
     const missingProduct = nonBlankLines.find(({ line }) => !entryLineProductCode(line));
     if (missingProduct) {
@@ -1531,6 +1570,11 @@ function normalizedQty(value: number | string | undefined) {
 function normalizedOptionalInt(value: number | string | undefined) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function normalizeDocumentVersion(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return /^(0|[1-9]\d*)$/.test(normalized) ? normalized : undefined;
 }
 
 function isSalesPriceMemoryEnabled(config: DocumentModuleOptions) {
@@ -1618,6 +1662,7 @@ function downstreamTypeLabel(type: OpenableDocumentType) {
     salesOrder: "销售订单",
     deliveryNotice: "发货通知单",
     salesOut: "销售出库单",
+    salesReturn: "销售退货单",
     purchaseOrder: "采购订单",
     purchaseIn: "采购入库单",
     purchaseReturn: "采购退货单",

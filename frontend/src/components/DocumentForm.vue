@@ -26,7 +26,7 @@
     :show-unfreeze="showUnfreeze"
     :show-delete="showDelete"
     :can-delete="canDelete"
-    :can-output="isDocumentForm"
+    :can-output="isDocumentForm && canOutput"
     :show-push-down="showPushDown"
     :can-push-down="canPushDown"
     :push-down-label="pushDownLabel"
@@ -63,7 +63,11 @@
         <h3>表头</h3>
       </section>
       <section class="form-head-fields">
-        <div v-if="$slots.sourceActions || form.redReverseBillNo || form.redSourceBillNo" class="source-order-field">
+        <div
+          v-if="$slots.sourceActions || form.redReverseBillNo || form.redSourceBillNo"
+          class="source-order-field"
+          :style="sourceActionsWide ? { gridColumn: 'span 3' } : undefined"
+        >
           <slot name="sourceActions" />
           <button v-if="form.redReverseBillNo" class="red-reverse-link" type="button" data-testid="open-red-reverse-bill" @click="emit('openRedReverseBill')">红字单 {{ form.redReverseBillNo }}</button>
           <button v-if="form.redSourceBillNo" class="red-reverse-link" type="button" data-testid="open-red-source-bill" @click="emit('openRedSourceBill')">来源原单 {{ form.redSourceBillNo }}</button>
@@ -73,14 +77,14 @@
           :key="field.name"
           :field="field"
           :value="documentHeadFieldValue(field.name)"
-          :disabled="locked"
+          :disabled="locked || (headerDraftOnly && !isDraft)"
           variant="document"
           lookup-keyboard-mode="native"
           id-prefix="document-head"
-          :lookup-open="field.name === 'partyCode' && activeSelector === partySelectorId"
+          :lookup-open="field.name === 'partyCode' && !partyReadonly && activeSelector === partySelectorId"
           :lookup-options="partyLookupOptions"
           :lookup-highlight-index="selectorCursorIndex"
-          :show-lookup-button="field.name === 'partyCode'"
+          :show-lookup-button="field.name === 'partyCode' && !partyReadonly"
           :lookup-button-test-id="field.name === 'partyCode' ? `${testPrefix}-party-open-selector` : ''"
           @update-value="updateDocumentHeadField"
           @lookup-open="openDocumentHeadLookup"
@@ -172,6 +176,7 @@
         :entry-total-colspan="entryTotalColspan"
         :total-amount="totalAmount"
         :show-tax-columns="showTaxColumns"
+        :source-locked-lines="sourceLockedLines"
         @update:batch-warehouse-code="emit('update:batchWarehouseCode', $event)"
         @update:batch-plan-delivery-date="emit('update:batchPlanDeliveryDate', $event)"
         @apply-batch-warehouse="emit('applyBatchWarehouse')"
@@ -264,6 +269,7 @@ const props = withDefaults(defineProps<{
   isDocumentForm: boolean;
   isStockDocumentForm: boolean;
   isDraft: boolean;
+  canOutput?: boolean;
   canAudit: boolean;
   canReverse: boolean;
   canRedReverse?: boolean;
@@ -295,6 +301,11 @@ const props = withDefaults(defineProps<{
   canTraceSourceOrder: boolean;
   showSourceLineColumn: boolean;
   showPartyCodeColumn?: boolean;
+  partyReadonly?: boolean;
+  departmentReadonly?: boolean;
+  headerDraftOnly?: boolean;
+  sourceLockedLines?: boolean;
+  sourceActionsWide?: boolean;
   showCustomerMaterialCodeColumn?: boolean;
   showSupplierMaterialCodeColumn?: boolean;
   showCustomerOrderNoColumn?: boolean;
@@ -377,6 +388,12 @@ const props = withDefaults(defineProps<{
   sourceOrderNoHeadReadonly: false,
   showOwnerNameHeadField: true,
   showPriceAmountColumns: true,
+  canOutput: true,
+  partyReadonly: false,
+  departmentReadonly: false,
+  headerDraftOnly: false,
+  sourceLockedLines: false,
+  sourceActionsWide: false,
   billDateLabel: "业务日期",
   departmentLabel: "部门",
   sourceOrderNoLabel: "源单号",
@@ -469,7 +486,8 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
     sourceFields.push({
       name: "department",
       label: props.departmentLabel,
-      testId: `${props.testPrefix}-department`
+      testId: `${props.testPrefix}-department`,
+      readonly: props.departmentReadonly
     });
     if (props.showOwnerNameHeadField) {
       sourceFields.push({
@@ -493,7 +511,8 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
       name: "partyCode",
       label: `${props.partyLabel}编码`,
       testId: `${props.testPrefix}-party-code`,
-      lookup: { listKey: props.partyType }
+      lookup: props.partyReadonly ? undefined : { listKey: props.partyType },
+      readonly: props.partyReadonly
     },
     {
       name: "partyName",
@@ -524,7 +543,8 @@ const documentHeadFields = computed<FieldDefinition[]>(() => {
     {
       name: "department",
       label: props.departmentLabel,
-      testId: `${props.testPrefix}-department`
+      testId: `${props.testPrefix}-department`,
+      readonly: props.departmentReadonly
     }
   );
   if (props.showOwnerNameHeadField) {
@@ -568,6 +588,9 @@ function updateDocumentHeadField(name: string, value: string) {
   } else if (name === "validUntil") {
     props.form.validUntil = value;
   } else if (name === "department") {
+    if (props.departmentReadonly) {
+      return;
+    }
     props.form.department = value;
   } else if (name === "remark") {
     props.form.remark = value;
@@ -578,14 +601,14 @@ function updateDocumentHeadField(name: string, value: string) {
 }
 
 function openDocumentHeadLookup(field: FieldDefinition) {
-  if (field.name !== "partyCode") {
+  if (field.name !== "partyCode" || props.partyReadonly) {
     return;
   }
   emit("searchMasterOptions", props.partyType, props.form.partyCode, partySelectorId.value);
 }
 
 function inputDocumentHeadLookup(field: FieldDefinition, value: string) {
-  if (field.name !== "partyCode") {
+  if (field.name !== "partyCode" || props.partyReadonly) {
     return;
   }
   props.form.partyCode = value;
@@ -593,21 +616,21 @@ function inputDocumentHeadLookup(field: FieldDefinition, value: string) {
 }
 
 function keydownDocumentHeadLookup(field: FieldDefinition, event: KeyboardEvent) {
-  if (field.name !== "partyCode") {
+  if (field.name !== "partyCode" || props.partyReadonly) {
     return;
   }
   emit("handleSelectorKeydown", event, partySelectorId.value);
 }
 
 function openDocumentHeadLookupDialog(field: FieldDefinition) {
-  if (field.name !== "partyCode") {
+  if (field.name !== "partyCode" || props.partyReadonly) {
     return;
   }
   emit("openMasterSelectorDialog", props.partyType, partySelectorId.value, props.form.partyCode);
 }
 
 function selectDocumentHeadLookupOption(field: FieldDefinition, option: FieldLookupOption) {
-  if (field.name !== "partyCode") {
+  if (field.name !== "partyCode" || props.partyReadonly) {
     return;
   }
   const selected = props.selectorOptions.find((item) => item.code === option.value) ?? {
