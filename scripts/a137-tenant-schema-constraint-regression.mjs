@@ -22,21 +22,25 @@ const sessionScopeMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V101__session_account_scope_authority.sql"
 );
+const formalSettlementMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V102__formal_receipt_payment_documents.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 74,
-  managedTables: 74,
-  primaryKeys: 74,
-  uniqueConstraints: 66,
-  foreignKeys: 153,
-  checkConstraints: 16,
+  baseTables: 78,
+  managedTables: 78,
+  primaryKeys: 78,
+  uniqueConstraints: 72,
+  foreignKeys: 163,
+  checkConstraints: 43,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
-  referenceForeignKeyCount: 153,
+  referenceForeignKeyCount: 163,
   referenceForeignKeyMismatchCount: 0,
   retiredTaxColumns: 0,
   forbiddenAccountSetForeignKeys: 0
@@ -116,6 +120,7 @@ try {
   const runtimeGuardMigrationSource = await readFile(runtimeGuardMigrationPath, "utf8");
   const employeeAccountMigrationSource = await readFile(employeeAccountMigrationPath, "utf8");
   const sessionScopeMigrationSource = await readFile(sessionScopeMigrationPath, "utf8");
+  const formalSettlementMigrationSource = await readFile(formalSettlementMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -142,7 +147,20 @@ try {
       && sessionScopeMigrationSource.includes("scope_token UUID NOT NULL")
       && sessionScopeMigrationSource.includes("REFERENCES sys_user(id) ON DELETE CASCADE")
       && sessionScopeMigrationSource.includes("REFERENCES sys_account_set(id) ON DELETE CASCADE")
-      && !sessionScopeMigrationSource.includes("sys_tenant_managed_table")
+      && !sessionScopeMigrationSource.includes("sys_tenant_managed_table"),
+    formalSettlementManagedGuard:
+      formalSettlementMigrationSource.includes("CREATE TABLE ar_receipt_fund_line")
+      && formalSettlementMigrationSource.includes("CREATE TABLE ar_receipt_allocation")
+      && formalSettlementMigrationSource.includes("CREATE TABLE ap_payment_fund_line")
+      && formalSettlementMigrationSource.includes("CREATE TABLE ap_payment_allocation")
+      && formalSettlementMigrationSource.includes("('ar_receipt_fund_line', 701)")
+      && formalSettlementMigrationSource.includes("('ar_receipt_allocation', 702)")
+      && formalSettlementMigrationSource.includes("('ap_payment_fund_line', 721)")
+      && formalSettlementMigrationSource.includes("('ap_payment_allocation', 722)")
+      && formalSettlementMigrationSource.includes("expected=78/72/163/43")
+      && formalSettlementMigrationSource.includes("expected=78/78/72/167/43")
+      && formalSettlementMigrationSource.includes("legacy_imported BOOLEAN NOT NULL DEFAULT FALSE")
+      && formalSettlementMigrationSource.includes("No statement in this migration changes an AR/AP settled total.")
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
@@ -155,10 +173,15 @@ try {
     result.migrationGuards.sessionScopeAuthorityGuard,
     "V101 must keep the session scope authority platform-owned and keyed by session token"
   );
+  assert(
+    result.migrationGuards.formalSettlementManagedGuard,
+    "V102 must preserve legacy settlements and retain the exact 78-table topology"
+  );
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
   const sessionScopeSourceChecksum = flywayChecksum(sessionScopeMigrationSource);
+  const formalSettlementSourceChecksum = flywayChecksum(formalSettlementMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -169,25 +192,29 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99', '100', '101')
+    WHERE version IN ('98', '99', '100', '101', '102')
   `);
-  assert(migrationRows.length === 4, `expected installed V98 through V101 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 5, `expected installed V98 through V102 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
   const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
   const sessionScopeMigration = migrationRows.find((row) => row.version === "101");
+  const formalSettlementMigration = migrationRows.find((row) => row.version === "102");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(employeeAccountMigration, "installed V100 row is missing");
   assert(sessionScopeMigration, "installed V101 row is missing");
+  assert(formalSettlementMigration, "installed V102 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(employeeAccountMigration.success === true, "V100 is not marked successful");
   assert(sessionScopeMigration.success === true, "V101 is not marked successful");
+  assert(formalSettlementMigration.success === true, "V102 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
   assert(Number.isInteger(sessionScopeMigration.checksum), "V101 installed checksum is missing");
+  assert(Number.isInteger(formalSettlementMigration.checksum), "V102 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -224,6 +251,15 @@ try {
     sourceChecksum: sessionScopeSourceChecksum,
     sourceSha256: createHash("sha256").update(sessionScopeMigrationSource).digest("hex")
   };
+  assert(
+    formalSettlementMigration.checksum === formalSettlementSourceChecksum,
+    `V102 checksum drift: installed=${formalSettlementMigration.checksum} source=${formalSettlementSourceChecksum}`
+  );
+  result.formalSettlementMigration = {
+    ...formalSettlementMigration,
+    sourceChecksum: formalSettlementSourceChecksum,
+    sourceSha256: createHash("sha256").update(formalSettlementMigrationSource).digest("hex")
+  };
 
   const registeredSchemas = sqlJson(`
     SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)::text
@@ -247,7 +283,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 74, `${schema} first sync returned ${firstManagedCount}, expected 74`);
+    assert(firstManagedCount === 78, `${schema} first sync returned ${firstManagedCount}, expected 78`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -255,7 +291,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 74, `${schema} second sync returned ${secondManagedCount}, expected 74`);
+    assert(secondManagedCount === 78, `${schema} second sync returned ${secondManagedCount}, expected 78`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -549,7 +585,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 74 OR second_count <> 74 THEN
+      IF first_count <> 78 OR second_count <> 78 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;
@@ -558,7 +594,7 @@ function runTopologyChecks() {
       );
     END $a137_repeat_false$;
 
-    DROP TABLE ${quoteIdentifier(topology.schema)}.ap_payment;
+    DROP TABLE ${quoteIdentifier(topology.schema)}.ap_payment_allocation;
     DO $a137_missing_table$
     DECLARE
       rejected BOOLEAN := FALSE;
@@ -576,8 +612,8 @@ function runTopologyChecks() {
       IF NOT rejected THEN RAISE EXCEPTION 'A137 missing table unexpectedly synchronized'; END IF;
       INSERT INTO a137_topology_result VALUES ('missingTable', TRUE, jsonb_build_object('error', failure));
     END $a137_missing_table$;
-    CREATE TABLE ${quoteIdentifier(topology.schema)}.ap_payment
-      (LIKE public.ap_payment INCLUDING ALL);
+    CREATE TABLE ${quoteIdentifier(topology.schema)}.ap_payment_allocation
+      (LIKE public.ap_payment_allocation INCLUDING ALL);
     DO $a137_repair_missing_table$
     BEGIN
       PERFORM public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);

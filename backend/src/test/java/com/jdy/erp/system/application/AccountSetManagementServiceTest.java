@@ -105,12 +105,16 @@ class AccountSetManagementServiceTest {
         assertThat(tableExists(schema, "md_employee")).isTrue();
         assertThat(tableExists(schema, "md_financial_account")).isTrue();
         assertThat(tableExists(schema, "sales_order")).isTrue();
+        assertThat(tableExists(schema, "ar_receipt_fund_line")).isTrue();
+        assertThat(tableExists(schema, "ar_receipt_allocation")).isTrue();
+        assertThat(tableExists(schema, "ap_payment_fund_line")).isTrue();
+        assertThat(tableExists(schema, "ap_payment_allocation")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
-        assertThat(managedConstraintCount(schema, "p")).isEqualTo(74);
-        assertThat(managedConstraintCount(schema, "u")).isEqualTo(66);
-        assertThat(managedConstraintCount(schema, "f")).isEqualTo(153);
+        assertThat(managedConstraintCount(schema, "p")).isEqualTo(78);
+        assertThat(managedConstraintCount(schema, "u")).isEqualTo(72);
+        assertThat(managedConstraintCount(schema, "f")).isEqualTo(163);
         assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
-        assertThat(managedConstraintCount(schema, "c")).isEqualTo(16);
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(43);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
@@ -282,7 +286,7 @@ class AccountSetManagementServiceTest {
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
         var backupSchema = String.valueOf(backup.get("backupSchemaName"));
         createdBackupSchemas.add(backupSchema);
-        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("74");
+        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("78");
         platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
         platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
         var backupLogId = platformJdbcTemplate.queryForObject("""
