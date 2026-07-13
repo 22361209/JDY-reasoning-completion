@@ -58,7 +58,7 @@ import type { MasterOption } from "./EntryTable.vue";
 import ProductCategorySidebar from "./ProductCategorySidebar.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn, type SourceSelectorQueryChange } from "./SourceSelectorDialog.vue";
 import { useProductCategoryFacet } from "./useProductCategoryFacet";
-import { masterDataDefinitions } from "../modules/master-data/registry";
+import { masterSelectorDefinition } from "../modules/master-data/registry";
 import { fetchListRows } from "../services/listApi";
 
 type SelectorRow = MasterOption;
@@ -94,10 +94,11 @@ const {
 } = useProductCategoryFacet();
 let requestSeq = 0;
 
-const listKey = computed(() => masterSelectorListKey(props.type));
+const selectorDefinition = computed(() => masterSelectorDefinition(props.type));
+const listKey = computed(() => selectorDefinition.value?.listKey ?? "");
 const selectorColumns = computed<SourceSelectorColumn[]>(() => [
   { key: "selection", title: "", width: 48, visible: true, configurable: false, filterable: false, resizable: false },
-  ...(masterDataDefinitions[listKey.value]?.selectorColumns ?? fallbackColumns(props.label))
+  ...(selectorDefinition.value?.selectorColumns ?? [])
     .filter((column) => column.visible !== false)
     .map((column) => ({
       key: column.field,
@@ -172,6 +173,14 @@ async function loadRows() {
   if (!props.open || !props.type) {
     return;
   }
+  if (!selectorDefinition.value || !listKey.value) {
+    requestSeq += 1;
+    loading.value = false;
+    rows.value = [];
+    total.value = 0;
+    message.value = "该资料选择器不可用。";
+    return;
+  }
   const seq = requestSeq + 1;
   requestSeq = seq;
   loading.value = true;
@@ -215,25 +224,6 @@ function masterRowToOption(row: Record<string, unknown>): SelectorRow {
   option.netWeight = row.netWeight ? String(row.netWeight) : "";
   option.grossWeight = row.grossWeight ? String(row.grossWeight) : "";
   return option;
-}
-
-function masterSelectorListKey(type: string) {
-  const listKeyByType: Record<string, string> = {
-    customer: "customer-master-list",
-    supplier: "supplier-master-list",
-    product: "product-master-list",
-    warehouse: "warehouse-master-list"
-  };
-  return listKeyByType[type] ?? "product-master-list";
-}
-
-function fallbackColumns(label: string): SourceSelectorColumn[] {
-  return [
-    { key: "code", title: `${label}编码`, width: 150, visible: true },
-    { key: "name", title: `${label}名称`, width: 180, visible: true },
-    { key: "spec", title: "规格", width: 140, visible: true },
-    { key: "unit", title: "单位", width: 80, visible: true }
-  ];
 }
 
 watch(() => props.open, (open) => {

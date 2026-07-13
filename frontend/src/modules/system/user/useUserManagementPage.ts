@@ -1,13 +1,16 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import {
   createManagedUser,
+  fetchCurrentAccountEmployeeLinks,
   fetchManagedUsers,
   handlePasswordResetRequest,
   resetManagedUserPassword,
+  setCurrentAccountEmployeeLink,
   unlockManagedUser,
   updateManagedUser,
   type ManagedRole,
   type ManagedUser,
+  type CurrentAccountEmployeeLink,
   type PasswordResetRequestItem,
   type SystemAccountSet
 } from "../../../services/systemApi";
@@ -19,6 +22,10 @@ export function useUserManagementPage(options: {
   const managedUsers = ref<ManagedUser[]>([]);
   const managedRoles = ref<ManagedRole[]>([]);
   const managedAccountSets = ref<SystemAccountSet[]>([]);
+  const employeeLinks = ref<CurrentAccountEmployeeLink[]>([]);
+  const employeeSelectorOpen = ref(false);
+  const employeeCandidateCode = ref("");
+  const employeeCandidateName = ref("");
   const passwordResetRequests = ref<PasswordResetRequestItem[]>([]);
   const selectedPasswordResetRequestId = ref("");
   const passwordResetHandleNote = ref("");
@@ -41,12 +48,16 @@ export function useUserManagementPage(options: {
   onMounted(loadManagedUsers);
 
   async function loadManagedUsers() {
-    const result = await fetchManagedUsers();
+    const [result, linkResult] = await Promise.all([
+      fetchManagedUsers(),
+      fetchCurrentAccountEmployeeLinks()
+    ]);
     if (!result.ok || !result.data) {
       userManagementMessage.value = result.message;
       return;
     }
-    managedUsers.value = result.data.users;
+    employeeLinks.value = linkResult.ok ? linkResult.data : [];
+    managedUsers.value = mergeEmployeeLinks(result.data.users);
     managedRoles.value = result.data.roles;
     managedAccountSets.value = result.data.accountSets ?? [];
     passwordResetRequests.value = result.data.passwordResetRequests ?? [];
@@ -59,12 +70,15 @@ export function useUserManagementPage(options: {
     if (selectedManagedUsername.value) {
       applySelectedManagedUser();
     }
-    userManagementMessage.value = "";
+    userManagementMessage.value = linkResult.ok ? "" : linkResult.message;
   }
 
   function selectManagedUser(username: string) {
     selectedManagedUsername.value = username;
     userManagementMode.value = "edit";
+    employeeSelectorOpen.value = false;
+    employeeCandidateCode.value = "";
+    employeeCandidateName.value = "";
     applySelectedManagedUser();
     userManagementMessage.value = "";
     const pendingRequest = pendingPasswordResetRequests.value.find((request) => request.username === username);
@@ -109,6 +123,22 @@ export function useUserManagementPage(options: {
     return "启用";
   }
 
+  function employeeLinkStateLabel(user: ManagedUser) {
+    if (!user.employeeCode) {
+      return hasGrantVersion(user) ? "未关联" : "当前账套未授权";
+    }
+    if (!user.employeeName) {
+      return "主档不可用（关联保留）";
+    }
+    if (user.employeeEnabled === false) {
+      return "已禁用（关联保留）";
+    }
+    if (user.employeeAuditStatus !== "AUDITED" && user.employeeAuditStatus !== "已审核") {
+      return "草稿（关联保留）";
+    }
+    return "已审核 / 启用";
+  }
+
   function startCreateManagedUser() {
     userManagementMode.value = "create";
     selectedManagedUsername.value = "";
@@ -119,6 +149,9 @@ export function useUserManagementPage(options: {
     managedUserForm.accountSetCodes = managedAccountSets.value[0]?.code ? [managedAccountSets.value[0].code] : [];
     managedUserForm.defaultAccountSetCode = managedUserForm.accountSetCodes[0] ?? "";
     managedUserPassword.value = "";
+    employeeSelectorOpen.value = false;
+    employeeCandidateCode.value = "";
+    employeeCandidateName.value = "";
     userManagementMessage.value = "";
   }
 
@@ -140,13 +173,9 @@ export function useUserManagementPage(options: {
       userManagementMessage.value = result.message || "用户保存失败。";
       return;
     }
-    managedUsers.value = result.data.users;
-    managedRoles.value = result.data.roles;
-    managedAccountSets.value = result.data.accountSets ?? managedAccountSets.value;
-    passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
     selectedManagedUsername.value = managedUserForm.username;
     userManagementMode.value = "edit";
-    applySelectedManagedUser();
+    await loadManagedUsers();
     userManagementMessage.value = "用户已保存";
   }
 
@@ -174,7 +203,7 @@ export function useUserManagementPage(options: {
       userManagementMessage.value = result.message || "找回申请处理失败。";
       return;
     }
-    managedUsers.value = result.data.users;
+    managedUsers.value = mergeEmployeeLinks(result.data.users);
     managedRoles.value = result.data.roles;
     passwordResetRequests.value = result.data.passwordResetRequests ?? [];
     selectedPasswordResetRequestId.value = pendingPasswordResetRequests.value[0]?.id ?? "";
@@ -192,7 +221,7 @@ export function useUserManagementPage(options: {
       userManagementMessage.value = result.message || "解除锁定失败。";
       return;
     }
-    managedUsers.value = result.data.users;
+    managedUsers.value = mergeEmployeeLinks(result.data.users);
     managedRoles.value = result.data.roles;
     passwordResetRequests.value = result.data.passwordResetRequests ?? passwordResetRequests.value;
     selectedManagedUsername.value = managedUserForm.username;
@@ -202,6 +231,97 @@ export function useUserManagementPage(options: {
 
   function setUserManagementMessage(message: string) {
     userManagementMessage.value = message;
+  }
+
+  function mergeEmployeeLinks(users: ManagedUser[]) {
+    const linksByUsername = new Map(employeeLinks.value.map((link) => [link.username, link]));
+    return users.map((user) => {
+      const link = linksByUsername.get(user.username);
+      return {
+        ...user,
+        grantId: link?.grantId,
+        grantVersion: link?.grantVersion,
+        employeeLinkScopeToken: link?.scopeToken,
+        employeeCode: link?.employeeCode ?? "",
+        employeeName: link?.employeeName ?? "",
+        employeeEnabled: link?.employeeEnabled,
+        employeeAuditStatus: link?.employeeAuditStatus ?? ""
+      };
+    });
+  }
+
+  function openEmployeeSelector() {
+    if (!options.canManage() || userManagementMode.value !== "edit") {
+      return;
+    }
+    if (!hasCurrentAccountGrantVersion()) {
+      userManagementMessage.value = "该用户未获得当前账套授权，不能关联员工。";
+      return;
+    }
+    employeeSelectorOpen.value = true;
+    userManagementMessage.value = "";
+  }
+
+  function closeEmployeeSelector() {
+    employeeSelectorOpen.value = false;
+  }
+
+  function selectEmployeeCandidate(code: string, name: string) {
+    employeeCandidateCode.value = code.trim();
+    employeeCandidateName.value = name.trim();
+    employeeSelectorOpen.value = false;
+    userManagementMessage.value = "";
+  }
+
+  async function linkSelectedEmployee() {
+    if (!employeeCandidateCode.value) {
+      userManagementMessage.value = "请先选择要关联的员工。";
+      return;
+    }
+    await updateEmployeeLink(employeeCandidateCode.value);
+  }
+
+  async function unlinkSelectedEmployee() {
+    if (!selectedManagedUser.value?.employeeCode) {
+      return;
+    }
+    await updateEmployeeLink(null);
+  }
+
+  async function updateEmployeeLink(employeeCode: string | null) {
+    const user = selectedManagedUser.value;
+    if (!options.canManage() || userManagementMode.value !== "edit" || !user) {
+      return;
+    }
+    const version = Number(user.grantVersion);
+    if (!Number.isInteger(version) || version < 0) {
+      userManagementMessage.value = "当前账套授权版本缺失，请刷新后重试。";
+      return;
+    }
+    const scopeToken = String(user.employeeLinkScopeToken ?? "").trim();
+    if (!scopeToken) {
+      userManagementMessage.value = "当前账套作用域已失效，请刷新后重试。";
+      return;
+    }
+    const result = await setCurrentAccountEmployeeLink(user.username, { employeeCode, version, scopeToken });
+    if (!result.ok) {
+      userManagementMessage.value = result.message;
+      return;
+    }
+    employeeLinks.value = result.data;
+    managedUsers.value = mergeEmployeeLinks(managedUsers.value);
+    employeeCandidateCode.value = "";
+    employeeCandidateName.value = "";
+    userManagementMessage.value = employeeCode ? "当前账套员工关联已更新" : "当前账套员工关联已解除";
+  }
+
+  function hasCurrentAccountGrantVersion() {
+    return hasGrantVersion(selectedManagedUser.value);
+  }
+
+  function hasGrantVersion(user: ManagedUser | null) {
+    const version = Number(user?.grantVersion);
+    return Number.isInteger(version) && version >= 0;
   }
 
   function splitAccountSetCodes(accountSetCodes?: string) {
@@ -228,6 +348,10 @@ export function useUserManagementPage(options: {
     managedUsers,
     managedRoles,
     managedAccountSets,
+    employeeLinks,
+    employeeSelectorOpen,
+    employeeCandidateCode,
+    employeeCandidateName,
     passwordResetRequests,
     selectedPasswordResetRequestId,
     passwordResetHandleNote,
@@ -243,11 +367,18 @@ export function useUserManagementPage(options: {
     selectManagedUser,
     selectPasswordResetRequest,
     managedUserStateLabel,
+    employeeLinkStateLabel,
     startCreateManagedUser,
     saveManagedUser,
     resetManagedUserPasswordAction,
     rejectPasswordResetRequestAction,
     unlockManagedUserAction,
+    openEmployeeSelector,
+    closeEmployeeSelector,
+    selectEmployeeCandidate,
+    linkSelectedEmployee,
+    unlinkSelectedEmployee,
+    hasCurrentAccountGrantVersion,
     setUserManagementMessage,
     toggleAccountSetGrant
   };

@@ -69,6 +69,31 @@ export interface ManagedUser extends SystemUser {
   activeSessionStartedAt?: string;
   lastSessionReplacedAt?: string;
   pendingPasswordReset?: boolean;
+  grantId?: string;
+  grantVersion?: number;
+  employeeLinkScopeToken?: string;
+  employeeCode?: string;
+  employeeName?: string;
+  employeeEnabled?: boolean;
+  employeeAuditStatus?: string;
+}
+
+export interface CurrentAccountEmployeeLink {
+  grantId: string;
+  username: string;
+  grantVersion: number;
+  scopeToken: string;
+  employeeCode: string;
+  employeeName: string;
+  employeeEnabled: boolean;
+  employeeAuditStatus: string;
+}
+
+export interface CurrentAccountEmployeeLinksResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  data: CurrentAccountEmployeeLink[];
 }
 
 export interface ManagedRole {
@@ -467,6 +492,51 @@ export async function fetchManagedUsers(): Promise<ManagedUsersResult> {
     return { ok: true, status: response.status, message: "", data: await response.json() as ManagedUsersPayload };
   } catch {
     return { ok: false, status: 0, message: "用户列表加载失败。", data: null };
+  }
+}
+
+export async function fetchCurrentAccountEmployeeLinks(): Promise<CurrentAccountEmployeeLinksResult> {
+  try {
+    const response = await fetch("/api/system/current-account-employee-links");
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        message: parseErrorMessage(text) || (response.status === 403 ? "当前角色无权查看员工关联。" : "员工关联加载失败。"),
+        data: []
+      };
+    }
+    const payload = await response.json() as { employeeLinks?: CurrentAccountEmployeeLink[] };
+    return { ok: true, status: response.status, message: "", data: payload.employeeLinks ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "员工关联加载失败。", data: [] };
+  }
+}
+
+export async function setCurrentAccountEmployeeLink(
+  username: string,
+  payload: { employeeCode: string | null; version: number; scopeToken: string }
+): Promise<CurrentAccountEmployeeLinksResult> {
+  try {
+    const response = await fetch(`/api/system/current-account-employee-links/${encodeURIComponent(username)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeCode: payload.employeeCode, version: payload.version, scopeToken: payload.scopeToken })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        message: parseErrorMessage(text) || (response.status === 409 ? "员工已被其他用户关联，或授权版本已变更，请刷新后重试。" : "员工关联更新失败。"),
+        data: []
+      };
+    }
+    const result = await response.json() as { employeeLinks?: CurrentAccountEmployeeLink[] };
+    return { ok: true, status: response.status, message: "", data: result.employeeLinks ?? [] };
+  } catch {
+    return { ok: false, status: 0, message: "员工关联更新失败。", data: [] };
   }
 }
 

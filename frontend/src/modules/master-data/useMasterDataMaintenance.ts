@@ -15,6 +15,8 @@ export function useMasterDataMaintenance(
 ) {
   const definition = computed(() => masterDataDefinitions[listKey.value] ?? null);
   const isMasterList = computed(() => Boolean(definition.value));
+  const usesSparsePatch = computed(() => Boolean(definition.value?.sparsePatch));
+  const canDelete = computed(() => Boolean(definition.value) && definition.value?.allowDelete !== false);
 
   async function submitStatus(enabled: boolean) {
     const masterDefinition = definition.value;
@@ -43,7 +45,7 @@ export function useMasterDataMaintenance(
 
   async function submitDelete() {
     const masterDefinition = definition.value;
-    if (!masterDefinition) {
+    if (!masterDefinition || masterDefinition.allowDelete === false) {
       return false;
     }
     for (const row of actionRows()) {
@@ -67,6 +69,8 @@ export function useMasterDataMaintenance(
 
   return {
     isMasterList,
+    usesSparsePatch,
+    canDelete,
     submitAudit,
     submitStatus,
     submitDelete

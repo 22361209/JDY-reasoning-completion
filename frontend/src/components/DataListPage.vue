@@ -588,13 +588,8 @@ const {
 const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
-const sparsePatchMasterListKeys = new Set([
-  "product-master-list",
-  "customer-master-list",
-  "supplier-master-list",
-  "warehouse-master-list"
-]);
-const usesSparseMasterPatch = computed(() => sparsePatchMasterListKeys.has(props.listKey));
+const usesSparseMasterPatch = masterMaintenance.usesSparsePatch;
+const canDeleteMaster = masterMaintenance.canDelete;
 const isProductMasterList = computed(() => props.listKey === "product-master-list");
 const canCopyMasterRecord = computed(() => props.listKey === "product-master-list");
 const isBomList = computed(() => props.listKey === "bom-list");
@@ -637,6 +632,8 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "supplier-master-list": "master.data.manage",
   "warehouse-master-list": "master.data.manage",
   "production-department-list": "master.data.manage",
+  "employee-master-list": "master.data.manage",
+  "financial-account-master-list": "master.data.manage",
   "bom-list": "master.data.manage",
   "production-plan-list": "production.task.audit",
   "production-task-form-list": "production.task.audit",
@@ -907,6 +904,7 @@ const listMoreActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("delete", {
     key: "batchDelete",
+    visible: !isMasterList.value || canDeleteMaster.value,
     enabled: isMasterList.value
       ? canMaintainCurrentList.value && selectedRows.value.length > 0 && !selectedContainsLockedRow.value
       : canBatchDelete.value,

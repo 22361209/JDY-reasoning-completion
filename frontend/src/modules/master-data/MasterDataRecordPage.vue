@@ -49,7 +49,7 @@
     <p v-else-if="dirty" class="form-message" data-testid="master-record-dirty-hint">存在未保存修改，请先保存或放弃修改后再执行审核、反审核或启禁用。</p>
     <footer class="master-record-foot" aria-label="主数据底部动作">
       <button class="primary-action" type="button" data-testid="master-record-bottom-save" :disabled="!canSave" @click="requestSave">保存</button>
-      <button type="button" data-testid="master-record-bottom-delete" :disabled="!canEditSavedDraft" @click="emit('deleteRecord')">删除</button>
+      <button v-if="allowDelete" type="button" data-testid="master-record-bottom-delete" :disabled="!canEditSavedDraft" @click="emit('deleteRecord')">删除</button>
     </footer>
   </section>
 </template>
@@ -77,6 +77,8 @@ const props = defineProps<{
   persisted: boolean;
   dirty: boolean;
   protectAuditedEdit: boolean;
+  canMaintain: boolean;
+  allowDelete: boolean;
   title: string;
   fields: MasterDataField[];
   form: Record<string, string>;
@@ -106,8 +108,8 @@ const statusText = computed(() => props.form.status || "启用");
 const auditStatusText = computed(() => props.form.auditStatus === "未审核" ? "草稿" : props.form.auditStatus || "草稿");
 const statusLabel = computed(() => `${statusText.value} / ${auditStatusText.value}`);
 const statusClass = computed(() => auditStatusText.value === "已审核" ? "audited" : "draft");
-const canSave = computed(() => !props.readOnly && auditStatusText.value !== "已审核");
-const canEditSavedDraft = computed(() => !props.readOnly && !props.dirty && props.editing && auditStatusText.value !== "已审核");
+const canSave = computed(() => props.canMaintain && !props.readOnly && auditStatusText.value !== "已审核");
+const canEditSavedDraft = computed(() => props.canMaintain && !props.readOnly && !props.dirty && props.editing && auditStatusText.value !== "已审核");
 const statusActionLabel = computed(() => statusText.value === "禁用" ? "启用" : "禁用");
 const pageModeTitle = computed(() => props.readOnly ? "查看" : props.editing ? "编辑" : "新增");
 const displayError = computed(() => localError.value || props.error);
@@ -115,24 +117,24 @@ const pageClasses = computed(() => ({
   "master-record-page--product": props.recordId.startsWith("product-master-list")
 }));
 const recordActions = computed<ActionBarItem[]>(() => [
-  defineAction("create", { enabled: true, testId: "master-record-new" }),
+  defineAction("create", { enabled: props.canMaintain, testId: "master-record-new" }),
   defineAction("edit", {
     visible: props.readOnly,
-    enabled: !props.protectAuditedEdit || auditStatusText.value !== "已审核",
+    enabled: props.canMaintain && (!props.protectAuditedEdit || auditStatusText.value !== "已审核"),
     testId: "master-record-edit"
   }),
   defineAction("save", { enabled: canSave.value, testId: "master-record-save" }),
-  defineAction("audit", { enabled: !props.readOnly && !props.dirty && props.editing && auditStatusText.value !== "已审核", testId: "master-record-audit" }),
-  defineAction("reverse", { enabled: props.persisted && !props.dirty && auditStatusText.value === "已审核", testId: "master-record-reverse-audit" }),
+  defineAction("audit", { enabled: props.canMaintain && !props.readOnly && !props.dirty && props.editing && auditStatusText.value !== "已审核", testId: "master-record-audit" }),
+  defineAction("reverse", { enabled: props.canMaintain && props.persisted && !props.dirty && auditStatusText.value === "已审核", testId: "master-record-reverse-audit" }),
   defineAction(statusText.value === "禁用" ? "enable" : "disable", { enabled: canEditSavedDraft.value, label: statusActionLabel.value, testId: "master-record-toggle-status" }),
-  defineAction("delete", { enabled: canEditSavedDraft.value, testId: "master-record-delete" }),
+  defineAction("delete", { visible: props.allowDelete, enabled: canEditSavedDraft.value, testId: "master-record-delete" }),
   defineAction("cancel", { enabled: true, testId: "master-record-cancel" })
 ]);
 
 const fieldSections = computed(() => {
   const groups: { title: string; fields: MasterDataField[] }[] = [];
   props.fields.forEach((field) => {
-    if (field.name === "status") {
+    if (field.name === "status" || !isFieldVisible(field)) {
       return;
     }
     const title = field.section || "基本信息";
@@ -167,7 +169,28 @@ function sectionClasses(section: { title: string; fields: MasterDataField[] }) {
 }
 
 function fieldWithTestId(field: MasterDataField): MasterDataField {
-  return field.testId ? field : { ...field, testId: `master-record-${field.name}` };
+  const fieldWithRequired = { ...field, required: isFieldRequired(field) };
+  return field.testId ? fieldWithRequired : { ...fieldWithRequired, testId: `master-record-${field.name}` };
+}
+
+function conditionMatches(condition: MasterDataField["visibleWhen"] | MasterDataField["requiredWhen"]) {
+  return !condition || condition.values.includes(String(props.form[condition.field] ?? ""));
+}
+
+function isFieldVisible(field: MasterDataField) {
+  return conditionMatches(field.visibleWhen);
+}
+
+function isFieldRequired(field: MasterDataField) {
+  return Boolean(field.required || (field.requiredWhen && conditionMatches(field.requiredWhen)));
+}
+
+function clearInactiveFields() {
+  props.fields.forEach((field) => {
+    if (field.clearWhenHidden && !isFieldVisible(field) && String(props.form[field.name] ?? "")) {
+      emit("updateField", field.name, "");
+    }
+  });
 }
 
 function handleAction(key: string) {
@@ -278,7 +301,7 @@ function isLookupOpen(field: MasterDataField) {
 }
 
 function isFieldDisabled(field: MasterDataField) {
-  return Boolean(props.readOnly || auditStatusText.value === "已审核" || field.readonly || (props.editing && field.readonlyWhenEditing));
+  return Boolean(!props.canMaintain || props.readOnly || auditStatusText.value === "已审核" || field.readonly || (props.editing && field.readonlyWhenEditing));
 }
 
 function openLookup(field: MasterDataField) {
@@ -439,8 +462,16 @@ function requestSave() {
     return;
   }
   localError.value = "";
+  clearInactiveFields();
+  const missingField = props.fields.find((field) => isFieldVisible(field)
+    && isFieldRequired(field)
+    && !String(props.form[field.name] ?? "").trim());
+  if (missingField) {
+    localError.value = `${missingField.label}不能为空。`;
+    return;
+  }
   const invalidField = props.fields.find((field) => {
-    if (field.name === "status" || !isStrictLookup(field)) {
+    if (field.name === "status" || !isFieldVisible(field) || !isStrictLookup(field)) {
       return false;
     }
     const value = String(props.form[field.name] ?? "").trim();
@@ -464,4 +495,12 @@ function requestSave() {
   }
   emit("save");
 }
+
+watch(
+  () => props.fields
+    .filter((field) => field.clearWhenHidden && field.visibleWhen)
+    .map((field) => `${field.name}:${props.form[field.visibleWhen!.field] ?? ""}`)
+    .join("|"),
+  clearInactiveFields
+);
 </script>

@@ -363,7 +363,9 @@
           :read-only="activeMasterRecord.readOnly"
           :persisted="Boolean(activeMasterRecord.originalCode)"
           :dirty="activeMasterRecordDirty"
-          :protect-audited-edit="sparsePatchMasterDataTypes.has(activeMasterRecord.type)"
+          :protect-audited-edit="activeMasterRecord.sparsePatch"
+          :can-maintain="canMaintainActiveMasterRecord"
+          :allow-delete="activeMasterRecord.allowDelete"
           :title="activeMasterRecord.title"
           :fields="activeMasterRecord.fields"
           :form="activeMasterRecord.form"
@@ -813,6 +815,7 @@ interface ShellEntry {
   queryable?: boolean;
   dirty?: boolean;
   permission?: string;
+  permissions?: string[];
 }
 interface EntryGroup {
   title: string;
@@ -833,6 +836,9 @@ interface MasterRecordState {
   readOnly: boolean;
   originalCode: string;
   version: number | null;
+  sparsePatch: boolean;
+  maintainPermission: string;
+  allowDelete: boolean;
   fields: MasterDataField[];
   form: Record<string, string>;
   originalForm: Record<string, string>;
@@ -865,9 +871,12 @@ const stockCountTabId = "stock-count-form";
 const stockCountGainTabId = "stock-count-gain-form";
 const stockCountLossTabId = "stock-count-loss-form";
 const masterRecords = reactive<Record<string, MasterRecordState>>({});
-const sparsePatchMasterDataTypes = new Set(["product", "customer", "supplier", "warehouse"]);
 const activeMasterRecord = computed(() => masterRecords[tabs.activeTabId.value] ?? null);
 const activeMasterRecordDirty = computed(() => Boolean(tabs.activeTab.value?.dirty));
+const canMaintainActiveMasterRecord = computed(() => {
+  const record = activeMasterRecord.value;
+  return Boolean(record && canMaintainMasterRecord(record));
+});
 tabs.onBeforeClose((tab) => {
   const type = documentTypeByFormTabId(tab.id);
   if (type && tab.lockedObjectId) {
@@ -1361,6 +1370,9 @@ function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
   return formMap[tabId] ?? "";
 }
 function canOpenEntry(entry: ShellEntry) {
+  if (entry.permissions?.length) {
+    return entry.permissions.some((permission) => session.hasPermission(permission));
+  }
   return session.hasPermission(entry.permission);
 }
 async function loadPrintTemplates() {
@@ -1921,6 +1933,13 @@ function masterTitle(listKey: string) {
 function masterModule(_listKey: string) {
   return "基础资料";
 }
+function canMaintainMasterList(listKey: string) {
+  const definition = masterDataDefinitions[listKey];
+  return Boolean(definition && session.hasPermission(definition.maintainPermission));
+}
+function canMaintainMasterRecord(record: MasterRecordState) {
+  return session.hasPermission(record.maintainPermission);
+}
 function newMasterForm(listKey: string, row: Record<string, unknown> | null, options: { copy?: boolean } = {}) {
   const definition = masterDataDefinitions[listKey];
   const form: Record<string, string> = {};
@@ -1953,6 +1972,9 @@ function openMasterRecord(
   if (!definition) {
     return;
   }
+  if (options.mode !== "view" && !canMaintainMasterList(payload.listKey)) {
+    return;
+  }
   const title = masterTitle(payload.listKey);
   const code = String(payload.row?.code ?? "");
   if ((options.mode === "view" || options.mode === "edit") && !code) {
@@ -1979,7 +2001,7 @@ function openMasterRecord(
   const editing = options.mode === "edit";
   const readOnly = options.mode === "view";
   const form = newMasterForm(payload.listKey, payload.row, { copy: options.mode === "copy" });
-  const requiresVersion = sparsePatchMasterDataTypes.has(definition.type);
+  const requiresVersion = Boolean(definition.sparsePatch);
   const version = requiresVersion ? (persisted ? parseMasterVersion(payload.row?.version) : 0) : null;
   masterRecords[tabId] = {
     id: tabId,
@@ -1990,6 +2012,9 @@ function openMasterRecord(
     readOnly,
     originalCode: persisted ? code : "",
     version,
+    sparsePatch: requiresVersion,
+    maintainPermission: definition.maintainPermission,
+    allowDelete: definition.allowDelete !== false,
     fields: definition.fields,
     form,
     originalForm: { ...form },
@@ -2034,10 +2059,10 @@ function openCopyMasterData(payload: { listKey: string; row: Record<string, unkn
 
 function editActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record) {
+  if (!record || !canMaintainMasterRecord(record)) {
     return;
   }
-  if (sparsePatchMasterDataTypes.has(record.type) && normalizeMasterAuditStatus(record.form.auditStatus) === "已审核") {
+  if (record.sparsePatch && normalizeMasterAuditStatus(record.form.auditStatus) === "已审核") {
     record.error = "已审核资料不能直接编辑，请先执行反审核。";
     return;
   }
@@ -2048,16 +2073,41 @@ function editActiveMasterRecord() {
 }
 function updateActiveMasterField(name: string, value: string) {
   const record = activeMasterRecord.value;
-  if (!record || record.readOnly) {
+  if (!record || record.readOnly || !canMaintainMasterRecord(record)) {
     return;
   }
   record.form[name] = value;
+  clearInactiveMasterFields(record);
   record.error = "";
   markActiveDirty();
 }
+
+function masterFieldConditionMatches(
+  condition: MasterDataField["visibleWhen"] | MasterDataField["requiredWhen"],
+  form: Record<string, string>
+) {
+  return !condition || condition.values.includes(String(form[condition.field] ?? ""));
+}
+
+function isMasterFieldVisible(field: MasterDataField, form: Record<string, string>) {
+  return masterFieldConditionMatches(field.visibleWhen, form);
+}
+
+function isMasterFieldRequired(field: MasterDataField, form: Record<string, string>) {
+  return Boolean(field.required || (field.requiredWhen && masterFieldConditionMatches(field.requiredWhen, form)));
+}
+
+function clearInactiveMasterFields(record: MasterRecordState) {
+  record.fields.forEach((field) => {
+    if (field.clearWhenHidden && !isMasterFieldVisible(field, record.form)) {
+      record.form[field.name] = "";
+    }
+  });
+}
+
 function openNewActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record) {
+  if (!record || !canMaintainMasterRecord(record)) {
     return;
   }
   if (tabs.activeTab.value?.dirty && !window.confirm("当前资料有未保存改动，确认新建空白资料？")) {
@@ -2077,17 +2127,20 @@ function cancelActiveMasterRecord() {
 }
 async function saveActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record || record.readOnly) {
+  if (!record || record.readOnly || !canMaintainMasterRecord(record)) {
     return;
   }
-  const missingField = record.fields.find((field) => field.required && !record.form[field.name]?.trim());
+  clearInactiveMasterFields(record);
+  const missingField = record.fields.find((field) => isMasterFieldVisible(field, record.form)
+    && isMasterFieldRequired(field, record.form)
+    && !record.form[field.name]?.trim());
   if (missingField) {
     record.error = `${missingField.label}不能为空。`;
     return;
   }
   let result: Awaited<ReturnType<typeof createMasterData>>;
   if (record.editing) {
-    if (sparsePatchMasterDataTypes.has(record.type)) {
+    if (record.sparsePatch) {
       if (record.version === null) {
         record.error = "资料版本缺失，请返回列表刷新后重试。";
         return;
@@ -2110,7 +2163,7 @@ async function saveActiveMasterRecord() {
       result = await updateMasterData(record.type, record.originalCode, { ...record.form });
     }
   } else {
-    result = await createMasterData(record.type, { ...record.form });
+    result = await createMasterData(record.type, buildMasterDataCreatePayload(record));
   }
   if (!result.ok) {
     record.error = result.message;
@@ -2144,9 +2197,25 @@ async function saveActiveMasterRecord() {
   }
   clearActiveDirty();
 }
+
+function buildMasterDataCreatePayload(record: MasterRecordState) {
+  const writableFields = new Set<string>();
+  record.fields.forEach((field) => {
+    if (!field.readonly) {
+      writableFields.add(field.name);
+    }
+    if (field.fileDataName) {
+      writableFields.add(field.fileDataName);
+    }
+  });
+  return Object.fromEntries(
+    Object.entries(record.form).filter(([field]) => writableFields.has(field))
+  );
+}
+
 async function auditActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || record.readOnly || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode || !canMaintainMasterRecord(record)) {
     return;
   }
   if (isMasterRecordDirty(record)) {
@@ -2165,7 +2234,7 @@ async function auditActiveMasterRecord() {
 }
 async function reverseAuditActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record || !record.originalCode) {
+  if (!record || !record.originalCode || !canMaintainMasterRecord(record)) {
     return;
   }
   if (isMasterRecordDirty(record)) {
@@ -2187,7 +2256,7 @@ async function reverseAuditActiveMasterRecord() {
 }
 async function toggleActiveMasterStatus() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || record.readOnly || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode || !canMaintainMasterRecord(record)) {
     return;
   }
   if (isMasterRecordDirty(record)) {
@@ -2206,7 +2275,7 @@ async function toggleActiveMasterStatus() {
 }
 async function deleteActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || record.readOnly || !record.originalCode) {
+  if (!record?.editing || record.readOnly || !record.originalCode || !record.allowDelete || !canMaintainMasterRecord(record)) {
     return;
   }
   if (isMasterRecordDirty(record)) {
@@ -2295,7 +2364,7 @@ function mergeMasterDataResponse(record: MasterRecordState, row: Record<string, 
   });
   record.form.status = normalizeMasterStatus(record.form.status || "启用");
   record.form.auditStatus = normalizeMasterAuditStatus(record.form.auditStatus || "草稿");
-  if (sparsePatchMasterDataTypes.has(record.type)) {
+  if (record.sparsePatch) {
     const responseVersion = parseMasterVersion(row.version);
     if (responseVersion !== null) {
       record.version = responseVersion;
@@ -2318,7 +2387,7 @@ function mergeMasterLifecycleResponse(
   if (row?.status !== undefined || fallback.status !== undefined) {
     record.form.status = normalizeMasterStatus(row?.status ?? fallback.status);
   }
-  if (sparsePatchMasterDataTypes.has(record.type)) {
+  if (record.sparsePatch) {
     const responseVersion = parseMasterVersion(row?.version);
     if (responseVersion !== null) {
       record.version = responseVersion;

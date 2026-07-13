@@ -47,6 +47,26 @@
             <dd data-testid="managed-user-session-replaced">{{ page.selectedManagedUser.value.lastSessionReplacedAt || "-" }}</dd>
           </div>
         </dl>
+        <section
+          v-if="page.selectedManagedUser.value && page.userManagementMode.value === 'edit'"
+          class="account-set-grant-panel"
+          data-testid="current-account-employee-link"
+        >
+          <div class="password-reset-admin-panel__head">
+            <strong>当前账套员工关联</strong>
+            <span data-testid="managed-user-employee-state">{{ page.employeeLinkStateLabel(page.selectedManagedUser.value) }}</span>
+          </div>
+          <div v-if="page.selectedManagedUser.value.employeeCode" class="account-set-grant-row">
+            <strong data-testid="managed-user-employee-name">{{ page.selectedManagedUser.value.employeeName || "员工主档不可用" }}</strong>
+            <em data-testid="managed-user-employee-code">{{ page.selectedManagedUser.value.employeeCode }}</em>
+          </div>
+          <p v-else class="form-message" data-testid="managed-user-employee-empty">当前账套尚未关联员工。</p>
+          <div v-if="page.employeeCandidateCode.value" class="account-set-grant-row" data-testid="managed-user-employee-candidate">
+            <strong>待关联：{{ page.employeeCandidateName.value || page.employeeCandidateCode.value }}</strong>
+            <em>{{ page.employeeCandidateCode.value }}</em>
+          </div>
+          <ActionBar bar-class="settings-inline-actions" :actions="employeeLinkActions" @action="handleAction" />
+        </section>
         <section v-if="page.pendingPasswordResetRequests.value.length" class="password-reset-admin-panel" data-testid="password-reset-admin-panel">
           <div class="password-reset-admin-panel__head">
             <strong>待处理找回申请</strong>
@@ -133,6 +153,15 @@
         <p v-if="page.userManagementMessage.value" class="form-message" data-testid="user-management-message">{{ page.userManagementMessage.value }}</p>
       </div>
     </section>
+    <MasterSelectorDialog
+      :open="page.employeeSelectorOpen.value"
+      type="employee"
+      title="选择员工"
+      label="员工"
+      :keyword="page.employeeCandidateCode.value"
+      @close="page.closeEmployeeSelector"
+      @select="page.selectEmployeeCandidate($event.code, $event.name)"
+    />
   </div>
 </template>
 
@@ -141,6 +170,7 @@ import { computed } from "vue";
 import ActionBar from "../../../components/ActionBar.vue";
 import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
+import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import NotificationOutboxPanel from "../notification/NotificationOutboxPanel.vue";
 import { ref } from "vue";
 import { useUserManagementPage } from "./useUserManagementPage";
@@ -189,6 +219,26 @@ const managedUserActions = computed<ActionBarItem[]>(() => [
     testId: "managed-user-unlock"
   })
 ]);
+const employeeLinkActions = computed<ActionBarItem[]>(() => [
+  defineAction("selectEmployee", {
+    label: "选择员工",
+    order: 40,
+    enabled: props.canManage && page.hasCurrentAccountGrantVersion(),
+    testId: "managed-user-employee-select"
+  }),
+  defineAction("linkEmployee", {
+    label: "关联",
+    order: 45,
+    enabled: props.canManage && page.hasCurrentAccountGrantVersion() && Boolean(page.employeeCandidateCode.value),
+    testId: "managed-user-employee-link"
+  }),
+  defineAction("unlinkEmployee", {
+    label: "解除关联",
+    order: 50,
+    enabled: props.canManage && page.hasCurrentAccountGrantVersion() && Boolean(page.selectedManagedUser.value?.employeeCode),
+    testId: "managed-user-employee-unlink"
+  })
+]);
 
 function handleAction(actionKey: string) {
   if (actionKey === "refresh") {
@@ -217,6 +267,44 @@ function handleAction(actionKey: string) {
   }
   if (actionKey === "unlockUser") {
     void page.unlockManagedUserAction();
+    return;
+  }
+  if (actionKey === "selectEmployee") {
+    page.openEmployeeSelector();
+    return;
+  }
+  if (actionKey === "linkEmployee") {
+    void page.linkSelectedEmployee();
+    return;
+  }
+  if (actionKey === "unlinkEmployee") {
+    void page.unlinkSelectedEmployee();
   }
 }
 </script>
+
+<style scoped>
+.role-permission-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.role-permission-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.role-permission-list,
+.user-management-form {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.user-management-form {
+  background: #fff;
+}
+</style>
