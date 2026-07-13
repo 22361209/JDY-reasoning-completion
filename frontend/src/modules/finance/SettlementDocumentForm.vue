@@ -77,7 +77,7 @@
         </label>
         <label class="head-remark">
           <span>备注</span>
-          <input v-model="form.remark" :disabled="!canEditHeader" :data-testid="`${testPrefix}-remark`" @input="markDirty" />
+          <input v-model="form.remark" :title="form.remark" :disabled="!canEditHeader" :data-testid="`${testPrefix}-remark`" @input="markDirty" />
         </label>
       </section>
 
@@ -107,8 +107,8 @@
           <template #cell="{ row, column }">
             <div class="settlement-cell">
               <span v-if="column.key === 'lineNo'">{{ row.lineNo }}</span>
-              <span v-else-if="column.key === 'accountCode'">{{ row.accountCode }}</span>
-              <span v-else-if="column.key === 'accountName'">{{ row.accountName }}</span>
+              <span v-else-if="column.key === 'accountCode'" :title="row.accountCode">{{ row.accountCode }}</span>
+              <span v-else-if="column.key === 'accountName'" :title="row.accountName">{{ row.accountName }}</span>
               <span v-else-if="column.key === 'accountType'">{{ accountTypeLabel(row.accountType) }}</span>
               <span v-else-if="column.key === 'accountCurrency'">{{ row.accountCurrency }}</span>
               <select v-else-if="column.key === 'paymentMethod'" v-model="row.paymentMethod" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-method-${row.lineNo}`" @change="markDirty">
@@ -118,8 +118,8 @@
               </select>
               <input v-else-if="column.key === 'amount'" v-model="row.amount" type="text" inputmode="decimal" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-amount-${row.lineNo}`" @input="markDirty" />
               <input v-else-if="column.key === 'fee'" v-model="row.fee" type="text" inputmode="decimal" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-fee-${row.lineNo}`" @input="markDirty" />
-              <input v-else-if="column.key === 'transactionNo'" v-model="row.transactionNo" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-transaction-${row.lineNo}`" @input="markDirty" />
-              <input v-else-if="column.key === 'remark'" v-model="row.remark" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-remark-${row.lineNo}`" @input="markDirty" />
+              <input v-else-if="column.key === 'transactionNo'" v-model="row.transactionNo" :title="row.transactionNo" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-transaction-${row.lineNo}`" @input="markDirty" />
+              <input v-else-if="column.key === 'remark'" v-model="row.remark" :title="row.remark" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-remark-${row.lineNo}`" @input="markDirty" />
               <button v-else-if="column.key === 'actions'" type="button" :disabled="!canEditFunds" :data-testid="`${testPrefix}-fund-remove-${row.lineNo}`" @click="removeFundLine(row.accountId)">移除</button>
             </div>
           </template>
@@ -155,13 +155,13 @@
           <template #cell="{ row, column }">
             <div class="settlement-cell">
               <span v-if="column.key === 'lineNo'">{{ row.lineNo }}</span>
-              <span v-else-if="column.key === 'sourceBillNo'">{{ row.sourceBillNo }}</span>
+              <span v-else-if="column.key === 'sourceBillNo'" :title="row.sourceBillNo">{{ row.sourceBillNo }}</span>
               <span v-else-if="column.key === 'sourceDate'">{{ row.sourceDate }}</span>
               <span v-else-if="column.key === 'sourceAmount'">{{ formatMoney(row.sourceAmount) }}</span>
               <span v-else-if="column.key === 'currentSettledAmount'">{{ formatMoney(row.currentSettledAmount) }}</span>
               <span v-else-if="column.key === 'currentUnsettledAmount'">{{ formatMoney(row.currentUnsettledAmount) }}</span>
               <input v-else-if="column.key === 'settlementAmount'" v-model="row.settlementAmount" type="text" inputmode="decimal" :disabled="!canEditAllocations" :data-testid="`${testPrefix}-allocation-amount-${row.lineNo}`" @input="markDirty" />
-              <input v-else-if="column.key === 'remark'" v-model="row.remark" :disabled="!canEditAllocations" :data-testid="`${testPrefix}-allocation-remark-${row.lineNo}`" @input="markDirty" />
+              <input v-else-if="column.key === 'remark'" v-model="row.remark" :title="row.remark" :disabled="!canEditAllocations" :data-testid="`${testPrefix}-allocation-remark-${row.lineNo}`" @input="markDirty" />
               <button v-else-if="column.key === 'actions'" type="button" :disabled="!canEditAllocations" :data-testid="`${testPrefix}-allocation-remove-${row.lineNo}`" @click="removeAllocation(row.sourceId)">移除</button>
             </div>
           </template>
@@ -919,6 +919,16 @@ defineExpose({ startNew, loadByBillNo });
   min-height: 28px;
   display: flex;
   align-items: center;
+  overflow: hidden;
+}
+
+.settlement-cell > span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settlement-cell input,
