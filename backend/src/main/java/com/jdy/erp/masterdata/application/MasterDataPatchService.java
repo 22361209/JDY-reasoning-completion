@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -99,6 +100,23 @@ public class MasterDataPatchService {
             Map.entry("address", optionalText("address", "地址", 300)),
             Map.entry("stockPolicy", stockPolicy("allow_negative_stock", "负库存策略")),
             Map.entry("remark", optionalText("remark", "备注", 0))
+        )),
+        "employee", new MasterDefinition("md_employee", Map.ofEntries(
+            Map.entry("name", requiredText("name", "员工姓名", 200)),
+            Map.entry("position", optionalText("position", "岗位", 120)),
+            Map.entry("department", optionalText("department", "部门", 160)),
+            Map.entry("phone", optionalText("phone", "手机", 80)),
+            Map.entry("email", optionalText("email", "邮箱", 200)),
+            Map.entry("remark", optionalText("remark", "备注", 0))
+        )),
+        "financialAccount", new MasterDefinition("md_financial_account", Map.ofEntries(
+            Map.entry("name", requiredText("name", "账户名称", 200)),
+            Map.entry("accountType", accountType("account_type", "账户类型")),
+            Map.entry("bankName", optionalText("bank_name", "开户行", 200)),
+            Map.entry("accountNo", optionalText("account_no", "账号", 120)),
+            Map.entry("accountHolder", optionalText("account_holder", "户名", 200)),
+            Map.entry("currency", currency("currency", "币种")),
+            Map.entry("remark", optionalText("remark", "备注", 0))
         ))
     );
 
@@ -130,12 +148,15 @@ public class MasterDataPatchService {
             }
         }
 
+        var financialColumns = "financialAccount".equals(type)
+            ? ", account_type, bank_name, account_no, account_holder, currency"
+            : "";
         var currentRows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id, code, name, version, audit_status, enabled
+            SELECT id::text AS id, code, name, version, audit_status, enabled%s
             FROM %s
             WHERE code = ?
             FOR UPDATE
-            """.formatted(definition.table()), normalizedCode);
+            """.formatted(financialColumns, definition.table()), normalizedCode);
         if (currentRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "主数据不存在");
         }
@@ -147,6 +168,9 @@ public class MasterDataPatchService {
         }
         if (currentVersion != expectedVersion) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "资料已被其他操作更新，请刷新后重试");
+        }
+        if ("financialAccount".equals(type)) {
+            validateFinancialAccountShape(current, changes, definition);
         }
 
         var assignments = new ArrayList<Assignment>();
@@ -205,6 +229,59 @@ public class MasterDataPatchService {
             Boolean.TRUE.equals(current.get("enabled")),
             changedFields
         );
+    }
+
+    private void validateFinancialAccountShape(
+        Map<String, Object> current,
+        Map<String, JsonNode> changes,
+        MasterDefinition definition
+    ) {
+        var accountType = enumAfterChange(current, changes, definition, "accountType", "account_type", Set.of("CASH", "BANK", "DEPOSIT"));
+        enumAfterChange(current, changes, definition, "currency", "currency", Set.of("CNY", "USD"));
+        var bankName = optionalTextAfterChange(current, changes, definition, "bankName", "bank_name");
+        var accountNo = optionalTextAfterChange(current, changes, definition, "accountNo", "account_no");
+        var accountHolder = optionalTextAfterChange(current, changes, definition, "accountHolder", "account_holder");
+        if ("CASH".equals(accountType)) {
+            if (bankName != null || accountNo != null || accountHolder != null) {
+                throw badRequest("CASH 账户不得填写开户行、账号或户名");
+            }
+            return;
+        }
+        if (bankName == null || accountNo == null || accountHolder == null) {
+            throw badRequest("BANK/DEPOSIT 账户必须填写开户行、账号和户名");
+        }
+    }
+
+    private String enumAfterChange(
+        Map<String, Object> current,
+        Map<String, JsonNode> changes,
+        MasterDefinition definition,
+        String field,
+        String column,
+        Set<String> allowedValues
+    ) {
+        var node = changes.get(field);
+        return node == null
+            ? String.valueOf(current.get(column))
+            : enumValue(node, definition.fields().get(field), allowedValues);
+    }
+
+    private String optionalTextAfterChange(
+        Map<String, Object> current,
+        Map<String, JsonNode> changes,
+        MasterDefinition definition,
+        String field,
+        String column
+    ) {
+        if (!changes.containsKey(field)) {
+            var value = current.get(column);
+            return value == null ? null : String.valueOf(value);
+        }
+        var node = changes.get(field);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        return (String) normalizedText(node, definition.fields().get(field), true);
     }
 
     private Map<String, Object> normalizedRow(String type, String code) {
@@ -321,6 +398,41 @@ public class MasterDataPatchService {
                 FROM md_warehouse
                 WHERE code = ?
                 """;
+            case "employee" -> """
+                SELECT id::text AS id,
+                       system_no::text AS "systemNo",
+                       code,
+                       name,
+                       COALESCE(position, '') AS position,
+                       COALESCE(department, '') AS department,
+                       COALESCE(phone, '') AS phone,
+                       COALESCE(email, '') AS email,
+                       COALESCE(remark, '') AS remark,
+                       version,
+                       CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                       CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                       to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+                FROM md_employee
+                WHERE code = ?
+                """;
+            case "financialAccount" -> """
+                SELECT id::text AS id,
+                       system_no::text AS "systemNo",
+                       code,
+                       name,
+                       account_type AS "accountType",
+                       COALESCE(bank_name, '') AS "bankName",
+                       COALESCE(account_no, '') AS "accountNo",
+                       COALESCE(account_holder, '') AS "accountHolder",
+                       currency,
+                       COALESCE(remark, '') AS remark,
+                       version,
+                       CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                       CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                       to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+                FROM md_financial_account
+                WHERE code = ?
+                """;
             default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
         };
         return jdbcTemplate.queryForMap(sql, code);
@@ -368,8 +480,21 @@ public class MasterDataPatchService {
                     default -> throw badRequest(spec.label() + "只允许“允许负库存”或“不允许负库存”");
                 };
             }
+            case ACCOUNT_TYPE -> enumValue(node, spec, Set.of("CASH", "BANK", "DEPOSIT"));
+            case CURRENCY -> enumValue(node, spec, Set.of("CNY", "USD"));
             case REFERENCE -> throw new IllegalStateException("引用字段必须单独解析");
         };
+    }
+
+    private String enumValue(JsonNode node, FieldSpec spec, java.util.Set<String> allowedValues) {
+        if (!node.isTextual()) {
+            throw badRequest(spec.label() + "必须为字符串");
+        }
+        var value = node.textValue().trim();
+        if (!allowedValues.contains(value)) {
+            throw badRequest(spec.label() + "只允许 " + String.join("/", allowedValues));
+        }
+        return value;
     }
 
     private Object normalizedText(JsonNode node, FieldSpec spec, boolean trim) {
@@ -474,6 +599,14 @@ public class MasterDataPatchService {
         return new FieldSpec(column, label, ValueType.STOCK_POLICY, false, 0, null);
     }
 
+    private static FieldSpec accountType(String column, String label) {
+        return new FieldSpec(column, label, ValueType.ACCOUNT_TYPE, false, 0, null);
+    }
+
+    private static FieldSpec currency(String column, String label) {
+        return new FieldSpec(column, label, ValueType.CURRENCY, false, 0, null);
+    }
+
     private static FieldSpec requiredReference(
         String displayColumn,
         String idColumn,
@@ -541,6 +674,8 @@ public class MasterDataPatchService {
         DECIMAL,
         BOOLEAN,
         STOCK_POLICY,
+        ACCOUNT_TYPE,
+        CURRENCY,
         REFERENCE
     }
 

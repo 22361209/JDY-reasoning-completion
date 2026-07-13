@@ -14,7 +14,14 @@ public class ListQueryContractRegistry {
         "unit-master-list",
         "customer-master-list",
         "supplier-master-list",
-        "warehouse-master-list"
+        "warehouse-master-list",
+        "employee-master-list",
+        "financial-account-master-list"
+    );
+
+    private static final Set<String> MASTER_SELECTOR_KEYS = Set.of(
+        "employee-master-selector",
+        "financial-account-master-selector"
     );
 
     private static final Set<String> SOURCE_SELECTOR_KEYS = Set.of(
@@ -67,7 +74,13 @@ public class ListQueryContractRegistry {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown list key: " + listKey);
         }
         var normalizedView = "detail".equalsIgnoreCase(view) ? "detail" : "header";
+        if (MASTER_SELECTOR_KEYS.contains(listKey)) {
+            return masterSelectorContract(listKey, normalizedView);
+        }
         if (MASTER_LIST_KEYS.contains(listKey)) {
+            if ("employee-master-list".equals(listKey) || "financial-account-master-list".equals(listKey)) {
+                return a140MasterContract(listKey, normalizedView);
+            }
             return new ListQueryContract(
                 listKey,
                 normalizedView,
@@ -146,6 +159,38 @@ public class ListQueryContractRegistry {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown list key: " + listKey);
         }
         return new ListQueryContract(listKey, view, List.of(), "", "row", view, "default", false);
+    }
+
+    private ListQueryContract a140MasterContract(String listKey, String view) {
+        var employee = "employee-master-list".equals(listKey);
+        return new ListQueryContract(
+            listKey,
+            view,
+            employee
+                ? List.of("code", "name", "position", "department", "phone", "email")
+                : List.of("code", "name", "accountType", "bankName", "accountNo", "accountHolder", "currency"),
+            "updatedAt",
+            "row",
+            view,
+            "default",
+            false
+        );
+    }
+
+    private ListQueryContract masterSelectorContract(String listKey, String view) {
+        var employee = "employee-master-selector".equals(listKey);
+        return new ListQueryContract(
+            listKey,
+            view,
+            employee
+                ? List.of("code", "name", "position", "department")
+                : List.of("code", "name", "accountType", "bankName", "accountNo", "accountHolder", "currency"),
+            "updatedAt",
+            "row",
+            view,
+            "default",
+            false
+        );
     }
 
     private ListQueryContract salesOrderContract(String view) {

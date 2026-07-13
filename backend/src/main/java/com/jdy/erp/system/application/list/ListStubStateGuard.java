@@ -1,5 +1,6 @@
 package com.jdy.erp.system.application.list;
 
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -21,6 +22,12 @@ public class ListStubStateGuard {
         "stock-count-loss-list", "inventory.stock_count_loss.audit",
         "stock-count-loss-form-list", "inventory.stock_count_loss.audit"
     );
+    private static final Map<String, List<String>> READ_PERMISSION_ALTERNATIVES = Map.of(
+        "employee-master-list", List.of("master.data.manage", "system.role_permission.manage"),
+        "employee-master-selector", List.of("master.data.manage", "system.role_permission.manage"),
+        "financial-account-master-list", List.of("master.data.manage", "finance.settle"),
+        "financial-account-master-selector", List.of("master.data.manage", "finance.settle")
+    );
 
     private final ListQueryContractRegistry contractRegistry;
     private final CurrentPermissionService currentPermissionService;
@@ -40,6 +47,13 @@ public class ListStubStateGuard {
     public void assertReadable(String listKey, String scope) {
         contractRegistry.contractFor(listKey, "header");
 
+        var permissionAlternatives = READ_PERMISSION_ALTERNATIVES.get(listKey);
+        if (permissionAlternatives != null && permissionAlternatives.stream().noneMatch(currentPermissionService::hasPermission)) {
+            throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Missing any permission: " + String.join(" or ", permissionAlternatives)
+            );
+        }
         var requiredPermission = READ_PERMISSIONS.get(listKey);
         if (requiredPermission != null) {
             currentPermissionService.requirePermission(requiredPermission);

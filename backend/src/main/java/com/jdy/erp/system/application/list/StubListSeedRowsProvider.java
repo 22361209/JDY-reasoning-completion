@@ -42,6 +42,10 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "customer-master-list" -> realCustomerRows();
             case "supplier-master-list" -> realSupplierRows();
             case "warehouse-master-list" -> realWarehouseRows();
+            case "employee-master-list" -> employeeRows(false);
+            case "employee-master-selector" -> employeeRows(true);
+            case "financial-account-master-list" -> financialAccountRows(false);
+            case "financial-account-master-selector" -> financialAccountRows(true);
             case "production-department-list" -> realProductionDepartmentRows();
             case "sales-quote-form-list" -> salesQuoteRows();
             case "purchase-requisition-list" -> purchaseRequisitionRows();
@@ -822,6 +826,55 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             FROM md_warehouse
             ORDER BY code
             """));
+    }
+
+    private List<Map<String, ?>> employeeRows(boolean selectorOnly) {
+        var selectorFilter = selectorOnly
+            ? "WHERE enabled = TRUE AND audit_status = 'AUDITED'"
+            : "";
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   system_no::text AS "systemNo",
+                   code,
+                   name,
+                   COALESCE(position, '') AS position,
+                   COALESCE(department, '') AS department,
+                   COALESCE(phone, '') AS phone,
+                   COALESCE(email, '') AS email,
+                   COALESCE(remark, '') AS remark,
+                   version,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_employee
+            %s
+            ORDER BY code
+            """.formatted(selectorFilter)));
+    }
+
+    private List<Map<String, ?>> financialAccountRows(boolean selectorOnly) {
+        var selectorFilter = selectorOnly
+            ? "WHERE enabled = TRUE AND audit_status = 'AUDITED'"
+            : "";
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   system_no::text AS "systemNo",
+                   code,
+                   name,
+                   account_type AS "accountType",
+                   COALESCE(bank_name, '') AS "bankName",
+                   COALESCE(account_no, '') AS "accountNo",
+                   COALESCE(account_holder, '') AS "accountHolder",
+                   currency,
+                   COALESCE(remark, '') AS remark,
+                   version,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_financial_account
+            %s
+            ORDER BY code
+            """.formatted(selectorFilter)));
     }
 
     private List<Map<String, ?>> realProductionDepartmentRows() {
