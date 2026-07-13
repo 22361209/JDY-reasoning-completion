@@ -19,6 +19,7 @@ const [
   listController,
   listQueryService,
   contractRegistry,
+  listStateGuard,
   listQueryAdapter,
   salesOrderAdapter,
   defaultAdapter,
@@ -36,6 +37,7 @@ const [
   text("backend/src/main/java/com/jdy/erp/system/api/ListStubController.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryService.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryContractRegistry.java"),
+  text("backend/src/main/java/com/jdy/erp/system/application/list/ListStubStateGuard.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryAdapter.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/SalesOrderListQueryAdapter.java"),
   text("backend/src/main/java/com/jdy/erp/system/application/list/DefaultStubListQueryAdapter.java"),
@@ -59,12 +61,14 @@ assert(apiContract.includes("多词 AND、字段内 OR"), "列表 API 契约必�
 assert(apiContract.includes("已废弃的状态快速筛选"), "列表 API 契约必须声明 status 顶部快捷筛选已废弃");
 assert(apiContract.includes("useSourceSelectorLifecycle"), "列表 API 契约必须登记选源单生命周期管线");
 assert(apiContract.includes("后端正式剩余量 - 当前单据本地已分配量"), "选源单契约必须声明本地分配扣减公式");
+assert(apiContract.includes("未登记 `listKey` 的查询和引出均返回 `404`"), "列表 API 契约必须声明未知 key 查询/引出 404");
 assert(!apiContract.includes("dateFrom` | date | 否 | 操作日志专用"), "dateFrom 不得继续标注为操作日志专用");
 assert(protocol.includes("普通列表不得再显示顶部 `状态` 下拉"), "A128 协议必须禁止普通列表顶部状态下拉");
 assert(protocol.includes("旧 `status` 参数仅为兼容旧链接和旧预设保留"), "A128 协议必须说明旧 status 兼容边界");
 assert(protocol.includes("headerMatch=existsLine"), "A128 协议必须声明整单视图命中明细字段的 existsLine 口径");
 assert(protocol.includes("上季度"), "A128 协议必须登记常用过滤条件“上季度”");
 assert(protocol.includes("useSourceSelectorLifecycle"), "BLD 页面统一协议必须声明选源单生命周期");
+assert(protocol.includes("A139 Fail-Closed 扩展"), "A128 协议必须登记 A139 精确 key fail-closed 扩展");
 
 assert(!dataListPage.includes('data-testid="list-status"'), "DataListPage 不得渲染普通列表顶部状态下拉");
 assert(!dataListPage.includes("2026-06-01 至 2026-06-30"), "DataListPage 不得保留旧只读日期占位");
@@ -116,7 +120,7 @@ assert(listApi.includes("if (query.status)"), "listApi 只能在兼容旧调用�
 
 assert(listController.includes("ListQueryService"), "Controller 必须委托 ListQueryService");
 assert(listController.includes("listQueryService.query"), "Controller 必须通过统一查询服务读取列表");
-assert(listController.match(/stateGuard\.assertReadable\(listKey\)/g)?.length === 2, "列表读取和导出必须共用状态门禁");
+assert(listController.match(/stateGuard\.assertReadable\(listKey,\s*scope\)/g)?.length === 2, "列表读取和导出必须共用带 scope 的状态门禁");
 assert(!listController.includes("ListQueryContract"), "Controller 不得登记或感知查询契约");
 assert(!listController.includes("adapterHandlesQuery"), "Controller 不得保留 adapterHandlesQuery 特判");
 assert(!listController.includes("contractFor("), "Controller 不得保留私有 contractFor");
@@ -146,6 +150,13 @@ assert(contractRegistry.includes('"sales-order-form-list"'), "Registry 必须登
 assert(contractRegistry.includes('"salesOrder"'), "销售订单契约必须指向 salesOrder adapter");
 assert(contractRegistry.includes('"exists"'), "销售订单整单视图必须声明 exists 明细命中策略");
 assert(contractRegistry.includes('"join"'), "销售订单明细视图必须声明 join 明细返回策略");
+assert(contractRegistry.includes("MASTER_LIST_KEYS.contains(listKey)"), "主数据列表只能通过已登记精确 key 集识别");
+assert(contractRegistry.includes("SOURCE_SELECTOR_KEYS.contains(listKey)"), "选源单只能通过已登记精确 key 集识别");
+assert(!contractRegistry.includes('endsWith("-master-list")'), "Registry 不得通配认可任意 master list key");
+assert(!contractRegistry.includes('endsWith("-source-selector")'), "Registry 不得通配认可任意 source selector key");
+assert(contractRegistry.includes("HttpStatus.NOT_FOUND"), "Registry 未知 key 必须返回 404");
+assert(listStateGuard.includes("contractRegistry.contractFor(listKey"), "列表状态门禁必须在权限前校验精确 key");
+assert(listStateGuard.indexOf("contractRegistry.contractFor(listKey") < listStateGuard.indexOf("READ_PERMISSIONS.get(listKey)"), "未知 key 校验必须早于列表专属权限");
 assert(listQueryAdapter.includes("ListQueryResult query"), "ListQueryAdapter 必须定义统一查询结果接口");
 assert(defaultAdapter.includes("seedRowsProvider"), "默认 adapter 必须显式依赖 seedRowsProvider");
 assert(listQuerySupport.includes("keywordTokens"), "后端列表查询必须实现关键字分词");
@@ -156,6 +167,10 @@ assert(salesOrderAdapter.includes("EXISTS"), "整单视图命中明细字段必�
 assert(salesOrderAdapter.includes("LIMIT ? OFFSET ?"), "销售订单 adapter 必须 SQL 下推分页");
 assert(salesOrderAdapter.includes("SELECT count(*)"), "销售订单 adapter 必须 SQL 下推 total 计算");
 assert(!salesOrderAdapter.includes("seedRowsProvider.seedRows"), "销售订单 adapter 不得回退 seedRows");
+for (const retiredBackdoor of ["standard-list", "error-list", "permission-denied-list"]) {
+  assert(!stubSeedRowsProvider.includes(`"${retiredBackdoor}"`), `生产 provider 不得保留退役测试后门 ${retiredBackdoor}`);
+}
+assert(!stubSeedRowsProvider.includes("default -> salesRows()"), "provider default 不得回退销售订单行");
 assert(salesOrderAdapter.includes("contract.returnShape()"), "销售订单 adapter 必须消费 contract 的 returnShape");
 assert(salesOrderAdapter.includes("ResponseStatusException(HttpStatus.BAD_REQUEST"), "销售订单未知列筛选必须按协议错误返回 400");
 assert(salesOrderAdapter.includes("Unsupported sales order list column filter"), "销售订单未知列筛选必须 fail fast，不能静默忽略");

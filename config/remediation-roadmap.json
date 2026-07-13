@@ -142,7 +142,9 @@
       "predecessorIds": [
         "1"
       ],
-      "historyRefs": []
+      "historyRefs": [
+        "docs/验收报告/验收报告-A134-权限与库存写接口闭环-20260712.md"
+      ]
     },
     {
       "id": "3",
@@ -170,7 +172,9 @@
       "predecessorIds": [
         "2"
       ],
-      "historyRefs": []
+      "historyRefs": [
+        "docs/验收报告/验收报告-A136-操作日志真实主体与状态追溯-20260713.md"
+      ]
     },
     {
       "id": "4",
@@ -200,7 +204,9 @@
       "predecessorIds": [
         "3"
       ],
-      "historyRefs": []
+      "historyRefs": [
+        "docs/验收报告/验收报告-A137-Tenant-Schema约束与结构一致性-20260713.md"
+      ]
     },
     {
       "id": "5",
@@ -229,7 +235,9 @@
       "predecessorIds": [
         "4"
       ],
-      "historyRefs": []
+      "historyRefs": [
+        "docs/验收报告/验收报告-A138-主数据稀疏PATCH与并发保护-20260713.md"
+      ]
     },
     {
       "id": "6",

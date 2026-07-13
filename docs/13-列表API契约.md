@@ -10,6 +10,8 @@
 GET /api/lists/{listKey}
 ```
 
+`listKey` 不是自由格式字符串。查询与引出只接受 `ListQueryContractRegistry` 显式登记的完整 key；`*-master-list` 和 `*-source-selector` 后缀只能用于已登记 key 的分类，不构成通配认可。
+
 列表引出：
 
 ```http
@@ -84,8 +86,11 @@ GET /api/lists/{listKey}/export.csv
 - 单据列表 `view=detail` 时，后端直查单头 join 分录，只读返回，不缓存；列筛选、分页和导出继续复用同一列表契约。
 - 列表引出必须应用同一组 `keyword`、`dateFrom/dateTo`、`columnFilters`、排序参数，导出筛选后的全集。
 - 无权限返回 `403`，前端显示无权限态。
+- 未登记 `listKey` 的查询和引出均返回 `404`；必须先判定 key 已登记，再做列表专属权限和数据访问。
 - 服务异常返回非 `2xx`，前端显示错误态并提供重试。
 - 查询无结果返回 `200` 且 `rows=[]`、`total=0`，前端显示空态。
+
+`404` 与 `200` 空集的语义不可混用：前者表示列表未登记，后者表示已登记列表在当前条件下没有数据。未知 key 不得返回销售订单列、销售单号或伪空集。
 
 ## 列表定义元数据
 
@@ -115,11 +120,19 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 要求：
 
 - Controller 只收参和返回，不写列表搜索规则。
+- 现有 `ListStubStateGuard` 首先委托 `ListQueryContractRegistry` 校验完整 key；未知 key 在列表专属权限、adapter/provider 选择和 JDBC 之前中止。
 - `ListQueryService` 负责分词、旧 `status` 兼容、日期、列筛选、排序、分页和导出复用，并按契约选择 adapter。
 - `ListQueryContractRegistry` 是列表搜索字段、日期字段、生命周期列和视图语义的唯一后端登记处。
 - `ListQueryAdapter` 负责把契约映射到真实 SQL 或 stub 数据。已接库业务列表必须优先把关键字、日期、状态等高选择性条件下推到数据库。
+- adapter/provider 的 default 分支也必须 fail-fast，不得在前置门禁失效时回退销售订单行或未知 selector 空集。
 - 同一次请求只能生成一次查询计划，不能为搜索字段、日期字段和结果集重复读取 `seedRows`。
 - 导出接口必须调用同一查询服务，只改变分页策略为“筛选后全集”。
+
+### 入口与契约一致性
+
+- 每个可见且可查询的 catalog 入口必须同时具有：唯一 delivery-status owner、前端 `ListDefinition`、后端精确 contract、adapter/provider 处置和明确权限。
+- 内部 alias 和 source-selector 也必须进入显式登记集；不作为 catalog 入口暴露，但不得依赖通配/default。
+- 未交付入口必须从 catalog 移除并在 delivery status 中标记 `exposure=hidden`、`surface=none`，不能以空表或其他业务数据伪装完成。
 
 ### 选源单查询
 

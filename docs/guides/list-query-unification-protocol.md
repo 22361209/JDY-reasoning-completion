@@ -69,6 +69,22 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 
 同一次请求只能形成一份查询计划。禁止为了判断 `searchFields`、`dateField` 和结果集重复读取 `seedRows`。
 
+## A139 Fail-Closed 扩展
+
+`listKey` 必须在 `ListQueryContractRegistry` 中按完整 key 精确登记。`*-master-list`、`*-source-selector` 和其他后缀只是已登记 key 的分类信息，不是运行时通配规则。
+
+查询与导出的固定顺序为：
+
+1. 全局安全链校验会话；
+2. `ListStubStateGuard` 委托 Registry 校验 key，未知立即 `404`；
+3. 已登记 key 再执行列表专属权限，无权返回 `403`；
+4. 通过前两层后才选择 adapter/provider 并访问 JDBC；
+5. 查询、筛选、分页或导出。
+
+未知普通 key、伪 master key、伪 source-selector 以及已退役的 `standard-list`、`error-list`、`permission-denied-list`，在管理员和低权限用户下都必须首先返回 `404`，不得触发权限查询、adapter、provider 或 JDBC。未知 key 的 adapter/provider default 也必须 fail-fast，不得返回销售订单行或 `200` 伪空集。
+
+前端不再提供 `fallbackDefinition`。可见 queryable catalog 入口必须同时由 delivery status、前端 definition、后端精确 contract、adapter/provider 和权限处置闭环；未实现的入口从 catalog 移除，不保留销售列或“标准列表”充位。
+
 ## 选源单生命周期
 
 选源单是列表查询协议的派生场景，查询链路仍为：

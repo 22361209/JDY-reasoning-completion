@@ -35,6 +35,13 @@ const unitMasterFields = readFileSync("frontend/src/modules/master-data/unit/fie
 const customerMasterFields = readFileSync("frontend/src/modules/master-data/customer/fields.ts", "utf8");
 const supplierMasterFields = readFileSync("frontend/src/modules/master-data/supplier/fields.ts", "utf8");
 const warehouseMasterFields = readFileSync("frontend/src/modules/master-data/warehouse/fields.ts", "utf8");
+const moduleCatalogSource = readFileSync("frontend/src/modules/catalog.ts", "utf8");
+const stockAlertCatalogSource = readFileSync("frontend/src/modules/inventory/stock-alert/definition.ts", "utf8");
+const dataListDefinitionSource = readFileSync("frontend/src/components/list/useDataListDefinition.ts", "utf8");
+const listQueryContractRegistry = readFileSync("backend/src/main/java/com/jdy/erp/system/application/list/ListQueryContractRegistry.java", "utf8");
+const listStubStateGuard = readFileSync("backend/src/main/java/com/jdy/erp/system/application/list/ListStubStateGuard.java", "utf8");
+const stubListSeedRowsProvider = readFileSync("backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java", "utf8");
+const featureDeliveryStatus = JSON.parse(readFileSync("config/feature-delivery-status.json", "utf8"));
 const masterDataController = readFileSync("backend/src/main/java/com/jdy/erp/masterdata/api/MasterDataController.java", "utf8");
 const masterDataSystemNoMigration = readFileSync("backend/src/main/resources/db/migration/V67__master_data_visible_system_no.sql", "utf8");
 const materialCategoryUnitMigration = readFileSync("backend/src/main/resources/db/migration/V68__material_category_unit_master_data.sql", "utf8");
@@ -90,6 +97,12 @@ function assertContains(text, pattern, message) {
 
 function assertNotContains(text, pattern, message) {
   if (pattern.test(text)) {
+    throw new Error(message);
+  }
+}
+
+function assertTrue(condition, message) {
+  if (!condition) {
     throw new Error(message);
   }
 }
@@ -276,8 +289,13 @@ assertContains(
 );
 assertContains(
   listBackendSources,
-  /salesRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchaseOrderRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?salesQuoteRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchaseInRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?salesOutRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?deliveryNoticeRows[\s\S]*?AS "priceTaxTotal"/,
-  "核心单据整单列表 API 必须返回含税金额 priceTaxTotal"
+  /purchaseOrderRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?salesQuoteRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?purchaseInRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?salesOutRows[\s\S]*?AS "priceTaxTotal"[\s\S]*?deliveryNoticeRows[\s\S]*?AS "priceTaxTotal"/,
+  "采购、报价、入库、出库和发货整单列表 API 必须返回含税金额 priceTaxTotal"
+);
+assertContains(
+  listBackendSources,
+  /SalesOrderListQueryAdapter[\s\S]*?AS "priceTaxTotal"[\s\S]*?DETAIL_PRICE_TAX_TOTAL_TEXT[\s\S]*?l\.price_tax_total/,
+  "销售订单整单列表 adapter 必须返回含税金额 priceTaxTotal"
 );
 assertContains(
   priceTaxBackfillMigration,
@@ -696,5 +714,80 @@ assertNotContains(
   /价税合计/,
   "销售单据金额文案不得再使用“价税合计”，应统一为“含税金额”"
 );
+
+const catalogSources = `${moduleCatalogSource}\n${stockAlertCatalogSource}`;
+const catalogEntries = [...catalogSources.matchAll(/\{\s*id:\s*"([^"]+)"([^{}]*)\}/g)].map((match) => ({
+  id: match[1],
+  body: match[2],
+  mode: match[2].match(/mode:\s*"([^"]+)"/)?.[1] ?? "",
+  queryable: /queryable:\s*true/.test(match[2]),
+  permission: match[2].match(/permission:\s*"([^"]+)"/)?.[1] ?? ""
+}));
+const catalogIds = new Set(catalogEntries.map((entry) => entry.id));
+const ownerCounts = new Map();
+for (const feature of featureDeliveryStatus.features) {
+  for (const catalogEntryId of feature.catalogEntryIds) {
+    ownerCounts.set(catalogEntryId, (ownerCounts.get(catalogEntryId) ?? 0) + 1);
+  }
+}
+for (const exception of featureDeliveryStatus.catalogExceptions) {
+  ownerCounts.set(exception.catalogEntryId, (ownerCounts.get(exception.catalogEntryId) ?? 0) + 1);
+}
+for (const catalogEntry of catalogEntries) {
+  if (!catalogEntry.queryable) continue;
+  const listKey = catalogEntry.mode === "form" ? `${catalogEntry.id}-list` : catalogEntry.id;
+  const hasFrontendDefinition = dataListDefinitionSource.includes(`"${listKey}":`)
+    || masterDataRegistry.includes(`"${listKey}":`);
+  assertTrue(hasFrontendDefinition, `可查询 catalog 入口 ${catalogEntry.id} 必须有精确前端 definition ${listKey}`);
+  assertTrue(listQueryContractRegistry.includes(`"${listKey}"`), `可查询 catalog 入口 ${catalogEntry.id} 必须有精确后端 contract ${listKey}`);
+  assertTrue(
+    stubListSeedRowsProvider.includes(`"${listKey}"`) || listKey === "operation-log-list",
+    `可查询 catalog 入口 ${catalogEntry.id} 必须有 provider/adapter 处置 ${listKey}`
+  );
+  assertTrue(ownerCounts.get(catalogEntry.id) === 1, `可查询 catalog 入口 ${catalogEntry.id} 必须有唯一 delivery-status owner`);
+  assertTrue(catalogEntry.permission || catalogEntry.id === "bom-list", `可查询 catalog 入口 ${catalogEntry.id} 必须显式声明权限或登记认证用户例外`);
+}
+
+for (const retiredEntryId of [
+  "sales-detail-report",
+  "sales-profit-report",
+  "stock-flow-report",
+  "scrap-report",
+  "ar-summary-report",
+  "coding-rule-list"
+]) {
+  assertTrue(!catalogIds.has(retiredEntryId), `未交付入口 ${retiredEntryId} 必须从 catalog 移除`);
+  assertTrue((ownerCounts.get(retiredEntryId) ?? 0) === 0, `未交付入口 ${retiredEntryId} 不得继续作为 delivery-status catalog owner`);
+}
+for (const [featureId, remainingCatalogEntryIds] of [
+  ["F029", []],
+  ["F042", []],
+  ["F061", []],
+  ["F091", ["receivable-list", "payable-list"]],
+  ["F093", ["numbering-rule-settings"]]
+]) {
+  const feature = featureDeliveryStatus.features.find((item) => item.id === featureId);
+  assertTrue(feature, `delivery status 必须包含 ${featureId}`);
+  assertTrue(JSON.stringify(feature.catalogEntryIds) === JSON.stringify(remainingCatalogEntryIds), `${featureId} catalog 归属必须与 A139 收口后集合一致`);
+  if (remainingCatalogEntryIds.length === 0) {
+    assertTrue(feature.exposure === "hidden" && feature.surface === "none", `${featureId} 未交付入口必须 hidden + none`);
+  }
+}
+assertTrue(!dataListDefinitionSource.includes("fallbackDefinition"), "列表定义不得保留 fallbackDefinition");
+for (const [entryId, permission] of [
+  ["purchase-summary-report", "purchase.order.audit"],
+  ["task-track-report", "production.task.audit"]
+]) {
+  const entry = catalogEntries.find((candidate) => candidate.id === entryId);
+  assertTrue(entry?.permission === permission, `${entryId} catalog 必须声明 ${permission}`);
+  assertContains(listStubStateGuard, new RegExp(`"${entryId}"\\s*,\\s*"${permission}"`), `${entryId} 后端必须复用真实读权限 ${permission}`);
+}
+for (const [listKey, permission] of [
+  ["stock-count-form-list", "inventory.stock_count.audit"],
+  ["stock-count-gain-form-list", "inventory.stock_count_gain.audit"],
+  ["stock-count-loss-form-list", "inventory.stock_count_loss.audit"]
+]) {
+  assertContains(listStubStateGuard, new RegExp(`"${listKey}"\\s*,\\s*"${permission}"`), `${listKey} 必须按精确盘点权限读取`);
+}
 
 console.log("A115 metadata definition regression passed");

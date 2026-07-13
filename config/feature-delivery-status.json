@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-12",
+  "updatedAt": "2026-07-13",
   "source": {
     "effectiveScope": "config/effective-feature-scope.json"
   },
@@ -656,23 +656,20 @@
       "id": "F029",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hold",
-      "surface": "catalog",
-      "catalogEntryIds": [
-        "sales-detail-report",
-        "sales-profit-report"
-      ],
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
       "evidence": [],
       "knownGaps": [
-        "销售明细/利润入口当前可能落入通用列表 fallback，缺少真实报表数据契约。"
+        "销售明细/利润报表尚无真实数据契约；A139 已隐藏入口，不以其他列表数据充位。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
+        "entry": "not_applicable",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "unverified"
+        "browser": "not_applicable"
       }
     },
     {
@@ -883,22 +880,20 @@
       "id": "F042",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hold",
-      "surface": "catalog",
-      "catalogEntryIds": [
-        "stock-flow-report"
-      ],
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
       "evidence": [],
       "knownGaps": [
-        "商品收发明细入口未登记真实列表定义，当前可能错误展示销售订单数据。"
+        "商品收发明细报表尚无真实列表定义和后端契约；A139 已隐藏入口。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
+        "entry": "not_applicable",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "unverified"
+        "browser": "not_applicable"
       }
     },
     {
@@ -1227,22 +1222,20 @@
       "id": "F061",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hold",
-      "surface": "catalog",
-      "catalogEntryIds": [
-        "scrap-report"
-      ],
+      "exposure": "hidden",
+      "surface": "none",
+      "catalogEntryIds": [],
       "evidence": [],
       "knownGaps": [
-        "材料报废统计入口不等于材料报废单；正式报废单和统计闭环均未按当前标准确认。"
+        "材料报废统计不等于材料报废单；正式报废单和统计闭环均未完成，A139 已隐藏充位入口。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
+        "entry": "not_applicable",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "unverified"
+        "browser": "not_applicable"
       }
     },
     {
@@ -1857,15 +1850,14 @@
       "surface": "catalog",
       "catalogEntryIds": [
         "receivable-list",
-        "payable-list",
-        "ar-summary-report"
+        "payable-list"
       ],
       "evidence": [
         "docs/验收报告/验收报告-A85-财务过账接审核-20260625.md",
         "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md"
       ],
       "knownGaps": [
-        "应收/应付只读列表有部分证据，但应收汇总入口仍可能落入错误 fallback，未完成报表门禁。"
+        "应收/应付只读列表有部分证据；未交付的应收汇总入口已在 A139 移除，现有两个列表仍需按当前标准完成全契约复核。"
       ],
       "capabilityChecks": {
         "entry": "unverified",
@@ -1883,14 +1875,13 @@
       "exposure": "hold",
       "surface": "catalog",
       "catalogEntryIds": [
-        "coding-rule-list",
         "numbering-rule-settings"
       ],
       "evidence": [
         "docs/验收报告/验收报告-A90-单据编号-20260626.md"
       ],
       "knownGaps": [
-        "单据编号规则页有证据，但 catalog 同时公开 coding-rule-list，后者未登记真实列表契约。"
+        "单据编号规则页有历史证据；未交付的编码规则列表入口已在 A139 移除，现有设置页仍需按当前标准复核。"
       ],
       "capabilityChecks": {
         "entry": "unverified",

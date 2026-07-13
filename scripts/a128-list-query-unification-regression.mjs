@@ -2,7 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginApi, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -15,6 +15,7 @@ const resultPath = path.join(evidenceDir, `a128-list-query-unification-${batch}.
 await mkdir(evidenceDir, { recursive: true });
 await mkdir(screenshotDir, { recursive: true });
 await installApiSession(apiBase);
+const warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
 
 const evidence = {
   batch,
@@ -223,11 +224,14 @@ try {
   }, { billNo: julyBillNo });
   assert(exportResponse.ok && exportResponse.text.includes(julyBillNo), "导出接口复用关键字和列头筛选参数");
 
-  const guardedExportResponse = await page.evaluate(async () => {
-    const response = await fetch("/api/lists/permission-denied-list/export.csv?pageSize=1000");
-    return { ok: response.ok, status: response.status, text: await response.text() };
+  const guardedExportResponse = await fetch(`${apiBase}/api/lists/purchase-summary-report/export.csv?pageSize=1000`, {
+    headers: { Cookie: warehouseCookie }
   });
-  assert(!guardedExportResponse.ok && guardedExportResponse.status === 403, "导出接口必须复用列表状态门禁，权限态返回 403", guardedExportResponse);
+  const guardedExportText = await guardedExportResponse.text();
+  assert(!guardedExportResponse.ok && guardedExportResponse.status === 403, "导出接口必须复用列表真实权限门禁，仓库用户读取采购汇总返回 403", {
+    status: guardedExportResponse.status,
+    text: guardedExportText
+  });
 
   const amountFilterResponse = await page.evaluate(async ({ billNo }) => {
     const noMatchFilters = encodeURIComponent(JSON.stringify({ amount: { operator: "等于", value: "NO_MATCH_AMOUNT" } }));

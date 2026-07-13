@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.system.application.list.ListExportColumnProvider;
+import com.jdy.erp.system.application.list.ListQueryContractRegistry;
 import com.jdy.erp.system.application.list.ListQueryService;
 import com.jdy.erp.system.application.list.ListQueryResult;
 import com.jdy.erp.system.application.list.ListSeedRowsProvider;
@@ -33,57 +36,111 @@ class ListStubControllerTest {
         listQueryService,
         seedRowsProvider,
         new ListExportColumnProvider(),
-        new ListStubStateGuard(currentPermissionService),
+        new ListStubStateGuard(new ListQueryContractRegistry(), currentPermissionService),
         operationLogListQueryAdapter
     );
 
     @Test
-    void rowsAndExportShareListStateGuard() {
-        assertForbidden(() -> controller.rows(
-            "permission-denied-list",
-            "",
-            "",
-            1,
-            200,
-            "header",
-            "",
-            "asc",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "current",
-            "",
-            ""
-        ));
+    void rowsAndExportRejectUnknownKeysBeforePermissionsOrQueries() {
+        for (var listKey : List.of(
+            "random-list",
+            "random-master-list",
+            "random-source-selector",
+            "standard-list",
+            "error-list",
+            "permission-denied-list"
+        )) {
+            assertNotFound(() -> controller.rows(
+                listKey,
+                "",
+                "",
+                1,
+                200,
+                "header",
+                "",
+                "asc",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "current",
+                "",
+                ""
+            ));
 
-        assertForbidden(() -> controller.exportCsv(
-            "permission-denied-list",
-            "",
-            "",
-            1000,
-            "header",
-            "",
-            "asc",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "current",
-            "",
-            ""
-        ));
+            assertNotFound(() -> controller.exportCsv(
+                listKey,
+                "",
+                "",
+                1000,
+                "header",
+                "",
+                "asc",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "current",
+                "",
+                ""
+            ));
+        }
 
-        verifyNoInteractions(listQueryService, seedRowsProvider);
+        verifyNoInteractions(currentPermissionService, listQueryService, seedRowsProvider);
+    }
+
+    @Test
+    void realListPermissionsCoverPublicKeysAndEquivalentAliases() {
+        var guard = new ListStubStateGuard(new ListQueryContractRegistry(), currentPermissionService);
+
+        List.of(
+            "purchase-summary-report",
+            "task-track-report",
+            "production-task-list",
+            "production-task-form-list",
+            "stock-count-list",
+            "stock-count-form-list",
+            "stock-count-gain-list",
+            "stock-count-gain-form-list",
+            "stock-count-loss-list",
+            "stock-count-loss-form-list"
+        ).forEach(guard::assertReadable);
+
+        verify(currentPermissionService).requirePermission("purchase.order.audit");
+        verify(currentPermissionService, times(3)).requirePermission("production.task.audit");
+        verify(currentPermissionService, times(2)).requirePermission("inventory.stock_count.audit");
+        verify(currentPermissionService, times(2)).requirePermission("inventory.stock_count_gain.audit");
+        verify(currentPermissionService, times(2)).requirePermission("inventory.stock_count_loss.audit");
+    }
+
+    @Test
+    void stockCountAliasesCannotBypassTheFormListPermission() {
+        var guard = new ListStubStateGuard(new ListQueryContractRegistry(), currentPermissionService);
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission"))
+            .when(currentPermissionService).requirePermission("inventory.stock_count.audit");
+
+        assertForbidden(() -> guard.assertReadable("stock-count-form-list"));
+        assertForbidden(() -> guard.assertReadable("stock-count-list"));
+    }
+
+    @Test
+    void productionTaskAliasesCannotBypassTheReportPermission() {
+        var guard = new ListStubStateGuard(new ListQueryContractRegistry(), currentPermissionService);
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission"))
+            .when(currentPermissionService).requirePermission("production.task.audit");
+
+        assertForbidden(() -> guard.assertReadable("task-track-report"));
+        assertForbidden(() -> guard.assertReadable("production-task-list"));
+        assertForbidden(() -> guard.assertReadable("production-task-form-list"));
     }
 
     @Test
     void operationLogScopesEnforceRoleAndPermissionMatrix() {
-        var guard = new ListStubStateGuard(currentPermissionService);
+        var guard = new ListStubStateGuard(new ListQueryContractRegistry(), currentPermissionService);
         when(currentPermissionService.currentRoleCode()).thenReturn("FINANCE");
         doNothing().when(currentPermissionService).requirePermission("system.audit_log.view");
         guard.assertReadable("operation-log-list", "current");
@@ -127,5 +184,11 @@ class ListStubControllerTest {
         assertThatThrownBy(action::run)
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    private void assertNotFound(Runnable action) {
+        assertThatThrownBy(action::run)
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
     }
 }

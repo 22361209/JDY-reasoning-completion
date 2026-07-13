@@ -43,7 +43,8 @@
       "scripts/a88-stock-count-loss-regression.mjs",
       "scripts/a101-stock-alert-regression.mjs",
       "scripts/a108-delivery-notice-reservation-regression.mjs",
-      "scripts/a134-security-boundary-regression.mjs"
+      "scripts/a134-security-boundary-regression.mjs",
+      "scripts/a139-list-fail-closed-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -65,7 +66,8 @@
       "scripts/a106-detail-view-regression.mjs",
       "scripts/a107-table-structure-regression.mjs",
       "scripts/a110-table-display-brand-regression.mjs",
-      "scripts/a128-list-query-unification-regression.mjs"
+      "scripts/a128-list-query-unification-regression.mjs",
+      "scripts/a139-list-fail-closed-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -88,7 +90,8 @@
       "scripts/a119-full-isolation-regression.mjs",
       "scripts/a135-public-security-boundary-regression.mjs",
       "scripts/a136-operation-log-actor-regression.mjs",
-      "scripts/a137-tenant-schema-constraint-regression.mjs"
+      "scripts/a137-tenant-schema-constraint-regression.mjs",
+      "scripts/a139-list-fail-closed-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -238,7 +241,8 @@
     "scripts/a135-public-security-boundary-regression.mjs",
     "scripts/a136-operation-log-actor-regression.mjs",
     "scripts/a137-tenant-schema-constraint-regression.mjs",
-    "scripts/a138-master-data-sparse-patch-regression.mjs"
+    "scripts/a138-master-data-sparse-patch-regression.mjs",
+    "scripts/a139-list-fail-closed-regression.mjs"
   ],
   "exemptions": [
     {
