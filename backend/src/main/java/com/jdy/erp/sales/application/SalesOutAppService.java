@@ -2,7 +2,9 @@ package com.jdy.erp.sales.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -124,6 +126,7 @@ public class SalesOutAppService {
                    so.close_status AS "closeStatus",
                    so.frozen_status AS "frozenStatus",
                    so.total_amount AS "totalAmount",
+                   so.currency,
                    so.owner_name AS "ownerName",
                    COALESCE(creator.display_name, so.owner_name, '') AS "createdByName",
                    COALESCE(so.remark, '') AS remark,
@@ -197,9 +200,10 @@ public class SalesOutAppService {
         var ownerName = currentSessionService.currentDisplayName();
         var createdBy = currentSessionService.currentUserId();
         var sourceDeliveryNoticeId = sourceDeliveryNoticeId(request);
+        var currency = inheritedCurrency(request);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, source_delivery_notice_id, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO sales_out (bill_no, source_order_id, source_delivery_notice_id, customer_id, bill_date, department, status, total_amount, currency, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
                 source_delivery_notice_id = EXCLUDED.source_delivery_notice_id,
@@ -208,11 +212,12 @@ public class SalesOutAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
+                currency = EXCLUDED.currency,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = sales_out.version + 1
-            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
+            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
             null,
@@ -222,6 +227,7 @@ public class SalesOutAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            currency,
             ownerName,
             validationService.optionalText(request.remark()),
             createdBy
@@ -239,7 +245,7 @@ public class SalesOutAppService {
             billNo,
             BillStatus.DRAFT,
             BillStatus.AUDITED,
-	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", customer_id::text AS \"customerId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
+	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", customer_id::text AS \"customerId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", currency, status",
             "SALES",
             "AUDIT",
             "sales_out",
@@ -283,7 +289,7 @@ public class SalesOutAppService {
             billNo,
             BillStatus.AUDITED,
             BillStatus.DRAFT,
-	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", customer_id::text AS \"customerId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
+	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", customer_id::text AS \"customerId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", currency, status",
             "SALES",
             "REVERSE",
             "sales_out",
@@ -335,6 +341,7 @@ public class SalesOutAppService {
                    customer_id::text AS "customerId",
                    department,
                    total_amount,
+                   currency,
                    owner_name AS "ownerName"
             FROM sales_out
             WHERE bill_no = ? AND status = ?
@@ -346,9 +353,9 @@ public class SalesOutAppService {
         var redBillNo = numberingService.nextBillNo("salesOut");
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_out (bill_no, source_order_id, red_source_bill_id, customer_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
+            INSERT INTO sales_out (bill_no, source_order_id, red_source_bill_id, customer_id, bill_date, department, status, total_amount, currency, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount", currency
             """,
             redBillNo,
             source.get("sourceOrderId"),
@@ -358,6 +365,7 @@ public class SalesOutAppService {
             source.get("department"),
 	            BillStatus.DRAFT.name(),
 	            ((BigDecimal) source.get("total_amount")).negate(),
+	            source.get("currency"),
 	            request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
 	        );
 	        var lines = redSourceLines(billNo);
@@ -551,7 +559,8 @@ public class SalesOutAppService {
             String.valueOf(row.get("billNo")),
             String.valueOf(row.get("customerId")),
             toLocalDate(row.get("billDate")),
-            (BigDecimal) row.get("totalAmount")
+            (BigDecimal) row.get("totalAmount"),
+            String.valueOf(row.get("currency"))
         );
     }
 
@@ -690,7 +699,11 @@ public class SalesOutAppService {
             """, billNo);
     }
 
-    public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<SalesOutLineRequest> lines) {
+    public record SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, String currency, List<SalesOutLineRequest> lines) {
+        public SalesOutDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<SalesOutLineRequest> lines) {
+            this(billNo, sourceOrderNo, customerCode, billDate, department, ownerName, remark, null, lines);
+        }
+
         public SalesOutDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -748,6 +761,46 @@ public class SalesOutAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库来源发货通知单不存在或未审核");
         }
         return String.valueOf(rows.get(0).get("id"));
+    }
+
+    private String inheritedCurrency(SalesOutDraftRequest request) {
+        var noticeBillNos = new LinkedHashSet<String>();
+        request.lines().stream()
+            .map(line -> line.sourceDeliveryNoticeNo() == null || line.sourceDeliveryNoticeNo().isBlank()
+                ? line.sourceOrderNo()
+                : line.sourceDeliveryNoticeNo())
+            .filter(value -> value != null && !value.isBlank())
+            .map(String::trim)
+            .forEach(noticeBillNos::add);
+        if (noticeBillNos.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库必须来自已审核发货通知单");
+        }
+        var currencies = new LinkedHashSet<String>();
+        for (var noticeBillNo : noticeBillNos) {
+            var rows = jdbcTemplate.queryForList(
+                "SELECT currency FROM delivery_notice WHERE bill_no = ? AND status = ?",
+                noticeBillNo,
+                BillStatus.AUDITED.name()
+            );
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库来源发货通知单不存在或未审核");
+            }
+            currencies.add(String.valueOf(rows.getFirst().get("currency")));
+        }
+        if (currencies.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "一张销售出库单不能混用不同币种的发货通知单");
+        }
+        var inherited = currencies.getFirst();
+        if (request.currency() != null) {
+            var requested = request.currency().trim().toUpperCase(Locale.ROOT);
+            if (requested.isBlank() || (!"CNY".equals(requested) && !"USD".equals(requested))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "币种只支持 CNY 或 USD");
+            }
+            if (!inherited.equals(requested)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "销售出库币种必须继承直接来源发货通知单");
+            }
+        }
+        return inherited;
     }
 
     private Map<String, Object> sourceFromDeliveryNotice(String billNo, Integer lineNo) {

@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -69,9 +70,10 @@ public class SalesOrderAppService {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var ownerName = currentSessionService.currentDisplayName();
         var createdBy = currentSessionService.currentUserId();
+        var currency = normalizeCurrency(request.currency());
         var order = jdbcTemplate.queryForMap("""
-            INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO sales_order (bill_no, customer_id, bill_date, department, status, total_amount, currency, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
@@ -88,11 +90,12 @@ public class SalesOrderAppService {
                 frozen_by = NULL,
                 frozen_at = NULL,
                 total_amount = EXCLUDED.total_amount,
+                currency = EXCLUDED.currency,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = sales_order.version + 1
-            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
+            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
             customerId,
@@ -100,6 +103,7 @@ public class SalesOrderAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            currency,
             ownerName,
             validationService.optionalText(request.remark()),
             createdBy
@@ -204,6 +208,7 @@ public class SalesOrderAppService {
                    c.name AS customer,
                    to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
                    so.department,
+                   so.currency,
                    so.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
@@ -278,6 +283,7 @@ public class SalesOrderAppService {
                    so.close_mode AS "closeMode",
                    so.frozen_status AS "frozenStatus",
                    so.total_amount AS "totalAmount",
+                   so.currency,
                    so.owner_name AS "ownerName",
                    COALESCE(creator.display_name, so.owner_name, '') AS "createdByName",
                    COALESCE(so.remark, '') AS remark
@@ -391,8 +397,21 @@ public class SalesOrderAppService {
         String department,
         String ownerName,
         String remark,
+        String currency,
         List<SalesOrderLineRequest> lines
     ) {
+        public SalesOrderDraftRequest(
+            String billNo,
+            String customerCode,
+            String billDate,
+            String department,
+            String ownerName,
+            String remark,
+            List<SalesOrderLineRequest> lines
+        ) {
+            this(billNo, customerCode, billDate, department, ownerName, remark, "CNY", lines);
+        }
+
         public SalesOrderDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -418,6 +437,20 @@ public class SalesOrderAppService {
 
     private LocalDate optionalDate(String value) {
         return value == null || value.isBlank() ? null : LocalDate.parse(value);
+    }
+
+    private String normalizeCurrency(String value) {
+        if (value == null) {
+            return "CNY";
+        }
+        if (value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择币种");
+        }
+        var currency = value.trim().toUpperCase(Locale.ROOT);
+        if (!"CNY".equals(currency) && !"USD".equals(currency)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "币种只支持 CNY 或 USD");
+        }
+        return currency;
     }
 
     private String inventoryScopeId() {

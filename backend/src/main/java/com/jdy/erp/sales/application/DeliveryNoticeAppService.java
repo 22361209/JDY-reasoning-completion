@@ -3,7 +3,9 @@ package com.jdy.erp.sales.application;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import com.jdy.erp.inventory.application.InventoryPostingService;
@@ -97,6 +99,7 @@ public class DeliveryNoticeAppService {
                    dn.close_status AS "closeStatus",
                    dn.frozen_status AS "frozenStatus",
                    dn.total_amount AS "totalAmount",
+                   dn.currency,
                    dn.owner_name AS "ownerName",
                    COALESCE(creator.display_name, dn.owner_name, '') AS "createdByName",
                    COALESCE(dn.remark, '') AS remark
@@ -119,20 +122,22 @@ public class DeliveryNoticeAppService {
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var currency = inheritedCurrency(request);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO delivery_notice (bill_no, customer_id, bill_date, department, status, total_amount, owner_name, remark, created_by)
-            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
+            INSERT INTO delivery_notice (bill_no, customer_id, bill_date, department, status, total_amount, currency, owner_name, remark, created_by)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
             SET customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
+                currency = EXCLUDED.currency,
                 owner_name = EXCLUDED.owner_name,
                 remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = delivery_notice.version + 1
-            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
+            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
             customerId,
@@ -140,6 +145,7 @@ public class DeliveryNoticeAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            currency,
             currentSessionService.currentDisplayName(),
             validationService.optionalText(request.remark()),
             currentSessionService.currentUserId()
@@ -455,7 +461,11 @@ public class DeliveryNoticeAppService {
         return tenantDataScopeService.currentScopeId("inventory");
     }
 
-    public record DeliveryNoticeDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<DeliveryNoticeLineRequest> lines) {
+    public record DeliveryNoticeDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, String currency, List<DeliveryNoticeLineRequest> lines) {
+        public DeliveryNoticeDraftRequest(String billNo, String sourceOrderNo, String customerCode, String billDate, String department, String ownerName, String remark, List<DeliveryNoticeLineRequest> lines) {
+            this(billNo, sourceOrderNo, customerCode, billDate, department, ownerName, remark, null, lines);
+        }
+
         public DeliveryNoticeDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -464,5 +474,57 @@ public class DeliveryNoticeAppService {
     }
 
     public record DeliveryNoticeLineRequest(String productId, String productCode, String warehouseCode, String sourceOrderNo, Integer sourceLineNo, BigDecimal qty, BigDecimal unitPrice, BigDecimal taxRate, String customerMaterialCode, String customerOrderNo, String lineRemark, String planDeliveryDate) {
+    }
+
+    private String inheritedCurrency(DeliveryNoticeDraftRequest request) {
+        var sourceBillNos = new LinkedHashSet<String>();
+        if (request.sourceOrderNo() != null && !request.sourceOrderNo().isBlank()) {
+            sourceBillNos.add(request.sourceOrderNo().trim());
+        }
+        request.lines().stream()
+            .map(DeliveryNoticeLineRequest::sourceOrderNo)
+            .filter(value -> value != null && !value.isBlank())
+            .map(String::trim)
+            .forEach(sourceBillNos::add);
+        if (sourceBillNos.isEmpty()) {
+            return normalizeCurrency(request.currency());
+        }
+        var currencies = new LinkedHashSet<String>();
+        for (var sourceBillNo : sourceBillNos) {
+            var rows = jdbcTemplate.queryForList(
+                "SELECT currency FROM sales_order WHERE bill_no = ? AND status = ?",
+                sourceBillNo,
+                BillStatus.AUDITED.name()
+            );
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "发货通知来源销售订单不存在或未审核");
+            }
+            currencies.add(String.valueOf(rows.getFirst().get("currency")));
+        }
+        if (currencies.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "一张发货通知单不能混用不同币种的销售订单");
+        }
+        var inherited = currencies.getFirst();
+        if (request.currency() != null) {
+            var requested = request.currency().trim().toUpperCase(Locale.ROOT);
+            if (requested.isBlank() || (!"CNY".equals(requested) && !"USD".equals(requested))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "币种只支持 CNY 或 USD");
+            }
+            if (!inherited.equals(requested)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "发货通知币种必须继承来源销售订单");
+            }
+        }
+        return inherited;
+    }
+
+    private String normalizeCurrency(String value) {
+        if (value == null) {
+            return "CNY";
+        }
+        var currency = value.trim().toUpperCase(Locale.ROOT);
+        if (!"CNY".equals(currency) && !"USD".equals(currency)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "币种只支持 CNY 或 USD");
+        }
+        return currency;
     }
 }

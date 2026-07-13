@@ -2,7 +2,9 @@ package com.jdy.erp.purchase.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -108,6 +110,7 @@ public class PurchaseInAppService {
                    pi.department,
                    pi.status,
                    pi.total_amount AS "totalAmount",
+                   pi.currency,
                    pi.owner_name AS "ownerName",
 	                   (
 	                       SELECT red.bill_no
@@ -168,9 +171,10 @@ public class PurchaseInAppService {
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var currency = settlementCurrency(request);
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, currency, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET source_order_id = EXCLUDED.source_order_id,
                 supplier_id = EXCLUDED.supplier_id,
@@ -178,10 +182,11 @@ public class PurchaseInAppService {
                 department = EXCLUDED.department,
                 status = EXCLUDED.status,
                 total_amount = EXCLUDED.total_amount,
+                currency = EXCLUDED.currency,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_in.version + 1
-            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
+            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
             null,
@@ -190,6 +195,7 @@ public class PurchaseInAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            currency,
             request.ownerName()
         );
         var billId = bill.get("id");
@@ -205,7 +211,7 @@ public class PurchaseInAppService {
             billNo,
             BillStatus.DRAFT,
             BillStatus.AUDITED,
-	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
+	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", currency, status",
             "PURCHASE",
             "AUDIT",
             "purchase_in",
@@ -244,13 +250,15 @@ public class PurchaseInAppService {
 
     @Transactional
     public Map<String, Object> reverse(String billNo) {
+        lockPurchaseInHeader(billNo);
         redReverseGuardService.assertNoNonVoidRedBillForBillNo(BILL_TABLE, billNo, "采购入库单", "反审核");
+        assertNoPurchaseReturns(billNo);
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
             BillStatus.AUDITED,
             BillStatus.DRAFT,
-	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", status",
+	            "id::text AS id, bill_no AS \"billNo\", source_order_id::text AS \"sourceOrderId\", red_source_bill_id::text AS \"redSourceBillId\", supplier_id::text AS \"supplierId\", bill_date AS \"billDate\", total_amount AS \"totalAmount\", currency, status",
             "PURCHASE",
             "REVERSE",
             "purchase_in",
@@ -303,6 +311,7 @@ public class PurchaseInAppService {
                    supplier_id::text AS "supplierId",
                    department,
                    total_amount,
+                   currency,
                    owner_name AS "ownerName"
             FROM purchase_in
             WHERE bill_no = ? AND status = ?
@@ -314,9 +323,9 @@ public class PurchaseInAppService {
         var redBillNo = numberingService.nextBillNo("purchaseIn");
         var source = sourceRows.get(0);
         var redBill = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount"
+            INSERT INTO purchase_in (bill_no, source_order_id, red_source_bill_id, supplier_id, bill_date, department, status, total_amount, currency, owner_name)
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
+            RETURNING id::text AS id, bill_no AS "billNo", status, total_amount AS "totalAmount", currency
             """,
             redBillNo,
             source.get("sourceOrderId"),
@@ -326,6 +335,7 @@ public class PurchaseInAppService {
             source.get("department"),
 	            BillStatus.DRAFT.name(),
 	            ((BigDecimal) source.get("total_amount")).negate(),
+	            source.get("currency"),
 	            request.ownerName() == null || request.ownerName().isBlank() ? source.get("ownerName") : request.ownerName().trim()
 	        );
         var lines = jdbcTemplate.queryForList("""
@@ -506,7 +516,8 @@ public class PurchaseInAppService {
             String.valueOf(row.get("billNo")),
             String.valueOf(row.get("supplierId")),
             toLocalDate(row.get("billDate")),
-            (BigDecimal) row.get("totalAmount")
+            (BigDecimal) row.get("totalAmount"),
+            String.valueOf(row.get("currency"))
         );
     }
 
@@ -634,7 +645,81 @@ public class PurchaseInAppService {
             .toList();
     }
 
-    public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, List<PurchaseInLineRequest> lines) {
+    private String settlementCurrency(PurchaseInDraftRequest request) {
+        var sourceBillNos = new LinkedHashSet<String>();
+        if (request.sourceOrderNo() != null && !request.sourceOrderNo().isBlank()) {
+            sourceBillNos.add(request.sourceOrderNo().trim());
+        }
+        request.lines().stream()
+            .map(PurchaseInLineRequest::sourceOrderNo)
+            .filter(value -> value != null && !value.isBlank())
+            .map(String::trim)
+            .forEach(sourceBillNos::add);
+        if (sourceBillNos.isEmpty()) {
+            return normalizeCurrency(request.currency());
+        }
+        var currencies = new LinkedHashSet<String>();
+        for (var sourceBillNo : sourceBillNos) {
+            var rows = jdbcTemplate.queryForList(
+                "SELECT currency FROM purchase_order WHERE bill_no = ? AND status = ?",
+                sourceBillNo,
+                BillStatus.AUDITED.name()
+            );
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库来源采购订单不存在或未审核");
+            }
+            currencies.add(String.valueOf(rows.getFirst().get("currency")));
+        }
+        if (currencies.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "一张采购入库单不能混用不同币种的采购订单");
+        }
+        var inherited = currencies.getFirst();
+        if (request.currency() != null && !inherited.equals(normalizeCurrency(request.currency()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库币种必须继承来源采购订单");
+        }
+        return inherited;
+    }
+
+    private String normalizeCurrency(String value) {
+        if (value == null) {
+            return "CNY";
+        }
+        if (value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "无来源采购入库请选择币种");
+        }
+        var currency = value.trim().toUpperCase(Locale.ROOT);
+        if (!"CNY".equals(currency) && !"USD".equals(currency)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "币种只支持 CNY 或 USD");
+        }
+        return currency;
+    }
+
+    private void assertNoPurchaseReturns(String billNo) {
+        var downstream = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)::int
+            FROM purchase_return_line line
+            JOIN purchase_return header ON header.id = line.bill_id
+            WHERE line.source_in_no = ?
+              AND header.status <> 'VOID'
+            """, Integer.class, billNo);
+        if (downstream != null && downstream > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购入库单已有采购退货下游，不能反审核");
+        }
+    }
+
+    private void lockPurchaseInHeader(String billNo) {
+        jdbcTemplate.queryForList(
+            "SELECT id::text FROM purchase_in WHERE bill_no = ? FOR UPDATE",
+            String.class,
+            billNo
+        );
+    }
+
+    public record PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, String currency, List<PurchaseInLineRequest> lines) {
+        public PurchaseInDraftRequest(String billNo, String sourceOrderNo, String supplierCode, String billDate, String department, String ownerName, List<PurchaseInLineRequest> lines) {
+            this(billNo, sourceOrderNo, supplierCode, billDate, department, ownerName, "CNY", lines);
+        }
+
         public PurchaseInDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");

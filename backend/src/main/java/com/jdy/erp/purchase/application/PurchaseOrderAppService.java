@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -64,6 +65,7 @@ public class PurchaseOrderAppService {
                    po.frozen_status AS "frozenStatus",
                    po.in_status AS "inStatus",
                    po.total_amount AS "totalAmount",
+                   po.currency,
                    po.owner_name AS "ownerName"
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
@@ -152,6 +154,7 @@ public class PurchaseOrderAppService {
                    s.name AS supplier,
                    to_char(po.bill_date, 'YYYY-MM-DD') AS "billDate",
                    po.department,
+                   po.currency,
                    po.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
                    l.product_id::text AS "productId",
@@ -251,9 +254,10 @@ public class PurchaseOrderAppService {
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var currency = normalizeCurrency(request.currency());
         var order = jdbcTemplate.queryForMap("""
-            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, owner_name)
-            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?)
+            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, currency, owner_name)
+            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET supplier_id = EXCLUDED.supplier_id,
                 bill_date = EXCLUDED.bill_date,
@@ -269,10 +273,11 @@ public class PurchaseOrderAppService {
                 frozen_by = NULL,
                 frozen_at = NULL,
                 total_amount = EXCLUDED.total_amount,
+                currency = EXCLUDED.currency,
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_order.version + 1
-            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
+            RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
             supplierId,
@@ -280,6 +285,7 @@ public class PurchaseOrderAppService {
             request.department(),
             BillStatus.DRAFT.name(),
             totalAmount,
+            currency,
             request.ownerName()
         );
         var orderId = order.get("id");
@@ -343,8 +349,20 @@ public class PurchaseOrderAppService {
         String billDate,
         String department,
         String ownerName,
+        String currency,
         List<PurchaseOrderLineRequest> lines
     ) {
+        public PurchaseOrderDraftRequest(
+            String billNo,
+            String supplierCode,
+            String billDate,
+            String department,
+            String ownerName,
+            List<PurchaseOrderLineRequest> lines
+        ) {
+            this(billNo, supplierCode, billDate, department, ownerName, "CNY", lines);
+        }
+
         public PurchaseOrderDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");
@@ -365,6 +383,20 @@ public class PurchaseOrderAppService {
         Integer sourceLineNo,
         String planDeliveryDate
     ) {
+    }
+
+    private String normalizeCurrency(String value) {
+        if (value == null) {
+            return "CNY";
+        }
+        if (value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择币种");
+        }
+        var currency = value.trim().toUpperCase(Locale.ROOT);
+        if (!"CNY".equals(currency) && !"USD".equals(currency)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "币种只支持 CNY 或 USD");
+        }
+        return currency;
     }
 
     private List<PurchaseRequisitionDemand> purchaseRequisitionDemands(String billNo) {

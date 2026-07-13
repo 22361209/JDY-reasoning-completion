@@ -47,24 +47,45 @@ public class FinancePostingService implements FinancePosting {
     }
 
     private void postReceivable(PostingContext context, String billNo, BigDecimal amount) {
-        var row = jdbcTemplate.queryForMap("""
-            INSERT INTO ar_receivable (bill_no, source_bill_no, customer_id, bill_date, amount, status)
-            VALUES (?, ?, ?::uuid, ?, ?, 'OPEN')
+        var rows = jdbcTemplate.queryForList("""
+            INSERT INTO ar_receivable (bill_no, source_bill_no, customer_id, bill_date, amount, currency, status)
+            VALUES (?, ?, ?::uuid, ?, ?, ?, 'OPEN')
             ON CONFLICT (bill_no) DO UPDATE
             SET source_bill_no = EXCLUDED.source_bill_no,
                 customer_id = EXCLUDED.customer_id,
                 bill_date = EXCLUDED.bill_date,
                 amount = EXCLUDED.amount,
-                status = EXCLUDED.status,
+                currency = EXCLUDED.currency,
+                status = CASE
+                    WHEN ar_receivable.received_amount = 0 THEN 'OPEN'
+                    WHEN ar_receivable.received_amount = EXCLUDED.amount THEN 'SETTLED'
+                    ELSE 'PART_SETTLED'
+                END,
                 updated_at = now()
-            RETURNING id::text AS id, bill_no AS "billNo", amount, status
+            WHERE ar_receivable.received_amount = 0
+               OR (
+                    ar_receivable.received_amount > 0
+                AND ar_receivable.received_amount <= EXCLUDED.amount
+                AND ar_receivable.amount = EXCLUDED.amount
+                AND ar_receivable.customer_id = EXCLUDED.customer_id
+                AND ar_receivable.currency = EXCLUDED.currency
+               )
+            RETURNING id::text AS id, bill_no AS "billNo", amount, currency, status
             """,
             billNo,
             context.sourceBillNo(),
             context.partyId(),
             context.billDate(),
-            amount
+            amount,
+            context.currency()
         );
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "应收单已发生核销，来源重过账不能改写金额、客户或币种"
+            );
+        }
+        var row = rows.getFirst();
         operationLogService.logCurrent(OperationLogCommand.success(
             "FINANCE",
             "CREATE_AR",
@@ -74,30 +95,52 @@ public class FinancePostingService implements FinancePosting {
             Map.of(),
             OperationLogCommand.state(
                 OperationLogCommand.StateField.STATUS, row.get("status"),
-                OperationLogCommand.StateField.AMOUNT, row.get("amount")
+                OperationLogCommand.StateField.AMOUNT, row.get("amount"),
+                OperationLogCommand.StateField.CURRENCY, row.get("currency")
             )
         ));
     }
 
     private void postPayable(PostingContext context, String billNo, BigDecimal amount) {
-        var row = jdbcTemplate.queryForMap("""
-            INSERT INTO ap_payable (bill_no, source_bill_no, supplier_id, bill_date, amount, status)
-            VALUES (?, ?, ?::uuid, ?, ?, 'OPEN')
+        var rows = jdbcTemplate.queryForList("""
+            INSERT INTO ap_payable (bill_no, source_bill_no, supplier_id, bill_date, amount, currency, status)
+            VALUES (?, ?, ?::uuid, ?, ?, ?, 'OPEN')
             ON CONFLICT (bill_no) DO UPDATE
             SET source_bill_no = EXCLUDED.source_bill_no,
                 supplier_id = EXCLUDED.supplier_id,
                 bill_date = EXCLUDED.bill_date,
                 amount = EXCLUDED.amount,
-                status = EXCLUDED.status,
+                currency = EXCLUDED.currency,
+                status = CASE
+                    WHEN ap_payable.paid_amount = 0 THEN 'OPEN'
+                    WHEN ap_payable.paid_amount = EXCLUDED.amount THEN 'SETTLED'
+                    ELSE 'PART_SETTLED'
+                END,
                 updated_at = now()
-            RETURNING id::text AS id, bill_no AS "billNo", amount, status
+            WHERE ap_payable.paid_amount = 0
+               OR (
+                    ap_payable.paid_amount > 0
+                AND ap_payable.paid_amount <= EXCLUDED.amount
+                AND ap_payable.amount = EXCLUDED.amount
+                AND ap_payable.supplier_id = EXCLUDED.supplier_id
+                AND ap_payable.currency = EXCLUDED.currency
+               )
+            RETURNING id::text AS id, bill_no AS "billNo", amount, currency, status
             """,
             billNo,
             context.sourceBillNo(),
             context.partyId(),
             context.billDate(),
-            amount
+            amount,
+            context.currency()
         );
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "应付单已发生核销，来源重过账不能改写金额、供应商或币种"
+            );
+        }
+        var row = rows.getFirst();
         operationLogService.logCurrent(OperationLogCommand.success(
             "FINANCE",
             "CREATE_AP",
@@ -107,7 +150,8 @@ public class FinancePostingService implements FinancePosting {
             Map.of(),
             OperationLogCommand.state(
                 OperationLogCommand.StateField.STATUS, row.get("status"),
-                OperationLogCommand.StateField.AMOUNT, row.get("amount")
+                OperationLogCommand.StateField.AMOUNT, row.get("amount"),
+                OperationLogCommand.StateField.CURRENCY, row.get("currency")
             )
         ));
     }
@@ -124,6 +168,9 @@ public class FinancePostingService implements FinancePosting {
         }
         if (context.amount() == null || context.amount().compareTo(BigDecimal.ZERO) == 0) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "财务过账金额不能为 0");
+        }
+        if (!"CNY".equals(context.currency()) && !"USD".equals(context.currency())) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "财务过账币种只支持 CNY 或 USD");
         }
     }
 

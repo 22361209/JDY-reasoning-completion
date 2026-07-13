@@ -2,6 +2,7 @@ package com.jdy.erp.purchase.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -94,6 +95,12 @@ public class PurchaseReturnAppService {
                    pr.close_status AS "closeStatus",
                    pr.frozen_status AS "frozenStatus",
                    pr.total_amount AS "totalAmount",
+                   COALESCE((
+                       SELECT MIN(pi.currency)
+                       FROM purchase_return_line prl
+                       JOIN purchase_in pi ON pi.bill_no = prl.source_in_no
+                       WHERE prl.bill_id = pr.id
+                   ), 'CNY') AS currency,
                    pr.owner_name AS "ownerName",
                    COALESCE(pr.remark, '') AS remark
             FROM purchase_return pr
@@ -141,6 +148,7 @@ public class PurchaseReturnAppService {
                    s.code AS "supplierCode",
                    s.name AS supplier,
                    to_char(pi.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   pi.currency,
                    pi.department,
                    pi.owner_name AS "ownerName",
                    l.line_no AS "lineNo",
@@ -186,6 +194,7 @@ public class PurchaseReturnAppService {
         request.lines().forEach(line -> validationService.positive(line.qty(), "采购退货数量"));
         var billNo = numberingService.assignBillNo("purchaseReturn", request.billNo());
         var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
+        validateSourceCurrencies(request.lines(), supplierId);
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -225,7 +234,9 @@ public class PurchaseReturnAppService {
     public Map<String, Object> audit(String billNo) {
         lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, billNo, "采购退货数量必须大于 0");
         var lines = postingLines(billNo);
-        lifecycleService.guardSourceLineQuantities(PURCHASE_IN_RETURN_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
+        var sourceDemands = sourceLineDemands(lines);
+        lockAuditedSourcePurchaseIns(sourceDemands.stream().map(SourceLineQuantityDemand::sourceBillNo).toList());
+        lifecycleService.guardSourceLineQuantities(PURCHASE_IN_RETURN_QUANTITY_GUARD, sourceDemands, billNo);
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
@@ -337,10 +348,9 @@ public class PurchaseReturnAppService {
 
     private List<SourceLineQuantityDemand> sourceLineDemands(List<Map<String, Object>> lines) {
         return lines.stream()
-            .filter(line -> line.get("sourceOrderNo") != null && line.get("sourceLineNo") != null)
             .map(line -> new SourceLineQuantityDemand(
-                String.valueOf(line.get("sourceOrderNo")),
-                line.get("sourceLineNo"),
+                requiredStoredSource(line.get("sourceOrderNo"), "采购退货来源采购入库单号缺失"),
+                requiredStoredSourceLine(line.get("sourceLineNo")),
                 (BigDecimal) line.get("qty")
             ))
             .toList();
@@ -357,8 +367,106 @@ public class PurchaseReturnAppService {
             String.valueOf(row.get("billNo")),
             String.valueOf(row.get("supplierId")),
             toLocalDate(row.get("billDate")),
-            amount
+            amount,
+            purchaseReturnCurrency(String.valueOf(row.get("billNo")))
         );
+    }
+
+    private void validateSourceCurrencies(List<PurchaseReturnLineRequest> lines, String supplierId) {
+        lockAuditedSourcePurchaseIns(lines.stream()
+            .map(line -> requiredStoredSource(line.sourceOrderNo(), "采购退货必须选择来源采购入库单"))
+            .toList());
+        var currencies = new LinkedHashSet<String>();
+        for (var line : lines) {
+            var sourceBillNo = requiredStoredSource(line.sourceOrderNo(), "采购退货必须选择来源采购入库单");
+            var sourceLineNo = requiredStoredSourceLine(line.sourceLineNo());
+            var rows = jdbcTemplate.queryForList(
+                """
+                SELECT pi.currency,
+                       pi.supplier_id::text AS "supplierId"
+                FROM purchase_in pi
+                JOIN purchase_in_line pil ON pil.bill_id = pi.id AND pil.line_no = ?
+                WHERE pi.bill_no = ?
+                  AND pi.status = ?
+                """,
+                sourceLineNo,
+                sourceBillNo,
+                BillStatus.AUDITED.name()
+            );
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货来源采购入库行不存在或未审核");
+            }
+            if (!supplierId.equals(String.valueOf(rows.getFirst().get("supplierId")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货供应商必须与来源采购入库一致");
+            }
+            currencies.add(String.valueOf(rows.getFirst().get("currency")));
+        }
+        if (currencies.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "一张采购退货单不能混用不同币种的采购入库单");
+        }
+    }
+
+    private void lockAuditedSourcePurchaseIns(List<String> sourceBillNos) {
+        for (var sourceBillNo : sourceBillNos.stream().distinct().sorted().toList()) {
+            var statuses = jdbcTemplate.queryForList(
+                "SELECT status FROM purchase_in WHERE bill_no = ? FOR SHARE",
+                String.class,
+                sourceBillNo
+            );
+            if (statuses.size() != 1 || !BillStatus.AUDITED.name().equals(statuses.getFirst())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货来源采购入库行不存在或未审核");
+            }
+        }
+    }
+
+    private String purchaseReturnCurrency(String billNo) {
+        var counts = jdbcTemplate.queryForMap("""
+            SELECT COUNT(*) AS total,
+                   COUNT(pi.id) FILTER (
+                       WHERE pi.status = 'AUDITED'
+                         AND pi.supplier_id = pr.supplier_id
+                         AND pil.line_no IS NOT NULL
+                   ) AS matched
+            FROM purchase_return pr
+            JOIN purchase_return_line prl ON prl.bill_id = pr.id
+            LEFT JOIN purchase_in pi ON pi.bill_no = prl.source_in_no
+            LEFT JOIN purchase_in_line pil
+              ON pil.bill_id = pi.id
+             AND pil.line_no = prl.source_line_no
+            WHERE pr.bill_no = ?
+            GROUP BY pr.id
+            """, billNo);
+        if (Number.class.cast(counts.get("total")).longValue() == 0
+            || Number.class.cast(counts.get("matched")).longValue()
+                != Number.class.cast(counts.get("total")).longValue()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货的每条分录都必须来自同供应商已审核采购入库行");
+        }
+        var currencies = new LinkedHashSet<>(jdbcTemplate.queryForList("""
+            SELECT DISTINCT pi.currency
+            FROM purchase_return pr
+            JOIN purchase_return_line prl ON prl.bill_id = pr.id
+            JOIN purchase_in pi ON pi.bill_no = prl.source_in_no
+            WHERE pr.bill_no = ?
+            ORDER BY pi.currency
+            """, String.class, billNo));
+        if (currencies.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货来源币种不一致");
+        }
+        return currencies.getFirst();
+    }
+
+    private String requiredStoredSource(Object value, String reason) {
+        if (value == null || String.valueOf(value).isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
+        }
+        return String.valueOf(value).trim();
+    }
+
+    private Integer requiredStoredSourceLine(Object value) {
+        if (!(value instanceof Number number) || number.intValue() <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购退货必须选择有效来源采购入库行号");
+        }
+        return number.intValue();
     }
 
     private LocalDate toLocalDate(Object value) {
