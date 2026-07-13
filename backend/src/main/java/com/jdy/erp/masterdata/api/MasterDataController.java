@@ -1,8 +1,14 @@
 package com.jdy.erp.masterdata.api;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.jdy.erp.masterdata.application.MasterDataPatchService;
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -18,14 +24,25 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping("/api/master-data")
 public class MasterDataController {
-    private final JdbcTemplate jdbcTemplate;
+    private static final Set<String> SPARSE_PATCH_TYPES = Set.of("product", "customer", "supplier", "warehouse");
 
-    public MasterDataController(JdbcTemplate jdbcTemplate) {
+    private final JdbcTemplate jdbcTemplate;
+    private final MasterDataPatchService masterDataPatchService;
+    private final OperationLogService operationLogService;
+
+    public MasterDataController(
+        JdbcTemplate jdbcTemplate,
+        MasterDataPatchService masterDataPatchService,
+        OperationLogService operationLogService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
+        this.masterDataPatchService = masterDataPatchService;
+        this.operationLogService = operationLogService;
     }
 
     @PostMapping("/{type}")
@@ -52,17 +69,20 @@ public class MasterDataController {
 
     @PutMapping("/{type}/{code}")
     @RequirePermission("master.data.manage")
-    public Map<String, Object> update(@PathVariable String type, @PathVariable String code, @RequestBody Map<String, String> payload) {
+    public Map<String, Object> update(@PathVariable String type, @PathVariable String code, @RequestBody JsonNode requestBody) {
+        if (SPARSE_PATCH_TYPES.contains(type)) {
+            throw new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "该主数据类型只允许使用带 version 的 PATCH 更新");
+        }
+        if (!Set.of("productCategory", "unit", "productionDepartment").contains(type)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
+        }
+        var payload = legacyPayload(requestBody);
         var name = "unit".equals(type) ? payload.getOrDefault("name", code).trim() : required(payload, "name");
         if (name.isBlank()) {
             name = code;
         }
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
         return switch (type) {
-            case "product" -> updateProduct(code, name, payload, enabled);
-            case "customer" -> updateCustomer(code, name, payload, enabled);
-            case "supplier" -> updateSupplier(code, name, payload, enabled);
-            case "warehouse" -> updateWarehouse(code, name, payload, enabled);
             case "productCategory" -> updateProductCategory(code, name, payload, enabled);
             case "unit" -> updateUnit(code, name, payload, enabled);
             case "productionDepartment" -> updateProductionDepartment(code, name, payload, enabled);
@@ -70,8 +90,35 @@ public class MasterDataController {
         };
     }
 
+    @PatchMapping("/{type}/{code}")
+    @RequirePermission("master.data.manage")
+    @Transactional
+    public Map<String, Object> patch(@PathVariable String type, @PathVariable String code, @RequestBody JsonNode requestBody) {
+        var request = patchRequest(requestBody);
+        var result = masterDataPatchService.patch(type, code, request.version(), request.changes());
+        var state = OperationLogCommand.state(
+            OperationLogCommand.StateField.AUDIT_STATUS, "DRAFT",
+            OperationLogCommand.StateField.ENABLED, result.enabled()
+        );
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "MASTER_DATA",
+            "PATCH_MASTER_DATA",
+            result.targetType(),
+            result.id(),
+            result.code(),
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            state,
+            state,
+            "fields=" + String.join(",", result.changedFields())
+                + "; version=" + result.previousVersion() + "->" + result.version()
+        ));
+        return result.body();
+    }
+
     @PatchMapping("/{type}/{code}/status")
     @RequirePermission("master.data.manage")
+    @Transactional
     public Map<String, Object> updateStatus(@PathVariable String type, @PathVariable String code, @RequestBody Map<String, String> payload) {
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
         return setEnabled(type, code, enabled);
@@ -79,18 +126,21 @@ public class MasterDataController {
 
     @PostMapping("/{type}/{code}/audit")
     @RequirePermission("master.data.manage")
+    @Transactional
     public Map<String, Object> audit(@PathVariable String type, @PathVariable String code) {
         return setAuditStatus(type, code, "AUDITED");
     }
 
     @PostMapping("/{type}/{code}/reverse")
     @RequirePermission("master.data.manage")
+    @Transactional
     public Map<String, Object> reverseAudit(@PathVariable String type, @PathVariable String code) {
         return setAuditStatus(type, code, "DRAFT");
     }
 
     @DeleteMapping("/{type}/{code}")
     @RequirePermission("master.data.manage")
+    @Transactional
     public Map<String, Object> delete(@PathVariable String type, @PathVariable String code) {
         if ("product".equals(type)) {
             return deleteProduct(code);
@@ -469,7 +519,7 @@ public class MasterDataController {
             return;
         }
         var table = tableName(type);
-        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ?", code);
+        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ? FOR UPDATE", code);
         if (rows.isEmpty()) {
             return;
         }
@@ -695,9 +745,10 @@ public class MasterDataController {
 
     private String returningFor(String type) {
         var auditStatus = "CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS \"auditStatus\"";
+        var status = "CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status";
         return hasSystemNo(type)
-            ? "id::text AS id, system_no::text AS \"systemNo\", code, name, " + auditStatus
-            : "id::text AS id, code, name, " + auditStatus;
+            ? "id::text AS id, system_no::text AS \"systemNo\", code, name, version, " + auditStatus + ", " + status
+            : "id::text AS id, code, name, version, " + auditStatus + ", " + status;
     }
 
     private Map<String, Object> updateAndReturn(String sql, Object... args) {
@@ -726,6 +777,46 @@ public class MasterDataController {
             case "product", "customer", "supplier", "warehouse", "productionDepartment" -> true;
             default -> false;
         };
+    }
+
+    private PatchRequest patchRequest(JsonNode requestBody) {
+        if (requestBody == null || !requestBody.isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体必须为 JSON 对象");
+        }
+        requestBody.fieldNames().forEachRemaining(field -> {
+            if (!Set.of("version", "changes").contains(field)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求外层不允许字段: " + field);
+            }
+        });
+        var versionNode = requestBody.get("version");
+        if (versionNode == null || !versionNode.isIntegralNumber() || !versionNode.canConvertToLong() || versionNode.longValue() < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "version 必须存在且为非负整数");
+        }
+        var changesNode = requestBody.get("changes");
+        if (changesNode == null || !changesNode.isObject() || changesNode.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "changes 必须是至少包含一个字段的对象");
+        }
+        var changes = new LinkedHashMap<String, JsonNode>();
+        changesNode.fields().forEachRemaining(entry -> changes.put(entry.getKey(), entry.getValue()));
+        return new PatchRequest(versionNode.longValue(), changes);
+    }
+
+    private Map<String, String> legacyPayload(JsonNode requestBody) {
+        if (requestBody == null || !requestBody.isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体必须为 JSON 对象");
+        }
+        var payload = new LinkedHashMap<String, String>();
+        requestBody.fields().forEachRemaining(entry -> {
+            var value = entry.getValue();
+            if (value != null && !value.isNull() && !value.isValueNode()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, entry.getKey() + " 必须为标量");
+            }
+            payload.put(entry.getKey(), value == null || value.isNull() ? null : value.asText());
+        });
+        return payload;
+    }
+
+    private record PatchRequest(long version, Map<String, JsonNode> changes) {
     }
 
     private String required(Map<String, String> payload, String field) {

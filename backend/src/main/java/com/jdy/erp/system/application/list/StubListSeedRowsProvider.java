@@ -657,6 +657,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(remark, '') AS remark,
                    COALESCE(drawing_file_name, '') AS "drawingFileName",
                    COALESCE(image_file_names, '') AS "imageFileNames",
+                   version,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
@@ -714,6 +715,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    settlement_method AS "settlementMethod",
                    COALESCE(owner_name, '') AS "ownerName",
                    COALESCE(remark, '') AS remark,
+                   version,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_customer
@@ -737,6 +739,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    settlement_method AS "settlementMethod",
                    COALESCE(owner_name, '') AS "ownerName",
                    COALESCE(remark, '') AS remark,
+                   version,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_supplier
@@ -756,6 +759,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    COALESCE(address, '') AS address,
                    CASE WHEN allow_negative_stock THEN '允许负库存' ELSE '不允许负库存' END AS stockPolicy,
                    COALESCE(remark, '') AS remark,
+                   version,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_warehouse
