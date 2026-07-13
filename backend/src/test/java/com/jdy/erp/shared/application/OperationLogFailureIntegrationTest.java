@@ -244,41 +244,53 @@ class OperationLogFailureIntegrationTest {
     }
 
     @Test
-    void financeBusinessFailureUsesTheCanonicalActionTargetAndOriginalState() {
-        var jdbcTemplate = mock(JdbcTemplate.class);
-        var failures = mock(OperationLogFailureService.class);
+    void retiredImmediateSettlementIsGoneAndFailureAuditKeepsOnlyTheEndpointPattern() throws Exception {
+        var settlementService = mock(com.jdy.erp.finance.application.FinanceSettlementAppService.class);
         var controller = new FinanceSettlementController(
-            jdbcTemplate,
-            mock(NumberingService.class),
-            mock(OperationLogService.class),
-            failures
+            settlementService,
+            mock(com.jdy.erp.system.security.CurrentPermissionService.class)
         );
-        var receivableId = UUID.fromString("00000000-0000-0000-0000-000000000139");
-        when(jdbcTemplate.queryForList(contains("FROM ar_receivable"), any(Object[].class))).thenReturn(java.util.List.of(Map.of(
-            "id", receivableId.toString(),
-            "amount", new java.math.BigDecimal("100"),
-            "received_amount", new java.math.BigDecimal("20"),
-            "status", "PART_SETTLED"
-        )));
+        request = new MockHttpServletRequest("POST", "/api/finance/receivables/YS-PRIVATE-139/receipt");
+        request.setAttribute(
+            HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE,
+            "/api/finance/receivables/{billNo}/receipt"
+        );
+        request.setAttribute(
+            HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE,
+            Map.of("billNo", "YS-PRIVATE-139")
+        );
+        request.setAttribute(
+            HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE,
+            new HandlerMethod(
+                controller,
+                FinanceSettlementController.class.getDeclaredMethod("retiredImmediateReceipt", String.class)
+            )
+        );
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var sessionService = mock(CurrentSessionService.class);
+        when(sessionService.isAuthenticated()).thenReturn(true);
+        when(operationLogService.writeCurrent(any(OperationLogCommand.class))).thenReturn(UUID.randomUUID());
+        var handler = new ResponseStatusExceptionHandler(failureService, sessionService);
 
-        assertThatThrownBy(() -> controller.receive(
-            "YS-A136-001",
-            new FinanceSettlementController.SettlementRequest("MANUAL-NO", "2026-07-13", java.math.BigDecimal.ONE)
-        )).isInstanceOf(ResponseStatusException.class)
-            .hasMessageContaining("不能手工指定");
+        var error = org.assertj.core.api.Assertions.catchThrowableOfType(
+            () -> controller.retiredImmediateReceipt("YS-PRIVATE-139"),
+            ResponseStatusException.class
+        );
+        assertThat(error.getStatusCode()).isEqualTo(HttpStatus.GONE);
+        assertThat(error.getReason()).contains("/api/finance/receipts/draft");
+        handler.handle(error, request);
 
         var command = ArgumentCaptor.forClass(OperationLogCommand.class);
-        verify(failures).logCurrentOnce(command.capture());
-        assertThat(command.getValue().module()).isEqualTo("FINANCE");
-        assertThat(command.getValue().action()).isEqualTo("RECEIVE");
-        assertThat(command.getValue().targetType()).isEqualTo("ar_receivable");
-        assertThat(command.getValue().targetId()).isEqualTo(receivableId);
-        assertThat(command.getValue().targetNo()).isEqualTo("YS-A136-001");
-        assertThat(command.getValue().beforeState())
-            .containsEntry(OperationLogCommand.StateField.STATUS, "PART_SETTLED")
-            .containsEntry(OperationLogCommand.StateField.SETTLED_AMOUNT, new java.math.BigDecimal("20"))
-            .containsEntry(OperationLogCommand.StateField.AMOUNT, new java.math.BigDecimal("100"));
+        verify(operationLogService).writeCurrent(command.capture());
+        assertThat(command.getValue().module()).isEqualTo("SECURITY");
+        assertThat(command.getValue().action()).isEqualTo("WRITE_FAILED");
+        assertThat(command.getValue().targetType()).isEqualTo("http_endpoint");
+        assertThat(command.getValue().targetNo())
+            .isEqualTo("POST /api/finance/receivables/{billNo}/receipt")
+            .doesNotContain("YS-PRIVATE-139");
+        assertThat(command.getValue().beforeState()).isEmpty();
         assertThat(command.getValue().afterState()).isEmpty();
+        verifyNoInteractions(settlementService);
     }
 
     private HandlerMethod handler(String method) throws Exception {
