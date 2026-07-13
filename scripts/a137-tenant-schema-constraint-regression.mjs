@@ -10,6 +10,10 @@ const migrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V98__tenant_schema_constraint_parity.sql"
 );
+const runtimeGuardMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V99__tenant_schema_exemption_runtime_guard.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
@@ -29,11 +33,20 @@ const expectedMetrics = {
   retiredTaxColumns: 0,
   forbiddenAccountSetForeignKeys: 0
 };
-const excludedAccountSetChildren = [
+const tenantScopeAccountSetChildren = [
   "document_number_sequence",
   "inv_stock_balance",
   "inv_stock_opening",
   "inv_stock_txn"
+];
+const quarantinedActorMarkers = [
+  "A136_ACTOR_20260713005422_92a8c216bd",
+  "A136_ACTOR_20260713004744_42b0b1841a",
+  "A136_ACTOR_20260713010433_d9a3c1fec3",
+  "A136_ACTOR_20260713011750_c92416b00b",
+  "A136_ACTOR_20260713003821_18addb5df7",
+  "A136_ACTOR_20260713010936_d3ae85cc07",
+  "A136_ACTOR_20260713013041_569a349279"
 ];
 const token = randomBytes(5).toString("hex");
 const tokenNumber = Number.parseInt(token.slice(0, 7), 16) + 1;
@@ -92,7 +105,26 @@ const result = {
 let primaryError = null;
 try {
   const migrationSource = await readFile(migrationPath, "utf8");
+  const runtimeGuardMigrationSource = await readFile(runtimeGuardMigrationPath, "utf8");
+  result.migrationGuards = {
+    exactQuarantinedRows:
+      quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
+      && migrationSource.includes("JOIN expected ON expected.id = line.id")
+      && migrationSource.includes("line.bill_id IS DISTINCT FROM expected.bill_id")
+      && migrationSource.includes("line.product_id IS NOT DISTINCT FROM expected.product_id")
+      && !migrationSource.includes("line_remark LIKE 'A136_ACTOR_%'"),
+    migrationTimeReservedNameGuard:
+      migrationSource.includes("reserved_name_count <> 4")
+      && migrationSource.includes("V98 tenant scope FK reserved-name drifted"),
+    runtimeExemptionGuard:
+      runtimeGuardMigrationSource.includes("reserved_name_count <> 4 OR exact_exemption_count <> 4")
+      && runtimeGuardMigrationSource.includes("jdy_sync_tenant_schema_v98")
+  };
+  assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
+  assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
+  assert(result.migrationGuards.runtimeExemptionGuard, "V99 must guard the four FK exemptions on every sync");
   const sourceChecksum = flywayChecksum(migrationSource);
+  const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -103,12 +135,17 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version = '98'
+    WHERE version IN ('98', '99')
   `);
-  assert(migrationRows.length === 1, `expected one installed V98 row, found ${migrationRows.length}`);
-  const migration = migrationRows[0];
+  assert(migrationRows.length === 2, `expected installed V98 and V99 rows, found ${migrationRows.length}`);
+  const migration = migrationRows.find((row) => row.version === "98");
+  const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
+  assert(migration, "installed V98 row is missing");
+  assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
+  assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
+  assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -117,6 +154,15 @@ try {
     ...migration,
     sourceChecksum,
     sourceSha256: createHash("sha256").update(migrationSource).digest("hex")
+  };
+  assert(
+    runtimeGuardMigration.checksum === runtimeGuardSourceChecksum,
+    `V99 checksum drift: installed=${runtimeGuardMigration.checksum} source=${runtimeGuardSourceChecksum}`
+  );
+  result.runtimeGuardMigration = {
+    ...runtimeGuardMigration,
+    sourceChecksum: runtimeGuardSourceChecksum,
+    sourceSha256: createHash("sha256").update(runtimeGuardMigrationSource).digest("hex")
   };
 
   const registeredSchemas = sqlJson(`
@@ -182,6 +228,7 @@ try {
     "missingTable",
     "unknownExtraColumn",
     "extraConstraint",
+    "spoofedExemptionName",
     "typeDrift",
     "orphan"
   ];
@@ -518,6 +565,31 @@ function runTopologyChecks() {
     ALTER TABLE ${quoteIdentifier(topology.schema)}.md_customer
       DROP CONSTRAINT a137_unknown_extra_check;
 
+    ALTER TABLE public.md_customer
+      ADD CONSTRAINT document_number_sequence_account_set_id_fkey
+      FOREIGN KEY (id) REFERENCES public.sys_account_set(id) NOT VALID;
+    DO $a137_spoofed_exemption_name$
+    DECLARE
+      rejected BOOLEAN := FALSE;
+      failure TEXT;
+    BEGIN
+      BEGIN
+        PERFORM public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
+      EXCEPTION WHEN OTHERS THEN
+        failure := SQLERRM;
+        IF position('tenant scope FK exemption runtime drifted' IN failure) = 0 THEN
+          RAISE EXCEPTION 'A137 unexpected spoofed-exemption error: %', failure;
+        END IF;
+        rejected := TRUE;
+      END;
+      IF NOT rejected THEN RAISE EXCEPTION 'A137 spoofed FK exemption name was silently skipped'; END IF;
+      INSERT INTO a137_topology_result VALUES (
+        'spoofedExemptionName', TRUE, jsonb_build_object('error', failure)
+      );
+    END $a137_spoofed_exemption_name$;
+    ALTER TABLE public.md_customer
+      DROP CONSTRAINT document_number_sequence_account_set_id_fkey;
+
     ALTER TABLE ${quoteIdentifier(topology.schema)}.md_customer ALTER COLUMN phone TYPE TEXT;
     DO $a137_type_drift$
     DECLARE
@@ -589,7 +661,7 @@ function runTopologyChecks() {
 
 function schemaMetricsSql(schema) {
   const schemaName = sqlLiteral(schema);
-  const excludedTables = sqlTextArray(excludedAccountSetChildren);
+  const tenantScopeAccountSetTables = sqlTextArray(tenantScopeAccountSetChildren);
   return `
     WITH reference_columns AS (
       SELECT managed.table_name,
@@ -705,10 +777,16 @@ function schemaMetricsSql(schema) {
       SELECT *
       FROM reference_fk_all
       WHERE NOT (
-        child_table = ANY (${excludedTables})
+        (child_table, constraint_name) IN (
+          ('document_number_sequence', 'document_number_sequence_account_set_id_fkey'),
+          ('inv_stock_balance', 'inv_stock_balance_account_set_id_fkey'),
+          ('inv_stock_opening', 'inv_stock_opening_account_set_id_fkey'),
+          ('inv_stock_txn', 'inv_stock_txn_account_set_id_fkey')
+        )
         AND source_parent_schema = 'public'
         AND parent_table = 'sys_account_set'
         AND child_columns = ARRAY['account_set_id']::TEXT[]
+        AND parent_columns = ARRAY['id']::TEXT[]
       )
     ),
     target_fk AS (
@@ -805,7 +883,7 @@ function schemaMetricsSql(schema) {
       ),
       'forbiddenAccountSetForeignKeys', (
         SELECT count(*) FROM target_fk
-        WHERE child_table = ANY (${excludedTables})
+        WHERE child_table = ANY (${tenantScopeAccountSetTables})
           AND parent_schema = 'public'
           AND parent_table = 'sys_account_set'
           AND child_columns = ARRAY['account_set_id']::TEXT[]
