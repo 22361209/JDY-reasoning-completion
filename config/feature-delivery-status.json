@@ -601,22 +601,22 @@
     },
     {
       "id": "F026",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A4",
+      "exposure": "published",
       "surface": "shared",
       "catalogEntryIds": [],
-      "evidence": [],
-      "knownGaps": [
-        "A141 已在销售出库表单接入 finance 正式收款单预填入口，完成自动化与浏览器验收前仍不得计作已交付。"
+      "evidence": [
+        "docs/验收报告/验收报告-A141-正式收款单与付款单-20260714.md"
       ],
+      "knownGaps": [],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -756,22 +756,22 @@
     },
     {
       "id": "F036",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A4",
+      "exposure": "published",
       "surface": "shared",
       "catalogEntryIds": [],
-      "evidence": [],
-      "knownGaps": [
-        "A141 已在采购入库表单接入 finance 正式付款单预填入口，完成自动化与浏览器验收前仍不得计作已交付。"
+      "evidence": [
+        "docs/验收报告/验收报告-A141-正式收款单与付款单-20260714.md"
       ],
+      "knownGaps": [],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -1631,24 +1631,24 @@
     },
     {
       "id": "F080",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A4",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "ar-receipt-form"
       ],
-      "evidence": [],
-      "knownGaps": [
-        "A141 已登记正式收款单 catalog 入口，完成自动化与浏览器验收前仍不得计作已交付。"
+      "evidence": [
+        "docs/验收报告/验收报告-A141-正式收款单与付款单-20260714.md"
       ],
+      "knownGaps": [],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -1673,24 +1673,24 @@
     },
     {
       "id": "F082",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A4",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "ap-payment-form"
       ],
-      "evidence": [],
-      "knownGaps": [
-        "A141 已登记正式付款单 catalog 入口，完成自动化与浏览器验收前仍不得计作已交付。"
+      "evidence": [
+        "docs/验收报告/验收报告-A141-正式收款单与付款单-20260714.md"
       ],
+      "knownGaps": [],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
