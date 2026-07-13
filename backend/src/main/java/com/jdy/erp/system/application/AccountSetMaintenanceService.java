@@ -158,20 +158,26 @@ public class AccountSetMaintenanceService {
         }
 
         tenantSchemaProvisioner.provisionSchema(schema);
-        var restoreTables = restorableTables(schema, backupSchema);
+        var restoreTables = restorePlans(schema, backupSchema);
         if (restoreTables.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "备份中没有可恢复的数据表");
         }
-        platformJdbcTemplate.execute("TRUNCATE TABLE " + qualifiedTableList(schema, restoreTables) + " RESTART IDENTITY CASCADE");
-        for (var table : restoreTables) {
+        platformJdbcTemplate.execute("TRUNCATE TABLE " + qualifiedTableList(schema, restoreTables) + " RESTART IDENTITY");
+        for (var restorePlan : restoreTables) {
+            var columns = restorePlan.columns().stream()
+                .map(this::quoteIdentifier)
+                .reduce((left, right) -> left + ", " + right)
+                .orElseThrow();
             platformJdbcTemplate.execute("""
-                INSERT INTO %s.%s
-                SELECT * FROM %s.%s
+                INSERT INTO %s.%s (%s)
+                SELECT %s FROM %s.%s
                 """.formatted(
                     quoteIdentifier(schema),
-                    quoteIdentifier(table),
+                    quoteIdentifier(restorePlan.tableName()),
+                    columns,
+                    columns,
                     quoteIdentifier(backupSchema),
-                    quoteIdentifier(table)
+                    quoteIdentifier(restorePlan.tableName())
                 ));
         }
         platformJdbcTemplate.update("""
@@ -241,17 +247,59 @@ public class AccountSetMaintenanceService {
         return schemaName;
     }
 
-    private List<String> restorableTables(String schema, String backupSchema) {
-        var tables = new ArrayList<String>();
+    private List<RestorePlan> restorePlans(String schema, String backupSchema) {
+        var plans = new ArrayList<RestorePlan>();
         for (var table : tenantSchemaProvisioner.tenantTableNames()) {
             if ("sys_operation_log".equals(table)) {
                 continue;
             }
-            if (tableExists(schema, table) && tableExists(backupSchema, table)) {
-                tables.add(table);
+            if (!tableExists(schema, table)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "目标 tenant 缺少受管表：" + table);
             }
+            if (!tableExists(backupSchema, table)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "备份缺少受管表：" + table);
+            }
+            var missingRequiredColumns = platformJdbcTemplate.queryForList("""
+                    SELECT target.column_name
+                    FROM information_schema.columns target
+                    WHERE target.table_schema = ?
+                      AND target.table_name = ?
+                      AND target.is_nullable = 'NO'
+                      AND target.column_default IS NULL
+                      AND target.is_identity = 'NO'
+                      AND target.is_generated = 'NEVER'
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM information_schema.columns backup
+                          WHERE backup.table_schema = ?
+                            AND backup.table_name = target.table_name
+                            AND backup.column_name = target.column_name
+                      )
+                    ORDER BY target.ordinal_position
+                """, String.class, schema, table, backupSchema);
+            if (!missingRequiredColumns.isEmpty()) {
+                throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "备份表缺少目标表必填列：" + table + "." + String.join(",", missingRequiredColumns)
+                );
+            }
+            var commonColumns = platformJdbcTemplate.queryForList("""
+                    SELECT target.column_name
+                    FROM information_schema.columns target
+                    JOIN information_schema.columns backup
+                      ON backup.table_schema = ?
+                     AND backup.table_name = target.table_name
+                     AND backup.column_name = target.column_name
+                    WHERE target.table_schema = ?
+                      AND target.table_name = ?
+                    ORDER BY target.ordinal_position
+                """, String.class, backupSchema, schema, table);
+            if (commonColumns.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "备份表与目标表没有可恢复的共同列：" + table);
+            }
+            plans.add(new RestorePlan(table, List.copyOf(commonColumns)));
         }
-        return tables;
+        return plans;
     }
 
     private boolean schemaExists(String schema) {
@@ -278,11 +326,14 @@ public class AccountSetMaintenanceService {
         return count == null ? 0 : count;
     }
 
-    private String qualifiedTableList(String schema, List<String> tables) {
-        return tables.stream()
-            .map(table -> quoteIdentifier(schema) + "." + quoteIdentifier(table))
+    private String qualifiedTableList(String schema, List<RestorePlan> restorePlans) {
+        return restorePlans.stream()
+            .map(plan -> quoteIdentifier(schema) + "." + quoteIdentifier(plan.tableName()))
             .reduce((left, right) -> left + ", " + right)
             .orElseThrow();
+    }
+
+    private record RestorePlan(String tableName, List<String> columns) {
     }
 
     void logAccountSetOperation(Map<String, Object> accountSet, String schema, String action, String backupName) {

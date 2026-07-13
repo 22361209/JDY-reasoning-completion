@@ -49,6 +49,31 @@ public class AccountSetManagementService {
         var attachmentPrefix = optionalText(request.attachmentPrefix(), "account-sets/" + code);
         var redisKeyPrefix = optionalText(request.redisKeyPrefix(), code);
 
+        if (Boolean.TRUE.equals(platformJdbcTemplate.queryForObject(
+            "SELECT EXISTS (SELECT 1 FROM sys_account_set WHERE code = ?)",
+            Boolean.class,
+            code
+        ))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "账套编码已存在");
+        }
+        if (Boolean.TRUE.equals(platformJdbcTemplate.queryForObject("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM sys_account_set
+                WHERE lower(btrim(schema_name)) = lower(btrim(?))
+                  AND lower(btrim(schema_name)) <> 'public'
+            )
+            """, Boolean.class, schemaName))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "账套 schema 已被其他账套使用");
+        }
+        if (Boolean.TRUE.equals(platformJdbcTemplate.queryForObject(
+            "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = ?)",
+            Boolean.class,
+            schemaName
+        ))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "账套 schema 已存在，不允许收编现有 schema");
+        }
+
         Map<String, Object> accountSet;
         try {
             accountSet = platformJdbcTemplate.queryForMap("""
@@ -71,10 +96,10 @@ public class AccountSetManagementService {
                           initialized
                 """, code, name, environment, databaseName, schemaName, attachmentPrefix, redisKeyPrefix, accountingPeriod, businessPeriod);
         } catch (DuplicateKeyException exception) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "账套编码已存在");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "账套编码或 schema 已存在，请刷新后重试");
         }
 
-        tenantSchemaProvisioner.provisionSchema(schemaName);
+        tenantSchemaProvisioner.provisionNewSchema(schemaName);
         grantCurrentUserAndAdmins(String.valueOf(accountSet.get("id")));
         logAccountSetOperation(
             "CREATE_ACCOUNT_SET",
