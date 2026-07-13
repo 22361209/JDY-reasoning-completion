@@ -579,24 +579,24 @@
     },
     {
       "id": "F024",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A4",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "sales-return-form"
       ],
-      "evidence": [],
-      "knownGaps": [
-        "catalog 只有销售退货空壳；正式表单、选源、库存回补和冲应收闭环未接入。"
+      "evidence": [
+        "docs/验收报告/验收报告-A142-销售退货单-20260714.md"
       ],
+      "knownGaps": [],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
