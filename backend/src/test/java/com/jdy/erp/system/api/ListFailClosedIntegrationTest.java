@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -59,6 +61,9 @@ class ListFailClosedIntegrationTest {
             "random-list",
             "random-master-list",
             "random-source-selector",
+            "random-master-selector",
+            "employee-master-selector-lookalike",
+            "financial-account-master-selector-lookalike",
             "standard-list",
             "error-list",
             "permission-denied-list",
@@ -101,6 +106,70 @@ class ListFailClosedIntegrationTest {
         ));
 
         verifyNoInteractions(jdbcTemplate, tenantDataScopeService);
+    }
+
+    @Test
+    void employeeAndFinancialAccountKeysAreExactAndUseExplicitOrPermissionPolicies() {
+        var registry = new ListQueryContractRegistry();
+        for (var listKey : List.of(
+            "employee-master-list",
+            "employee-master-selector",
+            "financial-account-master-list",
+            "financial-account-master-selector"
+        )) {
+            assertThatCode(() -> registry.contractFor(listKey, "header"))
+                .as(listKey)
+                .doesNotThrowAnyException();
+        }
+        assertNotFound(() -> registry.contractFor("unknown-master-selector", "header"));
+        assertNotFound(() -> registry.contractFor("employee-master-selector-copy", "header"));
+
+        var employeePermission = mock(CurrentPermissionService.class);
+        when(employeePermission.hasPermission("master.data.manage")).thenReturn(false);
+        when(employeePermission.hasPermission("system.role_permission.manage")).thenReturn(true);
+        var employeeGuard = new ListStubStateGuard(registry, employeePermission);
+        employeeGuard.assertReadable("employee-master-list");
+        employeeGuard.assertReadable("employee-master-selector");
+        verify(employeePermission, times(2)).hasPermission("master.data.manage");
+        verify(employeePermission, times(2)).hasPermission("system.role_permission.manage");
+
+        var financePermission = mock(CurrentPermissionService.class);
+        when(financePermission.hasPermission("master.data.manage")).thenReturn(false);
+        when(financePermission.hasPermission("finance.settle")).thenReturn(true);
+        var financeGuard = new ListStubStateGuard(registry, financePermission);
+        financeGuard.assertReadable("financial-account-master-list");
+        financeGuard.assertReadable("financial-account-master-selector");
+        verify(financePermission, times(2)).hasPermission("master.data.manage");
+        verify(financePermission, times(2)).hasPermission("finance.settle");
+
+        var deniedPermission = mock(CurrentPermissionService.class);
+        var deniedGuard = new ListStubStateGuard(registry, deniedPermission);
+        assertForbidden(() -> deniedGuard.assertReadable("employee-master-list"));
+        assertForbidden(() -> deniedGuard.assertReadable("financial-account-master-selector"));
+    }
+
+    @Test
+    void employeeAndFinancialAccountSelectorsForceAuditedAndEnabledInProviderSql() {
+        var jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        var tenantDataScopeService = mock(TenantDataScopeService.class);
+        var provider = new StubListSeedRowsProvider(jdbcTemplate, tenantDataScopeService);
+
+        provider.seedRows("employee-master-selector", "header", 200);
+        provider.seedRows("financial-account-master-selector", "header", 200);
+
+        var sql = org.mockito.Mockito.mockingDetails(jdbcTemplate).getInvocations().stream()
+            .filter(invocation -> "queryForList".equals(invocation.getMethod().getName()))
+            .map(invocation -> String.valueOf((Object) invocation.getArgument(0)))
+            .toList();
+        assertThat(sql).hasSize(2);
+        assertThat(sql.get(0))
+            .contains("FROM md_employee", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
+            .doesNotContain("md_product");
+        assertThat(sql.get(1))
+            .contains("FROM md_financial_account", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
+            .doesNotContain("md_product");
+        verifyNoInteractions(tenantDataScopeService);
     }
 
     @Test
@@ -189,5 +258,11 @@ class ListFailClosedIntegrationTest {
         assertThatThrownBy(action::run)
             .isInstanceOfSatisfying(ResponseStatusException.class, error ->
                 assertThat(error.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    private void assertForbidden(Runnable action) {
+        assertThatThrownBy(action::run)
+            .isInstanceOfSatisfying(ResponseStatusException.class, error ->
+                assertThat(error.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
     }
 }
