@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
+import com.jdy.erp.system.application.EmployeeAccountLinkService;
 import com.jdy.erp.system.application.NotificationProviderService;
 import com.jdy.erp.system.application.PasswordResetRequestService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -16,6 +18,7 @@ import com.jdy.erp.system.security.RequirePermission;
 import com.jdy.erp.system.security.WriteAccess;
 import com.jdy.erp.system.security.WriteAccess.Policy;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -45,14 +48,17 @@ public class UserManagementController {
     private final NotificationProviderService notificationProviderService;
     private final PasswordResetRequestService passwordResetRequestService;
     private final OperationLogService operationLogService;
+    private final EmployeeAccountLinkService employeeAccountLinkService;
 
+    @Autowired
     public UserManagementController(
         @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         CurrentSessionService currentSessionService,
         PasswordPolicy passwordPolicy,
         NotificationProviderService notificationProviderService,
         PasswordResetRequestService passwordResetRequestService,
-        OperationLogService operationLogService
+        OperationLogService operationLogService,
+        EmployeeAccountLinkService employeeAccountLinkService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
@@ -60,6 +66,26 @@ public class UserManagementController {
         this.notificationProviderService = notificationProviderService;
         this.passwordResetRequestService = passwordResetRequestService;
         this.operationLogService = operationLogService;
+        this.employeeAccountLinkService = employeeAccountLinkService;
+    }
+
+    UserManagementController(
+        JdbcTemplate jdbcTemplate,
+        CurrentSessionService currentSessionService,
+        PasswordPolicy passwordPolicy,
+        NotificationProviderService notificationProviderService,
+        PasswordResetRequestService passwordResetRequestService,
+        OperationLogService operationLogService
+    ) {
+        this(
+            jdbcTemplate,
+            currentSessionService,
+            passwordPolicy,
+            notificationProviderService,
+            passwordResetRequestService,
+            operationLogService,
+            null
+        );
     }
 
     @GetMapping("/managed-users")
@@ -71,6 +97,46 @@ public class UserManagementController {
             "accountSets", accountSetRows(),
             "passwordResetRequests", passwordResetRequestRows(),
             "notificationOutbox", notificationRows("")
+        );
+    }
+
+    @GetMapping("/current-account-employee-links")
+    @RequirePermission("system.role_permission.manage")
+    public Map<String, Object> currentAccountEmployeeLinks() {
+        return Map.of("employeeLinks", employeeAccountLinkService.currentAccountLinks());
+    }
+
+    @PutMapping("/current-account-employee-links/{username}")
+    @RequirePermission("system.role_permission.manage")
+    public Map<String, Object> saveCurrentAccountEmployeeLink(
+        @PathVariable String username,
+        @RequestBody JsonNode request
+    ) {
+        if (request == null || !request.isObject() || request.size() != 3
+            || !request.has("employeeCode") || !request.has("version") || !request.has("scopeToken")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "员工关联请求必须且只能包含 employeeCode、version 和 scopeToken");
+        }
+        var versionNode = request.get("version");
+        if (!versionNode.isIntegralNumber() || !versionNode.canConvertToLong() || versionNode.longValue() < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "授权版本不正确");
+        }
+        var numericVersion = versionNode.longValue();
+        var employeeCodeNode = request.get("employeeCode");
+        if (!employeeCodeNode.isNull() && !employeeCodeNode.isTextual()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "员工编码必须是字符串或 null");
+        }
+        var employeeCode = employeeCodeNode.isNull() ? null : employeeCodeNode.textValue();
+        if (employeeCode != null && employeeCode.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "解除关联必须显式提交 employeeCode: null");
+        }
+        var scopeTokenNode = request.get("scopeToken");
+        if (!scopeTokenNode.isTextual() || scopeTokenNode.textValue().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "账套作用域令牌不正确");
+        }
+        var scopeToken = scopeTokenNode.textValue();
+        return Map.of(
+            "employeeLinks",
+            employeeAccountLinkService.saveCurrentAccountLink(username, employeeCode, numericVersion, scopeToken)
         );
     }
 
@@ -231,7 +297,7 @@ public class UserManagementController {
                 VALUES (?::uuid, ?::uuid)
                 """, user.get("id"), roleId);
             userId = String.valueOf(user.get("id"));
-            saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
+            saveUserAccountSetGrants(userId, username, request.accountSetCodes(), request.defaultAccountSetCode());
         } catch (DuplicateKeyException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "用户名已存在");
         }
@@ -263,7 +329,7 @@ public class UserManagementController {
             VALUES (?::uuid, ?::uuid)
             """, userId, roleId);
         if (request.accountSetCodes() != null || request.defaultAccountSetCode() != null) {
-            saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
+            saveUserAccountSetGrants(userId, normalizedUsername, request.accountSetCodes(), request.defaultAccountSetCode());
         }
         logUserChange("UPDATE_USER", userId, normalizedUsername, beforeState, userAuditState(userId));
         return managedUsers();
@@ -276,7 +342,7 @@ public class UserManagementController {
         var normalizedUsername = required(username, "用户名");
         var userId = userId(normalizedUsername);
         var beforeState = userAuditState(userId);
-        saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
+        saveUserAccountSetGrants(userId, normalizedUsername, request.accountSetCodes(), request.defaultAccountSetCode());
         logSuccess(
             "SYSTEM", "SAVE_USER_ACCOUNT_SETS", "sys_user", userId, normalizedUsername,
             beforeState, userAuditState(userId), null
@@ -314,6 +380,7 @@ public class UserManagementController {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在");
         }
+        jdbcTemplate.update("DELETE FROM sys_session_account_scope WHERE user_id = ?::uuid", userId);
         var pendingRequests = jdbcTemplate.queryForList("""
             UPDATE sys_password_reset_request
             SET status = 'DONE',
@@ -582,7 +649,12 @@ public class UserManagementController {
             """);
     }
 
-    private void saveUserAccountSetGrants(String userId, List<String> requestedAccountSetCodes, String requestedDefaultAccountSetCode) {
+    private void saveUserAccountSetGrants(
+        String userId,
+        String username,
+        List<String> requestedAccountSetCodes,
+        String requestedDefaultAccountSetCode
+    ) {
         var accountSetCodes = normalizeCodes(requestedAccountSetCodes);
         var defaultAccountSetCode = requestedDefaultAccountSetCode == null ? "" : requestedDefaultAccountSetCode.trim();
         if (accountSetCodes.isEmpty()) {
@@ -624,6 +696,7 @@ public class UserManagementController {
                     version = sys_user_account_set.version + 1
                 """, userId, knownAccountSets.get(accountSetCode), "ADMIN".equals(roleCode) ? "ADMIN" : "MEMBER", accountSetCode.equals(defaultAccountSetCode));
         }
+        unlinkEmployeesFromRevokedGrants(userId, username);
         jdbcTemplate.update("""
             UPDATE sys_user
             SET default_account_set_id = ?::uuid,
@@ -631,6 +704,56 @@ public class UserManagementController {
                 version = version + 1
             WHERE id = ?::uuid
             """, defaultAccountSetId, userId);
+    }
+
+    private void unlinkEmployeesFromRevokedGrants(String userId, String username) {
+        var revokedLinks = jdbcTemplate.queryForList("""
+            SELECT uas.id::text AS "grantId",
+                   uas.employee_code AS "employeeCode",
+                   a.id::text AS "accountSetId",
+                   a.code AS "accountSetCode",
+                   a.name AS "accountSetName",
+                   a.schema_name AS "schemaName"
+            FROM sys_user_account_set uas
+            JOIN sys_account_set a ON a.id = uas.account_set_id
+            WHERE uas.user_id = ?::uuid
+              AND uas.enabled = FALSE
+              AND uas.employee_code IS NOT NULL
+            ORDER BY a.code
+            FOR UPDATE OF uas
+            """, userId);
+        for (var revokedLink : revokedLinks) {
+            var employeeCode = String.valueOf(revokedLink.get("employeeCode"));
+            var updated = jdbcTemplate.update("""
+                UPDATE sys_user_account_set
+                SET employee_code = NULL,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = ?::uuid
+                  AND enabled = FALSE
+                  AND employee_code = ?
+                """, revokedLink.get("grantId"), employeeCode);
+            if (updated != 1) {
+                throw new IllegalStateException("撤销账套授权时解除员工关联失败");
+            }
+            operationLogService.logTenant(new OperationLogService.TenantTarget(
+                UUID.fromString(String.valueOf(revokedLink.get("accountSetId"))),
+                String.valueOf(revokedLink.get("accountSetCode")),
+                String.valueOf(revokedLink.get("accountSetName")),
+                String.valueOf(revokedLink.get("schemaName"))
+            ), OperationLogCommand.success(
+                "SYSTEM",
+                "UNLINK_EMPLOYEE_ACCOUNT",
+                "sys_user_account_set",
+                UUID.fromString(String.valueOf(revokedLink.get("grantId"))),
+                username + ":" + employeeCode,
+                OperationLogCommand.ActorMode.CURRENT_USER,
+                null,
+                Map.of(),
+                Map.of(),
+                "employeeCode=" + employeeCode + ";source=grant_revoked"
+            ));
+        }
     }
 
     private ArrayList<String> normalizeCodes(List<String> rawCodes) {

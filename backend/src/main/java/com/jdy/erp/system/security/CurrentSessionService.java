@@ -15,7 +15,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,6 +29,7 @@ public class CurrentSessionService {
     public static final String SESSION_GENERATION = "jdy.sessionGeneration";
     public static final String SESSION_ACCOUNT_SET_ID = "jdy.accountSetId";
     public static final String SESSION_ACCOUNT_SET_CODE = "jdy.accountSetCode";
+    public static final String SESSION_ACCOUNT_SET_SCOPE_TOKEN = "jdy.accountSetScopeToken";
     private static final int MAX_FAILED_LOGIN = 5;
     private static final int DEFAULT_SESSION_TIMEOUT_MINUTES = 30;
     private static final int MIN_SESSION_TIMEOUT_MINUTES = 5;
@@ -39,15 +42,18 @@ public class CurrentSessionService {
     private final JdbcTemplate jdbcTemplate;
     private final OperationLogService operationLogService;
     private final OperationLogFailureService operationLogFailureService;
+    private final TransactionTemplate platformTransactions;
 
     public CurrentSessionService(
         @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         OperationLogService operationLogService,
-        OperationLogFailureService operationLogFailureService
+        OperationLogFailureService operationLogFailureService,
+        @Qualifier("platformTransactionManager") PlatformTransactionManager platformTransactionManager
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.operationLogService = operationLogService;
         this.operationLogFailureService = operationLogFailureService;
+        this.platformTransactions = new TransactionTemplate(platformTransactionManager);
     }
 
     public String currentUsername() {
@@ -214,8 +220,20 @@ public class CurrentSessionService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法切换当前账套");
         }
-        setSessionAccountSet(request.getSession(true), accountSet);
-        logSetting("SWITCH_ACCOUNT_SET", "account_set=" + accountSet.get("code"));
+        var session = request.getSession(false);
+        if (session == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");
+        }
+        var scopeToken = platformTransactions.execute(ignored -> {
+            var rotatedScopeToken = rotatePersistedAccountScope(session, userId, accountSet);
+            logSetting("SWITCH_ACCOUNT_SET", "account_set=" + accountSet.get("code"));
+            return rotatedScopeToken;
+        });
+        if (scopeToken == null) {
+            throw new IllegalStateException("账套作用域事务没有返回令牌");
+        }
+        // The database row is the security authority. Publish the request snapshot only after commit.
+        setSessionAccountSet(session, accountSet, scopeToken);
     }
 
     private String optionalCurrentAccountSetId() {
@@ -302,41 +320,52 @@ public class CurrentSessionService {
         var oldSessionToken = rows.get(0).get("activeSessionToken");
         var sessionGeneration = Number.class.cast(rows.get(0).get("sessionGeneration")).intValue();
         var singleActiveSession = isSingleActiveSessionPolicy();
-        if (singleActiveSession) {
+        var accountSet = resolveLoginAccountSet(accountSetCode, userId);
+        var scopeToken = UUID.randomUUID().toString();
+        platformTransactions.executeWithoutResult(ignored -> {
+            if (singleActiveSession) {
+                jdbcTemplate.update("""
+                    UPDATE sys_user
+                    SET failed_login_count = 0,
+                        locked_until = NULL,
+                        last_login_at = now(),
+                        active_session_token = ?,
+                        active_session_started_at = now(),
+                        last_session_replaced_at = CASE
+                            WHEN active_session_token IS NOT NULL AND active_session_token <> ? THEN now()
+                            ELSE last_session_replaced_at
+                        END,
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                    """, newSessionToken, newSessionToken, userId);
+                jdbcTemplate.update("DELETE FROM sys_session_account_scope WHERE user_id = ?::uuid", userId);
+            } else {
+                jdbcTemplate.update("""
+                    UPDATE sys_user
+                    SET failed_login_count = 0,
+                        locked_until = NULL,
+                        last_login_at = now(),
+                        active_session_token = ?,
+                        active_session_started_at = now(),
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                    """, newSessionToken, userId);
+            }
             jdbcTemplate.update("""
-                UPDATE sys_user
-                SET failed_login_count = 0,
-                    locked_until = NULL,
-                    last_login_at = now(),
-                    active_session_token = ?,
-                    active_session_started_at = now(),
-                    last_session_replaced_at = CASE
-                        WHEN active_session_token IS NOT NULL AND active_session_token <> ? THEN now()
-                        ELSE last_session_replaced_at
-                    END,
-                    updated_at = now(),
-                    version = version + 1
-                WHERE id = ?::uuid
-                """, newSessionToken, newSessionToken, userId);
-        } else {
-            jdbcTemplate.update("""
-                UPDATE sys_user
-                SET failed_login_count = 0,
-                    locked_until = NULL,
-                    last_login_at = now(),
-                    active_session_token = ?,
-                    active_session_started_at = now(),
-                    updated_at = now(),
-                    version = version + 1
-                WHERE id = ?::uuid
-                """, newSessionToken, userId);
-        }
+                INSERT INTO sys_session_account_scope (
+                    session_token, user_id, account_set_id, scope_token
+                )
+                VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid)
+                """, newSessionToken, userId, accountSet.get("id"), scopeToken);
+        });
         var session = request.getSession(true);
         applySessionTimeout(session);
         session.setAttribute(SESSION_USERNAME, normalizedUsername);
         session.setAttribute(SESSION_TOKEN, newSessionToken);
         session.setAttribute(SESSION_GENERATION, sessionGeneration);
-        setSessionAccountSet(session, resolveLoginAccountSet(accountSetCode, userId));
+        setSessionAccountSet(session, accountSet, scopeToken);
         if (singleActiveSession && oldSessionToken != null && !String.valueOf(oldSessionToken).isBlank()) {
             logUserLogin("LOGIN_REPLACED", userId, "重复登录，新会话已替换旧会话");
         }
@@ -399,6 +428,7 @@ public class CurrentSessionService {
             ));
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
         }
+        jdbcTemplate.update("DELETE FROM sys_session_account_scope WHERE user_id = ?::uuid", userId);
         operationLogService.logPlatform(OperationLogCommand.success(
             "SYSTEM",
             "CHANGE_OWN_PASSWORD",
@@ -458,6 +488,7 @@ public class CurrentSessionService {
                     WHERE username = ?
                       AND active_session_token = ?
                     """, String.valueOf(username), String.valueOf(sessionToken));
+                deletePersistedAccountScope(String.valueOf(sessionToken));
             }
             session.invalidate();
         }
@@ -595,9 +626,69 @@ public class CurrentSessionService {
         session.setMaxInactiveInterval(sessionTimeoutMinutes() * 60);
     }
 
-    private void setSessionAccountSet(jakarta.servlet.http.HttpSession session, Map<String, Object> accountSet) {
-        session.setAttribute(SESSION_ACCOUNT_SET_ID, String.valueOf(accountSet.get("id")));
-        session.setAttribute(SESSION_ACCOUNT_SET_CODE, String.valueOf(accountSet.get("code")));
+    void setSessionAccountSet(jakarta.servlet.http.HttpSession session, Map<String, Object> accountSet) {
+        setSessionAccountSet(session, accountSet, UUID.randomUUID().toString());
+    }
+
+    private void setSessionAccountSet(
+        jakarta.servlet.http.HttpSession session,
+        Map<String, Object> accountSet,
+        String scopeToken
+    ) {
+        synchronized (session) {
+            session.setAttribute(SESSION_ACCOUNT_SET_ID, String.valueOf(accountSet.get("id")));
+            session.setAttribute(SESSION_ACCOUNT_SET_CODE, String.valueOf(accountSet.get("code")));
+            session.setAttribute(SESSION_ACCOUNT_SET_SCOPE_TOKEN, scopeToken);
+        }
+    }
+
+    private String rotatePersistedAccountScope(
+        jakarta.servlet.http.HttpSession session,
+        String userId,
+        Map<String, Object> accountSet
+    ) {
+        var sessionToken = requiredSessionUuid(session, SESSION_TOKEN, "当前会话令牌已失效");
+        var scopeToken = UUID.randomUUID().toString();
+        var updated = jdbcTemplate.update("""
+            UPDATE sys_session_account_scope
+            SET account_set_id = ?::uuid,
+                scope_token = ?::uuid,
+                updated_at = now(),
+                version = version + 1
+            WHERE session_token = ?::uuid
+              AND user_id = ?::uuid
+            """, accountSet.get("id"), scopeToken, sessionToken, userId);
+        if (updated != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "当前会话账套作用域已失效，请重新登录");
+        }
+        return scopeToken;
+    }
+
+    private String requiredSessionUuid(
+        jakarta.servlet.http.HttpSession session,
+        String attributeName,
+        String message
+    ) {
+        var value = session.getAttribute(attributeName);
+        if (value == null || String.valueOf(value).isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+        }
+        try {
+            return UUID.fromString(String.valueOf(value)).toString();
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, message, exception);
+        }
+    }
+
+    private void deletePersistedAccountScope(String sessionToken) {
+        try {
+            jdbcTemplate.update(
+                "DELETE FROM sys_session_account_scope WHERE session_token = ?::uuid",
+                UUID.fromString(sessionToken).toString()
+            );
+        } catch (IllegalArgumentException ignored) {
+            // A malformed legacy session is invalidated below and must not select another row.
+        }
     }
 
     private Map<String, Object> resolveLoginAccountSet(String accountSetCode, String userId) {
