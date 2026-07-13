@@ -27,6 +27,8 @@ public class BillLifecycleController {
         Map.entry("salesOut", new BillLifecycleTarget("sales_out", "sales_out_line", "bill_id", "SALES", "sales_out")),
         Map.entry("purchaseIn", new BillLifecycleTarget("purchase_in", "purchase_in_line", "bill_id", "PURCHASE", "purchase_in")),
         Map.entry("purchaseReturn", new BillLifecycleTarget("purchase_return", "purchase_return_line", "bill_id", "PURCHASE", "purchase_return")),
+        Map.entry("receipt", new BillLifecycleTarget("ar_receipt", "ar_receipt_fund_line", "receipt_id", "FINANCE", "ar_receipt")),
+        Map.entry("payment", new BillLifecycleTarget("ap_payment", "ap_payment_fund_line", "payment_id", "FINANCE", "ap_payment")),
         Map.entry("materialIssue", new BillLifecycleTarget("production_material_issue", "production_material_issue_line", "issue_id", "PRODUCTION", "production_material_issue")),
         Map.entry("productIn", new BillLifecycleTarget("production_completion", "production_completion_line", "completion_id", "PRODUCTION", "production_completion")),
         Map.entry("otherStockIn", new BillLifecycleTarget("other_stock_in", "other_stock_in_line", "bill_id", "INVENTORY", "other_stock_in")),

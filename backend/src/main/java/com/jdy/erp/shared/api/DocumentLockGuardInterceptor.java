@@ -17,6 +17,8 @@ public class DocumentLockGuardInterceptor implements HandlerInterceptor {
         Map.entry("/api/purchase-orders/", "purchaseOrder"),
         Map.entry("/api/purchase-ins/", "purchaseIn"),
         Map.entry("/api/purchase-returns/", "purchaseReturn"),
+        Map.entry("/api/finance/receipts/", "receipt"),
+        Map.entry("/api/finance/payments/", "payment"),
         Map.entry("/api/other-stock-ins/", "otherStockIn"),
         Map.entry("/api/other-stock-outs/", "otherStockOut"),
         Map.entry("/api/stock-transfers/", "stockTransfer"),

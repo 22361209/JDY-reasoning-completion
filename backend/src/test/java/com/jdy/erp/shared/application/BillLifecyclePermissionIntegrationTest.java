@@ -38,7 +38,9 @@ class BillLifecyclePermissionIntegrationTest {
         Map.entry("stockTransfer", "inventory.stock_transfer.audit"),
         Map.entry("stockCount", "inventory.stock_count.audit"),
         Map.entry("stockCountGain", "inventory.stock_count_gain.audit"),
-        Map.entry("stockCountLoss", "inventory.stock_count_loss.audit")
+        Map.entry("stockCountLoss", "inventory.stock_count_loss.audit"),
+        Map.entry("receipt", "finance.settle"),
+        Map.entry("payment", "finance.settle")
     );
 
     @ParameterizedTest
@@ -58,7 +60,9 @@ class BillLifecyclePermissionIntegrationTest {
         "stockTransfer,inventory.stock_transfer.audit",
         "stockCount,inventory.stock_count.audit",
         "stockCountGain,inventory.stock_count_gain.audit",
-        "stockCountLoss,inventory.stock_count_loss.audit"
+        "stockCountLoss,inventory.stock_count_loss.audit",
+        "receipt,finance.settle",
+        "payment,finance.settle"
     })
     void mapsEverySupportedDocumentTypeToItsExistingModulePermission(String type, String permission) {
         var policy = new DocumentPermissionPolicy(mock(CurrentPermissionService.class));
@@ -67,7 +71,7 @@ class BillLifecyclePermissionIntegrationTest {
     }
 
     @Test
-    void exposesExactlyTheSixteenContractedDocumentTypes() {
+    void exposesExactlyTheContractedDocumentTypes() {
         var policy = new DocumentPermissionPolicy(mock(CurrentPermissionService.class));
 
         assertThat(policy.supportedDocumentTypes()).containsExactlyInAnyOrderElementsOf(EXPECTED_PERMISSIONS.keySet());

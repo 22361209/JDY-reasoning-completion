@@ -27,6 +27,8 @@ public class BillLifecycleService {
         "purchase_order",
         "purchase_in",
         "purchase_return",
+        "ar_receipt",
+        "ap_payment",
         "production_task",
         "production_material_issue",
         "production_completion",
