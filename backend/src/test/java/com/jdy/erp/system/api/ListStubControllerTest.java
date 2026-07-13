@@ -107,7 +107,9 @@ class ListStubControllerTest {
             "stock-count-gain-list",
             "stock-count-gain-form-list",
             "stock-count-loss-list",
-            "stock-count-loss-form-list"
+            "stock-count-loss-form-list",
+            "sales-return-form-list",
+            "sales-out-return-source-selector"
         ).forEach(guard::assertReadable);
 
         verify(currentPermissionService).requirePermission("purchase.order.audit");
@@ -115,6 +117,17 @@ class ListStubControllerTest {
         verify(currentPermissionService, times(2)).requirePermission("inventory.stock_count.audit");
         verify(currentPermissionService, times(2)).requirePermission("inventory.stock_count_gain.audit");
         verify(currentPermissionService, times(2)).requirePermission("inventory.stock_count_loss.audit");
+        verify(currentPermissionService, times(2)).requirePermission("sales.out.audit");
+    }
+
+    @Test
+    void salesReturnListAndSelectorCannotBypassSalesOutPermission() {
+        var guard = new ListStubStateGuard(new ListQueryContractRegistry(), currentPermissionService);
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission"))
+            .when(currentPermissionService).requirePermission("sales.out.audit");
+
+        assertForbidden(() -> guard.assertReadable("sales-return-form-list"));
+        assertForbidden(() -> guard.assertReadable("sales-out-return-source-selector"));
     }
 
     @Test

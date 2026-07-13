@@ -304,6 +304,97 @@ class FinanceSettlementAppServiceIntegrationTest {
     }
 
     @Test
+    void receiptUsesReturnOffsetAsSettledAndCannotReverseAcrossAuditedSalesReturn() {
+        var suffix = suffix();
+        var customerId = insertParty("md_customer", "KH-A142-AR-" + suffix);
+        var accountId = insertAccount("ZH-A142-AR-" + suffix, "BANK", "CNY");
+        var sourceNo = "YS-A142-AR-" + suffix;
+        var sourceId = insertSource(
+            "ar_receivable", "customer_id", "received_amount",
+            sourceNo, customerId, "CNY", "100.00", "0.00", "PART_SETTLED"
+        );
+        jdbcTemplate.update(
+            "UPDATE ar_receivable SET return_offset_amount = 60.00 WHERE id = ?::uuid",
+            sourceId
+        );
+        var salesReturnNo = "XSTH-A142-AR-" + suffix;
+        var salesReturnId = jdbcTemplate.queryForObject("""
+            INSERT INTO sales_return (
+                bill_no, customer_id, bill_date, status, total_amount, currency
+            )
+            VALUES (?, ?::uuid, DATE '2026-07-14', 'AUDITED', 60.00, 'CNY')
+            RETURNING id::text
+            """, String.class, salesReturnNo, customerId);
+        jdbcTemplate.update("""
+            INSERT INTO sales_return_finance_allocation (
+                sales_return_id, receivable_id, source_out_no, receivable_bill_no,
+                currency, source_amount, received_before, return_offset_before,
+                unsettled_before, return_amount, offset_amount,
+                pending_refund_amount, refunded_amount
+            )
+            VALUES (
+                ?::uuid, ?::uuid, ?, ?, 'CNY', 100.00, 0.00, 0.00,
+                100.00, 60.00, 60.00, 0.00, 0.00
+            )
+            """, salesReturnId, sourceId, "XSCK-A142-AR-" + suffix, sourceNo);
+
+        var draft = settlementService.createDraft(
+            SettlementKind.RECEIPT,
+            request(
+                null,
+                customerId,
+                "CNY",
+                new BigDecimal("40.00"),
+                List.of(fund(accountId, "BANK_TRANSFER", "40.00", null)),
+                List.of(allocation(sourceId, "40.00")),
+                "return offset aware"
+            )
+        );
+        assertThat(draft.get("allocations")).asList().singleElement()
+            .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+            .containsEntry("settledBefore", "60.00")
+            .containsEntry("unsettledBefore", "40.00")
+            .containsEntry("currentSettledAmount", "60.00")
+            .containsEntry("currentUnsettledAmount", "40.00");
+        var billNo = String.valueOf(draft.get("billNo"));
+        assertThat(settlementService.audit(SettlementKind.RECEIPT, billNo))
+            .containsEntry("status", "AUDITED");
+        assertThat(settled("ar_receivable", "received_amount", sourceId)).isEqualByComparingTo("40.00");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT return_offset_amount FROM ar_receivable WHERE id = ?::uuid",
+            BigDecimal.class,
+            sourceId
+        )).isEqualByComparingTo("60.00");
+        assertThat(status("ar_receivable", sourceId)).isEqualTo("SETTLED");
+
+        assertThatThrownBy(() -> settlementService.reverse(SettlementKind.RECEIPT, billNo))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("先反审核相关销售退货单");
+        assertThat(settled("ar_receivable", "received_amount", sourceId)).isEqualByComparingTo("40.00");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT status FROM ar_receipt WHERE bill_no = ?",
+            String.class,
+            billNo
+        )).isEqualTo("AUDITED");
+
+        jdbcTemplate.update(
+            "DELETE FROM sales_return_finance_allocation WHERE sales_return_id = ?::uuid",
+            salesReturnId
+        );
+        jdbcTemplate.update("UPDATE sales_return SET status = 'DRAFT' WHERE id = ?::uuid", salesReturnId);
+        jdbcTemplate.update("""
+            UPDATE ar_receivable
+            SET return_offset_amount = 0.00,
+                status = 'PART_SETTLED'
+            WHERE id = ?::uuid
+            """, sourceId);
+        assertThat(settlementService.reverse(SettlementKind.RECEIPT, billNo))
+            .containsEntry("status", "DRAFT");
+        assertThat(settled("ar_receivable", "received_amount", sourceId)).isEqualByComparingTo("0.00");
+        assertThat(status("ar_receivable", sourceId)).isEqualTo("OPEN");
+    }
+
+    @Test
     void usdPaymentKeepsOriginalCurrencyAndCompetingDraftCannotOverpay() {
         var suffix = suffix();
         var supplierId = insertParty("md_supplier", "GYS-A141-" + suffix);
@@ -601,7 +692,13 @@ class FinanceSettlementAppServiceIntegrationTest {
         financePostingService.post(receivableContext);
         financePostingService.post(payableContext);
         jdbcTemplate.update(
-            "UPDATE ar_receivable SET received_amount = 40.00, status = 'OPEN' WHERE bill_no = ?",
+            """
+            UPDATE ar_receivable
+            SET received_amount = 20.00,
+                return_offset_amount = 30.00,
+                status = 'OPEN'
+            WHERE bill_no = ?
+            """,
             receivableNo
         );
         jdbcTemplate.update(
@@ -613,9 +710,14 @@ class FinanceSettlementAppServiceIntegrationTest {
         financePostingService.post(payableContext);
         assertThat(financeFact("ar_receivable", "received_amount", receivableNo))
             .containsEntry("amount", new BigDecimal("100.00"))
-            .containsEntry("settledAmount", new BigDecimal("40.00"))
+            .containsEntry("settledAmount", new BigDecimal("20.00"))
             .containsEntry("currency", "USD")
             .containsEntry("status", "PART_SETTLED");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT return_offset_amount FROM ar_receivable WHERE bill_no = ?",
+            BigDecimal.class,
+            receivableNo
+        )).isEqualByComparingTo("30.00");
         assertThat(financeFact("ap_payable", "paid_amount", payableNo))
             .containsEntry("amount", new BigDecimal("80.00"))
             .containsEntry("settledAmount", new BigDecimal("30.00"))
@@ -623,7 +725,13 @@ class FinanceSettlementAppServiceIntegrationTest {
             .containsEntry("status", "PART_SETTLED");
 
         jdbcTemplate.update(
-            "UPDATE ar_receivable SET received_amount = amount, status = 'OPEN' WHERE bill_no = ?",
+            """
+            UPDATE ar_receivable
+            SET received_amount = amount,
+                return_offset_amount = 0,
+                status = 'OPEN'
+            WHERE bill_no = ?
+            """,
             receivableNo
         );
         financePostingService.post(receivableContext);

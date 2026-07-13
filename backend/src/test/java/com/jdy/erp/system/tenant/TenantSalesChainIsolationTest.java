@@ -14,6 +14,7 @@ import com.jdy.erp.sales.application.DeliveryNoticeAppService;
 import com.jdy.erp.sales.application.SalesOrderAppService;
 import com.jdy.erp.sales.application.SalesOutAppService;
 import com.jdy.erp.sales.application.SalesQuoteAppService;
+import com.jdy.erp.sales.application.SalesReturnAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -57,6 +58,9 @@ class TenantSalesChainIsolationTest {
 
     @Autowired
     private SalesOutAppService salesOutAppService;
+
+    @Autowired
+    private SalesReturnAppService salesReturnAppService;
 
     @Autowired
     private ListStubController listStubController;
@@ -140,6 +144,44 @@ class TenantSalesChainIsolationTest {
         assertThat(countProductsNamed("A119 账套B销售物料")).isZero();
         assertListContainsOnlyTenantCustomer("delivery-notice-form-list", "header", "A119 账套A客户", noticeNoA);
         assertListContainsOnlyTenantCustomer("sales-out-form-list", "header", "A119 账套A客户", outNoA);
+    }
+
+    @Test
+    void salesReturnUsesTheSameGeneratedNumberWithoutCrossTenantDetailOrListLeakage() {
+        var tenantA = createManagedAccountSet("A142SRA");
+        var tenantB = createManagedAccountSet("A142SRB");
+
+        useTenant(tenantA);
+        createAuditedCustomer("A142 账套A客户");
+        createAuditedMaterial("A142 账套A销售物料");
+        saveOpeningStock(new BigDecimal("10"));
+        var quoteA = saveAndAuditQuote("A142 账套A报价");
+        var orderA = saveAndAuditOrder(new BigDecimal("6"), quoteA);
+        var noticeA = saveAndAuditDeliveryNotice(new BigDecimal("4"), orderA);
+        var outA = saveAndAuditSalesOut(new BigDecimal("3"), noticeA);
+        var returnA = saveAndAuditSalesReturn(outA, "A142 账套A退货");
+        assertReturnDetail(returnA, outA, "A142 账套A客户", "CNY");
+        assertListContainsOnlyTenantCustomer("sales-return-form-list", "header", "A142 账套A客户", returnA);
+        assertBalance("8.0000", "1.0000", "7.0000");
+
+        useTenant(tenantB);
+        createAuditedCustomer("A142 账套B客户");
+        createAuditedMaterial("A142 账套B销售物料");
+        saveOpeningStock(new BigDecimal("10"));
+        var quoteB = saveAndAuditQuote("A142 账套B报价");
+        var orderB = saveAndAuditOrder(new BigDecimal("6"), quoteB);
+        var noticeB = saveAndAuditDeliveryNotice(new BigDecimal("4"), orderB);
+        var outB = saveAndAuditSalesOut(new BigDecimal("3"), noticeB);
+        var returnB = saveAndAuditSalesReturn(outB, "A142 账套B退货");
+        assertThat(returnB).isEqualTo(returnA);
+        assertReturnDetail(returnB, outB, "A142 账套B客户", "CNY");
+        assertListContainsOnlyTenantCustomer("sales-return-form-list", "detail", "A142 账套B客户", returnB);
+
+        useTenant(tenantA);
+        assertReturnDetail(returnA, outA, "A142 账套A客户", "CNY");
+        assertThat(countCustomersNamed("A142 账套B客户")).isZero();
+        assertThat(countProductsNamed("A142 账套B销售物料")).isZero();
+        assertListContainsOnlyTenantCustomer("sales-return-form-list", "detail", "A142 账套A客户", returnA);
     }
 
     private String createManagedAccountSet(String prefix) {
@@ -312,6 +354,41 @@ class TenantSalesChainIsolationTest {
         var billNo = generatedBillNo(saved, "销售出库单");
         salesOutAppService.audit(billNo);
         return billNo;
+    }
+
+    private String saveAndAuditSalesReturn(String sourceOutNo, String remark) {
+        var saved = salesReturnAppService.saveDraft(new SalesReturnAppService.SalesReturnDraftRequest(
+            null,
+            null,
+            "2026-06-30",
+            remark,
+            List.of(new SalesReturnAppService.SalesReturnLineRequest(
+                sourceOutNo,
+                1,
+                BigDecimal.ONE,
+                "A142 return line"
+            ))
+        ));
+        @SuppressWarnings("unchecked")
+        var document = (Map<String, Object>) saved.get("document");
+        var billNo = String.valueOf(document.get("billNo"));
+        assertThat(billNo).as("销售退货单系统生成单号").isNotBlank();
+        salesReturnAppService.audit(billNo);
+        return billNo;
+    }
+
+    private void assertReturnDetail(String billNo, String sourceOutNo, String customerName, String currency) {
+        var detail = salesReturnAppService.detail(billNo);
+        @SuppressWarnings("unchecked")
+        var document = (Map<String, Object>) detail.get("document");
+        assertThat(document)
+            .containsEntry("billNo", billNo)
+            .containsEntry("customer", customerName)
+            .containsEntry("currency", currency)
+            .containsEntry("status", "AUDITED");
+        assertThat(linesOf(detail, "lines"))
+            .singleElement()
+            .satisfies(line -> assertThat(line).containsEntry("sourceOutNo", sourceOutNo));
     }
 
     private void assertQuoteSelectable(String productName, String quoteNo) {

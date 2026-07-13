@@ -9,6 +9,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,6 +32,24 @@ class RedReverseGuardServiceTest {
             .isInstanceOf(ResponseStatusException.class)
             .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT))
             .hasMessageContaining("已存在非作废红字单");
+    }
+
+    @Test
+    void actionAwareGuardPreservesTheRequestedBusinessAction() {
+        when(jdbcTemplate.queryForList(contains("FROM sales_out"), eq("XSCK-A142-SOURCE")))
+            .thenReturn(List.of(Map.of("id", SOURCE_BILL_ID)));
+        when(jdbcTemplate.queryForObject(contains("status <> 'VOID'"), eq(Integer.class), eq(SOURCE_BILL_ID)))
+            .thenReturn(1);
+
+        assertThatThrownBy(() -> service.assertNoNonVoidRedBillForBillNo(
+            "sales_out",
+            "XSCK-A142-SOURCE",
+            "销售出库单",
+            "反审核"
+        ))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT))
+            .hasMessageContaining("销售出库单已存在非作废红字单，不能反审核");
     }
 
     @Test
