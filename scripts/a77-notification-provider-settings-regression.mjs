@@ -114,7 +114,7 @@ try {
   settingsScreenshot = `a77-notification-provider-settings-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, settingsScreenshot), fullPage: true });
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("UPDATE_NOTIFICATION_PROVIDER_SETTING")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("UPDATE_NOTIFICATION_PROVIDER_SETTING")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const settingAuditRows = (logPayload.rows ?? []).filter((row) => row.action === "UPDATE_NOTIFICATION_PROVIDER_SETTING" && row.status === "成功");

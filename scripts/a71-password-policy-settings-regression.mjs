@@ -169,7 +169,7 @@ try {
   assert(settingsPayload.passwordPolicy.minLength === 8, "password min length should reset to 8");
   assert(settingsPayload.passwordPolicy.requireSymbol === true, "password require symbol should reset to true");
 
-  const logResponse = await browserFetch(adminPage, `/api/lists/operation-log-list?keyword=${encodeURIComponent("password_policy")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(adminPage, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("password-policy")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const policyRows = (logPayload.rows ?? []).filter((row) => row.action === "UPDATE_SECURITY_SETTING" && row.status === "成功");

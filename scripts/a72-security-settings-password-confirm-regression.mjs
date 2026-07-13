@@ -107,7 +107,7 @@ try {
   const restoredSettings = await readSettings(page);
   assert(restoredSettings.repeatedLoginPolicy === "SINGLE_ACTIVE", "policy should restore to SINGLE_ACTIVE");
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("repeated_login_policy")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("repeated_login_policy")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const settingRows = (logPayload.rows ?? []).filter((row) => row.action === "UPDATE_SECURITY_SETTING" && row.status === "成功");

@@ -258,8 +258,8 @@ async function removeProbeUser() {
         AND NOT (
           target_type = 'sys_user'
           AND target_id = ${sqlLiteral(targetId)}::uuid
-          AND operated_by = ${sqlLiteral(targetId)}::uuid
-          AND action_code IN ('LOGIN', 'LOGIN_REPLACED')
+          AND action_code IN ('CREATE_USER', 'LOGIN', 'LOGIN_REPLACED')
+          AND (action_code = 'CREATE_USER' OR operated_by = ${sqlLiteral(targetId)}::uuid)
         )
     `)) === 0,
     "A49 refused to delete a probe user with non-login operation logs"
@@ -267,10 +267,8 @@ async function removeProbeUser() {
   sqlScalar(`
     BEGIN;
     DELETE FROM public.sys_operation_log
-    WHERE target_type = 'sys_user'
-      AND target_id = ${sqlLiteral(targetId)}::uuid
-      AND operated_by = ${sqlLiteral(targetId)}::uuid
-      AND action_code IN ('LOGIN', 'LOGIN_REPLACED');
+    WHERE target_id = ${sqlLiteral(targetId)}::uuid
+       OR operated_by = ${sqlLiteral(targetId)}::uuid;
     DELETE FROM public.sys_user_role WHERE user_id = ${sqlLiteral(targetId)}::uuid;
     DELETE FROM public.sys_user WHERE id = ${sqlLiteral(targetId)}::uuid AND username = ${sqlLiteral(probeUsername)};
     COMMIT;
@@ -397,6 +395,7 @@ try {
   assert(await page.getByTestId("operation-log-target-type").inputValue() === "sales_out", "default preset should apply target type");
   assert(await page.getByTestId("column-filter-status").evaluate((node) => node.className.includes("active")), "default preset should apply the visible status as a column filter");
   assert(await page.locator('[data-testid="operation-log-preset-delete"]').isDisabled(), "readonly default preset delete button should be disabled");
+  assert(await page.getByTestId("list-refresh-stock").count() === 0, "operation log list must not expose the unrelated update-inventory action");
   await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible", timeout: 3000 });
   await page.getByTestId("vxe-list-table").getByText("RED_REVERSE").first().waitFor({ state: "visible" });
   const screenshot = `a49-operation-log-default-readonly-preset-${batch}.png`;

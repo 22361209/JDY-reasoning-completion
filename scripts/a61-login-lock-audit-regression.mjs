@@ -58,6 +58,8 @@ try {
     }
   });
   assert(createUser.status === 200, `admin should create A61 user, got ${createUser.status}: ${createUser.text}`);
+  const createdUser = (JSON.parse(createUser.text).users ?? []).find((user) => user.username === username);
+  assert(createdUser?.id, `created A61 user UUID should be returned: ${createUser.text}`);
 
   await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
@@ -80,7 +82,7 @@ try {
   await page.getByTestId("login-password").fill("admin123");
   await page.getByTestId("login-submit").click();
   await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent(username)}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent(createdUser.id)}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const rows = logPayload.rows ?? [];
@@ -93,6 +95,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     username,
+    userId: createdUser.id,
     failedLoginRows: loginFailures.length,
     lockedRows: lockRows.length,
     screenshot: `verification/playwright/${lockedScreenshot}`

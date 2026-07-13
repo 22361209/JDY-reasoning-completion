@@ -112,7 +112,7 @@ try {
   assert(doneNotices.length >= 1, `expected sent reset notification for ${resetUsername}, got ${doneNotices.length}`);
   assert(rejectedNotices.length >= 1, `expected sent reject notification for ${rejectUsername}, got ${rejectedNotices.length}`);
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("SEND_PASSWORD_RESET_NOTICE")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("SEND_PASSWORD_RESET_NOTICE")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const noticeAuditRows = (logPayload.rows ?? []).filter((row) => row.action === "SEND_PASSWORD_RESET_NOTICE" && row.status === "成功");

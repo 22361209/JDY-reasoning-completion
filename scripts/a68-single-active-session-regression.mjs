@@ -59,6 +59,8 @@ try {
     }
   });
   assert(createUser.status === 200, `admin should create A68 user, got ${createUser.status}: ${createUser.text}`);
+  const createdUser = (JSON.parse(createUser.text).users ?? []).find((user) => user.username === username);
+  assert(createdUser?.id, `created A68 user UUID should be returned: ${createUser.text}`);
   await sharedLogout(adminPage);
   await adminContext.close();
 
@@ -110,7 +112,7 @@ try {
   adminScreenshot = `a68-managed-user-session-${batch}.png`;
   await auditPage.screenshot({ path: path.join(screenshotDir, adminScreenshot), fullPage: true });
 
-  const logResponse = await browserFetch(auditPage, `/api/lists/operation-log-list?keyword=${encodeURIComponent(username)}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(auditPage, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent(createdUser.id)}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const replacedRows = (logPayload.rows ?? []).filter((row) => row.action === "LOGIN_REPLACED" && row.status === "成功");
@@ -120,6 +122,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     username,
+    userId: createdUser.id,
     firstSessionBeforeAuthenticated: firstSessionPayload.authenticated,
     secondSessionAuthenticated: secondSessionPayload.authenticated,
     firstSessionAfterAuthenticated: firstSessionAfterPayload.authenticated,

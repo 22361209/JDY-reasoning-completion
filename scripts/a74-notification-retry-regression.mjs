@@ -119,7 +119,7 @@ try {
   assert((resentNotice.retryCount ?? 0) >= 1, `resent notice retry count should increment, got ${resentNotice.retryCount}`);
   assert(!resentNotice.failureReason, `failure reason should clear after resend, got ${resentNotice.failureReason}`);
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("RESEND_NOTIFICATION")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("RESEND_NOTIFICATION")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const resendAuditRows = (logPayload.rows ?? []).filter((row) => row.action === "RESEND_NOTIFICATION" && row.status === "成功");

@@ -13,7 +13,9 @@ await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const logDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
-const operator = "本地管理员";
+const actorUsername = "admin";
+const actorDisplayName = "本地管理员";
+const operatorLabel = `${actorDisplayName}（${actorUsername}）`;
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
   { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 94 },
@@ -101,7 +103,7 @@ async function createRedReverseSalesOut() {
       customerCode: "KH-001",
       billDate,
       department: "销售部",
-      ownerName: operator,
+      ownerName: actorDisplayName,
       lines
     }
   }), "A43销售订单");
@@ -111,12 +113,12 @@ async function createRedReverseSalesOut() {
     customerCode: "KH-001",
     billDate,
     department: "销售部",
-    ownerName: operator,
+    ownerName: actorDisplayName,
     lines
   })).salesOutNo;
   await requireJson(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
   const redBillNo = generatedBillNo(await requireJson(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
-    body: { billDate, ownerName: operator }
+    body: { billDate, ownerName: actorDisplayName }
   }), "A43销售出库红冲");
   await requireJson(`/api/sales-outs/${encodeURIComponent(redBillNo)}/audit`);
   return { orderNo, billNo, redBillNo };
@@ -125,10 +127,12 @@ async function createRedReverseSalesOut() {
 function exportQuery(redBillNo) {
   return new URLSearchParams({
     keyword: redBillNo,
-    status: "成功",
+    scope: "current",
+    actorType: "USER",
+    columnFilters: JSON.stringify({ status: { operator: "等于", value: "成功" } }),
     module: "SALES",
     action: "RED_REVERSE",
-    operator,
+    operator: actorUsername,
     targetType: "sales_out",
     dateFrom: logDate,
     dateTo: logDate,
@@ -137,17 +141,78 @@ function exportQuery(redBillNo) {
   });
 }
 
+function parseCsv(text) {
+  const source = text.replace(/^\uFEFF/, "");
+  const records = [];
+  let record = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (quoted) {
+      if (char === '"' && source[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        field += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      record.push(field);
+      field = "";
+    } else if (char === "\n") {
+      record.push(field.replace(/\r$/, ""));
+      if (record.some((value) => value !== "")) records.push(record);
+      record = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  if (field || record.length) {
+    record.push(field.replace(/\r$/, ""));
+    records.push(record);
+  }
+  const [headers = [], ...rows] = records;
+  return rows.map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
+}
+
+function assertListCsvParity(listRows, csvRows, label) {
+  const mapping = {
+    id: "日志ID", operatedAt: "操作时间", module: "模块", action: "动作", actorType: "主体类型",
+    actorUsername: "操作人账号", actorDisplayName: "操作时姓名", operator: "操作人",
+    accountSetId: "账套ID", accountSetCode: "账套编码", accountSetName: "账套名称",
+    targetType: "对象类型", targetId: "对象ID", targetNo: "业务单号", status: "状态", reason: "失败原因",
+    beforeState: "操作前状态", afterState: "操作后状态"
+  };
+  assert(listRows.length === csvRows.length, `${label} row count mismatch: list=${listRows.length}, csv=${csvRows.length}`);
+  listRows.forEach((row, index) => {
+    const csvRow = csvRows[index];
+    Object.entries(mapping).forEach(([fieldName, csvHeader]) => {
+      const rawValue = row[fieldName];
+      const listValue = rawValue && typeof rawValue === "object" ? JSON.stringify(rawValue) : String(rawValue ?? "");
+      assert(listValue === String(csvRow[csvHeader] ?? ""), `${label} row ${index} ${fieldName} mismatch`);
+    });
+  });
+}
+
 await seedStock();
 const sales = await createRedReverseSalesOut();
 const query = exportQuery(sales.redBillNo);
+const listResult = await requireJson(`/api/lists/operation-log-list?${query.toString()}`, { method: "GET" });
 const csv = await requireText(`/api/lists/operation-log-list/export.csv?${query.toString()}`, { method: "GET" });
-assertIncludes("csv header", csv, "操作时间,模块,动作,对象类型,业务单号,操作人,状态,失败原因");
+const csvRows = parseCsv(csv);
+assertIncludes("csv header", csv, "日志ID,操作时间,模块,动作,主体类型,操作人账号,操作时姓名,操作人,账套ID,账套编码,账套名称,对象类型,对象ID,业务单号,状态,失败原因,操作前状态,操作后状态");
 assertIncludes("csv red bill", csv, sales.redBillNo);
 assertIncludes("csv module", csv, "SALES");
 assertIncludes("csv action", csv, "RED_REVERSE");
 assertIncludes("csv target type", csv, "sales_out");
-assertIncludes("csv operator", csv, operator);
+assertIncludes("csv operator", csv, operatorLabel);
 assertIncludes("csv status", csv, "成功");
+assertListCsvParity(listResult.rows, csvRows, "API list/export");
 
 const mismatchQuery = exportQuery(sales.redBillNo);
 mismatchQuery.set("targetType", "purchase_in");
@@ -169,7 +234,9 @@ try {
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
   await page.getByTestId("operation-log-module").selectOption("SALES");
   await page.getByTestId("operation-log-action").selectOption("RED_REVERSE");
-  await page.getByTestId("operation-log-operator").fill(operator);
+  await page.getByTestId("operation-log-scope").selectOption("current");
+  await page.getByTestId("operation-log-actor-type").selectOption("USER");
+  await page.getByTestId("operation-log-operator").fill(actorUsername);
   await page.getByTestId("operation-log-target-type").selectOption("sales_out");
   await page.getByTestId("list-date-range").click();
   await page.getByTestId("list-date-from").fill(logDate);
@@ -187,6 +254,8 @@ try {
   const listRequest = await listRequestPromise;
   const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
   assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
+  assert(new URL(listRequest.url()).searchParams.get("scope") === "current", "UI list request should preserve current scope");
+  assert(new URL(listRequest.url()).searchParams.get("actorType") === "USER", "UI list request should preserve USER actor type");
   await page.getByTestId("vxe-list-table").getByText(sales.redBillNo).waitFor({ state: "visible" });
   await page.getByTestId("list-more-actions").hover();
   const [download, exportRequest] = await Promise.all([
@@ -196,10 +265,13 @@ try {
   ]);
   const exportColumnFilters = JSON.parse(new URL(exportRequest.url()).searchParams.get("columnFilters") || "{}");
   assert(exportColumnFilters.status?.operator === "等于" && exportColumnFilters.status?.value === "成功", `export should preserve exact status equality: ${JSON.stringify(exportColumnFilters.status)}`);
+  assert(new URL(exportRequest.url()).searchParams.get("scope") === "current", "UI export request should preserve current scope");
+  assert(new URL(exportRequest.url()).searchParams.get("actorType") === "USER", "UI export request should preserve USER actor type");
   downloadFileName = download.suggestedFilename();
   downloadedCsv = await readFile(await download.path(), "utf8");
   assertIncludes("download csv red bill", downloadedCsv, sales.redBillNo);
   assertIncludes("download csv target type", downloadedCsv, "sales_out");
+  assertListCsvParity(listResult.rows, parseCsv(downloadedCsv), "downloaded list/export");
   await page.getByTestId("list-export-message").getByText("引出文件已生成").waitFor({ state: "visible" });
   const screenshot = `a43-operation-log-export-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, screenshot), fullPage: true });
@@ -214,7 +286,8 @@ const result = {
   salesOutNo: sales.billNo,
   salesRedReverseBillNo: sales.redBillNo,
   apiChecks: {
-    csvHeaderOk: csv.includes("操作时间,模块,动作,对象类型,业务单号,操作人,状态,失败原因"),
+    csvHeaderOk: csv.includes("日志ID,操作时间,模块,动作,主体类型"),
+    listCsvIdOrder: listResult.rows.map((row) => row.id),
     csvContainsRedBill: csv.includes(sales.redBillNo),
     mismatchTargetTypeContainsRedBill: mismatchCsv.includes(sales.redBillNo)
   },

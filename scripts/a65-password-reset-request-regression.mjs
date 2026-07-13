@@ -96,7 +96,7 @@ try {
   const pendingRequests = (managedPayload.passwordResetRequests ?? []).filter((request) => request.username === username && request.status === "PENDING");
   assert(pendingRequests.length === 0, `expected no pending reset request, got ${pendingRequests.length}`);
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent(username)}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent(targetUser.id)}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const rows = logPayload.rows ?? [];

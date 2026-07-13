@@ -114,7 +114,7 @@ try {
   assert(sessionAfterReset.security?.sessionTimeoutMinutes === 30, `reset session timeout should be 30, got ${sessionAfterReset.security?.sessionTimeoutMinutes}`);
   assert(sessionAfterReset.security?.sessionMaxInactiveSeconds === 1800, `reset HttpSession max inactive should be 1800, got ${sessionAfterReset.security?.sessionMaxInactiveSeconds}`);
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("session_timeout_minutes")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("session_timeout_minutes")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const settingRows = (logPayload.rows ?? []).filter((row) => row.action === "UPDATE_SECURITY_SETTING" && row.status === "成功");

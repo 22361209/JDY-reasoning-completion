@@ -55,6 +55,8 @@ try {
     }
   });
   assert(createUser.status === 200, `admin should create A62 user, got ${createUser.status}: ${createUser.text}`);
+  const createdUser = (JSON.parse(createUser.text).users ?? []).find((user) => user.username === username);
+  assert(createdUser?.id, `created A62 user UUID should be returned: ${createUser.text}`);
   await sharedLogout(page);
   await page.reload({ waitUntil: "networkidle" });
 
@@ -87,7 +89,7 @@ try {
 
   await sharedLogout(page);
   await loginAs(page, "admin", "admin123", "系统管理员");
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent(username)}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent(createdUser.id)}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const unlockRows = (logPayload.rows ?? []).filter((row) => row.action === "UNLOCK_USER" && row.status === "成功");
@@ -97,6 +99,7 @@ try {
     batch,
     generatedAt: new Date().toISOString(),
     username,
+    userId: createdUser.id,
     unlockRows: unlockRows.length,
     screenshots: [
       `verification/playwright/${lockedScreenshot}`,

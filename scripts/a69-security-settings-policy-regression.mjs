@@ -115,7 +115,7 @@ try {
   const secondPeriodSingle = await browserFetch(secondPage, "/api/system/period");
   assert(secondPeriodSingle.status === 200, `SINGLE_ACTIVE should keep latest context usable, got ${secondPeriodSingle.status}`);
 
-  const logResponse = await browserFetch(adminPage, `/api/lists/operation-log-list?keyword=${encodeURIComponent("UPDATE_SECURITY_SETTING")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(adminPage, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("UPDATE_SECURITY_SETTING")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const settingRows = (logPayload.rows ?? []).filter((row) => row.action === "UPDATE_SECURITY_SETTING" && row.status === "成功");

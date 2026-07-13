@@ -115,6 +115,14 @@ try {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
+  const presetSelect = page.getByTestId("operation-log-preset-select");
+  if (!(await presetSelect.isVisible({ timeout: 500 }).catch(() => false))) {
+    await page.getByTestId("list-toggle-filter").click();
+  }
+  if (!(await presetSelect.isVisible({ timeout: 500 }).catch(() => false))) {
+    await page.getByTestId("list-toggle-filter").click();
+  }
+  await presetSelect.waitFor({ state: "visible" });
   const resetResponsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === "GET" && url.pathname === "/api/lists/operation-log-list";
@@ -122,7 +130,14 @@ try {
   await page.getByTestId("list-reset").click();
   await resetResponsePromise;
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
+  const filteredResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET"
+      && url.pathname === "/api/lists/operation-log-list"
+      && url.searchParams.get("keyword") === sales.redBillNo;
+  });
   await page.getByTestId("list-keyword").press("Enter");
+  await filteredResponsePromise;
   const table = page.getByTestId("vxe-list-table");
   const redReverseRow = table.locator("tr")
     .filter({ hasText: sales.redBillNo })

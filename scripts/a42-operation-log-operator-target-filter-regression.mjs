@@ -13,7 +13,9 @@ await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const logDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
-const operator = "本地管理员";
+const actorUsername = "admin";
+const actorDisplayName = "本地管理员";
+const operatorLabel = `${actorDisplayName}（${actorUsername}）`;
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
   { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 94 },
@@ -90,7 +92,7 @@ async function createRedReverseSalesOut() {
       customerCode: "KH-001",
       billDate,
       department: "销售部",
-      ownerName: operator,
+      ownerName: actorDisplayName,
       lines
     }
   }), "A42销售订单");
@@ -100,12 +102,12 @@ async function createRedReverseSalesOut() {
     customerCode: "KH-001",
     billDate,
     department: "销售部",
-    ownerName: operator,
+    ownerName: actorDisplayName,
     lines
   })).salesOutNo;
   await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/audit`);
   const redBillNo = generatedBillNo(await requireApi(`/api/sales-outs/${encodeURIComponent(billNo)}/red-reverse`, {
-    body: { billDate, ownerName: operator }
+    body: { billDate, ownerName: actorDisplayName }
   }), "A42销售出库红冲");
   await requireApi(`/api/sales-outs/${encodeURIComponent(redBillNo)}/audit`);
   return { orderNo, billNo, redBillNo };
@@ -115,10 +117,12 @@ await seedStock();
 const sales = await createRedReverseSalesOut();
 const query = new URLSearchParams({
   keyword: sales.redBillNo,
-  status: "成功",
+  scope: "current",
+  actorType: "USER",
+  columnFilters: JSON.stringify({ status: { operator: "等于", value: "成功" } }),
   module: "SALES",
   action: "RED_REVERSE",
-  operator,
+  operator: actorUsername,
   targetType: "sales_out",
   dateFrom: logDate,
   dateTo: logDate,
@@ -130,7 +134,11 @@ const redLog = logResult.rows.find((row) => row.targetNo === sales.redBillNo && 
 assert(redLog, `operation log should contain RED_REVERSE for ${sales.redBillNo}`);
 assert(redLog.module === "SALES", `operation log module expected SALES, got ${redLog?.module}`);
 assert(redLog.status === "成功", `operation log status expected 成功, got ${redLog?.status}`);
-assert(redLog.operator === operator, `operation log operator expected ${operator}, got ${redLog?.operator}`);
+assert(redLog.actorType === "USER", `operation log actorType expected USER, got ${redLog?.actorType}`);
+assert(redLog.actorUsername === actorUsername, `operation log actorUsername expected ${actorUsername}, got ${redLog?.actorUsername}`);
+assert(redLog.actorDisplayName === actorDisplayName, `operation log actorDisplayName expected ${actorDisplayName}, got ${redLog?.actorDisplayName}`);
+assert(redLog.operator === operatorLabel, `operation log operator expected ${operatorLabel}, got ${redLog?.operator}`);
+assert(redLog.accountSetId && redLog.accountSetCode && redLog.accountSetName, `operation log should preserve account-set identity: ${JSON.stringify(redLog)}`);
 assert(redLog.targetType === "sales_out", `operation log targetType expected sales_out, got ${redLog?.targetType}`);
 
 const mismatchOperatorQuery = new URLSearchParams(query);
@@ -156,7 +164,9 @@ try {
   await page.getByTestId("list-keyword").fill(sales.redBillNo);
   await page.getByTestId("operation-log-module").selectOption("SALES");
   await page.getByTestId("operation-log-action").selectOption("RED_REVERSE");
-  await page.getByTestId("operation-log-operator").fill(operator);
+  await page.getByTestId("operation-log-scope").selectOption("current");
+  await page.getByTestId("operation-log-actor-type").selectOption("USER");
+  await page.getByTestId("operation-log-operator").fill(actorUsername);
   await page.getByTestId("operation-log-target-type").selectOption("sales_out");
   await page.getByTestId("list-date-range").click();
   await page.getByTestId("list-date-from").fill(logDate);
@@ -174,10 +184,12 @@ try {
   const listRequest = await listRequestPromise;
   const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
   assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
+  assert(new URL(listRequest.url()).searchParams.get("scope") === "current", "UI request should preserve current scope");
+  assert(new URL(listRequest.url()).searchParams.get("actorType") === "USER", "UI request should preserve USER actor type");
   const table = page.getByTestId("vxe-list-table");
   await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
   await table.getByText("sales_out").first().waitFor({ state: "visible" });
-  await table.getByText(operator).first().waitFor({ state: "visible" });
+  await table.getByText(operatorLabel).first().waitFor({ state: "visible" });
   await table.getByText("RED_REVERSE").first().waitFor({ state: "visible" });
   await table.getByText("SALES").first().waitFor({ state: "visible" });
   const screenshot = `a42-operation-log-operator-target-filter-${batch}.png`;

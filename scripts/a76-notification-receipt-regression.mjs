@@ -150,7 +150,7 @@ try {
   receiptScreenshot = `a76-notification-receipt-sync-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, receiptScreenshot), fullPage: true });
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("SYNC_NOTIFICATION_RECEIPT")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("SYNC_NOTIFICATION_RECEIPT")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const receiptAuditRows = (logPayload.rows ?? []).filter((row) => row.action === "SYNC_NOTIFICATION_RECEIPT" && row.status === "成功");

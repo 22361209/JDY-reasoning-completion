@@ -152,7 +152,7 @@ try {
   autoRetryScreenshot = `a75-notification-auto-retry-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, autoRetryScreenshot), fullPage: true });
 
-  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?keyword=${encodeURIComponent("AUTO_RETRY_NOTIFICATION")}&page=1&pageSize=200`);
+  const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent("AUTO_RETRY_NOTIFICATION")}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);
   const autoRetryAuditRows = (logPayload.rows ?? []).filter((row) => row.action === "AUTO_RETRY_NOTIFICATION" && row.status === "成功");
