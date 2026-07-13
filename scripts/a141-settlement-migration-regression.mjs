@@ -53,6 +53,7 @@ const result = {
     target101: {},
     fixtures: {},
     migration102: {},
+    migration103: {},
     repeatFlyway: {},
     repeatTenantSync: {},
     restoreApi: {}
@@ -889,7 +890,9 @@ try {
   result.upgrade.migration102.flywayOutputTail = flywayMigrate(upgradeDatabase);
   const migratedHistory = migrationHistory(upgradeDatabase);
   const v102Rows = migratedHistory.filter((row) => row.version === "102");
+  const v103Rows = migratedHistory.filter((row) => row.version === "103");
   assert(v102Rows.length === 1 && v102Rows[0].success === true, `V102 history mismatch: ${JSON.stringify(v102Rows)}`);
+  assert(v103Rows.length === 1 && v103Rows[0].success === true, `V103 history mismatch: ${JSON.stringify(v103Rows)}`);
   const migratedSnapshots = {
     public: migratedSnapshot("public", fixtures.public),
     tenant: migratedSnapshot(tenantSchema, fixtures.tenant),
@@ -909,6 +912,24 @@ try {
     syntheticFundLines: 0,
     digestsAfter: Object.fromEntries(Object.entries(migratedSnapshots).map(([schema, value]) => [schema, digest(value)]))
   };
+  result.upgrade.migration103 = {
+    history: v103Rows[0],
+    managedTableCount: Number(psql(upgradeDatabase, "SELECT count(*) FROM public.sys_tenant_managed_table")),
+    salesReturnTables: Number(psql(upgradeDatabase, `
+      SELECT count(*) FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('sales_return', 'sales_return_line', 'sales_return_finance_allocation')
+    `)),
+    receivableOffsetColumn: Number(psql(upgradeDatabase, `
+      SELECT count(*) FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'ar_receivable'
+        AND column_name = 'return_offset_amount'
+    `))
+  };
+  assert(result.upgrade.migration103.managedTableCount === 81, "V103 should expose 81 managed tenant tables");
+  assert(result.upgrade.migration103.salesReturnTables === 3, "V103 should expose three sales return tables");
+  assert(result.upgrade.migration103.receivableOffsetColumn === 1, "V103 should add ar_receivable.return_offset_amount");
 
   const repeatFlywayOutput = flywayMigrate(upgradeDatabase);
   const repeatFlywayHistory = migrationHistory(upgradeDatabase);
@@ -941,7 +962,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
   const tenantAfterSync = migratedSnapshot(tenantSchema, fixtures.tenant);
-  assert(same(syncCounts, [78, 78]), `repeat tenant sync counts should be 78/78, got ${JSON.stringify(syncCounts)}`);
+  assert(same(syncCounts, [81, 81]), `repeat tenant sync counts should be 81/81, got ${JSON.stringify(syncCounts)}`);
   assert(same(tenantBeforeSync, tenantAfterSync), "repeat tenant sync changed migrated settlement data");
   result.upgrade.repeatTenantSync = {
     managedCounts: syncCounts,
@@ -1036,6 +1057,17 @@ try {
         WHERE table_schema = 'public'
           AND table_name IN ('ar_receipt_fund_line', 'ar_receipt_allocation', 'ap_payment_fund_line', 'ap_payment_allocation')
       ),
+      'salesReturnTables', (
+        SELECT count(*) FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name IN ('sales_return', 'sales_return_line', 'sales_return_finance_allocation')
+      ),
+      'receivableOffsetColumns', (
+        SELECT count(*) FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'ar_receivable'
+          AND column_name = 'return_offset_amount'
+      ),
       'legacyReceipts', (SELECT count(*) FROM public.ar_receipt WHERE legacy_imported),
       'legacyPayments', (SELECT count(*) FROM public.ap_payment WHERE legacy_imported),
       'nonPublicRegisteredTenants', (
@@ -1044,8 +1076,10 @@ try {
       )
     )::text
   `);
-  assert(Number(freshMetrics.managedTables) === 78, `fresh managed table count should be 78: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedTables) === 81, `fresh managed table count should be 81: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
   result.fresh = {
@@ -1084,6 +1118,7 @@ console.log(JSON.stringify({
   upgrade: {
     target: result.upgrade.target101.maxVersion,
     migrated: result.upgrade.migration102.history?.version,
+    latest: result.upgrade.migration103.history?.version,
     tenantSync: result.upgrade.repeatTenantSync.managedCounts,
     restoreStatus: result.upgrade.restoreApi.status
   },

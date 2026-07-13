@@ -26,21 +26,25 @@ const formalSettlementMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V102__formal_receipt_payment_documents.sql"
 );
+const salesReturnMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V103__sales_return_document.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 78,
-  managedTables: 78,
-  primaryKeys: 78,
-  uniqueConstraints: 72,
-  foreignKeys: 163,
-  checkConstraints: 43,
+  baseTables: 81,
+  managedTables: 81,
+  primaryKeys: 81,
+  uniqueConstraints: 76,
+  foreignKeys: 170,
+  checkConstraints: 64,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
-  referenceForeignKeyCount: 163,
+  referenceForeignKeyCount: 170,
   referenceForeignKeyMismatchCount: 0,
   retiredTaxColumns: 0,
   forbiddenAccountSetForeignKeys: 0
@@ -121,6 +125,7 @@ try {
   const employeeAccountMigrationSource = await readFile(employeeAccountMigrationPath, "utf8");
   const sessionScopeMigrationSource = await readFile(sessionScopeMigrationPath, "utf8");
   const formalSettlementMigrationSource = await readFile(formalSettlementMigrationPath, "utf8");
+  const salesReturnMigrationSource = await readFile(salesReturnMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -160,7 +165,18 @@ try {
       && formalSettlementMigrationSource.includes("expected=78/72/163/43")
       && formalSettlementMigrationSource.includes("expected=78/78/72/167/43")
       && formalSettlementMigrationSource.includes("legacy_imported BOOLEAN NOT NULL DEFAULT FALSE")
-      && formalSettlementMigrationSource.includes("No statement in this migration changes an AR/AP settled total.")
+      && formalSettlementMigrationSource.includes("No statement in this migration changes an AR/AP settled total."),
+    salesReturnManagedGuard:
+      salesReturnMigrationSource.includes("CREATE TABLE sales_return")
+      && salesReturnMigrationSource.includes("CREATE TABLE sales_return_line")
+      && salesReturnMigrationSource.includes("CREATE TABLE sales_return_finance_allocation")
+      && salesReturnMigrationSource.includes("ADD COLUMN return_offset_amount")
+      && salesReturnMigrationSource.includes("('sales_return', 391)")
+      && salesReturnMigrationSource.includes("('sales_return_line', 392)")
+      && salesReturnMigrationSource.includes("('sales_return_finance_allocation', 699)")
+      && salesReturnMigrationSource.includes("expected=81/76/170/64")
+      && salesReturnMigrationSource.includes("expected=81/81/76/174/64")
+      && salesReturnMigrationSource.includes("amount <= 0 AND return_offset_amount = 0")
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
@@ -177,11 +193,16 @@ try {
     result.migrationGuards.formalSettlementManagedGuard,
     "V102 must preserve legacy settlements and retain the exact 78-table topology"
   );
+  assert(
+    result.migrationGuards.salesReturnManagedGuard,
+    "V103 must register sales returns and retain the exact 81-table topology"
+  );
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
   const sessionScopeSourceChecksum = flywayChecksum(sessionScopeMigrationSource);
   const formalSettlementSourceChecksum = flywayChecksum(formalSettlementMigrationSource);
+  const salesReturnSourceChecksum = flywayChecksum(salesReturnMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -192,29 +213,33 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99', '100', '101', '102')
+    WHERE version IN ('98', '99', '100', '101', '102', '103')
   `);
-  assert(migrationRows.length === 5, `expected installed V98 through V102 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 6, `expected installed V98 through V103 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
   const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
   const sessionScopeMigration = migrationRows.find((row) => row.version === "101");
   const formalSettlementMigration = migrationRows.find((row) => row.version === "102");
+  const salesReturnMigration = migrationRows.find((row) => row.version === "103");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(employeeAccountMigration, "installed V100 row is missing");
   assert(sessionScopeMigration, "installed V101 row is missing");
   assert(formalSettlementMigration, "installed V102 row is missing");
+  assert(salesReturnMigration, "installed V103 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(employeeAccountMigration.success === true, "V100 is not marked successful");
   assert(sessionScopeMigration.success === true, "V101 is not marked successful");
   assert(formalSettlementMigration.success === true, "V102 is not marked successful");
+  assert(salesReturnMigration.success === true, "V103 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
   assert(Number.isInteger(sessionScopeMigration.checksum), "V101 installed checksum is missing");
   assert(Number.isInteger(formalSettlementMigration.checksum), "V102 installed checksum is missing");
+  assert(Number.isInteger(salesReturnMigration.checksum), "V103 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -260,6 +285,15 @@ try {
     sourceChecksum: formalSettlementSourceChecksum,
     sourceSha256: createHash("sha256").update(formalSettlementMigrationSource).digest("hex")
   };
+  assert(
+    salesReturnMigration.checksum === salesReturnSourceChecksum,
+    `V103 checksum drift: installed=${salesReturnMigration.checksum} source=${salesReturnSourceChecksum}`
+  );
+  result.salesReturnMigration = {
+    ...salesReturnMigration,
+    sourceChecksum: salesReturnSourceChecksum,
+    sourceSha256: createHash("sha256").update(salesReturnMigrationSource).digest("hex")
+  };
 
   const registeredSchemas = sqlJson(`
     SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)::text
@@ -283,7 +317,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 78, `${schema} first sync returned ${firstManagedCount}, expected 78`);
+    assert(firstManagedCount === 81, `${schema} first sync returned ${firstManagedCount}, expected 81`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -291,7 +325,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 78, `${schema} second sync returned ${secondManagedCount}, expected 78`);
+    assert(secondManagedCount === 81, `${schema} second sync returned ${secondManagedCount}, expected 81`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -585,7 +619,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 78 OR second_count <> 78 THEN
+      IF first_count <> 81 OR second_count <> 81 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;
