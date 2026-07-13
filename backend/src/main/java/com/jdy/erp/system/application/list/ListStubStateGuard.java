@@ -1,5 +1,7 @@
 package com.jdy.erp.system.application.list;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -7,9 +9,27 @@ import com.jdy.erp.system.security.CurrentPermissionService;
 
 @Component
 public class ListStubStateGuard {
+    private static final Map<String, String> READ_PERMISSIONS = Map.of(
+        "purchase-summary-report", "purchase.order.audit",
+        "task-track-report", "production.task.audit",
+        "production-task-list", "production.task.audit",
+        "production-task-form-list", "production.task.audit",
+        "stock-count-list", "inventory.stock_count.audit",
+        "stock-count-form-list", "inventory.stock_count.audit",
+        "stock-count-gain-list", "inventory.stock_count_gain.audit",
+        "stock-count-gain-form-list", "inventory.stock_count_gain.audit",
+        "stock-count-loss-list", "inventory.stock_count_loss.audit",
+        "stock-count-loss-form-list", "inventory.stock_count_loss.audit"
+    );
+
+    private final ListQueryContractRegistry contractRegistry;
     private final CurrentPermissionService currentPermissionService;
 
-    public ListStubStateGuard(CurrentPermissionService currentPermissionService) {
+    public ListStubStateGuard(
+        ListQueryContractRegistry contractRegistry,
+        CurrentPermissionService currentPermissionService
+    ) {
+        this.contractRegistry = contractRegistry;
         this.currentPermissionService = currentPermissionService;
     }
 
@@ -18,11 +38,11 @@ public class ListStubStateGuard {
     }
 
     public void assertReadable(String listKey, String scope) {
-        if ("permission-denied-list".equals(listKey)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No permission for this list");
-        }
-        if ("error-list".equals(listKey)) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Stub error for list state");
+        contractRegistry.contractFor(listKey, "header");
+
+        var requiredPermission = READ_PERMISSIONS.get(listKey);
+        if (requiredPermission != null) {
+            currentPermissionService.requirePermission(requiredPermission);
         }
         if (!"operation-log-list".equals(listKey)) {
             return;

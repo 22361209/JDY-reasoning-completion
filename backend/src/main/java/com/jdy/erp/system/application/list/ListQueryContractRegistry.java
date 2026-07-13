@@ -1,14 +1,73 @@
 package com.jdy.erp.system.application.list;
 
 import java.util.List;
+import java.util.Set;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class ListQueryContractRegistry {
+    private static final Set<String> MASTER_LIST_KEYS = Set.of(
+        "product-master-list",
+        "unit-master-list",
+        "customer-master-list",
+        "supplier-master-list",
+        "warehouse-master-list"
+    );
+
+    private static final Set<String> SOURCE_SELECTOR_KEYS = Set.of(
+        "sales-quote-source-selector",
+        "sales-order-source-selector",
+        "delivery-notice-source-selector",
+        "purchase-requisition-source-selector",
+        "purchase-order-source-selector",
+        "purchase-in-source-selector",
+        "production-task-source-selector",
+        "outsourcing-work-order-issue-source-selector",
+        "outsourcing-work-order-receipt-source-selector",
+        "outsourcing-receipt-return-source-selector",
+        "outsourcing-receipt-scrap-source-selector"
+    );
+
+    private static final Set<String> GENERIC_LIST_KEYS = Set.of(
+        "product-category-list",
+        "production-department-list",
+        "purchase-requisition-list",
+        "other-in-list",
+        "other-in-form-list",
+        "other-out-list",
+        "other-out-form-list",
+        "stock-transfer-list",
+        "stock-transfer-form-list",
+        "receivable-list",
+        "ar-receivable-list",
+        "payable-list",
+        "ap-payable-list",
+        "bom-list",
+        "production-plan-list",
+        "kit-analysis-list",
+        "material-issue-list",
+        "material-issue-form-list",
+        "product-in-list",
+        "product-in-form-list",
+        "outsourcing-surface-list",
+        "outsourcing-work-order-list",
+        "outsourcing-issue-list",
+        "outsourcing-receipt-list",
+        "outsourcing-return-list",
+        "outsourcing-scrap-list",
+        "role-list",
+        "user-role-list"
+    );
+
     public ListQueryContract contractFor(String listKey, String view) {
+        if (listKey == null || listKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown list key: " + listKey);
+        }
         var normalizedView = "detail".equalsIgnoreCase(view) ? "detail" : "header";
-        if (listKey.endsWith("-master-list")) {
+        if (MASTER_LIST_KEYS.contains(listKey)) {
             return new ListQueryContract(
                 listKey,
                 normalizedView,
@@ -23,7 +82,7 @@ public class ListQueryContractRegistry {
         if ("sales-order-form-list".equals(listKey)) {
             return salesOrderContract(normalizedView);
         }
-        if (listKey.endsWith("-source-selector")) {
+        if (SOURCE_SELECTOR_KEYS.contains(listKey)) {
             return new ListQueryContract(
                 listKey,
                 "detail",
@@ -53,7 +112,7 @@ public class ListQueryContractRegistry {
                 false
             );
         }
-        return switch (listKey) {
+        return switch (listKey == null ? "" : listKey) {
             case "operation-log-list" -> new ListQueryContract(
                 listKey,
                 normalizedView,
@@ -70,8 +129,23 @@ public class ListQueryContractRegistry {
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "supplierCode", "supplier", "partner", "productCode", "productName", "spec", "sourceBillNo", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
             case "inventory-query-list", "stock-alert-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("code", "name", "productCode", "productName", "spec", "warehouse", "warehouseCode", "warehouseName", "status"), "", "row", normalizedView, "default", false);
-            default -> new ListQueryContract(listKey, normalizedView, List.of(), "", "row", normalizedView, "default", false);
+            case "purchase-summary-report" ->
+                new ListQueryContract(listKey, normalizedView, List.of("supplierCode", "supplier", "productCode", "productName"), "", "row", normalizedView, "default", false);
+            case "stock-count-list", "stock-count-form-list" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "businessType", "department", "productCode", "productName", "warehouse"), "billDate", "row", normalizedView, "default", false);
+            case "stock-count-gain-list", "stock-count-gain-form-list", "stock-count-loss-list", "stock-count-loss-form-list" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourceBillNo", "productCode", "productName", "warehouse"), "billDate", "row", normalizedView, "default", false);
+            case "production-task-list", "production-task-form-list", "task-track-report" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "planNo", "bomCode", "productCode", "productName", "warehouse"), "", "row", normalizedView, "default", false);
+            default -> genericContractOrThrow(listKey, normalizedView);
         };
+    }
+
+    private ListQueryContract genericContractOrThrow(String listKey, String view) {
+        if (!GENERIC_LIST_KEYS.contains(listKey)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown list key: " + listKey);
+        }
+        return new ListQueryContract(listKey, view, List.of(), "", "row", view, "default", false);
     }
 
     private ListQueryContract salesOrderContract(String view) {

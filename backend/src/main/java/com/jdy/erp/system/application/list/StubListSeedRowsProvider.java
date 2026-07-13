@@ -1,13 +1,13 @@
 package com.jdy.erp.system.application.list;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 import com.jdy.erp.system.tenant.TenantDataScopeService;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class StubListSeedRowsProvider implements ListSeedRowsProvider {
@@ -19,34 +19,9 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
         this.tenantDataScopeService = tenantDataScopeService;
     }
 
-    private List<Map<String, ?>> expandRowsForLargePage(String listKey, List<Map<String, ?>> seedRows, int pageSize) {
-        if (pageSize < 1000 || seedRows.isEmpty() || !isSyntheticExpandableList(listKey)) {
-            return seedRows;
-        }
-        var rows = new ArrayList<Map<String, ?>>();
-        for (int index = 0; index < 1200; index += 1) {
-            var source = seedRows.get(index % seedRows.size());
-            var row = new java.util.LinkedHashMap<String, Object>(source);
-            row.put("id", source.get("id") + "-" + index);
-            if (row.containsKey("billNo")) {
-                row.put("billNo", String.format("XSDD-%05d", index + 1));
-            }
-            if (row.containsKey("code")) {
-                row.put("code", String.format("%s-%04d", source.get("code"), index + 1));
-            }
-            rows.add(row);
-        }
-        return rows;
-    }
-
-    private boolean isSyntheticExpandableList(String listKey) {
-        return Stream.of("standard-list", "error-list", "permission-denied-list")
-            .anyMatch(listKey::equals);
-    }
-
     @Override
     public List<Map<String, ?>> seedRows(String listKey, String view, int pageSize) {
-        return expandRowsForLargePage(listKey, seedRows(listKey, view), pageSize);
+        return seedRows(listKey, view);
     }
 
     private String normalizedView(String view) {
@@ -60,7 +35,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 return detailRows;
             }
         }
-        return withLifecycleColumns(switch (listKey) {
+        var rows = switch (listKey) {
             case "product-master-list" -> realProductRows();
             case "product-category-list" -> realProductCategoryRows();
             case "unit-master-list" -> realUnitRows();
@@ -79,6 +54,9 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "other-in-list", "other-in-form-list" -> otherStockInRows();
             case "other-out-list", "other-out-form-list" -> otherStockOutRows();
             case "stock-transfer-list", "stock-transfer-form-list" -> stockTransferRows();
+            case "stock-count-list", "stock-count-form-list" -> stockCountRows();
+            case "stock-count-gain-list", "stock-count-gain-form-list" -> stockCountDiffRows("stock_count_gain", "stock_count_gain_line");
+            case "stock-count-loss-list", "stock-count-loss-form-list" -> stockCountDiffRows("stock_count_loss", "stock_count_loss_line");
             case "inventory-query-list" -> realInventoryRows();
             case "stock-alert-list" -> stockAlertRows();
             case "receivable-list", "ar-receivable-list" -> receivableRows();
@@ -96,8 +74,87 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "outsourcing-return-list" -> outsourcingReturnRows();
             case "outsourcing-scrap-list" -> outsourcingScrapRows();
             case "role-list", "user-role-list" -> roleRows();
-            default -> salesRows();
-        });
+            default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown list key: " + listKey);
+        };
+        return isStockCountHeader(listKey) ? rows : withLifecycleColumns(rows);
+    }
+
+    private boolean isStockCountHeader(String listKey) {
+        return "stock-count-list".equals(listKey)
+            || "stock-count-form-list".equals(listKey)
+            || "stock-count-gain-list".equals(listKey)
+            || "stock-count-gain-form-list".equals(listKey)
+            || "stock-count-loss-list".equals(listKey)
+            || "stock-count-loss-form-list".equals(listKey);
+    }
+
+    private List<Map<String, ?>> stockCountRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   b.bill_no AS "billNo",
+                   b.business_type AS "businessType",
+                   CASE
+                       WHEN b.status = 'DRAFT' THEN '草稿'
+                       WHEN b.status = 'REVERSED' THEN '已反审核'
+                       WHEN b.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   COALESCE(b.department, '') AS department,
+                   COALESCE(line.product_code_snapshot, product.code) AS "productCode",
+                   COALESCE(line.product_name_snapshot, product.name) AS "productName",
+                   warehouse.name AS warehouse,
+                   COALESCE(line.product_unit_snapshot, product.unit, '') AS unit,
+                   COALESCE(trim(to_char(COALESCE(line.net_weight_snapshot, product.net_weight), 'FM9999999990.00')), '') AS "netWeight",
+                   COALESCE(trim(to_char(COALESCE(line.gross_weight_snapshot, product.gross_weight), 'FM9999999990.00')), '') AS "grossWeight",
+                   trim(to_char(line.system_qty, 'FM9999999990.####')) AS "systemQty",
+                   trim(to_char(line.counted_qty, 'FM9999999990.####')) AS "countedQty",
+                   trim(to_char(line.diff_qty, 'FM9999999990.####')) AS "diffQty"
+            FROM stock_count b
+            JOIN LATERAL (
+                SELECT candidate.*
+                FROM stock_count_line candidate
+                WHERE candidate.bill_id = b.id
+                ORDER BY candidate.line_no
+                LIMIT 1
+            ) line ON TRUE
+            JOIN md_product product ON product.id = line.product_id
+            JOIN md_warehouse warehouse ON warehouse.id = line.warehouse_id
+            ORDER BY b.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> stockCountDiffRows(String headerTable, String lineTable) {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT to_char(b.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   b.bill_no AS "billNo",
+                   COALESCE(source.bill_no, '') AS "sourceBillNo",
+                   CASE
+                       WHEN b.status = 'DRAFT' THEN '草稿'
+                       WHEN b.status = 'REVERSED' THEN '已反审核'
+                       WHEN b.status = 'VOID' THEN '已作废'
+                       ELSE '已审核'
+                   END AS status,
+                   COALESCE(line.product_code_snapshot, product.code) AS "productCode",
+                   COALESCE(line.product_name_snapshot, product.name) AS "productName",
+                   warehouse.name AS warehouse,
+                   COALESCE(line.product_unit_snapshot, product.unit, '') AS unit,
+                   COALESCE(trim(to_char(COALESCE(line.net_weight_snapshot, product.net_weight), 'FM9999999990.00')), '') AS "netWeight",
+                   COALESCE(trim(to_char(COALESCE(line.gross_weight_snapshot, product.gross_weight), 'FM9999999990.00')), '') AS "grossWeight",
+                   trim(to_char(line.qty, 'FM9999999990.####')) AS qty,
+                   trim(to_char(line.amount, 'FM9999999990.00')) AS amount
+            FROM %s b
+            JOIN LATERAL (
+                SELECT candidate.*
+                FROM %s candidate
+                WHERE candidate.bill_id = b.id
+                ORDER BY candidate.line_no
+                LIMIT 1
+            ) line ON TRUE
+            JOIN md_product product ON product.id = line.product_id
+            JOIN md_warehouse warehouse ON warehouse.id = line.warehouse_id
+            LEFT JOIN stock_count source ON source.id = COALESCE(line.source_bill_id, b.source_bill_id)
+            ORDER BY b.updated_at DESC
+            """.formatted(headerTable, lineTable)));
     }
 
     private List<Map<String, ?>> withLifecycleColumns(List<Map<String, ?>> rows) {
@@ -841,107 +898,6 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 p.code,
                 w.code
             """, inventoryScopeId()));
-    }
-
-    private List<Map<String, ?>> salesRows() {
-        var realRows = new ArrayList<Map<String, ?>>(jdbcTemplate.queryForList("""
-            SELECT so.id::text AS id,
-                   so.bill_no AS "billNo",
-                   c.code AS "customerCode",
-                   c.name AS customer,
-                   to_char(so.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   COALESCE(to_char(extra.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
-                   CASE WHEN so.status = 'DRAFT' THEN '草稿' WHEN so.status = 'VOID' THEN '已作废' ELSE '已审核' END AS status,
-                   CASE
-                       WHEN so.out_status = 'ALL_OUT' THEN '全部出库'
-                       WHEN so.out_status = 'PART_OUT' THEN '部分出库'
-                       ELSE '未出库'
-                   END AS "outStatus",
-                   so.close_status AS "closeStatus",
-                   so.close_mode AS "closeMode",
-                   CASE
-                       WHEN so.close_status = 'OPEN' THEN '未关闭'
-                       WHEN so.close_status = 'CLOSED' AND so.close_mode = 'AUTO' THEN '自动关闭'
-                       WHEN so.close_status = 'CLOSED' AND so.close_mode = 'MANUAL' THEN '手动关闭'
-                       WHEN so.close_status = 'CLOSED' THEN '历史已关闭'
-                       ELSE COALESCE(so.close_status, '')
-                   END AS "closeStatusLabel",
-                   so.frozen_status AS "frozenStatus",
-                   CASE WHEN so.frozen_status = 'FROZEN' THEN '已冻结' ELSE '正常' END AS "frozenStatusLabel",
-                   trim(to_char(COALESCE(extra.qty, 0), 'FM9999999990.####')) AS qty,
-                   trim(to_char(COALESCE(extra.shipped_qty, 0), 'FM9999999990.####')) AS "shippedQty",
-                   trim(to_char(GREATEST(0, COALESCE(extra.qty, 0) - COALESCE(extra.shipped_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
-                   trim(to_char(COALESCE(extra.amount, 0), 'FM9999999990.00')) AS amount,
-                   trim(to_char(so.total_amount, 'FM9999999990.00')) AS "priceTaxTotal",
-                   COALESCE(so.remark, '') AS remark,
-                   COALESCE(so.owner_name, '') AS owner
-            FROM sales_order so
-            JOIN md_customer c ON c.id = so.customer_id
-            LEFT JOIN (
-                SELECT order_id,
-                       MIN(plan_delivery_date) AS plan_delivery_date,
-                       SUM(qty) AS qty,
-                       SUM(shipped_qty) AS shipped_qty,
-                       SUM(amount) AS amount
-                FROM sales_order_line
-                GROUP BY order_id
-            ) extra ON extra.order_id = so.id
-            ORDER BY so.updated_at DESC
-            """));
-        realRows.addAll(Stream.<Map<String, ?>>of(
-            Map.ofEntries(
-                Map.entry("id", "so1"),
-                Map.entry("billNo", "XSDD-00001"),
-                Map.entry("customer", "广州测试客户"),
-                Map.entry("billDate", "2026-06-23"),
-                Map.entry("status", "已审核"),
-                Map.entry("closeStatus", "OPEN"),
-                Map.entry("closeStatusLabel", "未关闭"),
-                Map.entry("frozenStatus", "NORMAL"),
-                Map.entry("frozenStatusLabel", "正常"),
-                Map.entry("qty", "20"),
-                Map.entry("shippedQty", "20"),
-                Map.entry("remainingQty", "0"),
-                Map.entry("amount", "1,522.12"),
-                Map.entry("priceTaxTotal", "1,720.00"),
-                Map.entry("owner", "本地管理员")
-            ),
-            Map.ofEntries(
-                Map.entry("id", "so2"),
-                Map.entry("billNo", "XSDD-00002"),
-                Map.entry("customer", "佛山测试客户"),
-                Map.entry("billDate", "2026-06-22"),
-                Map.entry("status", "草稿"),
-                Map.entry("closeStatus", "OPEN"),
-                Map.entry("closeStatusLabel", "未关闭"),
-                Map.entry("frozenStatus", "NORMAL"),
-                Map.entry("frozenStatusLabel", "正常"),
-                Map.entry("qty", "8"),
-                Map.entry("shippedQty", "0"),
-                Map.entry("remainingQty", "8"),
-                Map.entry("amount", "867.26"),
-                Map.entry("priceTaxTotal", "980.00"),
-                Map.entry("owner", "本地管理员")
-            ),
-            Map.ofEntries(
-                Map.entry("id", "so3"),
-                Map.entry("billNo", "XSDD-00003"),
-                Map.entry("customer", "东莞备用客户"),
-                Map.entry("billDate", "2026-06-21"),
-                Map.entry("status", "草稿"),
-                Map.entry("closeStatus", "OPEN"),
-                Map.entry("closeStatusLabel", "未关闭"),
-                Map.entry("frozenStatus", "NORMAL"),
-                Map.entry("frozenStatusLabel", "正常"),
-                Map.entry("qty", "12"),
-                Map.entry("shippedQty", "0"),
-                Map.entry("remainingQty", "12"),
-                Map.entry("amount", "2,176.99"),
-                Map.entry("priceTaxTotal", "2,460.00"),
-                Map.entry("owner", "销售部")
-            )
-        ).toList());
-        return realRows;
     }
 
     private List<Map<String, ?>> purchaseRequisitionRows() {

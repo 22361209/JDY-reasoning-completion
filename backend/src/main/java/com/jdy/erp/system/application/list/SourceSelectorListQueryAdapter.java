@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.Map;
 
 import com.jdy.erp.system.tenant.TenantDataScopeService;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
@@ -75,7 +77,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             case "outsourcing-work-order-receipt-source-selector" -> outsourcingWorkOrderReceiptSpec();
             case "outsourcing-receipt-return-source-selector" -> outsourcingReceiptSpec("return");
             case "outsourcing-receipt-scrap-source-selector" -> outsourcingReceiptSpec("scrap");
-            default -> new SourceQuerySpec("SELECT NULL AS \"billNo\", NULL AS \"billDate\", NULL AS \"lineNo\" WHERE FALSE", List.of(), sourceFields("billNo", "billDate", "lineNo"));
+            default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown source selector key: " + listKey);
         };
     }
 
