@@ -2,9 +2,11 @@ package com.jdy.erp.shared.application;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -44,15 +46,18 @@ public class BillLifecycleService {
 
     private final JdbcTemplate jdbcTemplate;
     private final OperationLogService operationLogService;
+    private final OperationLogFailureService operationLogFailureService;
     private final CurrentSessionService currentSessionService;
 
     public BillLifecycleService(
         JdbcTemplate jdbcTemplate,
         OperationLogService operationLogService,
+        OperationLogFailureService operationLogFailureService,
         CurrentSessionService currentSessionService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.operationLogService = operationLogService;
+        this.operationLogFailureService = operationLogFailureService;
         this.currentSessionService = currentSessionService;
     }
 
@@ -86,6 +91,7 @@ public class BillLifecycleService {
         String notFoundMessage
     ) {
         guardTable(table);
+        var before = lifecycleState(table, billNo);
         var returningClause = returning == null || returning.isBlank()
             ? "id::text AS id, bill_no AS \"billNo\", status"
             : returning;
@@ -96,9 +102,10 @@ public class BillLifecycleService {
             RETURNING %s
             """.formatted(table, returningClause), to.name(), billNo);
         if (rows.isEmpty()) {
+            logLifecycleFailure(module, action, targetType, billNo, before, notFoundMessage);
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, notFoundMessage);
         }
-        operationLogService.log(module, action, targetType, String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(module, action, targetType, billNo, rowState(before), rows.get(0));
         return rows.get(0);
     }
     public Map<String, Object> transition(
@@ -128,9 +135,18 @@ public class BillLifecycleService {
             RETURNING %s
             """.formatted(table, timestampAssignment, returningClause), to.name(), billNo, from.name());
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, conflictMessage == null ? "单据状态已变化，请刷新后重试" : conflictMessage);
+            var reason = conflictMessage == null ? "单据状态已变化，请刷新后重试" : conflictMessage;
+            logLifecycleFailure(module, action, targetType, billNo, lifecycleState(table, billNo), reason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
         }
-        operationLogService.log(module, action, targetType, String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(
+            module,
+            action,
+            targetType,
+            billNo,
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, from.name()),
+            rows.get(0)
+        );
         return rows.get(0);
     }
 
@@ -143,7 +159,9 @@ public class BillLifecycleService {
             WHERE bill_no = ? AND status = ?
             """.formatted(target.headerTable()), billNo, BillStatus.DRAFT.name());
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, conflictMessage == null ? "只有草稿单据可以删除" : conflictMessage);
+            var reason = conflictMessage == null ? "只有草稿单据可以删除" : conflictMessage;
+            logLifecycleFailure(target.module(), "DELETE", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), reason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
         }
         var row = rows.get(0);
         jdbcTemplate.update("""
@@ -154,7 +172,15 @@ public class BillLifecycleService {
             DELETE FROM %s
             WHERE id = ?::uuid
             """.formatted(target.headerTable()), row.get("id"));
-        operationLogService.log(target.module(), "DELETE", target.targetType(), String.valueOf(row.get("id")), true, null);
+        logLifecycleSuccess(
+            target.module(),
+            "DELETE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, "DELETED"),
+            String.valueOf(row.get("id"))
+        );
         return row;
     }
 
@@ -194,7 +220,9 @@ public class BillLifecycleService {
                 RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
                 """.formatted(target.headerTable()), requiredReason, currentSessionService.currentUserId(), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核、未冻结且未关闭的单据可以关闭");
+            var failureReason = "只有已审核、未冻结且未关闭的单据可以关闭";
+            logLifecycleFailure(target.module(), "CLOSE", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
         if (!isSalesOrderTarget(target)) {
             jdbcTemplate.update("""
@@ -205,7 +233,18 @@ public class BillLifecycleService {
                   AND line_close_status <> 'CLOSED'
                 """.formatted(target.lineTable(), target.lineOwnerColumn()), requiredReason, rows.get(0).get("id"));
         }
-        operationLogService.log(target.module(), "CLOSE", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(
+            target.module(),
+            "CLOSE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, BillStatus.AUDITED.name(),
+                OperationLogCommand.StateField.CLOSE_STATUS, "OPEN",
+                OperationLogCommand.StateField.FROZEN_STATUS, "NORMAL"
+            ),
+            rows.get(0)
+        );
         return rows.get(0);
     }
 
@@ -243,7 +282,9 @@ public class BillLifecycleService {
                 RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
                 """.formatted(target.headerTable()), optionalReason(reason), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, isSalesOrderTarget(target) ? "只有手动关闭的销售订单可以反关闭" : "只有已审核且已关闭的单据可以反关闭");
+            var failureReason = isSalesOrderTarget(target) ? "只有手动关闭的销售订单可以反关闭" : "只有已审核且已关闭的单据可以反关闭";
+            logLifecycleFailure(target.module(), "UNCLOSE", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
         if (!isSalesOrderTarget(target)) {
             jdbcTemplate.update("""
@@ -253,7 +294,17 @@ public class BillLifecycleService {
                 WHERE %s = ?::uuid
                 """.formatted(target.lineTable(), target.lineOwnerColumn()), optionalReason(reason), rows.get(0).get("id"));
         }
-        operationLogService.log(target.module(), "UNCLOSE", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(
+            target.module(),
+            "UNCLOSE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, BillStatus.AUDITED.name(),
+                OperationLogCommand.StateField.CLOSE_STATUS, "CLOSED"
+            ),
+            rows.get(0)
+        );
         return rows.get(0);
     }
 
@@ -276,7 +327,9 @@ public class BillLifecycleService {
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), requiredReason(reason, "冻结原因"), currentSessionService.currentUserId(), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核、未关闭且未冻结的单据可以冻结");
+            var failureReason = "只有已审核、未关闭且未冻结的单据可以冻结";
+            logLifecycleFailure(target.module(), "FREEZE", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
         jdbcTemplate.update("""
             UPDATE %s
@@ -285,7 +338,18 @@ public class BillLifecycleService {
             WHERE %s = ?::uuid
               AND line_frozen_status <> 'FROZEN'
             """.formatted(target.lineTable(), target.lineOwnerColumn()), requiredReason(reason, "冻结原因"), rows.get(0).get("id"));
-        operationLogService.log(target.module(), "FREEZE", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(
+            target.module(),
+            "FREEZE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, BillStatus.AUDITED.name(),
+                OperationLogCommand.StateField.CLOSE_STATUS, "OPEN",
+                OperationLogCommand.StateField.FROZEN_STATUS, "NORMAL"
+            ),
+            rows.get(0)
+        );
         return rows.get(0);
     }
 
@@ -307,7 +371,9 @@ public class BillLifecycleService {
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), optionalReason(reason), billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核且已冻结的单据可以解冻");
+            var failureReason = "只有已审核且已冻结的单据可以解冻";
+            logLifecycleFailure(target.module(), "UNFREEZE", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
         jdbcTemplate.update("""
             UPDATE %s
@@ -315,7 +381,17 @@ public class BillLifecycleService {
                 line_frozen_reason = ?
             WHERE %s = ?::uuid
             """.formatted(target.lineTable(), target.lineOwnerColumn()), optionalReason(reason), rows.get(0).get("id"));
-        operationLogService.log(target.module(), "UNFREEZE", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(
+            target.module(),
+            "UNFREEZE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, BillStatus.AUDITED.name(),
+                OperationLogCommand.StateField.FROZEN_STATUS, "FROZEN"
+            ),
+            rows.get(0)
+        );
         return rows.get(0);
     }
 
@@ -344,8 +420,26 @@ public class BillLifecycleService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "单据行不存在");
         }
         syncHeaderCloseStatus(target, header, reason);
-        operationLogService.log(target.module(), closed ? "LINE_CLOSE" : "LINE_UNCLOSE", target.targetType(), String.valueOf(header.get("id")), true, null);
-        return header(target, billNo);
+        var result = header(target, billNo);
+        logLifecycleSuccess(
+            target.module(),
+            closed ? "LINE_CLOSE" : "LINE_UNCLOSE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, header.get("status"),
+                OperationLogCommand.StateField.LINE_NO, lineNo,
+                OperationLogCommand.StateField.LINE_CLOSE_STATUS, closed ? "OPEN" : "CLOSED"
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, result.get("status"),
+                OperationLogCommand.StateField.CLOSE_STATUS, result.get("closeStatus"),
+                OperationLogCommand.StateField.LINE_NO, lineNo,
+                OperationLogCommand.StateField.LINE_CLOSE_STATUS, closed ? "CLOSED" : "OPEN"
+            ),
+            String.valueOf(header.get("id"))
+        );
+        return result;
     }
 
     @Transactional
@@ -369,8 +463,26 @@ public class BillLifecycleService {
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "单据行不存在");
         }
-        operationLogService.log(target.module(), frozen ? "LINE_FREEZE" : "LINE_UNFREEZE", target.targetType(), String.valueOf(header.get("id")), true, null);
-        return header(target, billNo);
+        var result = header(target, billNo);
+        logLifecycleSuccess(
+            target.module(),
+            frozen ? "LINE_FREEZE" : "LINE_UNFREEZE",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, header.get("status"),
+                OperationLogCommand.StateField.LINE_NO, lineNo,
+                OperationLogCommand.StateField.LINE_FROZEN_STATUS, frozen ? "NORMAL" : "FROZEN"
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, result.get("status"),
+                OperationLogCommand.StateField.FROZEN_STATUS, result.get("frozenStatus"),
+                OperationLogCommand.StateField.LINE_NO, lineNo,
+                OperationLogCommand.StateField.LINE_FROZEN_STATUS, frozen ? "FROZEN" : "NORMAL"
+            ),
+            String.valueOf(header.get("id"))
+        );
+        return result;
     }
 
     @Transactional
@@ -388,7 +500,9 @@ public class BillLifecycleService {
         var reason = requiredReason(request == null ? null : request.reason(), "作废原因");
         var downstream = downstreamImpact(target, billNo);
         if (!downstream.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "已有下游影响，禁止作废：" + downstream);
+            var failureReason = "已有下游影响，禁止作废：" + downstream;
+            logLifecycleFailure(target.module(), "VOID", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
         var rows = jdbcTemplate.queryForList("""
             UPDATE %s
@@ -404,9 +518,18 @@ public class BillLifecycleService {
             RETURNING id::text AS id, bill_no AS "billNo", status, close_status AS "closeStatus", frozen_status AS "frozenStatus"
             """.formatted(target.headerTable()), reason, username, billNo);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿且无下游影响的单据可以作废");
+            var failureReason = "只有草稿且无下游影响的单据可以作废";
+            logLifecycleFailure(target.module(), "VOID", target.targetType(), billNo, lifecycleState(target.headerTable(), billNo), failureReason);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failureReason);
         }
-        operationLogService.log(target.module(), "VOID", target.targetType(), String.valueOf(rows.get(0).get("id")), true, null);
+        logLifecycleSuccess(
+            target.module(),
+            "VOID",
+            target.targetType(),
+            billNo,
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+            rows.get(0)
+        );
         return rows.get(0);
     }
 
@@ -504,6 +627,122 @@ public class BillLifecycleService {
             if (remaining == null || remaining.compareTo(demand.qty()) < 0) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, guard.quantityExceededMessage());
             }
+        }
+    }
+
+    private void logLifecycleSuccess(
+        String module,
+        String action,
+        String targetType,
+        String billNo,
+        Map<OperationLogCommand.StateField, Object> beforeState,
+        Map<String, Object> afterRow
+    ) {
+        logLifecycleSuccess(
+            module,
+            action,
+            targetType,
+            billNo,
+            beforeState,
+            rowState(afterRow),
+            afterRow.get("id") == null ? null : String.valueOf(afterRow.get("id"))
+        );
+    }
+
+    private void logLifecycleSuccess(
+        String module,
+        String action,
+        String targetType,
+        String billNo,
+        Map<OperationLogCommand.StateField, Object> beforeState,
+        Map<OperationLogCommand.StateField, Object> afterState,
+        String targetId
+    ) {
+        operationLogService.logCurrent(OperationLogCommand.success(
+            module,
+            action,
+            targetType,
+            uuidOrNull(targetId),
+            billNo,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            beforeState,
+            afterState,
+            null
+        ));
+    }
+
+    private void logLifecycleFailure(
+        String module,
+        String action,
+        String targetType,
+        String billNo,
+        Map<String, Object> currentRow,
+        String reason
+    ) {
+        if (currentRow == null || currentRow.isEmpty()) {
+            return;
+        }
+        operationLogFailureService.logCurrentOnce(OperationLogCommand.failure(
+            module,
+            action,
+            targetType,
+            uuidOrNull(currentRow.get("id") == null ? null : String.valueOf(currentRow.get("id"))),
+            billNo,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            rowState(currentRow),
+            Map.of(),
+            reason
+        ));
+    }
+
+    private Map<String, Object> lifecycleState(String table, String billNo) {
+        var closeModeExpression = "sales_order".equals(table) ? "close_mode" : "NULL::varchar";
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   bill_no AS "billNo",
+                   status,
+                   close_status AS "closeStatus",
+                   %s AS "closeMode",
+                   frozen_status AS "frozenStatus"
+            FROM %s
+            WHERE bill_no = ?
+            """.formatted(closeModeExpression, table), billNo);
+        return rows.isEmpty() ? Map.of() : rows.get(0);
+    }
+
+    private Map<OperationLogCommand.StateField, Object> rowState(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) {
+            return Map.of();
+        }
+        var state = new EnumMap<OperationLogCommand.StateField, Object>(OperationLogCommand.StateField.class);
+        putState(state, OperationLogCommand.StateField.STATUS, row.get("status"));
+        putState(state, OperationLogCommand.StateField.AUDIT_STATUS, row.get("auditStatus"));
+        putState(state, OperationLogCommand.StateField.CLOSE_STATUS, row.get("closeStatus"));
+        putState(state, OperationLogCommand.StateField.CLOSE_MODE, row.get("closeMode"));
+        putState(state, OperationLogCommand.StateField.FROZEN_STATUS, row.get("frozenStatus"));
+        return java.util.Collections.unmodifiableMap(state);
+    }
+
+    private void putState(
+        Map<OperationLogCommand.StateField, Object> state,
+        OperationLogCommand.StateField field,
+        Object value
+    ) {
+        if (value != null) {
+            state.put(field, value);
+        }
+    }
+
+    private UUID uuidOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ignored) {
+            return null;
         }
     }
 

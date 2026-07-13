@@ -1,11 +1,19 @@
 package com.jdy.erp.system.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogFailureService;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
 import com.jdy.erp.system.tenant.TenantDataSourceRegistry;
@@ -126,6 +134,36 @@ class AccountSetManagementServiceTest {
     }
 
     @Test
+    void publicTransitionAccountSetMaintenanceKeepsTheAccountSetScope() {
+        var writer = mock(OperationLogService.class);
+        var service = new AccountSetMaintenanceService(
+            mock(JdbcTemplate.class),
+            mock(CurrentSessionService.class),
+            mock(com.jdy.erp.system.tenant.TenantSchemaProvisioner.class),
+            writer,
+            mock(OperationLogFailureService.class),
+            mock(org.springframework.transaction.PlatformTransactionManager.class)
+        );
+        var accountSetId = UUID.fromString("00000000-0000-0000-0000-000000000136");
+
+        service.logAccountSetOperation(
+            Map.of("id", accountSetId.toString(), "code", "BLD-TEST", "name", "博莱德测试账套"),
+            "public",
+            "BACKUP_ACCOUNT_SET",
+            "BK-BLD-TEST-A136"
+        );
+
+        verify(writer).logTenant(
+            argThat(target -> target.accountSetId().equals(accountSetId)
+                && target.code().equals("BLD-TEST")
+                && target.name().equals("博莱德测试账套")
+                && target.schemaName().equals("public")),
+            argThat(command -> command.action().equals("BACKUP_ACCOUNT_SET")
+                && command.actorMode() == OperationLogCommand.ActorMode.CURRENT_USER)
+        );
+    }
+
+    @Test
     void initializeCurrentAccountSetClearsOnlyCurrentTenantSchema() {
         var codeA = createManagedAccountSet("A119A");
         var codeB = createManagedAccountSet("A119B");
@@ -178,6 +216,13 @@ class AccountSetManagementServiceTest {
         @SuppressWarnings("unchecked")
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
         createdBackupSchemas.add(String.valueOf(backup.get("backupSchemaName")));
+        var backupLogId = platformJdbcTemplate.queryForObject("""
+            SELECT id::text
+            FROM %s.sys_operation_log
+            WHERE action_code = 'BACKUP_ACCOUNT_SET'
+            ORDER BY operated_at DESC
+            LIMIT 1
+            """.formatted(quoteIdentifier(schema)), String.class);
 
         platformJdbcTemplate.update("DELETE FROM %s.md_product_category WHERE code = 'OPS'".formatted(quoteIdentifier(schema)));
         assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isZero();
@@ -196,6 +241,28 @@ class AccountSetManagementServiceTest {
         assertThat(logRows).hasSize(1);
         assertThat(logRows.get(0).get("accountSetCode")).isEqualTo(code);
         assertThat(logRows.get(0).get("accountSetName")).isEqualTo(code + " 账套");
+        assertThat(platformJdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM %s.sys_operation_log
+            WHERE id = ?::uuid
+              AND action_code = 'BACKUP_ACCOUNT_SET'
+            """.formatted(quoteIdentifier(schema)), Integer.class, backupLogId)).isEqualTo(1);
+
+        assertThatThrownBy(() -> maintenanceService.restoreCurrentAccountSet("missing-" + code))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("备份不存在");
+        assertThat(platformJdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM %s.sys_operation_log
+            WHERE action_code = 'RESTORE_ACCOUNT_SET'
+              AND success = FALSE
+            """.formatted(quoteIdentifier(schema)), Integer.class)).isEqualTo(1);
+        assertThat(platformJdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM %s.sys_operation_log
+            WHERE id = ?::uuid
+              AND action_code = 'BACKUP_ACCOUNT_SET'
+            """.formatted(quoteIdentifier(schema)), Integer.class, backupLogId)).isEqualTo(1);
     }
 
     private String createManagedAccountSet(String prefix) {

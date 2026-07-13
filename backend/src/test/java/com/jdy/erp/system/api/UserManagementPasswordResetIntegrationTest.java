@@ -3,18 +3,23 @@ package com.jdy.erp.system.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.jdy.erp.shared.application.OperationLogService;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.system.application.NotificationProviderService;
 import com.jdy.erp.system.application.PasswordResetRequestService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -28,10 +33,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @SpringBootTest
 class UserManagementPasswordResetIntegrationTest {
@@ -47,6 +55,12 @@ class UserManagementPasswordResetIntegrationTest {
 
     private TransactionTemplate transactions;
 
+    @Autowired
+    private UserManagementController managedController;
+
+    @Autowired
+    private CurrentSessionService currentSessionService;
+
     @BeforeEach
     void setUp() {
         transactions = new TransactionTemplate(transactionManager);
@@ -54,6 +68,7 @@ class UserManagementPasswordResetIntegrationTest {
 
     @AfterEach
     void cleanupFixtures() {
+        RequestContextHolder.resetRequestAttributes();
         jdbcTemplate.update("""
             DELETE FROM sys_notification_outbox
             WHERE recipient_user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)
@@ -68,6 +83,106 @@ class UserManagementPasswordResetIntegrationTest {
         jdbcTemplate.update("DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)", fixturePrefix + "%");
         jdbcTemplate.update("DELETE FROM sys_user_account_set WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)", fixturePrefix + "%");
         jdbcTemplate.update("DELETE FROM sys_user WHERE username LIKE ?", fixturePrefix + "%");
+    }
+
+    @Test
+    void createUpdateAndChangeOwnPasswordWriteUserActorWithoutSecrets() {
+        bindRequest();
+        currentSessionService.login("admin", "admin123", "BLD-TEST");
+        var username = fixturePrefix + "actor";
+        var initialPassword = "A136-Initial-Password!5";
+        var changedPassword = "A136-Changed-Password!6";
+
+        managedController.createUser(new UserManagementController.UserRequest(
+            username,
+            "A136 初始姓名",
+            "WAREHOUSE",
+            initialPassword,
+            true,
+            List.of("BLD-TEST"),
+            "BLD-TEST"
+        ));
+        managedController.updateUser(username, new UserManagementController.UserRequest(
+            username,
+            "A136 更新姓名",
+            "FINANCE",
+            null,
+            true,
+            List.of("BLD-TEST"),
+            "BLD-TEST"
+        ));
+
+        bindRequest();
+        assertThatThrownBy(() -> currentSessionService.login(username, "wrong-password", "BLD-TEST"))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("用户名或密码错误");
+        bindRequest();
+        currentSessionService.login(username, initialPassword, "BLD-TEST");
+        managedController.changePassword(new UserManagementController.ChangePasswordRequest(initialPassword, changedPassword));
+
+        var userId = userId(username);
+        var rows = jdbcTemplate.queryForList("""
+            SELECT action_code AS action,
+                   actor_type AS "actorType",
+                   actor_username AS "actorUsername",
+                   COALESCE(before_state::text, '') AS before,
+                   COALESCE(after_state::text, '') AS after,
+                   COALESCE(failure_reason, '') AS reason
+            FROM sys_operation_log
+            WHERE target_id = ?::uuid
+              AND action_code IN ('CREATE_USER', 'UPDATE_USER', 'CHANGE_OWN_PASSWORD')
+            ORDER BY operated_at, action_code
+            """, userId);
+        assertThat(rows).hasSize(3);
+        assertThat(rows).allSatisfy(row -> {
+            assertThat(row.get("actorType")).isEqualTo("USER");
+            var serialized = row.get("before") + " " + row.get("after") + " " + row.get("reason");
+            assertThat(serialized)
+                .doesNotContain(initialPassword)
+                .doesNotContain(changedPassword)
+                .doesNotContain("{noop}")
+                .doesNotContainIgnoringCase("password");
+        });
+        assertThat(rows).anySatisfy(row -> {
+            assertThat(row.get("action")).isEqualTo("CREATE_USER");
+            assertThat(row.get("actorUsername")).isEqualTo("admin");
+            assertThat(row.get("after")).asString().contains("A136 初始姓名", "WAREHOUSE");
+        });
+        assertThat(rows).anySatisfy(row -> {
+            assertThat(row.get("action")).isEqualTo("UPDATE_USER");
+            assertThat(row.get("actorUsername")).isEqualTo("admin");
+            assertThat(row.get("before")).asString().contains("A136 初始姓名", "WAREHOUSE");
+            assertThat(row.get("after")).asString().contains("A136 更新姓名", "FINANCE");
+        });
+        assertThat(rows).anySatisfy(row -> {
+            assertThat(row.get("action")).isEqualTo("CHANGE_OWN_PASSWORD");
+            assertThat(row.get("actorUsername")).isEqualTo(username);
+        });
+        assertThat(jdbcTemplate.queryForMap("""
+            SELECT actor_type AS "actorType",
+                   operated_by AS "operatedBy",
+                   actor_username AS "actorUsername"
+            FROM sys_operation_log
+            WHERE target_id = ?::uuid
+              AND action_code = 'LOGIN'
+              AND success = FALSE
+            ORDER BY operated_at DESC
+            LIMIT 1
+            """, userId))
+            .containsEntry("actorType", "ANONYMOUS")
+            .containsEntry("operatedBy", null)
+            .containsEntry("actorUsername", null);
+        assertThat(jdbcTemplate.queryForMap("""
+            SELECT actor_type AS "actorType", actor_username AS "actorUsername"
+            FROM sys_operation_log
+            WHERE target_id = ?::uuid
+              AND action_code = 'LOGIN'
+              AND success = TRUE
+            ORDER BY operated_at DESC
+            LIMIT 1
+            """, userId))
+            .containsEntry("actorType", "USER")
+            .containsEntry("actorUsername", username);
     }
 
     @Test
@@ -121,7 +236,8 @@ class UserManagementPasswordResetIntegrationTest {
         var requestId = createPendingRequest(username, userId);
         var sessionService = mock(CurrentSessionService.class);
         when(sessionService.currentUsername()).thenReturn("admin");
-        var controller = controller(mock(PasswordResetRequestService.class), sessionService);
+        var operationLogService = mock(OperationLogService.class);
+        var controller = controller(mock(PasswordResetRequestService.class), sessionService, operationLogService);
         var successes = new AtomicInteger();
         var conflicts = new AtomicInteger();
         var start = new CountDownLatch(1);
@@ -147,12 +263,13 @@ class UserManagementPasswordResetIntegrationTest {
               AND source_id = ?::uuid
               AND template_code = 'PASSWORD_RESET_REJECTED'
             """, Integer.class, requestId)).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("""
-            SELECT count(*) FROM sys_operation_log
-            WHERE module_code = 'SYSTEM'
-              AND action_code = 'HANDLE_PASSWORD_RESET_REQUEST'
-              AND target_id = ?::uuid
-            """, Integer.class, userId)).isEqualTo(1);
+        verify(operationLogService, times(1)).logPlatform(argThat(command ->
+            command != null
+                && "HANDLE_PASSWORD_RESET_REQUEST".equals(command.action())
+                && userId.equals(String.valueOf(command.targetId()))
+                && command.beforeState().get(OperationLogCommand.StateField.REQUEST_STATUS).equals("PENDING")
+                && command.afterState().get(OperationLogCommand.StateField.REQUEST_STATUS).equals("REJECTED")
+        ));
     }
 
     @Test
@@ -168,6 +285,14 @@ class UserManagementPasswordResetIntegrationTest {
         PasswordResetRequestService requestService,
         CurrentSessionService sessionService
     ) {
+        return controller(requestService, sessionService, mock(OperationLogService.class));
+    }
+
+    private UserManagementController controller(
+        PasswordResetRequestService requestService,
+        CurrentSessionService sessionService,
+        OperationLogService operationLogService
+    ) {
         var notificationProvider = mock(NotificationProviderService.class);
         when(notificationProvider.currentProviderCode()).thenReturn("LOCAL");
         return new UserManagementController(
@@ -175,8 +300,13 @@ class UserManagementPasswordResetIntegrationTest {
             sessionService,
             mock(PasswordPolicy.class),
             notificationProvider,
-            requestService
+            requestService,
+            operationLogService
         );
+    }
+
+    private void bindRequest() {
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
     }
 
     private void handleConcurrently(

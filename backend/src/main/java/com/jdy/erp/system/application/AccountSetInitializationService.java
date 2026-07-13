@@ -1,7 +1,10 @@
 package com.jdy.erp.system.application;
 
 import java.util.Map;
+import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
 import com.jdy.erp.system.tenant.TenantSchemaProvisioner;
@@ -16,17 +19,20 @@ public class AccountSetInitializationService {
     private final JdbcTemplate platformJdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final TenantSchemaProvisioner tenantSchemaProvisioner;
+    private final OperationLogService operationLogService;
 
     public AccountSetInitializationService(
         JdbcTemplate jdbcTemplate,
         @Qualifier("platformJdbcTemplate") JdbcTemplate platformJdbcTemplate,
         CurrentSessionService currentSessionService,
-        TenantSchemaProvisioner tenantSchemaProvisioner
+        TenantSchemaProvisioner tenantSchemaProvisioner,
+        OperationLogService operationLogService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.platformJdbcTemplate = platformJdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.tenantSchemaProvisioner = tenantSchemaProvisioner;
+        this.operationLogService = operationLogService;
     }
 
     @Transactional
@@ -46,12 +52,21 @@ public class AccountSetInitializationService {
                 version = version + 1
             WHERE id = ?::uuid
             """, accountSetId);
-        platformJdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
-            SELECT 'SYSTEM', 'INITIALIZE_ACCOUNT_SET', 'sys_account_set', ?::uuid, TRUE, ?, id
-            FROM sys_user
-            WHERE username = ?
-            """, accountSetId, clearBusinessData ? "cleared_business_data=true" : "cleared_business_data=false", currentSessionService.currentUsername());
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "SYSTEM",
+            "INITIALIZE_ACCOUNT_SET",
+            "sys_account_set",
+            UUID.fromString(accountSetId),
+            String.valueOf(accountSet.get("code")),
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(OperationLogCommand.StateField.INITIALIZED, accountSet.get("initialized")),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.INITIALIZED, true,
+                OperationLogCommand.StateField.CLEARED_BUSINESS_DATA, clearBusinessData
+            ),
+            null
+        ));
         return Map.of(
             "ok", true,
             "accountSet", currentSessionService.currentAccountSet(),

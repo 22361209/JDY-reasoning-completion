@@ -17,6 +17,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.PasswordResetRateLimiter;
 import com.jdy.erp.system.security.PasswordResetRequestProperties;
 import org.junit.jupiter.api.AfterEach;
@@ -40,6 +41,9 @@ class PasswordResetRequestServiceIntegrationTest {
     @Autowired
     @Qualifier("platformTransactionManager")
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private OperationLogService operationLogService;
 
     private TransactionTemplate transactions;
 
@@ -88,6 +92,16 @@ class PasswordResetRequestServiceIntegrationTest {
             assertThat(row.get("version")).isEqualTo(0L);
         });
         assertThat(requestLogCount() - logsBefore).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForMap("""
+            SELECT actor_type AS "actorType", operated_by AS "operatedBy"
+            FROM sys_operation_log
+            WHERE action_code = 'PASSWORD_RESET_REQUEST'
+              AND target_id = (SELECT id FROM sys_user WHERE username = ?)
+            ORDER BY operated_at DESC
+            LIMIT 1
+            """, username))
+            .containsEntry("actorType", "ANONYMOUS")
+            .containsEntry("operatedBy", null);
         assertThat(jdbcTemplate.queryForObject("""
             SELECT count(*)
             FROM sys_notification_outbox
@@ -105,7 +119,8 @@ class PasswordResetRequestServiceIntegrationTest {
             isolatedJdbc,
             limiter,
             properties(50, 500),
-            isolatedTransactions
+            isolatedTransactions,
+            mock(OperationLogService.class)
         );
         clearInvocations(isolatedJdbc, isolatedTransactions);
 
@@ -312,7 +327,7 @@ class PasswordResetRequestServiceIntegrationTest {
         PasswordResetRequestProperties properties,
         PasswordResetRateLimiter limiter
     ) {
-        return new PasswordResetRequestService(jdbcTemplate, limiter, properties, transactionManager);
+        return new PasswordResetRequestService(jdbcTemplate, limiter, properties, transactionManager, operationLogService);
     }
 
     private PasswordResetRateLimiter allowingLimiter() {

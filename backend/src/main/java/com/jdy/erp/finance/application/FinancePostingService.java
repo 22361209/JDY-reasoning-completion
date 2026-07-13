@@ -1,8 +1,11 @@
 package com.jdy.erp.finance.application;
 
 import java.math.BigDecimal;
+import java.util.Map;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.FinancePosting;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import org.springframework.http.HttpStatus;
@@ -62,7 +65,18 @@ public class FinancePostingService implements FinancePosting {
             context.billDate(),
             amount
         );
-        operationLogService.log("FINANCE", "CREATE_AR", "ar_receivable", String.valueOf(row.get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "FINANCE",
+            "CREATE_AR",
+            "ar_receivable",
+            UUID.fromString(String.valueOf(row.get("id"))),
+            String.valueOf(row.get("billNo")),
+            Map.of(),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, row.get("status"),
+                OperationLogCommand.StateField.AMOUNT, row.get("amount")
+            )
+        ));
     }
 
     private void postPayable(PostingContext context, String billNo, BigDecimal amount) {
@@ -84,7 +98,18 @@ public class FinancePostingService implements FinancePosting {
             context.billDate(),
             amount
         );
-        operationLogService.log("FINANCE", "CREATE_AP", "ap_payable", String.valueOf(row.get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "FINANCE",
+            "CREATE_AP",
+            "ap_payable",
+            UUID.fromString(String.valueOf(row.get("id"))),
+            String.valueOf(row.get("billNo")),
+            Map.of(),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, row.get("status"),
+                OperationLogCommand.StateField.AMOUNT, row.get("amount")
+            )
+        ));
     }
 
     private void validate(PostingContext context) {

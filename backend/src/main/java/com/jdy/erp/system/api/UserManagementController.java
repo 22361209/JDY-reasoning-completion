@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.application.NotificationProviderService;
 import com.jdy.erp.system.application.PasswordResetRequestService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -41,19 +44,22 @@ public class UserManagementController {
     private final PasswordPolicy passwordPolicy;
     private final NotificationProviderService notificationProviderService;
     private final PasswordResetRequestService passwordResetRequestService;
+    private final OperationLogService operationLogService;
 
     public UserManagementController(
         @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         CurrentSessionService currentSessionService,
         PasswordPolicy passwordPolicy,
         NotificationProviderService notificationProviderService,
-        PasswordResetRequestService passwordResetRequestService
+        PasswordResetRequestService passwordResetRequestService,
+        OperationLogService operationLogService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.passwordPolicy = passwordPolicy;
         this.notificationProviderService = notificationProviderService;
         this.passwordResetRequestService = passwordResetRequestService;
+        this.operationLogService = operationLogService;
     }
 
     @GetMapping("/managed-users")
@@ -82,7 +88,9 @@ public class UserManagementController {
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    recipient_username AS "recipientUsername",
-                   status
+                   status,
+                   COALESCE(provider, '') AS provider,
+                   retry_count AS "retryCount"
             FROM sys_notification_outbox
             WHERE id = ?::uuid
             """, normalizedNotificationId);
@@ -103,7 +111,25 @@ public class UserManagementController {
                 provider_message_id = ? || '-' || replace(id::text, '-', '')
             WHERE id = ?::uuid
             """, providerCode, providerCode, normalizedNotificationId);
-        log("SYSTEM", "RESEND_NOTIFICATION", "sys_notification_outbox", normalizedNotificationId, true, "重发给 " + rows.get(0).get("recipientUsername"));
+        var before = rows.get(0);
+        logSuccess(
+            "SYSTEM",
+            "RESEND_NOTIFICATION",
+            "sys_notification_outbox",
+            normalizedNotificationId,
+            null,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, before.get("status"),
+                OperationLogCommand.StateField.PROVIDER, before.get("provider"),
+                OperationLogCommand.StateField.RETRY_COUNT, before.get("retryCount")
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, "SENT",
+                OperationLogCommand.StateField.PROVIDER, providerCode,
+                OperationLogCommand.StateField.RETRY_COUNT, Number.class.cast(before.get("retryCount")).intValue() + 1
+            ),
+            null
+        );
         return Map.of("notificationOutbox", notificationRows(""));
     }
 
@@ -118,7 +144,11 @@ public class UserManagementController {
         }
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
-                   recipient_username AS "recipientUsername"
+                   recipient_username AS "recipientUsername",
+                   status,
+                   COALESCE(provider, '') AS provider,
+                   retry_count AS "retryCount",
+                   COALESCE(provider_receipt_status, '') AS "receiptStatus"
             FROM sys_notification_outbox
             WHERE id = ?::uuid
             """, normalizedNotificationId);
@@ -143,7 +173,27 @@ public class UserManagementController {
                 sent_at = CASE WHEN ? = 'SENT' THEN COALESCE(sent_at, now()) ELSE sent_at END
             WHERE id = ?::uuid
             """, nextStatus, providerMessageId, receiptStatus, failureReason, nextStatus, normalizedNotificationId);
-        log("SYSTEM", "SYNC_NOTIFICATION_RECEIPT", "sys_notification_outbox", normalizedNotificationId, true, receiptStatus + "：" + rows.get(0).get("recipientUsername"));
+        var before = rows.get(0);
+        logSuccess(
+            "SYSTEM",
+            "SYNC_NOTIFICATION_RECEIPT",
+            "sys_notification_outbox",
+            normalizedNotificationId,
+            null,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, before.get("status"),
+                OperationLogCommand.StateField.PROVIDER, before.get("provider"),
+                OperationLogCommand.StateField.RETRY_COUNT, before.get("retryCount"),
+                OperationLogCommand.StateField.RECEIPT_STATUS, before.get("receiptStatus")
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, nextStatus,
+                OperationLogCommand.StateField.PROVIDER, before.get("provider"),
+                OperationLogCommand.StateField.RETRY_COUNT, before.get("retryCount"),
+                OperationLogCommand.StateField.RECEIPT_STATUS, receiptStatus
+            ),
+            null
+        );
         return Map.of("notificationOutbox", notificationRows(""));
     }
 
@@ -169,6 +219,7 @@ public class UserManagementController {
         var password = required(request.password(), "初始密码");
         passwordPolicy.validate(password);
         var roleId = roleId(roleCode);
+        String userId;
         try {
             var user = jdbcTemplate.queryForMap("""
                 INSERT INTO sys_user (username, display_name, password_hash, enabled)
@@ -179,10 +230,12 @@ public class UserManagementController {
                 INSERT INTO sys_user_role (user_id, role_id)
                 VALUES (?::uuid, ?::uuid)
                 """, user.get("id"), roleId);
-            saveUserAccountSetGrants(String.valueOf(user.get("id")), request.accountSetCodes(), request.defaultAccountSetCode());
+            userId = String.valueOf(user.get("id"));
+            saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
         } catch (DuplicateKeyException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "用户名已存在");
         }
+        logUserChange("CREATE_USER", userId, username, Map.of(), userAuditState(userId));
         return managedUsers();
     }
 
@@ -194,6 +247,7 @@ public class UserManagementController {
         var displayName = required(request.displayName(), "姓名");
         var roleCode = required(request.roleCode(), "角色");
         var userId = userId(normalizedUsername);
+        var beforeState = userAuditState(userId);
         var roleId = roleId(roleCode);
         jdbcTemplate.update("""
             UPDATE sys_user
@@ -211,6 +265,7 @@ public class UserManagementController {
         if (request.accountSetCodes() != null || request.defaultAccountSetCode() != null) {
             saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
         }
+        logUserChange("UPDATE_USER", userId, normalizedUsername, beforeState, userAuditState(userId));
         return managedUsers();
     }
 
@@ -220,8 +275,12 @@ public class UserManagementController {
     public Map<String, Object> saveUserAccountSets(@PathVariable String username, @RequestBody AccountSetGrantRequest request) {
         var normalizedUsername = required(username, "用户名");
         var userId = userId(normalizedUsername);
+        var beforeState = userAuditState(userId);
         saveUserAccountSetGrants(userId, request.accountSetCodes(), request.defaultAccountSetCode());
-        log("SYSTEM", "SAVE_USER_ACCOUNT_SETS", "sys_user", userId, true, null);
+        logSuccess(
+            "SYSTEM", "SAVE_USER_ACCOUNT_SETS", "sys_user", userId, normalizedUsername,
+            beforeState, userAuditState(userId), null
+        );
         return managedUsers();
     }
 
@@ -233,6 +292,12 @@ public class UserManagementController {
         var password = required(request.password(), "新密码");
         passwordPolicy.validate(password);
         var userId = userId(normalizedUsername);
+        var beforePasswordState = jdbcTemplate.queryForMap("""
+            SELECT session_generation AS "sessionGeneration",
+                   (locked_until IS NOT NULL AND locked_until > now()) AS locked
+            FROM sys_user
+            WHERE id = ?::uuid
+            """, userId);
         var updated = jdbcTemplate.update("""
             UPDATE sys_user
             SET password_hash = ?,
@@ -274,7 +339,23 @@ public class UserManagementController {
                 String.valueOf(resetRequest.get("id"))
             );
         }
-        log("SYSTEM", "RESET_PASSWORD", "sys_user", userId, true, null);
+        logSuccess(
+            "SYSTEM",
+            "RESET_PASSWORD",
+            "sys_user",
+            userId,
+            normalizedUsername,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.SESSION_GENERATION, beforePasswordState.get("sessionGeneration"),
+                OperationLogCommand.StateField.LOCKED, beforePasswordState.get("locked")
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.SESSION_GENERATION,
+                Number.class.cast(beforePasswordState.get("sessionGeneration")).intValue() + 1,
+                OperationLogCommand.StateField.LOCKED, false
+            ),
+            null
+        );
         return Map.of("ok", true);
     }
 
@@ -325,7 +406,16 @@ public class UserManagementController {
                 normalizedRequestId
             );
         }
-        log("SYSTEM", "HANDLE_PASSWORD_RESET_REQUEST", "sys_user", targetUserId, true, status + (note == null || note.isBlank() ? "" : "：" + note));
+        logSuccess(
+            "SYSTEM",
+            "HANDLE_PASSWORD_RESET_REQUEST",
+            "sys_user",
+            targetUserId,
+            normalizedRequestId,
+            OperationLogCommand.state(OperationLogCommand.StateField.REQUEST_STATUS, "PENDING"),
+            OperationLogCommand.state(OperationLogCommand.StateField.REQUEST_STATUS, status),
+            null
+        );
         return managedUsers();
     }
 
@@ -334,6 +424,11 @@ public class UserManagementController {
     public Map<String, Object> unlockUser(@PathVariable String username) {
         var normalizedUsername = required(username, "用户名");
         var userId = userId(normalizedUsername);
+        var wasLocked = jdbcTemplate.queryForObject(
+            "SELECT locked_until IS NOT NULL AND locked_until > now() FROM sys_user WHERE id = ?::uuid",
+            Boolean.class,
+            userId
+        );
         jdbcTemplate.update("""
             UPDATE sys_user
             SET failed_login_count = 0,
@@ -342,19 +437,35 @@ public class UserManagementController {
                 version = version + 1
             WHERE id = ?::uuid
             """, userId);
-        log("SYSTEM", "UNLOCK_USER", "sys_user", userId, true, null);
+        logSuccess(
+            "SYSTEM",
+            "UNLOCK_USER",
+            "sys_user",
+            userId,
+            normalizedUsername,
+            OperationLogCommand.state(OperationLogCommand.StateField.LOCKED, wasLocked),
+            OperationLogCommand.state(OperationLogCommand.StateField.LOCKED, false),
+            null
+        );
         return managedUsers();
     }
 
     @PutMapping("/password")
     @WriteAccess(Policy.CHANGE_OWN_PASSWORD)
     public Map<String, Object> changePassword(@RequestBody ChangePasswordRequest request) {
-        var currentPassword = required(request.currentPassword(), "当前密码");
-        var newPassword = required(request.newPassword(), "新密码");
-        passwordPolicy.validate(newPassword);
-        currentSessionService.verifyCurrentPassword(currentPassword);
-        if (currentPassword.equals(newPassword)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新密码不能与当前密码相同");
+        String currentPassword;
+        String newPassword;
+        try {
+            currentPassword = required(request.currentPassword(), "当前密码");
+            newPassword = required(request.newPassword(), "新密码");
+            passwordPolicy.validate(newPassword);
+            currentSessionService.verifyCurrentPassword(currentPassword);
+            if (currentPassword.equals(newPassword)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新密码不能与当前密码相同");
+            }
+        } catch (ResponseStatusException exception) {
+            currentSessionService.logCurrentPasswordChangeFailure(exception.getReason());
+            throw exception;
         }
         currentSessionService.changeCurrentPassword(newPassword);
         return Map.of("ok", true);
@@ -626,13 +737,72 @@ public class UserManagementController {
         return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
     }
 
-    private void log(String module, String action, String targetType, String targetId, boolean success, String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
-            SELECT ?, ?, ?, ?::uuid, ?, ?, id
+    private void logSuccess(
+        String module,
+        String action,
+        String targetType,
+        String targetId,
+        String targetNo,
+        Map<OperationLogCommand.StateField, Object> beforeState,
+        Map<OperationLogCommand.StateField, Object> afterState,
+        String reason
+    ) {
+        operationLogService.logPlatform(OperationLogCommand.success(
+            module,
+            action,
+            targetType,
+            targetId == null ? null : UUID.fromString(targetId),
+            targetNo,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            beforeState,
+            afterState,
+            reason
+        ));
+    }
+
+    private void logUserChange(
+        String action,
+        String userId,
+        String username,
+        Map<OperationLogCommand.StateField, Object> beforeState,
+        Map<OperationLogCommand.StateField, Object> afterState
+    ) {
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            action,
+            "sys_user",
+            UUID.fromString(userId),
+            username,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            beforeState,
+            afterState,
+            null
+        ));
+    }
+
+    private Map<OperationLogCommand.StateField, Object> userAuditState(String userId) {
+        var user = jdbcTemplate.queryForMap("""
+            SELECT display_name AS "displayName", enabled
             FROM sys_user
-            WHERE username = ?
-            """, module, action, targetType, targetId, success, reason, currentSessionService.currentUsername());
+            WHERE id = ?::uuid
+            """, userId);
+        var accountSetCodes = jdbcTemplate.queryForList("""
+            SELECT a.code
+            FROM sys_user_account_set uas
+            JOIN sys_account_set a ON a.id = uas.account_set_id
+            WHERE uas.user_id = ?::uuid
+              AND uas.enabled = TRUE
+            ORDER BY a.created_at, a.code
+            """, String.class, userId);
+        return OperationLogCommand.state(
+            OperationLogCommand.StateField.DISPLAY_NAME, user.get("displayName"),
+            OperationLogCommand.StateField.ENABLED, user.get("enabled"),
+            OperationLogCommand.StateField.ROLE_CODE, roleCodeOfUser(userId),
+            OperationLogCommand.StateField.ACCOUNT_SET_CODES, accountSetCodes,
+            OperationLogCommand.StateField.DEFAULT_ACCOUNT_SET_CODE, defaultAccountSetCode(userId)
+        );
     }
 
     private void createNotification(
@@ -646,7 +816,7 @@ public class UserManagementController {
         String sourceId
     ) {
         var providerCode = notificationProviderService.currentProviderCode();
-        jdbcTemplate.update("""
+        var notificationId = jdbcTemplate.queryForObject("""
             INSERT INTO sys_notification_outbox (
                 channel,
                 template_code,
@@ -665,7 +835,9 @@ public class UserManagementController {
                 sent_at
             )
             VALUES ('IN_APP', ?, ?::uuid, ?, ?, ?, ?, ?, ?::uuid, 'SENT', ?, ? || '-' || replace(gen_random_uuid()::text, '-', ''), 0, now(), now())
+            RETURNING id::text
             """,
+            String.class,
             templateCode,
             recipientUserId,
             recipientUsername,
@@ -677,7 +849,20 @@ public class UserManagementController {
             providerCode,
             providerCode
         );
-        log("SYSTEM", "SEND_PASSWORD_RESET_NOTICE", "sys_notification_outbox", null, true, templateCode + "：" + recipientUsername);
+        logSuccess(
+            "SYSTEM",
+            "SEND_PASSWORD_RESET_NOTICE",
+            "sys_notification_outbox",
+            notificationId,
+            templateCode,
+            Map.of(),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, "SENT",
+                OperationLogCommand.StateField.PROVIDER, providerCode,
+                OperationLogCommand.StateField.RETRY_COUNT, 0
+            ),
+            null
+        );
     }
 
     public record UserRequest(

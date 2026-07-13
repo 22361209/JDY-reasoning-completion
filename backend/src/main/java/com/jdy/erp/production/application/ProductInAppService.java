@@ -4,11 +4,13 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -140,7 +142,11 @@ public class ProductInAppService {
         var row = new LinkedHashMap<String, Object>(completionRows.get(0));
         row.put("qty", totalQty);
         row.put("sourceOrderNo", sourceTaskNo);
-        operationLogService.log("PRODUCTION", "SAVE_COMPLETE_DRAFT", "production_completion", completionId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "SAVE_COMPLETE_DRAFT", "production_completion",
+            UUID.fromString(completionId), productInBillNo, Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(completionRows.get(0).get("status")))
+        ));
         return row;
     }
 
@@ -223,7 +229,12 @@ public class ProductInAppService {
             WHERE id = ?::uuid
             RETURNING id::text AS id, bill_no AS "billNo", qty, status
             """, BillStatus.AUDITED.name(), completion.get("id"));
-        operationLogService.log("PRODUCTION", "AUDIT_COMPLETE", "production_completion", String.valueOf(completion.get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "AUDIT_COMPLETE", "production_completion",
+            UUID.fromString(String.valueOf(completion.get("id"))), billNo,
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(rows.get(0).get("status")))
+        ));
 	        var row = new LinkedHashMap<String, Object>(rows.get(0));
 	        row.put("taskCompletedQty", taskRows.get(0).get("completedQty"));
 	        return row;
@@ -250,7 +261,12 @@ public class ProductInAppService {
 	            WHERE id = ?::uuid
 	            RETURNING id::text AS id, bill_no AS "billNo", qty, status
 	            """, BillStatus.AUDITED.name(), completion.get("id"));
-	        operationLogService.log("PRODUCTION", "AUDIT_RED_COMPLETE", "production_completion", String.valueOf(completion.get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "PRODUCTION", "AUDIT_RED_COMPLETE", "production_completion",
+	            UUID.fromString(String.valueOf(completion.get("id"))), billNo,
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(rows.get(0).get("status")))
+	        ));
 	        var row = new LinkedHashMap<String, Object>(rows.get(0));
 	        row.put("taskCompletedQty", taskRows.get(0).get("completedQty"));
 	        return row;
@@ -310,7 +326,11 @@ public class ProductInAppService {
 	            RETURNING id::text AS id, bill_no AS "billNo", status, qty
 	            """, redBillNo, sourceRows.get(0).get("taskId"), sourceRows.get(0).get("id"), redQty, BillStatus.DRAFT.name());
 	        copyCompletionLines(billNo, String.valueOf(redRows.get(0).get("id")), true);
-	        operationLogService.log("PRODUCTION", "CREATE_RED_COMPLETE_DRAFT", "production_completion", String.valueOf(redRows.get(0).get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "PRODUCTION", "CREATE_RED_COMPLETE_DRAFT", "production_completion",
+	            UUID.fromString(String.valueOf(redRows.get(0).get("id"))), redBillNo, Map.of(),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(redRows.get(0).get("status")))
+	        ));
 	        return redRows.get(0);
 	    }
 

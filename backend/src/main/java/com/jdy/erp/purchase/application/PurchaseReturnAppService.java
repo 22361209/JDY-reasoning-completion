@@ -15,7 +15,6 @@ import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
-import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
 import com.jdy.erp.shared.application.ProductSnapshotService;
@@ -59,7 +58,6 @@ public class PurchaseReturnAppService {
     private final ValidationService validationService;
     private final BillLifecycleService lifecycleService;
     private final PostingPipeline postingPipeline;
-    private final OperationLogService operationLogService;
     private final NumberingService numberingService;
     private final TaxAmountCalculator taxAmountCalculator;
     private final ProductSnapshotService productSnapshotService;
@@ -70,7 +68,6 @@ public class PurchaseReturnAppService {
         ValidationService validationService,
         BillLifecycleService lifecycleService,
         PostingPipeline postingPipeline,
-        OperationLogService operationLogService,
         NumberingService numberingService,
         TaxAmountCalculator taxAmountCalculator,
         ProductSnapshotService productSnapshotService
@@ -80,7 +77,6 @@ public class PurchaseReturnAppService {
         this.validationService = validationService;
         this.lifecycleService = lifecycleService;
         this.postingPipeline = postingPipeline;
-        this.operationLogService = operationLogService;
         this.numberingService = numberingService;
         this.taxAmountCalculator = taxAmountCalculator;
         this.productSnapshotService = productSnapshotService;
@@ -252,7 +248,6 @@ public class PurchaseReturnAppService {
             ));
         }
         postingPipeline.post(financeContext(row, "PURCHASE_RETURN", ((BigDecimal) row.get("totalAmount")).negate()));
-        operationLogService.log("PURCHASE", "AUDIT", "purchase_return", String.valueOf(row.get("id")), true, null);
         return row;
     }
 

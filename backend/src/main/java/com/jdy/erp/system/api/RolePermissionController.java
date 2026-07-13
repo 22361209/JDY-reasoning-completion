@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -22,9 +25,14 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/system")
 public class RolePermissionController {
     private final JdbcTemplate jdbcTemplate;
+    private final OperationLogService operationLogService;
 
-    public RolePermissionController(@Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate) {
+    public RolePermissionController(
+        @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
+        OperationLogService operationLogService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
+        this.operationLogService = operationLogService;
     }
 
     @GetMapping("/role-permissions")
@@ -107,6 +115,13 @@ public class RolePermissionController {
             }
         }
         var roleId = String.valueOf(roleRows.get(0).get("id"));
+        var beforePermissionCodes = jdbcTemplate.queryForList("""
+            SELECT permission_code
+            FROM sys_permission
+            WHERE role_id = ?::uuid
+              AND enabled = TRUE
+            ORDER BY permission_code
+            """, String.class, roleId);
         jdbcTemplate.update("""
             UPDATE sys_permission
             SET enabled = FALSE
@@ -120,15 +135,19 @@ public class RolePermissionController {
                 SET enabled = TRUE
                 """, roleId, permissionCode);
         }
-        log("SYSTEM", "SAVE_ROLE_PERMISSION", "sys_role", roleId, true, null);
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            "SAVE_ROLE_PERMISSION",
+            "sys_role",
+            UUID.fromString(roleId),
+            normalizedRoleCode,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(OperationLogCommand.StateField.PERMISSION_CODES, beforePermissionCodes),
+            OperationLogCommand.state(OperationLogCommand.StateField.PERMISSION_CODES, requestedCodes),
+            null
+        ));
         return rolePermissions();
-    }
-
-    private void log(String module, String action, String targetType, String targetId, boolean success, String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
-            VALUES (?, ?, ?, ?::uuid, ?, ?)
-            """, module, action, targetType, targetId, success, reason);
     }
 
     public record RolePermissionRequest(List<String> permissionCodes) {

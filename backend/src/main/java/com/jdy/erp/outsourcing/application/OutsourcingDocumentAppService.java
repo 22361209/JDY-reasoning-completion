@@ -4,10 +4,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -88,7 +90,11 @@ public class OutsourcingDocumentAppService {
         jdbcTemplate.update("DELETE FROM outsourcing_work_order_line WHERE work_order_id = ?::uuid", workOrderId);
         insertWorkOrderLine(workOrderId, bom, qty, planDeliveryDate);
         insertWorkOrderComponents(workOrderId, bom, qty);
-        operationLogService.log("OUTSOURCING", "SAVE_WORK_ORDER_DRAFT", "outsourcing_work_order", workOrderId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "OUTSOURCING", "SAVE_WORK_ORDER_DRAFT", "outsourcing_work_order",
+            UUID.fromString(workOrderId), billNo, Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(header.get("status")))
+        ));
         return detailForWorkOrder(workOrderId);
     }
 
@@ -226,7 +232,11 @@ public class OutsourcingDocumentAppService {
               AND required_qty > issued_qty
             ORDER BY line_no
             """, issue.get("id"), workOrder.get("id"));
-        operationLogService.log("OUTSOURCING", "PUSH_ISSUE", "outsourcing_material_issue", String.valueOf(issue.get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "OUTSOURCING", "PUSH_ISSUE", "outsourcing_material_issue",
+            UUID.fromString(String.valueOf(issue.get("id"))), String.valueOf(issue.get("billNo")), Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(issue.get("status")))
+        ));
         return issue;
     }
 
@@ -327,7 +337,11 @@ public class OutsourcingDocumentAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "入库数量不能超过委外加工单未入库数量");
         }
         insertReceiptLikeLine("outsourcing_receipt_line", "receipt_id", String.valueOf(receipt.get("id")), line, receiptQty);
-        operationLogService.log("OUTSOURCING", "PUSH_RECEIPT", "outsourcing_receipt", String.valueOf(receipt.get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "OUTSOURCING", "PUSH_RECEIPT", "outsourcing_receipt",
+            UUID.fromString(String.valueOf(receipt.get("id"))), String.valueOf(receipt.get("billNo")), Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(receipt.get("status")))
+        ));
         return receipt;
     }
 
@@ -556,7 +570,11 @@ public class OutsourcingDocumentAppService {
             line.get("warehouseCode"),
             qty
         );
-        operationLogService.log("OUTSOURCING", "PUSH_" + kind.toUpperCase(), table, String.valueOf(adjustment.get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "OUTSOURCING", "PUSH_" + kind.toUpperCase(), table,
+            UUID.fromString(String.valueOf(adjustment.get("id"))), String.valueOf(adjustment.get("billNo")), Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(adjustment.get("status")))
+        ));
         return adjustment;
     }
 
@@ -628,7 +646,12 @@ public class OutsourcingDocumentAppService {
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在或状态不允许当前操作");
         }
-        operationLogService.log("OUTSOURCING", action, table, String.valueOf(rows.get(0).get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "OUTSOURCING", action, table,
+            UUID.fromString(String.valueOf(rows.get(0).get("id"))), String.valueOf(rows.get(0).get("billNo")),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, from),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(rows.get(0).get("status")))
+        ));
         return rows.get(0);
     }
 

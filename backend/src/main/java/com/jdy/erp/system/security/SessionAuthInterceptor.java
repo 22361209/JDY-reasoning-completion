@@ -5,6 +5,7 @@ import java.util.Set;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import com.jdy.erp.shared.application.OperationActorProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
@@ -13,6 +14,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component
 public class SessionAuthInterceptor implements HandlerInterceptor {
+    private static final Set<String> WRITE_METHODS = Set.of("POST", "PUT", "PATCH", "DELETE");
     private static final Set<PublicReadEndpoint> PUBLIC_READ_ENDPOINTS = Set.of(
         new PublicReadEndpoint("GET", "/api/system/health"),
         new PublicReadEndpoint("GET", "/api/system/session"),
@@ -20,9 +22,14 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
     );
 
     private final CurrentSessionService currentSessionService;
+    private final OperationActorProvider operationActorProvider;
 
-    public SessionAuthInterceptor(CurrentSessionService currentSessionService) {
+    public SessionAuthInterceptor(
+        CurrentSessionService currentSessionService,
+        OperationActorProvider operationActorProvider
+    ) {
         this.currentSessionService = currentSessionService;
+        this.operationActorProvider = operationActorProvider;
     }
 
     @Override
@@ -34,6 +41,9 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
             return true;
         }
         if (currentSessionService.isAuthenticated()) {
+            if (WRITE_METHODS.contains(request.getMethod())) {
+                operationActorProvider.captureCurrentUser();
+            }
             return true;
         }
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录");

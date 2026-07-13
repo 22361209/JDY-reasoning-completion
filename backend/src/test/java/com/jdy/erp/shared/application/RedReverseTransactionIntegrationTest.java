@@ -23,8 +23,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
 
 // Deliberately not @Transactional: every assertion observes a completed service transaction.
@@ -82,7 +85,14 @@ class RedReverseTransactionIntegrationTest {
         when(currentSessionService.currentAccountSetId()).thenReturn(accountSetId);
         when(numberingService.nextBillNo("salesOut")).thenReturn(salesRedBillNo);
         when(numberingService.nextBillNo("purchaseIn")).thenReturn(purchaseRedBillNo);
-        TenantContext.setPlatform();
+        var request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute(CurrentSessionService.SESSION_USERNAME, "admin");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        TenantContext.setTenant(jdbcTemplate.queryForMap("""
+            SELECT id::text AS id, code, name, COALESCE(schema_name, '') AS "schemaName"
+            FROM sys_account_set
+            WHERE code = 'BLD-TEST'
+            """));
 
         insertProduct();
         insertWarehouse();
@@ -130,11 +140,12 @@ class RedReverseTransactionIntegrationTest {
             jdbcTemplate.update("DELETE FROM md_warehouse WHERE code = ?", warehouseCode);
         } finally {
             TenantContext.clear();
+            RequestContextHolder.resetRequestAttributes();
         }
     }
 
     @Test
-    void salesRedAuditCommitsThreeDomainEventsExactlyOnceAndRepeatIsIdempotent() {
+    void salesRedAuditCommitsThreeDomainEventsExactlyOnceAndRepeatFailureIsAudited() {
         prepareSalesFacts();
         var redBillId = createSalesRedDraft();
 
@@ -146,6 +157,8 @@ class RedReverseTransactionIntegrationTest {
             "AUDIT", 1L,
             "RED_REVERSE", 1L
         ));
+        assertThat(operationCount(redBillId, "AUDIT", true)).isEqualTo(1);
+        assertThat(operationCount(redBillId, "AUDIT", false)).isZero();
         assertStock("10", "2", "8");
         assertThat(salesShippedQty()).isEqualByComparingTo("0");
         assertThat(salesOutStatus()).isEqualTo("NOT_OUT");
@@ -159,15 +172,17 @@ class RedReverseTransactionIntegrationTest {
 
         assertThat(operationCounts(redBillId)).containsExactlyInAnyOrderEntriesOf(Map.of(
             "CREATE_RED_DRAFT", 1L,
-            "AUDIT", 1L,
+            "AUDIT", 2L,
             "RED_REVERSE", 1L
         ));
+        assertThat(operationCount(redBillId, "AUDIT", true)).isEqualTo(1);
+        assertThat(operationCount(redBillId, "AUDIT", false)).isEqualTo(1);
         assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT_RED:" + salesRedBillNo)).isEqualTo(1);
         assertThat(financeCount("ar_receivable", salesRedBillNo)).isEqualTo(1);
     }
 
     @Test
-    void purchaseRedAuditCommitsThreeDomainEventsExactlyOnceAndRepeatIsIdempotent() {
+    void purchaseRedAuditCommitsThreeDomainEventsExactlyOnceAndRepeatFailureIsAudited() {
         preparePurchaseFacts();
         var redBillId = createPurchaseRedDraft();
 
@@ -179,6 +194,8 @@ class RedReverseTransactionIntegrationTest {
             "AUDIT", 1L,
             "RED_REVERSE", 1L
         ));
+        assertThat(operationCount(redBillId, "AUDIT", true)).isEqualTo(1);
+        assertThat(operationCount(redBillId, "AUDIT", false)).isZero();
         assertStock("10", "0", "10");
         assertThat(purchaseReceivedQty()).isEqualByComparingTo("0");
         assertThat(purchaseInStatus()).isEqualTo("NOT_IN");
@@ -192,9 +209,11 @@ class RedReverseTransactionIntegrationTest {
 
         assertThat(operationCounts(redBillId)).containsExactlyInAnyOrderEntriesOf(Map.of(
             "CREATE_RED_DRAFT", 1L,
-            "AUDIT", 1L,
+            "AUDIT", 2L,
             "RED_REVERSE", 1L
         ));
+        assertThat(operationCount(redBillId, "AUDIT", true)).isEqualTo(1);
+        assertThat(operationCount(redBillId, "AUDIT", false)).isEqualTo(1);
         assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN_RED:" + purchaseRedBillNo)).isEqualTo(1);
         assertThat(financeCount("ap_payable", purchaseRedBillNo)).isEqualTo(1);
     }
@@ -401,6 +420,16 @@ class RedReverseTransactionIntegrationTest {
                 }
                 return counts;
             }, targetId);
+    }
+
+    private int operationCount(String targetId, String actionCode, boolean success) {
+        return jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)::int
+            FROM sys_operation_log
+            WHERE target_id = ?::uuid
+              AND action_code = ?
+              AND success = ?
+            """, Integer.class, targetId, actionCode, success);
     }
 
     private int inventoryTxnCount(String txnType, String sourceBillType) {

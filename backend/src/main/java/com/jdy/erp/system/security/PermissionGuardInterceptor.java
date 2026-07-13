@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import com.jdy.erp.shared.application.DocumentPermissionPolicy;
+import com.jdy.erp.shared.application.OperationLogFailureService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -21,13 +23,24 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
 
     private final CurrentPermissionService permissionService;
     private final DocumentPermissionPolicy documentPermissionPolicy;
+    private final OperationLogFailureService operationLogFailureService;
+
+    @Autowired
+    public PermissionGuardInterceptor(
+        CurrentPermissionService permissionService,
+        DocumentPermissionPolicy documentPermissionPolicy,
+        OperationLogFailureService operationLogFailureService
+    ) {
+        this.permissionService = permissionService;
+        this.documentPermissionPolicy = documentPermissionPolicy;
+        this.operationLogFailureService = operationLogFailureService;
+    }
 
     public PermissionGuardInterceptor(
         CurrentPermissionService permissionService,
         DocumentPermissionPolicy documentPermissionPolicy
     ) {
-        this.permissionService = permissionService;
-        this.documentPermissionPolicy = documentPermissionPolicy;
+        this(permissionService, documentPermissionPolicy, null);
     }
 
     @Override
@@ -54,10 +67,17 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
             return true;
         }
         if (required != null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色无权执行该操作：" + required.value());
+            throw denied(request, "当前角色无权执行该操作：" + required.value());
         }
         if (documentPermission != null) {
-            documentPermissionPolicy.requirePermission(documentType(request));
+            try {
+                documentPermissionPolicy.requirePermission(documentType(request));
+            } catch (ResponseStatusException exception) {
+                if (exception.getStatusCode().value() == HttpStatus.FORBIDDEN.value()) {
+                    auditDenied(request, reason(exception));
+                }
+                throw exception;
+            }
             return true;
         }
         if (writeAccess != null) {
@@ -65,7 +85,7 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
             return true;
         }
         if (WRITE_METHODS.contains(request.getMethod())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "写接口未声明访问语义");
+            throw denied(request, "写接口未声明访问语义");
         }
         return true;
     }
@@ -87,5 +107,22 @@ public class PermissionGuardInterceptor implements HandlerInterceptor {
         if (!methodMatches || !pathMatches) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "接口访问 policy 与实际映射不一致");
         }
+    }
+
+    private ResponseStatusException denied(HttpServletRequest request, String reason) {
+        auditDenied(request, reason);
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, reason);
+    }
+
+    private void auditDenied(HttpServletRequest request, String reason) {
+        if (operationLogFailureService != null && WRITE_METHODS.contains(request.getMethod())) {
+            operationLogFailureService.logPermissionDeniedOnce(request, reason);
+        }
+    }
+
+    private String reason(ResponseStatusException exception) {
+        return exception.getReason() == null || exception.getReason().isBlank()
+            ? exception.getStatusCode().toString()
+            : exception.getReason();
     }
 }

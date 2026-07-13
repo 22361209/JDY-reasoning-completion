@@ -2,7 +2,10 @@ package com.jdy.erp.system.application;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantSchemaProvisioner;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,15 +21,18 @@ public class AccountSetManagementService {
     private final JdbcTemplate platformJdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final TenantSchemaProvisioner tenantSchemaProvisioner;
+    private final OperationLogService operationLogService;
 
     public AccountSetManagementService(
         @Qualifier("platformJdbcTemplate") JdbcTemplate platformJdbcTemplate,
         CurrentSessionService currentSessionService,
-        TenantSchemaProvisioner tenantSchemaProvisioner
+        TenantSchemaProvisioner tenantSchemaProvisioner,
+        OperationLogService operationLogService
     ) {
         this.platformJdbcTemplate = platformJdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.tenantSchemaProvisioner = tenantSchemaProvisioner;
+        this.operationLogService = operationLogService;
     }
 
     @Transactional(transactionManager = "platformTransactionManager")
@@ -70,7 +76,17 @@ public class AccountSetManagementService {
 
         tenantSchemaProvisioner.provisionSchema(schemaName);
         grantCurrentUserAndAdmins(String.valueOf(accountSet.get("id")));
-        logCreate(String.valueOf(accountSet.get("id")), code);
+        logAccountSetOperation(
+            "CREATE_ACCOUNT_SET",
+            String.valueOf(accountSet.get("id")),
+            code,
+            Map.of(),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.ENABLED, true,
+                OperationLogCommand.StateField.INITIALIZED, false
+            ),
+            "account_set=" + code
+        );
         return Map.of(
             "ok", true,
             "accountSet", accountSet,
@@ -110,7 +126,7 @@ public class AccountSetManagementService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能禁用当前正在使用的账套，请先切换到其他账套。");
         }
         var rows = platformJdbcTemplate.queryForList("""
-            SELECT id::text AS id, code, name
+            SELECT id::text AS id, code, name, enabled
             FROM sys_account_set
             WHERE code = ?
             LIMIT 1
@@ -132,7 +148,8 @@ public class AccountSetManagementService {
             enabled ? "ENABLE_ACCOUNT_SET" : "DISABLE_ACCOUNT_SET",
             String.valueOf(accountSet.get("id")),
             String.valueOf(accountSet.get("code")),
-            String.valueOf(accountSet.get("name")),
+            OperationLogCommand.state(OperationLogCommand.StateField.ENABLED, accountSet.get("enabled")),
+            OperationLogCommand.state(OperationLogCommand.StateField.ENABLED, enabled),
             optionalText(reason, enabled ? "enabled=true" : "enabled=false")
         );
         return Map.of(
@@ -182,20 +199,26 @@ public class AccountSetManagementService {
             """, accountSetId);
     }
 
-    private void logCreate(String accountSetId, String code) {
-        logAccountSetOperation("CREATE_ACCOUNT_SET", accountSetId, code, code, "account_set=" + code);
-    }
-
-    void logAccountSetOperation(String action, String accountSetId, String accountSetCode, String accountSetName, String reason) {
-        platformJdbcTemplate.update("""
-            INSERT INTO sys_operation_log (
-                module_code, action_code, target_type, target_id, success, failure_reason, operated_by,
-                account_set_id, account_set_code, account_set_name
-            )
-            SELECT 'SYSTEM', ?, 'sys_account_set', ?::uuid, TRUE, ?, id, ?::uuid, ?, ?
-            FROM sys_user
-            WHERE username = ?
-            """, action, accountSetId, reason, accountSetId, accountSetCode, accountSetName, currentSessionService.currentUsername());
+    void logAccountSetOperation(
+        String action,
+        String accountSetId,
+        String accountSetCode,
+        Map<OperationLogCommand.StateField, Object> beforeState,
+        Map<OperationLogCommand.StateField, Object> afterState,
+        String reason
+    ) {
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            action,
+            "sys_account_set",
+            UUID.fromString(accountSetId),
+            accountSetCode,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            beforeState,
+            afterState,
+            reason
+        ));
     }
 
     private String currentDatabaseName() {

@@ -2,9 +2,13 @@ package com.jdy.erp.system.security;
 
 import java.util.Map;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Component
@@ -20,10 +24,16 @@ public class PasswordPolicy {
 
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
+    private final OperationLogService operationLogService;
 
-    public PasswordPolicy(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
+    public PasswordPolicy(
+        @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
+        CurrentSessionService currentSessionService,
+        OperationLogService operationLogService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
+        this.operationLogService = operationLogService;
     }
 
     public void validate(String password) {
@@ -69,7 +79,9 @@ public class PasswordPolicy {
         );
     }
 
+    @Transactional(transactionManager = "platformTransactionManager")
     public void updatePolicy(Integer minLength, Boolean requireUppercase, Boolean requireLowercase, Boolean requireDigit, Boolean requireSymbol) {
+        var beforePolicy = currentPolicy();
         var normalizedMinLength = normalizeMinLength(minLength);
         var normalizedRequireUppercase = requireUppercase == null || requireUppercase;
         var normalizedRequireLowercase = requireLowercase == null || requireLowercase;
@@ -80,12 +92,34 @@ public class PasswordPolicy {
         upsert(REQUIRE_LOWERCASE_KEY, String.valueOf(normalizedRequireLowercase));
         upsert(REQUIRE_DIGIT_KEY, String.valueOf(normalizedRequireDigit));
         upsert(REQUIRE_SYMBOL_KEY, String.valueOf(normalizedRequireSymbol));
-        logSetting(
-            "password_policy=minLength:" + normalizedMinLength
-                + ",upper:" + normalizedRequireUppercase
-                + ",lower:" + normalizedRequireLowercase
-                + ",digit:" + normalizedRequireDigit
-                + ",symbol:" + normalizedRequireSymbol
+        var afterPolicy = new Policy(
+            normalizedMinLength,
+            normalizedRequireUppercase,
+            normalizedRequireLowercase,
+            normalizedRequireDigit,
+            normalizedRequireSymbol
+        );
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            "UPDATE_SECURITY_SETTING",
+            "sys_setting",
+            null,
+            "password-policy",
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            policyState(beforePolicy),
+            policyState(afterPolicy),
+            null
+        ));
+    }
+
+    private Map<OperationLogCommand.StateField, Object> policyState(Policy policy) {
+        return OperationLogCommand.state(
+            OperationLogCommand.StateField.PASSWORD_MIN_LENGTH, policy.minLength(),
+            OperationLogCommand.StateField.REQUIRE_UPPERCASE, policy.requireUppercase(),
+            OperationLogCommand.StateField.REQUIRE_LOWERCASE, policy.requireLowercase(),
+            OperationLogCommand.StateField.REQUIRE_DIGIT, policy.requireDigit(),
+            OperationLogCommand.StateField.REQUIRE_SYMBOL, policy.requireSymbol()
         );
     }
 
@@ -132,15 +166,6 @@ public class PasswordPolicy {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "密码最小长度需在 " + MIN_LENGTH + "-" + MAX_LENGTH + " 之间");
         }
         return value;
-    }
-
-    private void logSetting(String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, success, failure_reason, operated_by)
-            SELECT 'SYSTEM', 'UPDATE_SECURITY_SETTING', 'sys_setting', TRUE, ?, id
-            FROM sys_user
-            WHERE username = ?
-            """, reason, currentSessionService.currentUsername());
     }
 
     public record Policy(int minLength, boolean requireUppercase, boolean requireLowercase, boolean requireDigit, boolean requireSymbol) {

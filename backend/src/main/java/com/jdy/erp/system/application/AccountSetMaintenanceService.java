@@ -5,14 +5,21 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogFailureService;
+import com.jdy.erp.shared.application.OperationLogService;
+import com.jdy.erp.shared.application.OperationLogService.TenantTarget;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantSchemaProvisioner;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -22,15 +29,24 @@ public class AccountSetMaintenanceService {
     private final JdbcTemplate platformJdbcTemplate;
     private final CurrentSessionService currentSessionService;
     private final TenantSchemaProvisioner tenantSchemaProvisioner;
+    private final OperationLogService operationLogService;
+    private final OperationLogFailureService operationLogFailureService;
+    private final TransactionTemplate platformTransactions;
 
     public AccountSetMaintenanceService(
         @Qualifier("platformJdbcTemplate") JdbcTemplate platformJdbcTemplate,
         CurrentSessionService currentSessionService,
-        TenantSchemaProvisioner tenantSchemaProvisioner
+        TenantSchemaProvisioner tenantSchemaProvisioner,
+        OperationLogService operationLogService,
+        OperationLogFailureService operationLogFailureService,
+        @Qualifier("platformTransactionManager") PlatformTransactionManager platformTransactionManager
     ) {
         this.platformJdbcTemplate = platformJdbcTemplate;
         this.currentSessionService = currentSessionService;
         this.tenantSchemaProvisioner = tenantSchemaProvisioner;
+        this.operationLogService = operationLogService;
+        this.operationLogFailureService = operationLogFailureService;
+        this.platformTransactions = new TransactionTemplate(platformTransactionManager);
     }
 
     public List<Map<String, Object>> currentBackups() {
@@ -107,7 +123,7 @@ public class AccountSetMaintenanceService {
             rowCount,
             currentSessionService.currentUserId()
         );
-        logTenantOperation(schema, accountSet, "BACKUP_ACCOUNT_SET", backupName);
+        logAccountSetOperation(accountSet, schema, "BACKUP_ACCOUNT_SET", backupName);
         return Map.of(
             "ok", true,
             "backup", backup,
@@ -116,10 +132,22 @@ public class AccountSetMaintenanceService {
         );
     }
 
-    @Transactional(transactionManager = "platformTransactionManager")
     public Map<String, Object> restoreCurrentAccountSet(String backupName) {
         var accountSet = currentSessionService.currentAccountSet();
         var schema = schemaName(accountSet);
+        try {
+            return platformTransactions.execute(status -> restoreWithinTransaction(accountSet, schema, backupName));
+        } catch (RuntimeException exception) {
+            logRestoreFailure(accountSet, schema, backupName, exception);
+            throw exception;
+        }
+    }
+
+    private Map<String, Object> restoreWithinTransaction(
+        Map<String, Object> accountSet,
+        String schema,
+        String backupName
+    ) {
         if (tenantSchemaProvisioner.isPlatformSchema(schema)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "public 过渡账套暂不支持恢复，请在 tenant schema 测试账套执行。");
         }
@@ -152,7 +180,7 @@ public class AccountSetMaintenanceService {
                 restored_by = ?::uuid
             WHERE id = ?::uuid
             """, currentSessionService.currentUserId(), backup.get("id"));
-        logTenantOperation(schema, accountSet, "RESTORE_ACCOUNT_SET", String.valueOf(backup.get("backupName")));
+        logAccountSetOperation(accountSet, schema, "RESTORE_ACCOUNT_SET", String.valueOf(backup.get("backupName")));
         return Map.of(
             "ok", true,
             "backup", backupByName(String.valueOf(accountSet.get("id")), backupName),
@@ -216,6 +244,9 @@ public class AccountSetMaintenanceService {
     private List<String> restorableTables(String schema, String backupSchema) {
         var tables = new ArrayList<String>();
         for (var table : tenantSchemaProvisioner.tenantTableNames()) {
+            if ("sys_operation_log".equals(table)) {
+                continue;
+            }
             if (tableExists(schema, table) && tableExists(backupSchema, table)) {
                 tables.add(table);
             }
@@ -254,21 +285,52 @@ public class AccountSetMaintenanceService {
             .orElseThrow();
     }
 
-    private void logTenantOperation(String schema, Map<String, Object> accountSet, String action, String reason) {
-        platformJdbcTemplate.update("""
-            INSERT INTO %s.sys_operation_log (
-                module_code, action_code, target_type, target_id, success, failure_reason, operated_by,
-                account_set_id, account_set_code, account_set_name
-            )
-            VALUES ('SYSTEM', ?, 'sys_account_set', ?::uuid, TRUE, ?, ?::uuid, ?::uuid, ?, ?)
-            """.formatted(quoteIdentifier(schema)),
+    void logAccountSetOperation(Map<String, Object> accountSet, String schema, String action, String backupName) {
+        var command = OperationLogCommand.success(
+            "SYSTEM",
             action,
-            accountSet.get("id"),
-            reason,
-            currentSessionService.currentUserId(),
-            accountSet.get("id"),
-            accountSet.get("code"),
-            accountSet.get("name")
+            "sys_account_set",
+            UUID.fromString(String.valueOf(accountSet.get("id"))),
+            String.valueOf(accountSet.get("code")),
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.BACKUP_NAME, backupName),
+            null
+        );
+        operationLogService.logTenant(tenantTarget(accountSet, schema), command);
+    }
+
+    private void logRestoreFailure(
+        Map<String, Object> accountSet,
+        String schema,
+        String backupName,
+        RuntimeException exception
+    ) {
+        var reason = exception instanceof ResponseStatusException response && response.getReason() != null
+            ? response.getReason()
+            : "账套恢复失败";
+        var command = OperationLogCommand.failure(
+            "SYSTEM",
+            "RESTORE_ACCOUNT_SET",
+            "sys_account_set",
+            UUID.fromString(String.valueOf(accountSet.get("id"))),
+            String.valueOf(accountSet.get("code")),
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(OperationLogCommand.StateField.BACKUP_NAME, backupName),
+            Map.of(),
+            reason
+        );
+        operationLogFailureService.logTenantOnce(tenantTarget(accountSet, schema), command);
+    }
+
+    private TenantTarget tenantTarget(Map<String, Object> accountSet, String schema) {
+        return new TenantTarget(
+            UUID.fromString(String.valueOf(accountSet.get("id"))),
+            String.valueOf(accountSet.get("code")),
+            String.valueOf(accountSet.get("name")),
+            schema
         );
     }
 

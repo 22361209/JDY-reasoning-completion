@@ -115,7 +115,9 @@ class RedReverseOperationLogIntegrationTest {
             new SalesOutAppService.RedReverseRequest(null, "2026-07-12", "tester")
         );
 
-        verify(operationLogService).log("SALES", "CREATE_RED_DRAFT", "sales_out", RED_BILL_ID, true, null);
+        verify(operationLogService).logCurrent(argThat(command ->
+            matches(command, "SALES", "CREATE_RED_DRAFT", "sales_out", "DRAFT")
+        ));
         verifyNoMoreInteractions(operationLogService);
     }
 
@@ -128,7 +130,9 @@ class RedReverseOperationLogIntegrationTest {
             new PurchaseInAppService.RedReverseRequest(null, "2026-07-12", "tester")
         );
 
-        verify(operationLogService).log("PURCHASE", "CREATE_RED_DRAFT", "purchase_in", RED_BILL_ID, true, null);
+        verify(operationLogService).logCurrent(argThat(command ->
+            matches(command, "PURCHASE", "CREATE_RED_DRAFT", "purchase_in", "DRAFT")
+        ));
         verifyNoMoreInteractions(operationLogService);
     }
 
@@ -156,7 +160,9 @@ class RedReverseOperationLogIntegrationTest {
         order.verify(postingPipeline).post(argThat(context ->
             FinancePosting.CHANNEL.equals(context.channel()) && "SALES_OUT_RED".equals(context.txnType())
         ));
-        order.verify(operationLogService).log("SALES", "RED_REVERSE", "sales_out", RED_BILL_ID, true, null);
+        order.verify(operationLogService).logCurrent(argThat(command ->
+            matches(command, "SALES", "RED_REVERSE", "sales_out", "AUDITED")
+        ));
     }
 
     @Test
@@ -179,7 +185,9 @@ class RedReverseOperationLogIntegrationTest {
         order.verify(postingPipeline).post(argThat(context ->
             FinancePosting.CHANNEL.equals(context.channel()) && "PURCHASE_IN_RED".equals(context.txnType())
         ));
-        order.verify(operationLogService).log("PURCHASE", "RED_REVERSE", "purchase_in", RED_BILL_ID, true, null);
+        order.verify(operationLogService).logCurrent(argThat(command ->
+            matches(command, "PURCHASE", "RED_REVERSE", "purchase_in", "AUDITED")
+        ));
     }
 
     @Test
@@ -211,7 +219,7 @@ class RedReverseOperationLogIntegrationTest {
             eq("sales_out"),
             anyString()
         );
-        verify(operationLogService, never()).log(anyString(), eq("RED_REVERSE"), anyString(), anyString(), eq(true), any());
+        verify(operationLogService, never()).logCurrent(argThat(command -> command != null && "RED_REVERSE".equals(command.action())));
     }
 
     @Test
@@ -243,7 +251,7 @@ class RedReverseOperationLogIntegrationTest {
             eq("purchase_in"),
             anyString()
         );
-        verify(operationLogService, never()).log(anyString(), eq("RED_REVERSE"), anyString(), anyString(), eq(true), any());
+        verify(operationLogService, never()).logCurrent(argThat(command -> command != null && "RED_REVERSE".equals(command.action())));
     }
 
     @Test
@@ -253,7 +261,7 @@ class RedReverseOperationLogIntegrationTest {
         assertThatThrownBy(() -> salesOutAppService.audit(RED_BILL_NO))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("来源销售出库单未审核");
-        verify(operationLogService, never()).log(anyString(), eq("RED_REVERSE"), anyString(), anyString(), eq(true), any());
+        verify(operationLogService, never()).logCurrent(argThat(command -> command != null && "RED_REVERSE".equals(command.action())));
     }
 
     @Test
@@ -263,7 +271,7 @@ class RedReverseOperationLogIntegrationTest {
         assertThatThrownBy(() -> purchaseInAppService.audit(RED_BILL_NO))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("来源采购入库单未审核");
-        verify(operationLogService, never()).log(anyString(), eq("RED_REVERSE"), anyString(), anyString(), eq(true), any());
+        verify(operationLogService, never()).logCurrent(argThat(command -> command != null && "RED_REVERSE".equals(command.action())));
     }
 
     @Test
@@ -283,7 +291,7 @@ class RedReverseOperationLogIntegrationTest {
         assertThatThrownBy(() -> salesOutAppService.audit(RED_BILL_NO))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("已审核");
-        verify(operationLogService, never()).log(anyString(), eq("RED_REVERSE"), anyString(), anyString(), eq(true), any());
+        verify(operationLogService, never()).logCurrent(argThat(command -> command != null && "RED_REVERSE".equals(command.action())));
     }
 
     @Test
@@ -303,7 +311,25 @@ class RedReverseOperationLogIntegrationTest {
         assertThatThrownBy(() -> purchaseInAppService.audit(RED_BILL_NO))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("已审核");
-        verify(operationLogService, never()).log(anyString(), eq("RED_REVERSE"), anyString(), anyString(), eq(true), any());
+        verify(operationLogService, never()).logCurrent(argThat(command -> command != null && "RED_REVERSE".equals(command.action())));
+    }
+
+    private boolean matches(
+        OperationLogCommand command,
+        String module,
+        String action,
+        String targetType,
+        String afterStatus
+    ) {
+        return command != null
+            && module.equals(command.module())
+            && action.equals(command.action())
+            && targetType.equals(command.targetType())
+            && RED_BILL_ID.equals(String.valueOf(command.targetId()))
+            && RED_BILL_NO.equals(command.targetNo())
+            && command.outcome() == OperationLogCommand.Outcome.SUCCESS
+            && command.actorMode() == OperationLogCommand.ActorMode.CURRENT_USER
+            && afterStatus.equals(command.afterState().get(OperationLogCommand.StateField.STATUS));
     }
 
     private void stubSalesRedDraft() {

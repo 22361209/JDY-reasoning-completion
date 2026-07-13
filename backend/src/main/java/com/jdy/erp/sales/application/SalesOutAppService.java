@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
@@ -15,6 +16,7 @@ import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -388,7 +390,11 @@ public class SalesOutAppService {
 	                line.get("planDeliveryDate")
 	            );
 	        }
-	        operationLogService.log("SALES", "CREATE_RED_DRAFT", "sales_out", String.valueOf(redBill.get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "SALES", "CREATE_RED_DRAFT", "sales_out",
+	            UUID.fromString(String.valueOf(redBill.get("id"))), redBillNo, Map.of(),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(redBill.get("status")))
+	        ));
 	        return redBill;
 	    }
 
@@ -417,7 +423,12 @@ public class SalesOutAppService {
 	        }
 	        refreshSalesSourceStatuses(lines);
 	        postingPipeline.post(financeContext(row, "SALES_OUT_RED"));
-	        operationLogService.log("SALES", "RED_REVERSE", "sales_out", String.valueOf(row.get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "SALES", "RED_REVERSE", "sales_out",
+	            UUID.fromString(String.valueOf(row.get("id"))), billNo,
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(row.get("status")))
+	        ));
 	        return row;
 	    }
 

@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
 import java.util.Map;
 
 import com.jdy.erp.shared.application.DocumentPermissionPolicy;
+import com.jdy.erp.shared.application.OperationActorProvider;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -115,8 +117,9 @@ class WriteEndpointAuthorizationIntegrationTest {
     @Test
     void sessionPublicBoundaryUsesMethodAndExactPath() throws Exception {
         var sessionService = mock(CurrentSessionService.class);
+        var actorProvider = mock(OperationActorProvider.class);
         when(sessionService.isAuthenticated()).thenReturn(false);
-        var interceptor = new SessionAuthInterceptor(sessionService);
+        var interceptor = new SessionAuthInterceptor(sessionService, actorProvider);
 
         assertThat(interceptor.preHandle(request("POST", "/api/system/login"), response, handler("publicWrite"))).isTrue();
         assertThat(interceptor.preHandle(
@@ -144,6 +147,39 @@ class WriteEndpointAuthorizationIntegrationTest {
                 handler("unclassified")
             )
         );
+        verifyNoInteractions(actorProvider);
+    }
+
+    @Test
+    void authenticatedRequestCapturesActorBeforeHandlerCanMutateItsUser() throws Exception {
+        var sessionService = mock(CurrentSessionService.class);
+        var actorProvider = mock(OperationActorProvider.class);
+        when(sessionService.isAuthenticated()).thenReturn(true);
+        var interceptor = new SessionAuthInterceptor(sessionService, actorProvider);
+
+        assertThat(interceptor.preHandle(
+            request("PUT", "/api/system/password"),
+            response,
+            handler("authenticatedWrite")
+        )).isTrue();
+
+        verify(actorProvider).captureCurrentUser();
+    }
+
+    @Test
+    void authenticatedReadDoesNotCaptureAuditActor() throws Exception {
+        var sessionService = mock(CurrentSessionService.class);
+        var actorProvider = mock(OperationActorProvider.class);
+        when(sessionService.isAuthenticated()).thenReturn(true);
+        var interceptor = new SessionAuthInterceptor(sessionService, actorProvider);
+
+        assertThat(interceptor.preHandle(
+            request("GET", "/api/system/users"),
+            response,
+            handler("unclassified")
+        )).isTrue();
+
+        verifyNoInteractions(actorProvider);
     }
 
     private PermissionGuardInterceptor permissionInterceptor(

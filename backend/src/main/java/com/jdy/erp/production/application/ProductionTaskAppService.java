@@ -7,9 +7,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -142,7 +144,11 @@ public class ProductionTaskAppService {
             );
             lineNo += 1;
         }
-        operationLogService.log("PRODUCTION", "SAVE_BOM", "prod_bom", bomId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "SAVE_BOM", "prod_bom",
+            UUID.fromString(bomId), requestedCode, Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.AUDIT_STATUS, "DRAFT")
+        ));
         return bomDetailById(bomId);
     }
 
@@ -232,7 +238,12 @@ public class ProductionTaskAppService {
                 updated_at = now()
             WHERE id = ?::uuid
             """, userId, bomId);
-        operationLogService.log("PRODUCTION", "AUDIT_BOM", "prod_bom", bomId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "AUDIT_BOM", "prod_bom",
+            UUID.fromString(bomId), code,
+            OperationLogCommand.state(OperationLogCommand.StateField.AUDIT_STATUS, "DRAFT"),
+            OperationLogCommand.state(OperationLogCommand.StateField.AUDIT_STATUS, "AUDITED")
+        ));
         return bomDetailById(bomId);
     }
 
@@ -271,7 +282,12 @@ public class ProductionTaskAppService {
                 updated_at = now()
             WHERE id = ?::uuid
             """, userId, bomId);
-        operationLogService.log("PRODUCTION", "REVERSE_BOM", "prod_bom", bomId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "REVERSE_BOM", "prod_bom",
+            UUID.fromString(bomId), code,
+            OperationLogCommand.state(OperationLogCommand.StateField.AUDIT_STATUS, "AUDITED"),
+            OperationLogCommand.state(OperationLogCommand.StateField.AUDIT_STATUS, "DRAFT")
+        ));
         return bomDetailById(bomId);
     }
 
@@ -279,6 +295,7 @@ public class ProductionTaskAppService {
     public Map<String, Object> setBomEnabled(String code, boolean enabled) {
         var bom = findBomByCode(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
+        var wasEnabled = Boolean.parseBoolean(String.valueOf(bom.get("enabled")));
         var userId = currentSessionService.currentUserId();
         if (enabled && !"AUDITED".equals(String.valueOf(bom.get("auditStatus")))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 未审核，不能启用为当前版本");
@@ -303,7 +320,12 @@ public class ProductionTaskAppService {
                 updated_at = now()
             WHERE id = ?::uuid
             """, enabled, enabled, userId, bomId);
-        operationLogService.log("PRODUCTION", enabled ? "ENABLE_BOM" : "DISABLE_BOM", "prod_bom", bomId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", enabled ? "ENABLE_BOM" : "DISABLE_BOM", "prod_bom",
+            UUID.fromString(bomId), code,
+            OperationLogCommand.state(OperationLogCommand.StateField.ENABLED, wasEnabled),
+            OperationLogCommand.state(OperationLogCommand.StateField.ENABLED, enabled)
+        ));
         return bomDetailById(bomId);
     }
 
@@ -316,7 +338,15 @@ public class ProductionTaskAppService {
         }
         ensureBomNotReferenced(bomId, "删除");
         jdbcTemplate.update("DELETE FROM prod_bom WHERE id = ?::uuid", bomId);
-        operationLogService.log("PRODUCTION", "DELETE_BOM", "prod_bom", bomId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "DELETE_BOM", "prod_bom",
+            UUID.fromString(bomId), code,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.AUDIT_STATUS, String.valueOf(bom.get("auditStatus")),
+                OperationLogCommand.StateField.ENABLED, Boolean.parseBoolean(String.valueOf(bom.get("enabled")))
+            ),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, "DELETED")
+        ));
         return Map.of("code", code, "deleted", true);
     }
 
@@ -589,7 +619,11 @@ public class ProductionTaskAppService {
         );
         var taskId = String.valueOf(rows.get(0).get("id"));
         rebuildTaskMaterialSnapshot(taskId);
-        operationLogService.log("PRODUCTION", "CREATE_TASK", "production_task", taskId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "CREATE_TASK", "production_task",
+            UUID.fromString(taskId), billNo, Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name())
+        ));
         return rows.get(0);
     }
 
@@ -687,7 +721,12 @@ public class ProductionTaskAppService {
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿生产任务单可以审核");
         }
-        operationLogService.log("PRODUCTION", "AUDIT_TASK", "production_task", String.valueOf(rows.get(0).get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "AUDIT_TASK", "production_task",
+            UUID.fromString(String.valueOf(rows.get(0).get("id"))), String.valueOf(rows.get(0).get("billNo")),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.AUDITED.name())
+        ));
         return rows.get(0);
     }
 
@@ -728,7 +767,12 @@ public class ProductionTaskAppService {
                 line_frozen_reason = NULL
             WHERE task_id = ?::uuid
             """, rows.get(0).get("id"));
-        operationLogService.log("PRODUCTION", "REVERSE_TASK", "production_task", String.valueOf(rows.get(0).get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "REVERSE_TASK", "production_task",
+            UUID.fromString(String.valueOf(rows.get(0).get("id"))), String.valueOf(rows.get(0).get("billNo")),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.AUDITED.name()),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name())
+        ));
         return rows.get(0);
     }
 
@@ -926,7 +970,11 @@ public class ProductionTaskAppService {
             validationService.optionalText(request.sourceType()) == null ? "SELF" : validationService.optionalText(request.sourceType()),
             BillStatus.DRAFT.name()
         );
-        operationLogService.log("PRODUCTION", "CREATE_PLAN", "production_plan", String.valueOf(rows.get(0).get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "CREATE_PLAN", "production_plan",
+            UUID.fromString(String.valueOf(rows.get(0).get("id"))), String.valueOf(rows.get(0).get("billNo")), Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name())
+        ));
         return rows.get(0);
     }
 
@@ -940,7 +988,12 @@ public class ProductionTaskAppService {
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, conflictMessage);
         }
-        operationLogService.log("PRODUCTION", action, "production_plan", String.valueOf(rows.get(0).get("id")), true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", action, "production_plan",
+            UUID.fromString(String.valueOf(rows.get(0).get("id"))), String.valueOf(rows.get(0).get("billNo")),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, from.name()),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, to.name())
+        ));
         return rows.get(0);
     }
 

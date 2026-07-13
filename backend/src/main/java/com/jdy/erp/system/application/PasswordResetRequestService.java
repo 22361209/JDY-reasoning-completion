@@ -1,5 +1,10 @@
 package com.jdy.erp.system.application;
 
+import java.util.Map;
+import java.util.UUID;
+
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.PasswordResetRateLimiter;
 import com.jdy.erp.system.security.PasswordResetRequestProperties;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,17 +23,20 @@ public class PasswordResetRequestService {
     private final PasswordResetRateLimiter rateLimiter;
     private final PasswordResetRequestProperties properties;
     private final TransactionTemplate transactions;
+    private final OperationLogService operationLogService;
 
     public PasswordResetRequestService(
         @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         PasswordResetRateLimiter rateLimiter,
         PasswordResetRequestProperties properties,
-        @Qualifier("platformTransactionManager") PlatformTransactionManager transactionManager
+        @Qualifier("platformTransactionManager") PlatformTransactionManager transactionManager,
+        OperationLogService operationLogService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.rateLimiter = rateLimiter;
         this.properties = properties;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.operationLogService = operationLogService;
     }
 
     public void submit(String username, String contactNote, String remoteAddress) {
@@ -105,10 +113,18 @@ public class PasswordResetRequestService {
             return;
         }
         var requestId = String.valueOf(inserted.getFirst().get("id"));
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason)
-            VALUES ('SYSTEM', 'PASSWORD_RESET_REQUEST', 'sys_user', ?::uuid, TRUE, ?)
-            """, userId, "申请编号 " + requestId);
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            "PASSWORD_RESET_REQUEST",
+            "sys_user",
+            UUID.fromString(userId),
+            "",
+            OperationLogCommand.ActorMode.ANONYMOUS,
+            null,
+            Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.REQUEST_STATUS, "PENDING"),
+            "申请编号 " + requestId
+        ));
     }
 
     @Scheduled(

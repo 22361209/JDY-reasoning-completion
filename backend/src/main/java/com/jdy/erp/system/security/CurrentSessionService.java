@@ -8,10 +8,14 @@ import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogFailureService;
+import com.jdy.erp.shared.application.OperationLogService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,9 +37,17 @@ public class CurrentSessionService {
     private static final String REPEATED_LOGIN_POLICY_ALLOW_CONCURRENT = "ALLOW_CONCURRENT";
 
     private final JdbcTemplate jdbcTemplate;
+    private final OperationLogService operationLogService;
+    private final OperationLogFailureService operationLogFailureService;
 
-    public CurrentSessionService(@Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate) {
+    public CurrentSessionService(
+        @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
+        OperationLogService operationLogService,
+        OperationLogFailureService operationLogFailureService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
+        this.operationLogService = operationLogService;
+        this.operationLogFailureService = operationLogFailureService;
     }
 
     public String currentUsername() {
@@ -246,12 +258,12 @@ public class CurrentSessionService {
               AND enabled = TRUE
             """, normalizedUsername);
         if (rows.isEmpty()) {
-            logLogin("LOGIN", null, null, false, "用户不存在或已停用：" + normalizedUsername);
+            logAnonymousLogin("LOGIN", null, "用户不存在或已停用");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户不存在或已停用");
         }
         var userId = String.valueOf(rows.get(0).get("id"));
         if (isLocked(rows.get(0).get("lockedUntil"))) {
-            logLogin("LOGIN_LOCKED", userId, null, false, "账号已锁定");
+            logAnonymousLogin("LOGIN_LOCKED", userId, "账号已锁定");
             throw new ResponseStatusException(HttpStatus.LOCKED, "账号已锁定，请稍后再试");
         }
         var passwordHash = String.valueOf(rows.get(0).get("passwordHash"));
@@ -268,7 +280,7 @@ public class CurrentSessionService {
                             version = version + 1
                         WHERE id = ?::uuid
                         """, failedCount, userId);
-                    logLogin("LOGIN_LOCKED", userId, null, false, "连续登录失败，账号锁定 15 分钟");
+                    logAnonymousLogin("LOGIN_LOCKED", userId, "连续登录失败，账号锁定 15 分钟");
                     throw new ResponseStatusException(HttpStatus.LOCKED, "连续登录失败，账号已锁定 15 分钟");
                 }
                 jdbcTemplate.update("""
@@ -278,7 +290,7 @@ public class CurrentSessionService {
                         version = version + 1
                     WHERE id = ?::uuid
                     """, failedCount, userId);
-                logLogin("LOGIN", userId, null, false, "用户名或密码错误");
+                logAnonymousLogin("LOGIN", userId, "用户名或密码错误");
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
             }
         }
@@ -326,9 +338,9 @@ public class CurrentSessionService {
         session.setAttribute(SESSION_GENERATION, sessionGeneration);
         setSessionAccountSet(session, resolveLoginAccountSet(accountSetCode, userId));
         if (singleActiveSession && oldSessionToken != null && !String.valueOf(oldSessionToken).isBlank()) {
-            logLogin("LOGIN_REPLACED", userId, userId, true, "重复登录，新会话已替换旧会话");
+            logUserLogin("LOGIN_REPLACED", userId, "重复登录，新会话已替换旧会话");
         }
-        logLogin("LOGIN", userId, userId, true, null);
+        logUserLogin("LOGIN", userId, null);
     }
 
     public void verifyCurrentPassword(String password) {
@@ -352,8 +364,15 @@ public class CurrentSessionService {
         }
     }
 
+    @Transactional(transactionManager = "platformTransactionManager")
     public void changeCurrentPassword(String newPassword) {
         var username = currentUsername();
+        var userId = currentUserId();
+        var beforeGeneration = jdbcTemplate.queryForObject(
+            "SELECT session_generation FROM sys_user WHERE id = ?::uuid",
+            Integer.class,
+            userId
+        );
         var updated = jdbcTemplate.update("""
             UPDATE sys_user
             SET password_hash = ?,
@@ -366,8 +385,58 @@ public class CurrentSessionService {
             WHERE username = ?
             """, "{noop}" + newPassword, username);
         if (updated == 0) {
+            operationLogFailureService.logPlatformOnce(OperationLogCommand.failure(
+                "SYSTEM",
+                "CHANGE_OWN_PASSWORD",
+                "sys_user",
+                UUID.fromString(userId),
+                username,
+                OperationLogCommand.ActorMode.CURRENT_USER,
+                null,
+                OperationLogCommand.state(OperationLogCommand.StateField.SESSION_GENERATION, beforeGeneration),
+                Map.of(),
+                "当前用户不存在或已停用"
+            ));
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "当前用户不存在或已停用");
         }
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            "CHANGE_OWN_PASSWORD",
+            "sys_user",
+            UUID.fromString(userId),
+            username,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(OperationLogCommand.StateField.SESSION_GENERATION, beforeGeneration),
+            OperationLogCommand.state(OperationLogCommand.StateField.SESSION_GENERATION, beforeGeneration == null ? null : beforeGeneration + 1),
+            null
+        ));
+    }
+
+    public void logCurrentPasswordChangeFailure(String reason) {
+        var username = currentUsername();
+        var userId = currentUserId();
+        var before = jdbcTemplate.queryForMap("""
+            SELECT session_generation AS "sessionGeneration",
+                   (locked_until IS NOT NULL AND locked_until > now()) AS locked
+            FROM sys_user
+            WHERE id = ?::uuid
+            """, userId);
+        operationLogFailureService.logPlatformOnce(OperationLogCommand.failure(
+            "SYSTEM",
+            "CHANGE_OWN_PASSWORD",
+            "sys_user",
+            UUID.fromString(userId),
+            username,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.SESSION_GENERATION, before.get("sessionGeneration"),
+                OperationLogCommand.StateField.LOCKED, before.get("locked")
+            ),
+            Map.of(),
+            reason == null || reason.isBlank() ? "修改本人密码失败" : reason
+        ));
     }
 
     public void logout() {
@@ -746,18 +815,47 @@ public class CurrentSessionService {
     }
 
     private void logSetting(String action, String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, success, failure_reason, operated_by)
-            SELECT 'SYSTEM', ?, 'sys_setting', TRUE, ?, id
-            FROM sys_user
-            WHERE username = ?
-            """, action, reason, currentUsername());
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            action,
+            "sys_setting",
+            null,
+            null,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            Map.of(),
+            Map.of(),
+            reason
+        ));
     }
 
-    private void logLogin(String action, String targetUserId, String operatedBy, boolean success, String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, target_id, success, failure_reason, operated_by)
-            VALUES ('SYSTEM', ?, 'sys_user', ?::uuid, ?, ?, ?::uuid)
-            """, action, targetUserId, success, reason, operatedBy);
+    private void logAnonymousLogin(String action, String targetUserId, String reason) {
+        operationLogFailureService.logPlatformOnce(OperationLogCommand.failure(
+            "SYSTEM",
+            action,
+            "sys_user",
+            targetUserId == null ? null : UUID.fromString(targetUserId),
+            null,
+            OperationLogCommand.ActorMode.ANONYMOUS,
+            null,
+            Map.of(),
+            Map.of(),
+            reason
+        ));
+    }
+
+    private void logUserLogin(String action, String targetUserId, String reason) {
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            action,
+            "sys_user",
+            UUID.fromString(targetUserId),
+            null,
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            Map.of(),
+            Map.of(),
+            reason
+        ));
     }
 }

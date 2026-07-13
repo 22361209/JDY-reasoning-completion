@@ -3,11 +3,13 @@ package com.jdy.erp.production.application;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
+import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
@@ -178,7 +180,11 @@ public class MaterialIssueAppService {
         var issueId = String.valueOf(issueRows.get(0).get("id"));
         jdbcTemplate.update("DELETE FROM production_material_issue_line WHERE issue_id = ?::uuid", issueId);
         insertSnapshotIssueLines(issueId, taskRows.get(0).get("id"), materialWarehouseCode, request.lines());
-        operationLogService.log("PRODUCTION", "SAVE_ISSUE_DRAFT", "production_material_issue", issueId, true, null);
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PRODUCTION", "SAVE_ISSUE_DRAFT", "production_material_issue",
+            UUID.fromString(issueId), issueBillNo, Map.of(),
+            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(issueRows.get(0).get("status")))
+        ));
         return issueRows.get(0);
     }
 
@@ -282,7 +288,12 @@ public class MaterialIssueAppService {
 	        postIssueLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE", "PRODUCTION_ISSUE:" + billNo);
 	        applyIssueQtyToTask(issue.get("id"), issue.get("taskId"));
 	        var rows = markAudited(issue.get("id"));
-	        operationLogService.log("PRODUCTION", "AUDIT_ISSUE", "production_material_issue", String.valueOf(issue.get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "PRODUCTION", "AUDIT_ISSUE", "production_material_issue",
+	            UUID.fromString(String.valueOf(issue.get("id"))), billNo,
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(rows.get(0).get("status")))
+	        ));
 	        return rows.get(0);
 	    }
 
@@ -293,7 +304,12 @@ public class MaterialIssueAppService {
 	        postIssueLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE_RED", "PRODUCTION_ISSUE_RED:" + billNo);
 	        applyIssueQtyToTask(issue.get("id"), issue.get("taskId"));
 	        var rows = markAudited(issue.get("id"));
-	        operationLogService.log("PRODUCTION", "AUDIT_RED_ISSUE", "production_material_issue", String.valueOf(issue.get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "PRODUCTION", "AUDIT_RED_ISSUE", "production_material_issue",
+	            UUID.fromString(String.valueOf(issue.get("id"))), billNo,
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name()),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(rows.get(0).get("status")))
+	        ));
 	        return rows.get(0);
 	    }
 
@@ -599,7 +615,11 @@ public class MaterialIssueAppService {
 	            RETURNING id::text AS id, bill_no AS "billNo", status
 	            """, redBillNo, sourceRows.get(0).get("taskId"), sourceRows.get(0).get("id"), BillStatus.DRAFT.name());
 	        copyIssueLines(billNo, String.valueOf(redRows.get(0).get("id")), true);
-	        operationLogService.log("PRODUCTION", "CREATE_RED_ISSUE_DRAFT", "production_material_issue", String.valueOf(redRows.get(0).get("id")), true, null);
+	        operationLogService.logCurrent(OperationLogCommand.success(
+	            "PRODUCTION", "CREATE_RED_ISSUE_DRAFT", "production_material_issue",
+	            UUID.fromString(String.valueOf(redRows.get(0).get("id"))), redBillNo, Map.of(),
+	            OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(redRows.get(0).get("status")))
+	        ));
 	        return redRows.get(0);
 	    }
 

@@ -20,13 +20,18 @@ import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.system.tenant.TenantContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest
@@ -71,11 +76,26 @@ class CoreBusinessFastIntegrationTest {
     @BeforeEach
     void mockCurrentSession() {
         var adminId = jdbcTemplate.queryForObject("SELECT id::text FROM sys_user WHERE username = 'admin'", String.class);
+        var accountSet = jdbcTemplate.queryForMap("""
+            SELECT id::text AS id, code, name, COALESCE(schema_name, '') AS "schemaName"
+            FROM sys_account_set
+            WHERE code = 'BLD-TEST'
+            """);
         when(currentSessionService.currentUserId()).thenReturn(adminId);
         when(currentSessionService.currentUsername()).thenReturn("admin");
         when(currentSessionService.currentRoleCode()).thenReturn("ADMIN");
         when(currentSessionService.currentAccountSetId()).thenReturn(defaultAccountSetId());
         doNothing().when(currentSessionService).verifyPassword(any(), any());
+        var request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute(CurrentSessionService.SESSION_USERNAME, "admin");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        TenantContext.setTenant(accountSet);
+    }
+
+    @AfterEach
+    void clearAuditRequestContext() {
+        TenantContext.clear();
+        RequestContextHolder.resetRequestAttributes();
     }
 
     @Test

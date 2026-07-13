@@ -3,10 +3,14 @@ package com.jdy.erp.system.application;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -20,10 +24,16 @@ public class NotificationProviderService {
 
     private final JdbcTemplate jdbcTemplate;
     private final CurrentSessionService currentSessionService;
+    private final OperationLogService operationLogService;
 
-    public NotificationProviderService(JdbcTemplate jdbcTemplate, CurrentSessionService currentSessionService) {
+    public NotificationProviderService(
+        @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
+        CurrentSessionService currentSessionService,
+        OperationLogService operationLogService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentSessionService = currentSessionService;
+        this.operationLogService = operationLogService;
     }
 
     public Map<String, Object> settings() {
@@ -38,7 +48,9 @@ public class NotificationProviderService {
         );
     }
 
+    @Transactional(transactionManager = "platformTransactionManager")
     public void updateSettings(String providerCode, String senderName, String endpointUrl, String webhookSecret, Boolean dryRun) {
+        var beforeSettings = settings();
         var normalizedProviderCode = normalizeProviderCode(providerCode);
         var normalizedSenderName = optionalLimited(senderName, 80);
         if (normalizedSenderName.isBlank()) {
@@ -55,7 +67,24 @@ public class NotificationProviderService {
         if (webhookSecret != null && !webhookSecret.isBlank()) {
             upsert(WEBHOOK_SECRET_KEY, optionalLimited(webhookSecret, 160));
         }
-        log("UPDATE_NOTIFICATION_PROVIDER_SETTING", "provider=" + normalizedProviderCode + ",dryRun=" + (dryRun == null || dryRun));
+        operationLogService.logPlatform(OperationLogCommand.success(
+            "SYSTEM",
+            "UPDATE_NOTIFICATION_PROVIDER_SETTING",
+            "sys_setting",
+            null,
+            "notification-provider",
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.PROVIDER, beforeSettings.get("providerCode"),
+                OperationLogCommand.StateField.DRY_RUN, beforeSettings.get("dryRun")
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.PROVIDER, normalizedProviderCode,
+                OperationLogCommand.StateField.DRY_RUN, dryRun == null || dryRun
+            ),
+            null
+        ));
     }
 
     public String currentProviderCode() {
@@ -115,12 +144,4 @@ public class NotificationProviderService {
         return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
     }
 
-    private void log(String action, String reason) {
-        jdbcTemplate.update("""
-            INSERT INTO sys_operation_log (module_code, action_code, target_type, success, failure_reason, operated_by)
-            SELECT 'SYSTEM', ?, 'sys_setting', TRUE, ?, id
-            FROM sys_user
-            WHERE username = ?
-            """, action, reason, currentSessionService.currentUsername());
-    }
 }
