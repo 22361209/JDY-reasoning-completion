@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession } from "./helpers/regression-auth.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -44,19 +45,7 @@ async function requireJson(pathname, options = {}) {
 }
 
 async function upsertProduct(code, payload) {
-  const update = await request(`/api/master-data/product/${encodeURIComponent(code)}`, {
-    method: "PUT",
-    body: { code, ...payload }
-  });
-  if (update.response.status === 404) {
-    await requireJson("/api/master-data/product", {
-      method: "POST",
-      body: { code, ...payload }
-    });
-  } else if (!update.response.ok) {
-    throw new Error(`product ${code} update failed ${update.response.status}: ${update.text}`);
-  }
-  await requireJson(`/api/master-data/product/${encodeURIComponent(code)}/audit`, { method: "POST" });
+  return upsertMasterDataFixture({ apiBase, type: "product", payload: { code, ...payload }, audit: true });
 }
 
 await upsertProduct(parentCode, {
@@ -65,7 +54,7 @@ await upsertProduct(parentCode, {
   unit: "只",
   spec: "A116 / 当前BOM",
   defaultWarehouseCode: "CK-001",
-  defaultWorkshop: "SCB",
+  defaultWorkshop: "CY",
   isSale: "true",
   isInventory: "true",
   isProduce: "true",
@@ -114,7 +103,7 @@ const plan = await requireJson("/api/production/plans", {
 
 assert(/^SCJH\d{6}$/.test(plan.billNo), "production plan should generate SCJH number on first save");
 assert(plan.bomCode === bomCode, "plan should resolve current BOM from product code");
-assert(String(plan.departmentCode ?? "") === "SCB", "plan should inherit default workshop code");
+assert(String(plan.departmentCode ?? "") === "CY", "plan should inherit the audited factory workshop code");
 assert(plan.status === "DRAFT", "saved production plan should stay draft before audit");
 
 const draftPushDown = await request(`/api/production/plans/${encodeURIComponent(plan.billNo)}/push-down`, { method: "POST" });
@@ -154,7 +143,7 @@ const result = {
     draftPushdownBlocked: draftPushDown.response.status === 400,
     auditedBeforePushdown: auditedPlan.status === "AUDITED",
     planUsesCurrentBom: plan.bomCode === bomCode,
-    defaultWorkshop: plan.departmentCode === "SCB",
+    defaultWorkshop: plan.departmentCode === "CY",
     purchaseQty: Number(requisitionRow.qty),
     duplicatePushdownBlocked: duplicate.response.status === 409,
     reverseAfterPushdownBlocked: reverseAfterPushdown.response.status === 409

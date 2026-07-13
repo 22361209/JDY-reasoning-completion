@@ -5,6 +5,7 @@ import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
 import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
 import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -51,41 +52,11 @@ async function post(pathname, body) {
 }
 
 async function upsertProduct(payload) {
-  const create = await fetch(`${apiBase}/api/master-data/product`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (create.status === 409) {
-    const updated = await api(`/api/master-data/product/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
-    await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-    return updated;
-  }
-  const text = await create.text();
-  if (!create.ok) {
-    throw new Error(`create product ${payload.code} failed ${create.status}: ${text}`);
-  }
-  await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-  return text ? JSON.parse(text) : {};
+  return upsertMasterDataFixture({ apiBase, type: "product", payload, audit: true });
 }
 
 async function upsertCustomer(payload) {
-  const create = await fetch(`${apiBase}/api/master-data/customer`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (create.status === 409) {
-    const updated = await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
-    await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-    return updated;
-  }
-  const text = await create.text();
-  if (!create.ok) {
-    throw new Error(`create customer ${payload.code} failed ${create.status}: ${text}`);
-  }
-  await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-  return text ? JSON.parse(text) : {};
+  return upsertMasterDataFixture({ apiBase, type: "customer", payload, audit: true });
 }
 
 async function selectMasterRow(page, openerTestId, rowCode) {

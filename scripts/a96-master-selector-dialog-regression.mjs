@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -44,14 +45,7 @@ async function requireApi(pathname, options = {}) {
 }
 
 async function upsertProduct() {
-  const created = await api("/api/master-data/product", { method: "POST", body: product });
-  if (created.ok) {
-    return created.data;
-  }
-  if (created.status === 409) {
-    return requireApi(`/api/master-data/product/${encodeURIComponent(product.code)}`, { method: "PUT", body: product });
-  }
-  throw new Error(`create product ${product.code} failed ${created.status}: ${JSON.stringify(created.data)}`);
+  return upsertMasterDataFixture({ apiBase, type: "product", payload: product, audit: false });
 }
 
 async function chooseFromDialog(page, openTestId, keyword, rowCode) {

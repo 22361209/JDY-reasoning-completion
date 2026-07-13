@@ -4,6 +4,7 @@ import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument } from "./helpers/document-actions.mjs";
 import { addEntryLineBelow } from "./helpers/entry-table-actions.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -43,43 +44,11 @@ async function api(pathname, options = {}) {
 }
 
 async function upsertProduct(payload) {
-  const response = await fetch(`${apiBase}/api/master-data/product`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const text = await response.text();
-  if (response.status === 409) {
-    assert(text.includes("code already exists"), `product conflict should report an existing code: ${text}`);
-    const updated = await api(`/api/master-data/product/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
-    await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-    return updated;
-  }
-  if (!response.ok) {
-    throw new Error(`create product ${payload.code} failed ${response.status}: ${text}`);
-  }
-  await api(`/api/master-data/product/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-  return text ? JSON.parse(text) : {};
+  return upsertMasterDataFixture({ apiBase, type: "product", payload, audit: true });
 }
 
 async function upsertCustomer(payload) {
-  const response = await fetch(`${apiBase}/api/master-data/customer`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const text = await response.text();
-  if (response.status === 409) {
-    assert(text.includes("code already exists"), `customer conflict should report an existing code: ${text}`);
-    const updated = await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}`, { method: "PUT", body: payload });
-    await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-    return updated;
-  }
-  if (!response.ok) {
-    throw new Error(`create customer ${payload.code} failed ${response.status}: ${text}`);
-  }
-  await api(`/api/master-data/customer/${encodeURIComponent(payload.code)}/audit`, { method: "POST" });
-  return text ? JSON.parse(text) : {};
+  return upsertMasterDataFixture({ apiBase, type: "customer", payload, audit: true });
 }
 
 async function createAuditedOrder(label, customerCode, lines, billDate) {

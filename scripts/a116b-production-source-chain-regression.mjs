@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession } from "./helpers/regression-auth.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -47,19 +48,7 @@ async function requireJson(pathname, options = {}) {
 }
 
 async function upsertProduct(code, payload) {
-  const update = await request(`/api/master-data/product/${encodeURIComponent(code)}`, {
-    method: "PUT",
-    body: { code, ...payload }
-  });
-  if (update.response.status === 404) {
-    await requireJson("/api/master-data/product", {
-      method: "POST",
-      body: { code, ...payload }
-    });
-  } else if (!update.response.ok) {
-    throw new Error(`product ${code} update failed ${update.response.status}: ${update.text}`);
-  }
-  await requireJson(`/api/master-data/product/${encodeURIComponent(code)}/audit`, { method: "POST" });
+  return upsertMasterDataFixture({ apiBase, type: "product", payload: { code, ...payload }, audit: true });
 }
 
 async function seedStock(lines) {

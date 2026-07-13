@@ -109,6 +109,19 @@
       "scripts/a116-production-plan-pushdown-regression.mjs",
       "scripts/a116b-production-source-chain-regression.mjs",
       "scripts/a118-outsourcing-chain-regression.mjs"
+    ],
+    "master-data": [
+      "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
+      "scripts/a25-entry-paste-conflict-keyboard-regression.mjs",
+      "scripts/a26-selector-next-field-regression.mjs",
+      "scripts/a56-backend-permission-guard-regression.mjs",
+      "scripts/a96-master-selector-dialog-regression.mjs",
+      "scripts/a103-price-memory-regression.mjs",
+      "scripts/a113b-unit-price-bulk-fill-regression.mjs",
+      "scripts/a115-metadata-definition-regression.mjs",
+      "scripts/a116-production-plan-pushdown-regression.mjs",
+      "scripts/a116b-production-source-chain-regression.mjs",
+      "scripts/a138-master-data-sparse-patch-regression.mjs"
     ]
   },
   "full": [
@@ -224,7 +237,8 @@
     "scripts/a134-security-boundary-regression.mjs",
     "scripts/a135-public-security-boundary-regression.mjs",
     "scripts/a136-operation-log-actor-regression.mjs",
-    "scripts/a137-tenant-schema-constraint-regression.mjs"
+    "scripts/a137-tenant-schema-constraint-regression.mjs",
+    "scripts/a138-master-data-sparse-patch-regression.mjs"
   ],
   "exemptions": [
     {
