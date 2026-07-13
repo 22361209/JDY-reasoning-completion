@@ -3,6 +3,7 @@ import {
   initialSalesOutForm,
   knownProductOptions,
   knownWarehouseOptions,
+  normalizeDocumentCurrency,
   zeroReasonOptions,
   type DownstreamTraceState,
   type EntryPasteConflict,
@@ -60,6 +61,7 @@ export interface SalesOutPushDownDraft {
   partyCode: string;
   partyName?: string;
   billDate: string;
+  currency?: "CNY" | "USD";
   department: string;
   ownerName: string;
   lines: PendingPushLine[];
@@ -167,6 +169,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     ].join("-");
     form.billNo = "";
     form.sourceOrderNo = "";
+    form.currency = "CNY";
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = "";
@@ -192,6 +195,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyCode = document.customerCode || "";
     form.partyName = document.customer || "";
     form.billDate = document.billDate;
+    form.currency = document.currency === "USD" ? "USD" : "CNY";
     form.department = document.department || "销售部";
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
@@ -263,6 +267,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyCode = draft.partyCode;
     form.partyName = draft.partyName || "";
     form.billDate = draft.billDate;
+    form.currency = draft.currency ?? "CNY";
     form.department = draft.department;
     form.ownerName = draft.ownerName;
     form.remark = "";
@@ -306,6 +311,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       String(today.getDate()).padStart(2, "0")
     ].join("-");
     form.department = order.department || "销售部";
+    form.currency = normalizeDocumentCurrency(order);
     form.ownerName = options.userName() || order.ownerName || "本地管理员";
     form.lines = lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
@@ -344,6 +350,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       String(today.getDate()).padStart(2, "0")
     ].join("-");
     form.department = order.department || form.department || "销售部";
+    form.currency = normalizeDocumentCurrency(order);
     form.ownerName = options.userName() || order.ownerName || "本地管理员";
     appendFormLines(lines.map((line) => ({
       productCode: String(line.productCode ?? ""),
@@ -412,6 +419,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyCode = first.customerCode;
     form.partyName = first.customer || form.partyName || "";
     form.department = first.department || form.department || "销售部";
+    form.currency = normalizeDocumentCurrency(first);
     appendFormLines(selectedLines.map((line) => selectableLineToFormLine(line)));
     message.value = `已追加 ${selectedLines.length} 行发货通知剩余可出明细`;
     options.markDirty();
@@ -427,6 +435,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       message.value = preparedLines.message;
       return;
     }
+    if (preparedLines.formLines.some((line) => !String(line.sourceDeliveryNoticeNo ?? "").trim())) {
+      message.value = "销售出库单必须从已审核发货通知单选源生成，不能保存无来源分录。";
+      return;
+    }
     const zeroWarnings = zeroEntryWarnings(preparedLines.formLines);
     if (!allowZeroValues && zeroWarnings.length > 0) {
       pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
@@ -438,6 +450,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       sourceOrderNo: form.sourceOrderNo,
       partyCode: form.partyCode,
       billDate: form.billDate,
+      currency: form.currency,
       department: form.department,
       ownerName: form.ownerName,
       remark: form.remark,

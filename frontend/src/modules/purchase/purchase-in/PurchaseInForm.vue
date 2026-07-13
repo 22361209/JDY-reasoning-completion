@@ -34,6 +34,10 @@
     :can-source-select="document.isDraft.value"
     source-select-label="选源单"
     source-select-test-id="purchase-in-open-source-selector"
+    :show-extra-action="canRequestSettlement"
+    :can-extra-action="canRequestSettlement && hasPermission('finance.settle')"
+    extra-action-label="付款"
+    extra-action-test-id="purchase-in-open-payment"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="document.showExecutionColumns.value"
@@ -65,6 +69,7 @@
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
     @source-select="openSourceSelector"
+    @extra-action="emit('requestSettlement', { sourceBillNo: document.form.billNo, currency: document.form.currency || 'CNY' })"
     @delete-document="document.deleteCurrent"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -96,7 +101,22 @@
     @copy-line="document.copyLine"
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
-  />
+  >
+    <template #sourceActions>
+      <label class="currency-field">
+        <span>币种{{ hasUpstreamSource ? '（继承采购订单）' : '' }}</span>
+        <select
+          v-model="document.form.currency"
+          :disabled="locked || !document.isDraft.value || hasUpstreamSource"
+          data-testid="purchase-in-currency"
+          @change="document.markDirty"
+        >
+          <option value="CNY">人民币 / CNY</option>
+          <option value="USD">美元 / USD</option>
+        </select>
+      </label>
+    </template>
+  </DocumentForm>
   <SourceSelectorDialog
     :open="sourceSelectorOpen"
     test-prefix="purchase-in"
@@ -130,7 +150,7 @@ import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
-import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
+import { normalizeDocumentCurrency, type OrderLineForm, type PendingPushLine } from "../../../app/documentModel";
 import { sumField, useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import { fetchSelectablePurchaseOrderLines, type SelectablePurchaseOrderLine } from "../../../services/purchaseOrderApi";
 import { usePurchaseInDocument } from "./usePurchaseInDocument";
@@ -153,6 +173,7 @@ const emit = defineEmits<{
   showExisting: [];
   overrideLock: [];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestSettlement: [payload: { sourceBillNo: string; currency: "CNY" | "USD" }];
 }>();
 
 const document = usePurchaseInDocument({
@@ -163,12 +184,20 @@ const document = usePurchaseInDocument({
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
 
+const hasUpstreamSource = computed(() => document.form.lines.some((line) => Boolean(line.sourceOrderNo?.trim())));
+const canRequestSettlement = computed(() => (
+  document.form.status === "AUDITED"
+  && !document.form.redSourceBillNo
+  && Number(document.totalAmount.value) > 0
+));
+
 const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "采购订单", width: 150, visible: true },
   { key: "lineNo", title: "行号", width: 70, visible: true },
   { key: "supplier", title: "供应商名称", width: 190, visible: true },
   { key: "billDate", title: "单据日期", width: 120, visible: true },
+  { key: "currency", title: "币种", width: 80, visible: true },
   { key: "planDeliveryDate", title: "预计交期", width: 120, visible: true },
   { key: "productCode", title: "物料编码", width: 130, visible: true },
   { key: "supplierMaterialCode", title: "供应商物料编码", width: 150, visible: true },
@@ -285,10 +314,16 @@ function confirmSourceSelector() {
   if (!first) {
     return;
   }
+  const currencies = new Set(selectedLines.map(normalizeDocumentCurrency));
+  if (currencies.size > 1 || (hasUpstreamSource.value && !currencies.has(document.form.currency || "CNY"))) {
+    sourceSelectorMessage.value = "一张采购入库单只能选择同一币种的采购订单。";
+    return;
+  }
   document.form.sourceOrderNo = "";
   document.form.partyCode = first.supplierCode;
   document.form.partyName = first.supplier || document.form.partyName || "";
   document.form.department = first.department || document.form.department || "采购部";
+  document.form.currency = normalizeDocumentCurrency(first);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
   sourceSelector.commitLocalAllocation();
   sourceSelector.close();
@@ -340,6 +375,7 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
     lineNo: `#${line.lineNo ?? ""}`,
     supplier: `${line.supplierCode ?? ""} ${line.supplier || ""}`.trim(),
     billDate: String(line.billDate ?? ""),
+    currency: normalizeDocumentCurrency(line),
     planDeliveryDate: String(line.planDeliveryDate || "-"),
     productCode: String(line.productCode ?? ""),
     supplierMaterialCode: String(line.supplierMaterialCode || "-"),
@@ -426,6 +462,7 @@ function applyPushDownDraft(draft: {
   billDate: string;
   department: string;
   ownerName: string;
+  currency?: "CNY" | "USD";
   lines: PendingPushLine[];
 }) {
   document.applyInboundPushDownDraft(draft);

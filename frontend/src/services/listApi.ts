@@ -58,6 +58,10 @@ export interface ListFetchResult {
   data: ListResponse | null;
 }
 
+export interface ListFetchOptions {
+  parseResponse?: (text: string) => ListResponse;
+}
+
 export type MasterDataPatchValue = string | number | boolean | null;
 
 export interface MasterDataPatchRequest {
@@ -121,7 +125,7 @@ export interface ListPresetWriteResult {
   data: ListFilterPreset | null;
 }
 
-export async function fetchListRows(listKey: string, query: ListQuery): Promise<ListFetchResult> {
+export async function fetchListRows(listKey: string, query: ListQuery, options: ListFetchOptions = {}): Promise<ListFetchResult> {
   const search = buildListSearch(query);
   try {
     const response = await fetch(`/api/lists/${encodeURIComponent(listKey)}?${search.toString()}`);
@@ -138,12 +142,15 @@ export async function fetchListRows(listKey: string, query: ListQuery): Promise<
         data: null
       };
     }
+    const data = options.parseResponse
+      ? options.parseResponse(await response.text())
+      : await response.json() as ListResponse;
     return {
       ok: true,
       status: response.status,
       forbidden: false,
       message: "",
-      data: await response.json() as ListResponse
+      data
     };
   } catch {
     return {

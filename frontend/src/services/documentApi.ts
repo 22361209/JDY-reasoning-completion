@@ -3,6 +3,7 @@ interface DocumentDraftPayload {
   sourceOrderNo?: string;
   partyCode: string;
   billDate: string;
+  currency?: "CNY" | "USD";
   department: string;
   ownerName: string;
   remark?: string;
@@ -47,7 +48,9 @@ const endpointByType = {
   stockTransfer: "/api/stock-transfers",
   stockCount: "/api/stock-counts",
   stockCountGain: "/api/stock-count-gains",
-  stockCountLoss: "/api/stock-count-losses"
+  stockCountLoss: "/api/stock-count-losses",
+  receipt: "/api/finance/receipts",
+  payment: "/api/finance/payments"
 } as const;
 
 const detailEndpointByType = {
@@ -148,6 +151,7 @@ export interface DocumentDetail {
     customer?: string;
     supplier?: string;
     billDate: string;
+    currency?: "CNY" | "USD" | string;
     department?: string;
     ownerName?: string;
     createdByName?: string;
@@ -354,6 +358,7 @@ function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
     billNo: payload.billNo,
     sourceOrderNo: payload.sourceOrderNo,
     billDate: payload.billDate,
+    ...(payload.currency ? { currency: payload.currency } : {}),
     department: payload.department,
     ownerName: payload.ownerName,
     remark: payload.remark,

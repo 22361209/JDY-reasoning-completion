@@ -52,7 +52,9 @@ export const moduleCatalog = [
     groups: [
       { title: "往来单据", entries: [
         { id: "receivable-list", label: "应收单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
-        { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" }
+        { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
+        { id: "ar-receipt-form", label: "收款单", module: "应收应付", mode: "form", queryable: true, dirty: true, permissions: ["finance.report.view", "finance.settle"] },
+        { id: "ap-payment-form", label: "付款单", module: "应收应付", mode: "form", queryable: true, dirty: true, permissions: ["finance.report.view", "finance.settle"] }
       ] }
     ]
   },

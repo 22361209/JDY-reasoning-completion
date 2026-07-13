@@ -34,6 +34,10 @@
     :can-source-select="document.isDraft.value"
     source-select-label="选源单"
     source-select-test-id="sales-out-open-source-selector"
+    :show-extra-action="canRequestSettlement"
+    :can-extra-action="canRequestSettlement && hasPermission('finance.settle')"
+    extra-action-label="收款"
+    extra-action-test-id="sales-out-open-receipt"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-party-code-column="false"
@@ -73,6 +77,7 @@
     @freeze-document="document.openLifecycleAction('freeze')"
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
     @source-select="openSourceSelector"
+    @extra-action="emit('requestSettlement', { sourceBillNo: document.form.billNo, currency: document.form.currency || 'CNY' })"
     @delete-document="document.deleteCurrent"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -105,6 +110,15 @@
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
   >
+    <template #sourceActions>
+      <label class="currency-field">
+        <span>币种（继承发货通知）</span>
+        <select :value="document.form.currency || 'CNY'" disabled data-testid="sales-out-currency">
+          <option value="CNY">人民币 / CNY</option>
+          <option value="USD">美元 / USD</option>
+        </select>
+      </label>
+    </template>
   </DocumentForm>
 
   <SourceSelectorDialog
@@ -187,12 +201,12 @@
 import DocumentForm from "../../../components/DocumentForm.vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
-import { knownProductOptions, type MasterOption, type PendingPushLine } from "../../../app/documentModel";
+import { knownProductOptions, normalizeDocumentCurrency, type MasterOption, type PendingPushLine } from "../../../app/documentModel";
 import { useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import { fetchSelectableDeliveryNoticeLines, type SelectableDeliveryNoticeLine } from "../../../services/salesOrderApi";
 import { useSalesOutDocument, type SalesOutPushDownDraft } from "./useSalesOutDocument";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps<{
   title: string;
@@ -212,6 +226,7 @@ const emit = defineEmits<{
   showExisting: [];
   overrideLock: [];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestSettlement: [payload: { sourceBillNo: string; currency: "CNY" | "USD" }];
 }>();
 
 const document = useSalesOutDocument({
@@ -222,12 +237,19 @@ const document = useSalesOutDocument({
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
 
+const canRequestSettlement = computed(() => (
+  document.form.status === "AUDITED"
+  && !document.form.redSourceBillNo
+  && Number(document.totalAmount.value) > 0
+));
+
 const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
   { key: "billNo", title: "发货通知单", width: 150, visible: true },
   { key: "lineNo", title: "行号", width: 70, visible: true },
   { key: "customer", title: "客户", width: 190, visible: true },
   { key: "billDate", title: "日期", width: 120, visible: true },
+  { key: "currency", title: "币种", width: 80, visible: true },
   { key: "productCode", title: "物料编码", width: 130, visible: true },
   { key: "productName", title: "物料名称", width: 180, visible: true },
   { key: "unit", title: "单位", width: 80, visible: true },
@@ -272,6 +294,7 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
     lineNo: `#${line.lineNo ?? ""}`,
     customer: `${line.customerCode ?? ""} ${line.customer || ""}`.trim(),
     billDate: String(line.billDate ?? ""),
+    currency: normalizeDocumentCurrency(line),
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName || line.spec || "-"),
     unit: String(line.unit || "-"),
@@ -308,6 +331,11 @@ function confirmSourceSelector() {
   const selectedLines = sourceSelector.selectedRowList.value;
   if (selectedLines.length === 0) {
     sourceSelectorMessage.value = "请至少勾选一条发货通知明细。";
+    return;
+  }
+  const currencies = new Set(selectedLines.map(normalizeDocumentCurrency));
+  if (currencies.size > 1 || (document.form.lines.some((line) => Boolean(line.sourceDeliveryNoticeNo)) && !currencies.has(document.form.currency || "CNY"))) {
+    sourceSelectorMessage.value = "一张销售出库单只能选择同一币种的发货通知单。";
     return;
   }
   document.appendSourceSelectorLines(selectedLines);

@@ -103,6 +103,7 @@ export interface OrderForm {
   partyCode: string;
   partyName?: string;
   billDate: string;
+  currency?: DocumentCurrency;
   department: string;
   ownerName: string;
   remark?: string;
@@ -124,6 +125,15 @@ export interface OrderForm {
     bomVersionNo?: number | string;
   };
   lines: OrderLineForm[];
+}
+
+export type DocumentCurrency = "CNY" | "USD";
+
+export function normalizeDocumentCurrency(value: unknown): DocumentCurrency {
+  if (value && typeof value === "object" && "currency" in value) {
+    return String((value as { currency?: unknown }).currency ?? "CNY").toUpperCase() === "USD" ? "USD" : "CNY";
+  }
+  return String(value ?? "CNY").toUpperCase() === "USD" ? "USD" : "CNY";
 }
 
 export interface PendingPushLine extends OrderLineForm {
@@ -180,6 +190,7 @@ export const initialSalesOrderForm: OrderForm = {
   billNo: "",
   partyCode: "",
   billDate: "2026-06-23",
+  currency: "CNY",
   department: "销售部",
   ownerName: "本地管理员",
   status: "DRAFT",
@@ -201,6 +212,7 @@ export const initialPurchaseOrderForm: OrderForm = {
   billNo: "",
   partyCode: "",
   billDate: "2026-06-23",
+  currency: "CNY",
   department: "采购部",
   ownerName: "本地管理员",
   status: "DRAFT",
@@ -212,6 +224,7 @@ export const initialPurchaseInForm: OrderForm = {
   sourceOrderNo: "",
   partyCode: "",
   billDate: "2026-06-23",
+  currency: "CNY",
   department: "采购部",
   ownerName: "本地管理员",
   status: "DRAFT",
@@ -234,6 +247,7 @@ export const initialSalesOutForm: OrderForm = {
   sourceOrderNo: "",
   partyCode: "",
   billDate: "2026-06-23",
+  currency: "CNY",
   department: "销售部",
   ownerName: "本地管理员",
   status: "DRAFT",
@@ -245,6 +259,7 @@ export const initialDeliveryNoticeForm: OrderForm = {
   sourceOrderNo: "",
   partyCode: "",
   billDate: "2026-06-26",
+  currency: "CNY",
   department: "销售部",
   ownerName: "本地管理员",
   status: "DRAFT",

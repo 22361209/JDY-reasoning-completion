@@ -237,6 +237,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.billDate = todayText();
     form.billNo = "";
     form.sourceOrderNo = config.sourceTraceType ? "" : undefined;
+    form.currency = config.initialForm.currency;
     form.redReverseBillNo = undefined;
     form.redSourceBillNo = undefined;
     form.partyCode = "";
@@ -269,6 +270,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       : document.customerCode || config.defaultPartyCode;
     form.partyName = config.partyKind === "supplier" ? document.supplier || "" : document.customer || "";
     form.billDate = document.billDate;
+    form.currency = document.currency === "USD" ? "USD" : (config.initialForm.currency ? "CNY" : undefined);
     form.department = document.department || config.defaultDepartment;
     form.ownerName = document.createdByName || document.ownerName || "本地管理员";
     form.remark = document.remark || "";
@@ -377,6 +379,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     partyCode: string;
     partyName?: string;
     billDate: string;
+    currency?: "CNY" | "USD";
     department: string;
     ownerName: string;
     lines: PendingPushLine[];
@@ -388,6 +391,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.partyCode = draft.partyCode;
     form.partyName = draft.partyName || "";
     form.billDate = draft.billDate;
+    form.currency = draft.currency ?? "CNY";
     form.department = draft.department;
     form.ownerName = draft.ownerName;
     form.remark = "";
@@ -447,6 +451,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       sourceOrderNo: form.sourceOrderNo,
       partyCode: form.partyCode,
       billDate: form.billDate,
+      currency: form.currency,
       department: form.department,
       ownerName: form.ownerName,
       remark: form.remark,

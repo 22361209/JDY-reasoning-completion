@@ -349,6 +349,46 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "status", title: "状态", width: 110, visible: true }
     ]
   },
+  "ar-receipt-form-list": {
+    title: "收款单列表",
+    subtitle: "正式收款单按草稿保存、审核核销、反审核释放的统一生命周期管理。",
+    keywordPlaceholder: "收款单号、客户、来源应收单",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "收款单号", width: 160, fixed: "left", visible: true },
+      { field: "partyCode", title: "客户编码", width: 130, visible: true },
+      { field: "partyName", title: "客户名称", width: 210, visible: true },
+      { field: "billDate", title: "日期", width: 120, visible: true },
+      { field: "currency", title: "币种", width: 80, visible: true },
+      { field: "amount", title: "收款金额", width: 130, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "version", title: "版本", width: 80, align: "right", visible: true },
+      { field: "sourceCount", title: "来源数", width: 90, align: "right", visible: true },
+      { field: "accountCount", title: "账户数", width: 90, align: "right", visible: true },
+      { field: "legacyLabel", title: "数据来源", width: 130, visible: true },
+      { field: "remark", title: "备注", width: 180, visible: true }
+    ]
+  },
+  "ap-payment-form-list": {
+    title: "付款单列表",
+    subtitle: "正式付款单按草稿保存、审核核销、反审核释放的统一生命周期管理。",
+    keywordPlaceholder: "付款单号、供应商、来源应付单",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "付款单号", width: 160, fixed: "left", visible: true },
+      { field: "partyCode", title: "供应商编码", width: 130, visible: true },
+      { field: "partyName", title: "供应商名称", width: 210, visible: true },
+      { field: "billDate", title: "日期", width: 120, visible: true },
+      { field: "currency", title: "币种", width: 80, visible: true },
+      { field: "amount", title: "付款金额", width: 130, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true },
+      { field: "version", title: "版本", width: 80, align: "right", visible: true },
+      { field: "sourceCount", title: "来源数", width: 90, align: "right", visible: true },
+      { field: "accountCount", title: "账户数", width: 90, align: "right", visible: true },
+      { field: "legacyLabel", title: "数据来源", width: 130, visible: true },
+      { field: "remark", title: "备注", width: 180, visible: true }
+    ]
+  },
   "production-plan-list": {
     title: "生产计划",
     subtitle: "生产计划只负责形成自发计划和分解生产任务，不直接领料或入库。",

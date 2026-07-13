@@ -106,7 +106,17 @@
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
     @refresh-stock="document.refreshStock"
-  />
+  >
+    <template #sourceActions>
+      <label class="currency-field">
+        <span>币种（继承销售订单）</span>
+        <select :value="document.form.currency || 'CNY'" disabled data-testid="delivery-notice-currency">
+          <option value="CNY">人民币 / CNY</option>
+          <option value="USD">美元 / USD</option>
+        </select>
+      </label>
+    </template>
+  </DocumentForm>
   <SourceSelectorDialog
     :open="sourceSelectorOpen"
     test-prefix="delivery-notice"
@@ -138,7 +148,7 @@ import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
-import type { OrderLineForm, PendingPushLine } from "../../../app/documentModel";
+import { normalizeDocumentCurrency, type OrderLineForm, type PendingPushLine } from "../../../app/documentModel";
 import { useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import { fetchSelectableSalesOrderLines, type SelectableSalesOrderLine } from "../../../services/salesOrderApi";
 import { useDeliveryNoticeDocument } from "./useDeliveryNoticeDocument";
@@ -180,6 +190,7 @@ const sourceSelectorColumns: SourceSelectorColumn[] = [
   { key: "lineNo", title: "行号", width: 70, visible: true },
   { key: "customer", title: "客户", width: 180, visible: true },
   { key: "billDate", title: "日期", width: 120, visible: true },
+  { key: "currency", title: "币种", width: 80, visible: true },
   { key: "productCode", title: "物料编码", width: 130, visible: true },
   { key: "productName", title: "物料名称", width: 180, visible: true },
   { key: "unit", title: "单位", width: 80, visible: true },
@@ -286,10 +297,16 @@ function confirmSourceSelector() {
   if (!first) {
     return;
   }
+  const currencies = new Set(selectedLines.map(normalizeDocumentCurrency));
+  if (currencies.size > 1 || (document.form.lines.some((line) => Boolean(line.sourceOrderNo)) && !currencies.has(document.form.currency || "CNY"))) {
+    sourceSelectorMessage.value = "一张发货通知单只能选择同一币种的销售订单。";
+    return;
+  }
   document.form.sourceOrderNo = "";
   document.form.partyCode = first.customerCode;
   document.form.partyName = first.customer || document.form.partyName || "";
   document.form.department = first.department || document.form.department || "销售部";
+  document.form.currency = normalizeDocumentCurrency(first);
   appendSourceLines(selectedLines.map(selectableLineToFormLine));
   sourceSelector.commitLocalAllocation();
   sourceSelector.close();
@@ -344,6 +361,7 @@ function formatSourceSelectorCell(row: unknown, columnKey: string) {
     lineNo: `#${line.lineNo ?? ""}`,
     customer: `${line.customerCode ?? ""} ${line.customer || ""}`.trim(),
     billDate: String(line.billDate ?? ""),
+    currency: normalizeDocumentCurrency(line),
     productCode: String(line.productCode ?? ""),
     productName: String(line.productName || line.spec || "-"),
     unit: String(line.unit || "-"),
@@ -412,6 +430,7 @@ function applyPushDownDraft(draft: {
   billDate: string;
   department: string;
   ownerName: string;
+  currency?: "CNY" | "USD";
   lines: PendingPushLine[];
 }) {
   document.applyInboundPushDownDraft(draft);

@@ -31,7 +31,9 @@ const lifecyclePolicyByType: Record<DocumentType, Omit<DocumentLifecyclePolicy, 
   stockTransfer: DEFAULT_FACT_POLICY,
   stockCount: DEFAULT_FACT_POLICY,
   stockCountGain: DEFAULT_FACT_POLICY,
-  stockCountLoss: DEFAULT_FACT_POLICY
+  stockCountLoss: DEFAULT_FACT_POLICY,
+  receipt: { closeFreezeAllowed: false, lineCloseFreezeAllowed: false, redReverseAllowed: false, voidAllowed: false },
+  payment: { closeFreezeAllowed: false, lineCloseFreezeAllowed: false, redReverseAllowed: false, voidAllowed: false }
 };
 
 const normalizedStatusByText: Record<string, string> = {

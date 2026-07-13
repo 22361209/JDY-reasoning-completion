@@ -603,20 +603,20 @@
       "id": "F026",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
+      "exposure": "hold",
+      "surface": "shared",
       "catalogEntryIds": [],
       "evidence": [],
       "knownGaps": [
-        "后端存在按应收单立即收款接口，但没有符合草稿/审核协议的销售收款前台。"
+        "A141 已在销售出库表单接入 finance 正式收款单预填入口，完成自动化与浏览器验收前仍不得计作已交付。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
+        "entry": "unverified",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "not_applicable"
+        "browser": "unverified"
       }
     },
     {
@@ -758,20 +758,20 @@
       "id": "F036",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
+      "exposure": "hold",
+      "surface": "shared",
       "catalogEntryIds": [],
       "evidence": [],
       "knownGaps": [
-        "后端存在按应付单立即付款接口，但没有符合草稿/审核协议的采购付款前台。"
+        "A141 已在采购入库表单接入 finance 正式付款单预填入口，完成自动化与浏览器验收前仍不得计作已交付。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
+        "entry": "unverified",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "not_applicable"
+        "browser": "unverified"
       }
     },
     {
@@ -1633,20 +1633,22 @@
       "id": "F080",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "ar-receipt-form"
+      ],
       "evidence": [],
       "knownGaps": [
-        "应收列表不是收款单；缺少正式收款单草稿、审核、反审核和账户选择页面。"
+        "A141 已登记正式收款单 catalog 入口，完成自动化与浏览器验收前仍不得计作已交付。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
+        "entry": "unverified",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "not_applicable"
+        "browser": "unverified"
       }
     },
     {
@@ -1673,20 +1675,22 @@
       "id": "F082",
       "state": "unverified",
       "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
+      "exposure": "hold",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "ap-payment-form"
+      ],
       "evidence": [],
       "knownGaps": [
-        "应付列表不是付款单；缺少正式付款单草稿、审核、反审核和账户选择页面。"
+        "A141 已登记正式付款单 catalog 入口，完成自动化与浏览器验收前仍不得计作已交付。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
+        "entry": "unverified",
         "backend": "unverified",
         "permission": "unverified",
         "auditLog": "unverified",
         "automation": "unverified",
-        "browser": "not_applicable"
+        "browser": "unverified"
       }
     },
     {

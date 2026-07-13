@@ -98,7 +98,22 @@
     @copy-line="document.copyLine"
     @line-lifecycle="(lineNo, action) => document.openLifecycleAction(action, lineNo)"
     @add-line="document.addLine"
-  />
+  >
+    <template #sourceActions>
+      <label class="currency-field">
+        <span>币种</span>
+        <select
+          v-model="document.form.currency"
+          :disabled="locked || !document.isDraft.value"
+          data-testid="purchase-order-currency"
+          @change="document.markDirty"
+        >
+          <option value="CNY">人民币 / CNY</option>
+          <option value="USD">美元 / USD</option>
+        </select>
+      </label>
+    </template>
+  </DocumentForm>
   <SourceSelectorDialog
     :open="sourceSelectorOpen"
     test-prefix="purchase"

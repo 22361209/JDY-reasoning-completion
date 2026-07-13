@@ -622,7 +622,9 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
   "stock-transfer-form-list": "inventory.stock_transfer.audit",
   "stock-count-form-list": "inventory.stock_count.audit",
   "stock-count-gain-form-list": "inventory.stock_count_gain.audit",
-  "stock-count-loss-form-list": "inventory.stock_count_loss.audit"
+  "stock-count-loss-form-list": "inventory.stock_count_loss.audit",
+  "ar-receipt-form-list": "finance.settle",
+  "ap-payment-form-list": "finance.settle"
 };
 const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "product-master-list": "master.data.manage",
@@ -659,6 +661,8 @@ const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "stock-count-form-list": "inventory.stock_count.audit",
   "stock-count-gain-form-list": "inventory.stock_count_gain.audit",
   "stock-count-loss-form-list": "inventory.stock_count_loss.audit",
+  "ar-receipt-form-list": "finance.settle",
+  "ap-payment-form-list": "finance.settle",
   "stock-alert-list": "inventory.stock_alert.manage"
 };
 const canAuditCurrentList = computed(() => {
@@ -729,7 +733,10 @@ const canBatchUnclose = computed(() => supportsBatchCloseFreeze.value && canOper
 const canBatchFreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus !== "FROZEN" && row.closeStatus !== "CLOSED"));
 const canBatchUnfreeze = computed(() => supportsBatchCloseFreeze.value && canOperateLifecycle.value && selectedBillRows.value.every((row) => isAuditedRow(row) && row.frozenStatus === "FROZEN"));
 const canBatchVoid = computed(() => Boolean(currentLifecyclePolicy.value?.voidAllowed) && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
-const canBatchDelete = computed(() => supportsBatchDelete.value && canOperateLifecycle.value && selectedBillRows.value.every(isDraftBillStatus));
+const canBatchDelete = computed(() => supportsBatchDelete.value
+  && canOperateLifecycle.value
+  && selectedBillRows.value.every(isDraftBillStatus)
+  && selectedBillRows.value.every((row) => row.legacy !== true && String(row.legacy ?? "").toLowerCase() !== "true"));
 const selectedBomRows = computed(() => selectedRows.value.filter((row) => String(row.code ?? "").trim()));
 const canOperateBomStatus = computed(() => isBomList.value && canMaintainCurrentList.value && selectedBomRows.value.length === 1 && !selectedContainsLockedRow.value);
 const canEnableSelectedBom = computed(() => canOperateBomStatus.value && !isBomRowEnabled(selectedBomRows.value[0]));
@@ -888,7 +895,7 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("void", {
     key: "batchVoid",
-    visible: isLifecycleDocumentList.value,
+    visible: Boolean(currentLifecyclePolicy.value?.voidAllowed),
     enabled: canBatchVoid.value,
     testId: "batch-void"
   }),
@@ -986,7 +993,9 @@ const documentActionTypeByListKey: Partial<Record<string, DocumentType>> = {
   "stock-transfer-form-list": "stockTransfer",
   "stock-count-form-list": "stockCount",
   "stock-count-gain-form-list": "stockCountGain",
-  "stock-count-loss-form-list": "stockCountLoss"
+  "stock-count-loss-form-list": "stockCountLoss",
+  "ar-receipt-form-list": "receipt",
+  "ap-payment-form-list": "payment"
 };
 const deleteSupportedDocumentTypes = new Set<DocumentType>([
   "salesQuote",
@@ -994,7 +1003,9 @@ const deleteSupportedDocumentTypes = new Set<DocumentType>([
   "deliveryNotice",
   "salesOut",
   "purchaseIn",
-  "purchaseReturn"
+  "purchaseReturn",
+  "receipt",
+  "payment"
 ]);
 
 watch(() => props.listKey, () => {
@@ -1854,7 +1865,9 @@ function canCreateListRecord(listKey: string) {
     "outsourcing-issue-list",
     "outsourcing-receipt-list",
     "outsourcing-return-list",
-    "outsourcing-scrap-list"
+    "outsourcing-scrap-list",
+    "ar-receipt-form-list",
+    "ap-payment-form-list"
   ].includes(listKey);
 }
 
@@ -1865,7 +1878,9 @@ function canOpenListRecord(listKey: string) {
     "outsourcing-issue-list",
     "outsourcing-receipt-list",
     "outsourcing-return-list",
-    "outsourcing-scrap-list"
+    "outsourcing-scrap-list",
+    "ar-receipt-form-list",
+    "ap-payment-form-list"
   ].includes(listKey);
 }
 

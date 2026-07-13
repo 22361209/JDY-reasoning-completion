@@ -435,6 +435,7 @@
           @show-existing="tabs.activeTabId.value = outboundTabId"
           @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
+          @request-settlement="openSettlementFromSource('receipt', $event)"
         />
         <DeliveryNoticeForm
           v-else-if="tabs.activeTab.value.id === deliveryNoticeTabId"
@@ -490,6 +491,31 @@
           @show-existing="tabs.activeTabId.value = purchaseInTabId"
           @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
+          @request-settlement="openSettlementFromSource('payment', $event)"
+        />
+        <SettlementDocumentForm
+          v-else-if="tabs.activeTab.value.id === receiptTabId"
+          ref="receiptFormRef"
+          kind="receipt"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
+        <SettlementDocumentForm
+          v-else-if="tabs.activeTab.value.id === paymentTabId"
+          ref="paymentFormRef"
+          kind="payment"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
         />
         <PurchaseReturnForm
           v-else-if="tabs.activeTab.value.id === purchaseReturnTabId"
@@ -763,6 +789,7 @@ import { computed, nextTick, reactive, ref, watch } from "vue";
 import { featureScope } from "./featureScope";
 import {
   defaultPrintTemplateForm,
+  normalizeDocumentCurrency,
   printTemplateDocumentTypes,
   type PendingPushLine,
 } from "./documentModel";
@@ -786,6 +813,8 @@ import SalesQuoteForm from "../modules/sales/sales-quote/SalesQuoteForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
 import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeForm.vue";
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
+import SettlementDocumentForm from "../modules/finance/SettlementDocumentForm.vue";
+import type { SettlementCurrency, SettlementKind } from "../services/financeApi";
 import MasterDataRecordPage from "../modules/master-data/MasterDataRecordPage.vue";
 import { masterDataDefinitions } from "../modules/master-data/registry";
 import type { MasterDataField } from "../modules/master-data/types";
@@ -853,6 +882,8 @@ const salesQuoteTabId = "sales-quote-form";
 const deliveryNoticeTabId = "delivery-notice-form";
 const purchaseOrderTabId = "purchase-order-form";
 const purchaseInTabId = "purchase-in-form";
+const receiptTabId = "ar-receipt-form";
+const paymentTabId = "ap-payment-form";
 const purchaseReturnTabId = "purchase-return-form";
 const materialIssueTabId = "material-issue-form";
 const productInTabId = "product-in-form";
@@ -892,6 +923,8 @@ const deliveryNoticeFormRef = ref<InstanceType<typeof DeliveryNoticeForm> | null
 const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
+const receiptFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
+const paymentFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
 const purchaseReturnFormRef = ref<InstanceType<typeof PurchaseReturnForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
 const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
@@ -1042,20 +1075,29 @@ function openEntry(entry: ShellEntry) {
   if (!canOpenEntry(entry)) {
     return;
   }
-  activeModuleName.value = entry.module;
-  const isQuery = entry.mode === "list" || entry.mode === "report";
-  const id = entry.mode === "list" && !entry.id.endsWith("-list") && !entry.id.endsWith("-report") ? `${entry.id}-list` : entry.id;
+  const settlementReadOnlyEntry = [receiptTabId, paymentTabId].includes(entry.id) && !session.hasPermission("finance.settle");
+  const effectiveEntry = settlementReadOnlyEntry ? { ...entry, mode: "list" as WorkTabKind, dirty: false } : entry;
+  activeModuleName.value = effectiveEntry.module;
+  const isQuery = effectiveEntry.mode === "list" || effectiveEntry.mode === "report";
+  const id = effectiveEntry.mode === "list" && !effectiveEntry.id.endsWith("-list") && !effectiveEntry.id.endsWith("-report") ? `${effectiveEntry.id}-list` : effectiveEntry.id;
+  if (
+    effectiveEntry.mode === "form"
+    && isSettlementFormTabId(id)
+    && !confirmDirtyTabReplacement(id, "继续会新建空白收付款单")
+  ) {
+    return;
+  }
   const opened = tabs.openTab({
     id,
-    title: isQuery && !entry.label.includes("表") && !entry.label.includes("查询") ? `${entry.label}列表` : entry.label,
-    module: entry.module,
-    kind: entry.mode,
-    dirty: entry.mode === "form" ? entry.dirty : false
+    title: isQuery && !effectiveEntry.label.includes("表") && !effectiveEntry.label.includes("查询") ? `${effectiveEntry.label}列表` : effectiveEntry.label,
+    module: effectiveEntry.module,
+    kind: effectiveEntry.mode,
+    dirty: effectiveEntry.mode === "form" ? effectiveEntry.dirty : false
   });
-  if (opened && entry.mode === "form") {
-    void nextTick().then(() => startNewModuleDocument(entry.id));
+  if (opened && effectiveEntry.mode === "form") {
+    void nextTick().then(() => startNewModuleDocument(effectiveEntry.id));
   }
-  if (opened && entry.id === "print-template-settings") {
+  if (opened && effectiveEntry.id === "print-template-settings") {
     void loadPrintTemplates();
   }
   modulePanelOpen.value = false;
@@ -1150,6 +1192,10 @@ function startNewModuleDocument(entryId: string) {
     purchaseOrderFormRef.value?.startNew();
   } else if (entryId === purchaseInTabId) {
     purchaseInFormRef.value?.startNew();
+  } else if (entryId === receiptTabId) {
+    void receiptFormRef.value?.startNew();
+  } else if (entryId === paymentTabId) {
+    void paymentFormRef.value?.startNew();
   } else if (entryId === purchaseReturnTabId) {
     purchaseReturnFormRef.value?.startNew();
   } else if (entryId === materialIssueTabId) {
@@ -1213,6 +1259,15 @@ async function openCreateListRecord(payload: { listKey: string; row?: Record<str
   if (!target) {
     return;
   }
+  if (
+    isSettlementFormTabId(target.tabId)
+    && !confirmDirtyTabReplacement(
+      target.tabId,
+      payload.row ? "继续会打开列表中的收付款单" : "继续会新建空白收付款单"
+    )
+  ) {
+    return;
+  }
   const opened = tabs.openTab({
     id: target.tabId,
     title: target.title,
@@ -1231,6 +1286,12 @@ async function openCreateListRecord(payload: { listKey: string; row?: Record<str
 }
 
 function createListRecordTarget(listKey: string) {
+  if (listKey === "ar-receipt-form-list") {
+    return settlementListRecordTarget("receipt");
+  }
+  if (listKey === "ap-payment-form-list") {
+    return settlementListRecordTarget("payment");
+  }
   if (listKey === "bom-list") {
     return {
       tabId: bomFormTabId,
@@ -1314,6 +1375,62 @@ function createListRecordTarget(listKey: string) {
     };
   }
   return null;
+}
+
+function settlementListRecordTarget(kind: SettlementKind) {
+  const receipt = kind === "receipt";
+  const targetRef = receipt ? receiptFormRef : paymentFormRef;
+  return {
+    tabId: receipt ? receiptTabId : paymentTabId,
+    title: receipt ? "收款单" : "付款单",
+    module: "应收应付",
+    open: (row?: Record<string, unknown>) => {
+      const billNo = String(row?.billNo ?? "").trim();
+      if (billNo) {
+        void targetRef.value?.loadByBillNo(billNo);
+        return;
+      }
+      void targetRef.value?.startNew();
+    }
+  };
+}
+
+async function openSettlementFromSource(
+  kind: SettlementKind,
+  payload: { sourceBillNo: string; currency: SettlementCurrency }
+) {
+  const receipt = kind === "receipt";
+  const tabId = receipt ? receiptTabId : paymentTabId;
+  if (!confirmDirtyTabReplacement(tabId, `继续会以 ${payload.sourceBillNo} 重新预填`)) {
+    return;
+  }
+  const opened = tabs.openTab({
+    id: tabId,
+    title: receipt ? "收款单" : "付款单",
+    module: "应收应付",
+    kind: "form",
+    dirty: true
+  });
+  if (!opened) {
+    return;
+  }
+  activeModuleName.value = "应收应付";
+  const tab = tabs.tabs.value.find((item) => item.id === tabId);
+  if (tab) {
+    tab.dirty = true;
+  }
+  await nextTick();
+  const targetRef = receipt ? receiptFormRef : paymentFormRef;
+  await targetRef.value?.startNew({ sourceBillNo: payload.sourceBillNo, currency: payload.currency });
+}
+
+function isSettlementFormTabId(tabId: string) {
+  return tabId === receiptTabId || tabId === paymentTabId;
+}
+
+function confirmDirtyTabReplacement(tabId: string, nextAction: string) {
+  const existing = tabs.tabs.value.find((tab) => tab.id === tabId);
+  return !existing?.dirty || window.confirm(`${existing.title}有未保存内容，${nextAction}。确定继续吗？`);
 }
 
 function openOutsourcingForm(row: Record<string, unknown> | undefined, refValue: InstanceType<typeof OutsourcingDocumentForm> | null) {
@@ -1771,6 +1888,7 @@ async function openDeliveryNoticeFromSalesOrder(row: Record<string, unknown>) {
     partyCode: result.data.order.customerCode || "",
     partyName: result.data.order.customer || "",
     billDate: dateText,
+    currency: normalizeDocumentCurrency(result.data.order),
     department: result.data.order.department || "销售部",
     ownerName: session.userName.value || result.data.order.ownerName || "本地管理员",
     lines
@@ -1838,6 +1956,7 @@ async function openOutboundFromDeliveryNotice(row: Record<string, unknown>) {
     partyCode: result.data.document.customerCode || "",
     partyName: result.data.document.customer || "",
     billDate: dateText,
+    currency: normalizeDocumentCurrency(result.data.document.currency),
     department: result.data.document.department || "销售部",
     ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
     lines
@@ -1886,6 +2005,7 @@ async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
     sourceOrderNo: sourceBillNo,
     partyCode: result.data.document.supplierCode || "",
     billDate: dateText,
+    currency: normalizeDocumentCurrency(result.data.document.currency),
     department: result.data.document.department || "采购部",
     ownerName: session.userName.value || result.data.document.ownerName || "本地管理员",
     lines
