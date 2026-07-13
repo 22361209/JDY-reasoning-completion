@@ -361,6 +361,9 @@
           :record-id="activeMasterRecord.id"
           :editing="activeMasterRecord.editing"
           :read-only="activeMasterRecord.readOnly"
+          :persisted="Boolean(activeMasterRecord.originalCode)"
+          :dirty="activeMasterRecordDirty"
+          :protect-audited-edit="sparsePatchMasterDataTypes.has(activeMasterRecord.type)"
           :title="activeMasterRecord.title"
           :fields="activeMasterRecord.fields"
           :form="activeMasterRecord.form"
@@ -796,7 +799,7 @@ import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixP
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
 import { acquireDocumentLock, fetchDocumentDetail, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
-import { auditMasterData, createMasterData, deleteMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData } from "../services/listApi";
+import { auditMasterData, createMasterData, deleteMasterData, patchMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData, type MasterDataPatchValue } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
 import { switchCurrentAccountSet, type SystemAccountSet } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
@@ -829,6 +832,7 @@ interface MasterRecordState {
   editing: boolean;
   readOnly: boolean;
   originalCode: string;
+  version: number | null;
   fields: MasterDataField[];
   form: Record<string, string>;
   originalForm: Record<string, string>;
@@ -861,7 +865,9 @@ const stockCountTabId = "stock-count-form";
 const stockCountGainTabId = "stock-count-gain-form";
 const stockCountLossTabId = "stock-count-loss-form";
 const masterRecords = reactive<Record<string, MasterRecordState>>({});
+const sparsePatchMasterDataTypes = new Set(["product", "customer", "supplier", "warehouse"]);
 const activeMasterRecord = computed(() => masterRecords[tabs.activeTabId.value] ?? null);
+const activeMasterRecordDirty = computed(() => Boolean(tabs.activeTab.value?.dirty));
 tabs.onBeforeClose((tab) => {
   const type = documentTypeByFormTabId(tab.id);
   if (type && tab.lockedObjectId) {
@@ -1925,8 +1931,8 @@ function newMasterForm(listKey: string, row: Record<string, unknown> | null, opt
     }
     form[field.name] = field.defaultValue ?? fieldOptionValue(field.options?.[0]);
   });
-  form.status = String(row?.status ?? form.status ?? "启用");
-  form.auditStatus = String(row?.auditStatus ?? form.auditStatus ?? "草稿");
+  form.status = normalizeMasterStatus(row?.status ?? form.status ?? "启用");
+  form.auditStatus = normalizeMasterAuditStatus(row?.auditStatus ?? form.auditStatus ?? "草稿");
   if (options.copy) {
     form.systemNo = "";
     form.code = "";
@@ -1969,6 +1975,8 @@ function openMasterRecord(
   const editing = options.mode === "edit";
   const readOnly = options.mode === "view";
   const form = newMasterForm(payload.listKey, payload.row, { copy: options.mode === "copy" });
+  const requiresVersion = sparsePatchMasterDataTypes.has(definition.type);
+  const version = requiresVersion ? (persisted ? parseMasterVersion(payload.row?.version) : 0) : null;
   masterRecords[tabId] = {
     id: tabId,
     listKey: payload.listKey,
@@ -1977,13 +1985,20 @@ function openMasterRecord(
     editing,
     readOnly,
     originalCode: persisted ? code : "",
+    version,
     fields: definition.fields,
     form,
     originalForm: { ...form },
-    error: ""
+    error: persisted && requiresVersion && version === null ? "资料版本缺失，请返回列表刷新后重试。" : ""
   };
   const actionTitle = options.mode === "view" ? title : options.mode === "edit" ? `编辑${title}` : `新增${title}`;
-  tabs.openTab({ id: tabId, title: actionTitle, module: masterModule(payload.listKey), kind: "form", dirty: options.mode !== "view" });
+  tabs.openTab({
+    id: tabId,
+    title: actionTitle,
+    module: masterModule(payload.listKey),
+    kind: "form",
+    dirty: options.mode === "create" || options.mode === "copy"
+  });
 }
 
 function masterRecordTabId(listKey: string, code: string) {
@@ -2018,15 +2033,22 @@ function editActiveMasterRecord() {
   if (!record) {
     return;
   }
+  if (sparsePatchMasterDataTypes.has(record.type) && normalizeMasterAuditStatus(record.form.auditStatus) === "已审核") {
+    record.error = "已审核资料不能直接编辑，请先执行反审核。";
+    return;
+  }
   record.editing = true;
   record.readOnly = false;
+  record.error = "";
   updateMasterTabTitle(record.id, `编辑${record.title}`);
 }
 function updateActiveMasterField(name: string, value: string) {
-  if (!activeMasterRecord.value || activeMasterRecord.value.readOnly) {
+  const record = activeMasterRecord.value;
+  if (!record || record.readOnly) {
     return;
   }
-  activeMasterRecord.value.form[name] = value;
+  record.form[name] = value;
+  record.error = "";
   markActiveDirty();
 }
 function openNewActiveMasterRecord() {
@@ -2059,9 +2081,33 @@ async function saveActiveMasterRecord() {
     record.error = `${missingField.label}不能为空。`;
     return;
   }
-  const result = record.editing
-    ? await updateMasterData(record.type, record.originalCode, { ...record.form })
-    : await createMasterData(record.type, { ...record.form });
+  let result: Awaited<ReturnType<typeof createMasterData>>;
+  if (record.editing) {
+    if (sparsePatchMasterDataTypes.has(record.type)) {
+      if (record.version === null) {
+        record.error = "资料版本缺失，请返回列表刷新后重试。";
+        return;
+      }
+      const patch = buildMasterDataPatch(record);
+      if (patch.error) {
+        record.error = patch.error;
+        return;
+      }
+      if (Object.keys(patch.changes).length === 0) {
+        record.error = "没有需要保存的修改。";
+        clearActiveDirty();
+        return;
+      }
+      result = await patchMasterData(record.type, record.originalCode, {
+        version: record.version,
+        changes: patch.changes
+      });
+    } else {
+      result = await updateMasterData(record.type, record.originalCode, { ...record.form });
+    }
+  } else {
+    result = await createMasterData(record.type, { ...record.form });
+  }
   if (!result.ok) {
     record.error = result.message;
     return;
@@ -2072,11 +2118,7 @@ async function saveActiveMasterRecord() {
     record.error = "保存成功但未返回资料编码，请刷新列表确认。";
     return;
   }
-  Object.entries(savedRow).forEach(([key, value]) => {
-    record.form[key] = String(value ?? "");
-  });
-  record.form.status = String(record.form.status || "启用");
-  record.form.auditStatus = String(record.form.auditStatus || "草稿");
+  mergeMasterDataResponse(record, savedRow);
   record.originalCode = savedCode;
   record.editing = true;
   record.readOnly = false;
@@ -2103,18 +2145,27 @@ async function auditActiveMasterRecord() {
   if (!record?.editing || record.readOnly || !record.originalCode) {
     return;
   }
+  if (isMasterRecordDirty(record)) {
+    record.error = "存在未保存修改，请先保存或放弃修改后再审核。";
+    return;
+  }
   const result = await auditMasterData(record.type, record.originalCode);
   if (!result.ok) {
     record.error = result.message || "审核失败。";
     return;
   }
-  record.form.auditStatus = "已审核";
+  mergeMasterLifecycleResponse(record, result.data?.rows[0], { auditStatus: "已审核" });
+  record.originalForm = { ...record.form };
   record.error = "";
   clearActiveDirty();
 }
 async function reverseAuditActiveMasterRecord() {
   const record = activeMasterRecord.value;
-  if (!record?.editing || record.readOnly || !record.originalCode) {
+  if (!record || !record.originalCode) {
+    return;
+  }
+  if (isMasterRecordDirty(record)) {
+    record.error = "存在未保存修改，请先保存或放弃修改后再反审核。";
     return;
   }
   const result = await reverseAuditMasterData(record.type, record.originalCode);
@@ -2122,13 +2173,21 @@ async function reverseAuditActiveMasterRecord() {
     record.error = result.message || "反审核失败。";
     return;
   }
-  record.form.auditStatus = "草稿";
+  mergeMasterLifecycleResponse(record, result.data?.rows[0], { auditStatus: "草稿" });
+  record.editing = true;
+  record.readOnly = false;
+  record.originalForm = { ...record.form };
   record.error = "";
+  updateMasterTabTitle(record.id, `编辑${record.title}`);
   clearActiveDirty();
 }
 async function toggleActiveMasterStatus() {
   const record = activeMasterRecord.value;
   if (!record?.editing || record.readOnly || !record.originalCode) {
+    return;
+  }
+  if (isMasterRecordDirty(record)) {
+    record.error = "存在未保存修改，请先保存或放弃修改后再启用或禁用。";
     return;
   }
   const nextEnabled = (record.form.status || "启用") === "禁用";
@@ -2137,12 +2196,17 @@ async function toggleActiveMasterStatus() {
     record.error = result.message || "状态更新失败。";
     return;
   }
-  record.form.status = nextEnabled ? "启用" : "禁用";
+  mergeMasterLifecycleResponse(record, result.data?.rows[0], { status: nextEnabled ? "启用" : "禁用" });
+  record.originalForm = { ...record.form };
   record.error = "";
 }
 async function deleteActiveMasterRecord() {
   const record = activeMasterRecord.value;
   if (!record?.editing || record.readOnly || !record.originalCode) {
+    return;
+  }
+  if (isMasterRecordDirty(record)) {
+    record.error = "存在未保存修改，请先保存或放弃修改后再删除。";
     return;
   }
   if (!window.confirm(`确定删除当前${record.title}吗？`)) {
@@ -2157,6 +2221,135 @@ async function deleteActiveMasterRecord() {
   delete masterRecords[record.id];
   tabs.closeNow(record.id);
   tabs.activeTabId.value = record.listKey;
+}
+
+function buildMasterDataPatch(record: MasterRecordState) {
+  const changes: Record<string, MasterDataPatchValue> = {};
+  for (const field of record.fields) {
+    if (!isMasterDataPatchField(field)) {
+      continue;
+    }
+    const currentValue = String(record.form[field.name] ?? "");
+    const originalValue = String(record.originalForm[field.name] ?? "");
+    if (currentValue !== originalValue) {
+      const serialized = serializeMasterDataPatchValue(field, currentValue);
+      if (serialized.error) {
+        return { changes: {}, error: serialized.error };
+      }
+      changes[field.name] = serialized.value;
+    }
+    const fileDataName = field.fileDataName;
+    if (fileDataName) {
+      const currentFileData = String(record.form[fileDataName] ?? "");
+      const originalFileData = String(record.originalForm[fileDataName] ?? "");
+      if (currentFileData !== originalFileData) {
+        changes[fileDataName] = currentFileData || null;
+      }
+    }
+  }
+  return { changes, error: "" };
+}
+
+function isMasterDataPatchField(field: MasterDataField) {
+  return !field.readonly
+    && !field.readonlyWhenEditing
+    && !["code", "systemNo", "version", "auditStatus", "status", "enabled"].includes(field.name);
+}
+
+function serializeMasterDataPatchValue(field: MasterDataField, rawValue: string): { value: MasterDataPatchValue; error: string } {
+  const value = rawValue.trim();
+  if (!value && !field.required) {
+    return { value: null, error: "" };
+  }
+  if (field.type === "checkbox") {
+    if (value !== "true" && value !== "false") {
+      return { value: false, error: `${field.label}格式不正确。` };
+    }
+    return { value: value === "true", error: "" };
+  }
+  if (field.type === "number") {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return { value: null, error: `${field.label}必须是有效数字。` };
+    }
+    return { value: number, error: "" };
+  }
+  return { value: rawValue, error: "" };
+}
+
+function mergeMasterDataResponse(record: MasterRecordState, row: Record<string, unknown>) {
+  const editableFormKeys = new Set([...record.fields.map((field) => field.name), "status", "auditStatus"]);
+  editableFormKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(row, key)) {
+      return;
+    }
+    const field = record.fields.find((candidate) => candidate.name === key);
+    const value = row[key];
+    record.form[key] = field?.type === "checkbox"
+      ? normalizeMasterCheckboxValue(value)
+      : String(value ?? "");
+  });
+  record.form.status = normalizeMasterStatus(record.form.status || "启用");
+  record.form.auditStatus = normalizeMasterAuditStatus(record.form.auditStatus || "草稿");
+  if (sparsePatchMasterDataTypes.has(record.type)) {
+    const responseVersion = parseMasterVersion(row.version);
+    if (responseVersion !== null) {
+      record.version = responseVersion;
+    } else if (record.editing && record.version !== null) {
+      record.version += 1;
+    } else {
+      record.version = 0;
+    }
+  }
+}
+
+function mergeMasterLifecycleResponse(
+  record: MasterRecordState,
+  row: Record<string, unknown> | undefined,
+  fallback: { auditStatus?: string; status?: string }
+) {
+  if (row?.auditStatus !== undefined || fallback.auditStatus !== undefined) {
+    record.form.auditStatus = normalizeMasterAuditStatus(row?.auditStatus ?? fallback.auditStatus);
+  }
+  if (row?.status !== undefined || fallback.status !== undefined) {
+    record.form.status = normalizeMasterStatus(row?.status ?? fallback.status);
+  }
+  if (sparsePatchMasterDataTypes.has(record.type)) {
+    const responseVersion = parseMasterVersion(row?.version);
+    if (responseVersion !== null) {
+      record.version = responseVersion;
+    } else if (record.version !== null) {
+      record.version += 1;
+    }
+  }
+}
+
+function isMasterRecordDirty(record: MasterRecordState) {
+  return Boolean(tabs.tabs.value.find((tab) => tab.id === record.id)?.dirty);
+}
+
+function parseMasterVersion(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const version = Number(value);
+  return Number.isInteger(version) && version >= 0 ? version : null;
+}
+
+function normalizeMasterAuditStatus(value: unknown) {
+  const status = String(value ?? "").trim();
+  return status === "AUDITED" || status === "已审核" ? "已审核" : "草稿";
+}
+
+function normalizeMasterStatus(value: unknown) {
+  if (value === false || String(value ?? "").trim() === "禁用") {
+    return "禁用";
+  }
+  return "启用";
+}
+
+function normalizeMasterCheckboxValue(value: unknown) {
+  return value === true || value === 1 || value === "1" || value === "true" || value === "是" ? "true" : "false";
 }
 function markActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);

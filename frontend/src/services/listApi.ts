@@ -58,6 +58,13 @@ export interface ListFetchResult {
   data: ListResponse | null;
 }
 
+export type MasterDataPatchValue = string | number | boolean | null;
+
+export interface MasterDataPatchRequest {
+  version: number;
+  changes: Record<string, MasterDataPatchValue>;
+}
+
 export interface ListExportResult {
   ok: boolean;
   status: number;
@@ -342,11 +349,12 @@ export async function createMasterData(type: string, payload: Record<string, str
       body: JSON.stringify(payload)
     });
     if (!response.ok) {
+      const message = await masterDataErrorMessage(response, "新增资料失败，请检查必填项。");
       return {
         ok: false,
         status: response.status,
         forbidden: response.status === 403,
-        message: response.status === 409 ? "编码已存在，请更换编码。" : "新增资料失败，请检查必填项。",
+        message,
         data: null
       };
     }
@@ -372,6 +380,10 @@ export async function updateMasterData(type: string, code: string, payload: Reco
   return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}`, "PUT", payload);
 }
 
+export async function patchMasterData(type: string, code: string, payload: MasterDataPatchRequest): Promise<ListFetchResult> {
+  return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}`, "PATCH", payload);
+}
+
 export async function setMasterDataStatus(type: string, code: string, enabled: boolean): Promise<ListFetchResult> {
   return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}/status`, "PATCH", {
     status: enabled ? "启用" : "禁用"
@@ -390,7 +402,7 @@ export async function deleteMasterData(type: string, code: string): Promise<List
   return writeMasterData(`/api/master-data/${encodeURIComponent(type)}/${encodeURIComponent(code)}`, "DELETE", {});
 }
 
-async function writeMasterData(url: string, method: string, payload: Record<string, string>): Promise<ListFetchResult> {
+async function writeMasterData(url: string, method: string, payload: object): Promise<ListFetchResult> {
   try {
     const response = await fetch(url, {
       method,
@@ -398,11 +410,12 @@ async function writeMasterData(url: string, method: string, payload: Record<stri
       body: method === "DELETE" ? undefined : JSON.stringify(payload)
     });
     if (!response.ok) {
+      const message = await masterDataErrorMessage(response, "资料保存失败，请检查必填项和状态。");
       return {
         ok: false,
         status: response.status,
         forbidden: response.status === 403,
-        message: response.status === 409 ? "编码已存在，请更换编码。" : "资料保存失败，请检查必填项和状态。",
+        message,
         data: null
       };
     }
@@ -422,4 +435,41 @@ async function writeMasterData(url: string, method: string, payload: Record<stri
       data: null
     };
   }
+}
+
+async function masterDataErrorMessage(response: Response, fallback: string) {
+  const text = await response.text();
+  const serverMessage = extractServerMessage(text);
+  if (serverMessage === "code already exists") {
+    return "编码已存在，请更换编码。";
+  }
+  if (serverMessage) {
+    return serverMessage;
+  }
+  return ({
+    400: "提交的资料字段或格式不正确。",
+    403: "当前账号无权维护该资料。",
+    404: "该资料已不存在，请返回列表刷新。",
+    405: "当前资料更新方式已停用，请刷新页面后重试。",
+    409: "该资料已被其他操作修改，或当前状态不允许编辑；请保留当前输入并刷新确认。"
+  } as Record<number, string>)[response.status] ?? fallback;
+}
+
+function extractServerMessage(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const body = JSON.parse(trimmed) as Record<string, unknown>;
+    for (const key of ["message", "detail", "reason"]) {
+      const value = body[key];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+  } catch {
+    return trimmed;
+  }
+  return "";
 }

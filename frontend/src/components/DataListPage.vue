@@ -588,6 +588,13 @@ const {
 const session = useSessionStore();
 const masterMaintenance = useMasterDataMaintenance(computed(() => props.listKey), rows, selectedRows, reload);
 const isMasterList = masterMaintenance.isMasterList;
+const sparsePatchMasterListKeys = new Set([
+  "product-master-list",
+  "customer-master-list",
+  "supplier-master-list",
+  "warehouse-master-list"
+]);
+const usesSparseMasterPatch = computed(() => sparsePatchMasterListKeys.has(props.listKey));
 const isProductMasterList = computed(() => props.listKey === "product-master-list");
 const canCopyMasterRecord = computed(() => props.listKey === "product-master-list");
 const isBomList = computed(() => props.listKey === "bom-list");
@@ -789,7 +796,9 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("edit", {
     visible: isMasterList.value,
-    enabled: canMaintainCurrentList.value && selectedRows.value.length === 1,
+    enabled: canMaintainCurrentList.value
+      && selectedRows.value.length === 1
+      && (!usesSparseMasterPatch.value || !isAuditedMasterRow(selectedRows.value[0])),
     testId: "master-edit"
   }),
   defineAction("copy", {
@@ -801,12 +810,16 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   }),
   defineAction("audit", {
     visible: isMasterList.value,
-    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
+    enabled: canMaintainCurrentList.value
+      && selectedRows.value.length > 0
+      && (!usesSparseMasterPatch.value || selectedRows.value.every((row) => !isAuditedMasterRow(row))),
     testId: "master-audit"
   }),
   defineAction("reverse", {
     visible: isMasterList.value,
-    enabled: canMaintainCurrentList.value && selectedRows.value.length > 0,
+    enabled: canMaintainCurrentList.value
+      && selectedRows.value.length > 0
+      && (!usesSparseMasterPatch.value || selectedRows.value.every(isAuditedMasterRow)),
     testId: "master-reverse-audit"
   }),
   defineAction("enable", {
@@ -1769,6 +1782,11 @@ async function submitBatchDelete() {
 
 function isAuditedRow(row: Record<string, unknown>) {
   return isAuditedBillStatus(row);
+}
+
+function isAuditedMasterRow(row: Record<string, unknown> | undefined) {
+  const status = String(row?.auditStatus ?? "").trim();
+  return status === "AUDITED" || status === "已审核";
 }
 
 function hasPositiveQuantity(value: unknown) {
