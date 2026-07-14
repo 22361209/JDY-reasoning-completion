@@ -107,7 +107,7 @@
 - 已关闭、已冻结、行关闭、行冻结的源单行不得继续作为可用来源。
 - 下推按钮、选源弹窗和批量执行按钮不得依赖 `outStatus` / `inStatus` 这类中文展示状态。它们必须依赖未出库数量、未入库数量、可下推数量、行关闭/冻结状态等事实字段。
 - 源单余量遵守“只有审核才产生业务事实”：下游草稿、已保存未审核单据不扣减正式可执行余量。选源弹窗可以用临时锁或编辑中提示防止多人同时编辑，但不得把草稿当业务事实扣量。
-- 审核是最终守卫：所有带源单行和数量的下游单据，审核时必须按“源单号 + 源行号”汇总本单分录，再与已审核下游占用后的源单剩余量比较；合计超出时审核失败。该守卫由 `BillLifecycleService.guardSourceLineQuantities` 统一承载，不能在某一张单据里私写一套。
+- 审核是最终守卫：所有带源单行和数量的下游单据，审核时必须汇总本单同一源行需求，再与已审核下游占用后的源单剩余量比较；合计超出时审核失败。传统“源单号 + 源行号”链路由 `BillLifecycleService.guardSourceLineQuantities` 承载；采用不可变源行 UUID 软引用的链路由同一 service 的 `guardSourceLineIdQuantities` 承载，不能在某一张单据 AppService 里私写另一套 quota SQL。UUID 守卫只允许白名单表列，按来源 header→排序后的 source line ids 使用 `FOR UPDATE` 加锁，只汇总下游父单 `AUDITED` 的占用，按当前下游 header id 排除自身，并统一以 HTTP 409 拒绝来源不可执行或超量。
 - 当前已接入统一审核汇总校验的链路：销售订单 -> 发货通知单、发货通知单 -> 销售出库单、采购订单 -> 采购入库单、采购入库单 -> 采购退货单。
 - 销售订单 -> 发货通知 -> 销售出库链路中，销售订单列表/详情的未出库数量以“销售订单数量 - 已出库数量”为准；发货通知选源可通知量以“销售订单数量 - 已审核发货通知数量”为准。草稿发货通知不占用可通知量；发货通知审核时必须按同一源销售订单行汇总本单数量，合计超出剩余可通知量则审核失败。
 - 销售出库分录必须同时保留两层来源：`sourceOrderNo/sourceLineNo` 表示原销售订单，`sourceDeliveryNoticeNo/sourceDeliveryLineNo` 表示直接来源发货通知。列表可用 `sourceBillNo` 展示直接来源发货通知，但详情/API 不能把发货通知号覆盖到 `sourceOrderNo`。
@@ -175,6 +175,22 @@
 | 是否允许下推 | 必须列明生成哪类下游单据 |
 | 下推/选源事实字段 | 必须使用未执行数量、未出库数量、未入库数量、可下推数量、关闭/冻结状态等事实字段 |
 | 历史兼容状态 | 如 `REVERSED`、旧单据状态文案等，只能用于读取和展示，不作为新逻辑目标 |
+
+### A151 材料报废生命周期登记
+
+| 字段 | `materialScrap` 登记值 |
+| --- | --- |
+| 单据类型 | 前端 `materialScrap`；后端 target/header `production_material_scrap`；中文名“材料报废单” |
+| 列表 key | `material-scrap-form-list`；adapter key=`materialScrap`；不进入 seed/default fallback |
+| 详情页/表单 | `MaterialScrapForm.vue` 复用 `StandardDocument`/`ActionBar`；专用 `MaterialScrapEntryTable.vue` 内部复用共享 `TableCore` 与表头规范，承载报废原因、重发数量、入库选择/状态等扩展列；不修改 `DocumentForm.vue`，生产领料下推只在 `MaterialIssueForm.vue` 接入现有 extra action |
+| AppService / Controller | `MaterialScrapAppService` + `MaterialScrapController` 负责保存、审核、反审核、删除、下推、报废入库及撤销；共享 `BillLifecycleController` 只负责 hardened 作废 |
+| 审核 / 反审核 | 支持；反审核固定回 `DRAFT`；存在 active 报废入库时返回 409，必须先由独立“撤销报废入库”动作整单撤销后再反审核，反审核本身不得自动写反向库存流水；不得写 `REVERSED` |
+| 作废 | 支持且只允许 DRAFT；共享 reason/password/permission 路由，`BillLifecycleService` 对报废单锁 header 并检查无 active 报废入库；已完整撤销的历史库存流水不永久阻断作废 |
+| 关闭 / 冻结 / 行关闭 / 行冻结 | 全部不支持；前后端 policy 必须返回 false，后端路由返回 400 |
+| 红冲 | 不支持；材料在源领料审核时已扣库，报废审核不二次扣库 |
+| 下推 / 选源 | 已审核、未关闭/冻结、非红字且不存在非 VOID 红字子单的生产领料可下推；按真实 source issue line 与剩余可报废量守卫 |
+| 独立业务动作 | `isStockIn=true` 的审核单可整单报废入库/撤销；该状态不是主 lifecycle 状态，不赋予关闭、冻结或红冲能力 |
+| 历史兼容状态 | 无新增兼容写状态；VOID 不得恢复或再次审核 |
 
 接入步骤：
 

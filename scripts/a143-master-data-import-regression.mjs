@@ -8,7 +8,7 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a143-master-data-import-regression.json");
 const templateResourceDir = path.join(rootDir, "backend/src/main/resources/master-data-import");
-const contract = read("docs/12-当前批次验收清单.md");
+const contract = read("docs/guides/master-data-import-protocol.md");
 const delivery = JSON.parse(read("config/feature-delivery-status.json"));
 const controller = read("backend/src/main/java/com/jdy/erp/masterdata/api/MasterDataImportController.java");
 const exceptionHandler = read("backend/src/main/java/com/jdy/erp/masterdata/api/MasterDataImportExceptionHandler.java");
@@ -151,12 +151,12 @@ function rowValues(sheetXml, rowNumber) {
   return cells.sort((left, right) => left.reference.localeCompare(right.reference)).map((cell) => cell.value);
 }
 
-// Scope anchors: this script guards the frozen A143 contract instead of inventing a second scope.
-assertContains(contract, /只接受 `\.xlsx`/, "A143 合同必须继续固定只接受 .xlsx");
-assertContains(contract, /只新增，不更新、不覆盖、不静默跳过/, "A143 合同必须继续固定 create-only 原子语义");
-assertContains(contract, /最大 `10 MiB`[\s\S]*?5,000 行非空数据/, "A143 合同必须继续固定 10 MiB/5,000 行");
-assertContains(contract, /账户资料模板和校验正式支持 `CNY\/USD`/, "A143 合同必须继续固定账户 CNY/USD");
-assertContains(contract, /生产部门不在本批导入范围/, "A143 合同必须继续排除生产部门导入");
+// Scope anchors: guard the stable A143 protocol, not the mutable current-task snapshot.
+assertContains(contract, /只接受真实 OOXML `\.xlsx`/, "A143 协议必须继续固定只接受 .xlsx");
+assertContains(contract, /一文件一类资料，只新增，不更新、不覆盖、不跳过错误行/, "A143 协议必须继续固定 create-only 原子语义");
+assertContains(contract, /原文件最大 10 MiB，最多 5,000 行非空数据/, "A143 协议必须继续固定 10 MiB/5,000 行");
+assertContains(contract, /账户币种只允许 `CNY\/USD`/, "A143 协议必须继续固定账户 CNY/USD");
+assertContains(contract, /生产部门[\s\S]*?不属于本协议/, "A143 协议必须继续排除生产部门导入");
 const f008 = delivery.features.find((feature) => feature.id === "F008");
 assert(Boolean(f008), "交付状态必须保留 F008");
 assert(f008.surface === "shared", "F008 必须保持 shared surface");

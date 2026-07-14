@@ -116,7 +116,8 @@
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a142-sales-return-migration-regression.mjs",
       "scripts/a143-master-data-import-regression.mjs",
-      "scripts/a143-master-data-import-migration-regression.mjs"
+      "scripts/a143-master-data-import-migration-regression.mjs",
+      "scripts/a144-6e-contract-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -278,7 +279,8 @@
     "scripts/a142-sales-return-regression.mjs",
     "scripts/a142-sales-return-migration-regression.mjs",
     "scripts/a143-master-data-import-regression.mjs",
-    "scripts/a143-master-data-import-migration-regression.mjs"
+    "scripts/a143-master-data-import-migration-regression.mjs",
+    "scripts/a144-6e-contract-regression.mjs"
   ],
   "exemptions": [
     {
