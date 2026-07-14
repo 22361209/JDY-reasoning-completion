@@ -105,7 +105,7 @@ class MaterialScrapListQueryAdapterIntegrationTest {
         )).containsExactlyInAnyOrder(older.billNo(), newer.billNo());
 
         var auditedOnly = adapter.query(
-            request("material-scrap-form-list", fixture.prefix(), "AUDITED", 1, 20, "header", ""),
+            request("material-scrap-form-list", fixture.prefix(), "已审核", 1, 20, "header", ""),
             contract,
             support,
             noSeedRows()
@@ -114,6 +114,26 @@ class MaterialScrapListQueryAdapterIntegrationTest {
         assertThat(auditedOnly.rows()).singleElement().satisfies(row -> {
             assertThat(String.valueOf(row.get("billNo"))).isEqualTo(newer.billNo());
             assertThat(String.valueOf(row.get("statusCode"))).isEqualTo("AUDITED");
+        });
+
+        var auditedByVisibleColumnFilter = adapter.query(
+            request(
+                "material-scrap-form-list",
+                fixture.prefix(),
+                "",
+                1,
+                20,
+                "header",
+                "{\"status\":{\"operator\":\"等于\",\"value\":\"已审核\"}}"
+            ),
+            contract,
+            support,
+            noSeedRows()
+        );
+        assertThat(auditedByVisibleColumnFilter.total()).isEqualTo(1);
+        assertThat(auditedByVisibleColumnFilter.rows()).singleElement().satisfies(row -> {
+            assertThat(String.valueOf(row.get("billNo"))).isEqualTo(newer.billNo());
+            assertThat(String.valueOf(row.get("status"))).isEqualTo("已审核");
         });
 
         var detailContract = contractRegistry.contractFor("material-scrap-form-list", "detail");

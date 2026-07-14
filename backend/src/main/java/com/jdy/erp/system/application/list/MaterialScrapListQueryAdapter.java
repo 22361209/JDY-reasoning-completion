@@ -321,7 +321,7 @@ public class MaterialScrapListQueryAdapter implements ListQueryAdapter {
 
     private Map<String, String> documentFilters(String... names) {
         var fields = new LinkedHashMap<>(fields(names));
-        fields.put("status", "statusCode");
+        fields.put("status", "status");
         return Map.copyOf(fields);
     }
 
