@@ -81,7 +81,8 @@
       "scripts/a139-list-fail-closed-regression.mjs",
       "scripts/a140-employee-financial-account-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
-      "scripts/a142-sales-return-regression.mjs"
+      "scripts/a142-sales-return-regression.mjs",
+      "scripts/a143-master-data-import-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -99,7 +100,8 @@
       "scripts/a135-public-security-boundary-regression.mjs",
       "scripts/a136-operation-log-actor-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
-      "scripts/a142-sales-return-regression.mjs"
+      "scripts/a142-sales-return-regression.mjs",
+      "scripts/a143-master-data-import-regression.mjs"
     ],
     "system": [
       "scripts/a119-account-set-switch-ui-regression.mjs",
@@ -112,7 +114,9 @@
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a141-settlement-migration-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
-      "scripts/a142-sales-return-migration-regression.mjs"
+      "scripts/a142-sales-return-migration-regression.mjs",
+      "scripts/a143-master-data-import-regression.mjs",
+      "scripts/a143-master-data-import-migration-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -147,7 +151,9 @@
       "scripts/a116-production-plan-pushdown-regression.mjs",
       "scripts/a116b-production-source-chain-regression.mjs",
       "scripts/a138-master-data-sparse-patch-regression.mjs",
-      "scripts/a140-employee-financial-account-regression.mjs"
+      "scripts/a140-employee-financial-account-regression.mjs",
+      "scripts/a143-master-data-import-regression.mjs",
+      "scripts/a143-master-data-import-migration-regression.mjs"
     ]
   },
   "full": [
@@ -270,7 +276,9 @@
     "scripts/a141-formal-settlement-regression.mjs",
     "scripts/a141-settlement-migration-regression.mjs",
     "scripts/a142-sales-return-regression.mjs",
-    "scripts/a142-sales-return-migration-regression.mjs"
+    "scripts/a142-sales-return-migration-regression.mjs",
+    "scripts/a143-master-data-import-regression.mjs",
+    "scripts/a143-master-data-import-migration-regression.mjs"
   ],
   "exemptions": [
     {
