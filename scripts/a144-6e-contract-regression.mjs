@@ -137,7 +137,7 @@ assert(item6e.targetAcceptance === "A3", "6E 目标验收等级必须为 A3");
 assert(item6e.predecessorIds?.length === 1 && item6e.predecessorIds[0] === "6D", "6E predecessor 必须只有 6D");
 
 const allowedPaths = frontmatterList(currentTask, "allowedPaths");
-assert(allowedPaths.length === 160, "A144 allowedPaths 数量必须精确冻结为 160");
+assert(allowedPaths.length === 161, "A144 allowedPaths 数量必须精确冻结为 161");
 assert(new Set(allowedPaths).size === allowedPaths.length, "A144 allowedPaths 不得重复");
 assert(
   allowedPaths.every((allowedPath) => !allowedPath.startsWith("/") && !/[?*\[\]]/.test(allowedPath)),
@@ -145,7 +145,7 @@ assert(
 );
 const allowedPathsHash = createHash("sha256").update([...allowedPaths].sort().join("\n")).digest("hex");
 assert(
-  allowedPathsHash === "4a29a77ea8b87b2591e00dc03c7fe88f4bf7f6efde5e0a6c8c8b7fc2d4f26b60",
+  allowedPathsHash === "edbc2440e1990bcb1723e67ea328ccdd648415630a21a87f3f6139a459f9be87",
   "A144 allowedPaths 精确集合不得漂移"
 );
 const plannedScripts = [
@@ -179,6 +179,10 @@ assert(
 assert(
   allowedPaths.includes("scripts/helpers/report-import-graph.mjs"),
   "allowedPaths 必须包含共享 report import graph scanner"
+);
+assert(
+  allowedPaths.includes("scripts/a115-metadata-definition-regression.mjs"),
+  "A153 catalog 发布必须允许同步更新 A115 metadata gate"
 );
 if (draftMode) {
   assertActualChangesWithinAllowed(git(["rev-parse", "HEAD"]), allowedPaths);
@@ -232,6 +236,11 @@ assertContains(
   currentTask,
   /A144-A152 期间登记到 `full` 与 `area:system`[\s\S]*A153 必须[\s\S]*从 regression manifest 移除并删除该临时脚本[\s\S]*`scripts\/a153-6e-closure-regression\.mjs` 替代[\s\S]*不得再读取可变 `docs\/12`[\s\S]*不得用开放式 `A143 base\.\.HEAD`/,
   "A144 临时合同门禁必须由 A153 以稳定 closure gate 替换"
+);
+assertContains(
+  currentTask,
+  /A153 发布 6E catalog[\s\S]*`scripts\/a115-metadata-definition-regression\.mjs`[\s\S]*report entry 按 `reportRegistry` 验证[\s\S]*普通 list\/form 查询入口继续按 list contract 验证/,
+  "A153 必须在 A115 中区分 report registry 与普通 list contract"
 );
 let manifestValidated = false;
 try {
