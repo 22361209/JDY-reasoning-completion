@@ -43,6 +43,8 @@ const listStubStateGuard = readFileSync("backend/src/main/java/com/jdy/erp/syste
 const stubListSeedRowsProvider = readFileSync("backend/src/main/java/com/jdy/erp/system/application/list/StubListSeedRowsProvider.java", "utf8");
 const featureDeliveryStatus = JSON.parse(readFileSync("config/feature-delivery-status.json", "utf8"));
 const masterDataController = readFileSync("backend/src/main/java/com/jdy/erp/masterdata/api/MasterDataController.java", "utf8");
+const masterDataCreateService = readFileSync("backend/src/main/java/com/jdy/erp/masterdata/application/MasterDataCreateService.java", "utf8");
+const masterDataPatchService = readFileSync("backend/src/main/java/com/jdy/erp/masterdata/application/MasterDataPatchService.java", "utf8");
 const masterDataSystemNoMigration = readFileSync("backend/src/main/resources/db/migration/V67__master_data_visible_system_no.sql", "utf8");
 const materialCategoryUnitMigration = readFileSync("backend/src/main/resources/db/migration/V68__material_category_unit_master_data.sql", "utf8");
 const productUnitWeightSnapshotMigration = readFileSync("backend/src/main/resources/db/migration/V69__product_unit_weight_snapshots.sql", "utf8");
@@ -358,9 +360,34 @@ assertContains(
   "物料建档页必须把计量单位作为必录属性，并维护可空净重/毛重"
 );
 assertContains(
-  masterDataController,
-  /createProduct[\s\S]*?requiredReference\("md_product_category",\s*required\(payload,\s*"category"\)[\s\S]*?requiredReference\("md_unit",\s*required\(payload,\s*"unit"\)[\s\S]*?updateProduct[\s\S]*?requiredReference\("md_product_category",\s*required\(payload,\s*"category"\)[\s\S]*?requiredReference\("md_unit",\s*required\(payload,\s*"unit"\)/,
+  masterDataCreateService + masterDataPatchService,
+  /productValues[\s\S]*?requiredReference\(\s*"md_product_category",\s*required\(payload,\s*"category"\)[\s\S]*?requiredReference\(\s*"md_unit",\s*required\(payload,\s*"unit"\)[\s\S]*?"product"[\s\S]*?Map\.entry\("category",\s*requiredReference\("category",\s*"product_category_id",\s*"md_product_category"[\s\S]*?Map\.entry\("unit",\s*requiredReference\("unit",\s*"unit_id",\s*"md_unit"/,
   "后端物料新增和编辑必须强制校验物料类别和计量单位引用"
+);
+assertContains(
+  masterDataController,
+  /private final MasterDataCreateService masterDataCreateService[\s\S]*?public Map<String, Object> create\([\s\S]*?masterDataCreateService\.create\(type, payload\)/,
+  "主数据创建接口必须委托共享 MasterDataCreateService"
+);
+assertNotContains(
+  masterDataController,
+  /\bINSERT\s+INTO\s+md_/i,
+  "MasterDataController 不得重新内嵌主数据创建 INSERT"
+);
+assertContains(
+  masterDataCreateService,
+  /public ValidatedCreate validateCreate\(String type, Map<String, String> payload\)[\s\S]*?validateCreate\(type, payload, CreateOptions\.manual\(\)\)[\s\S]*?public Map<String, Object> create\(String type, Map<String, String> payload\)[\s\S]*?create\(type, payload, CreateOptions\.manual\(\)\)[\s\S]*?public Map<String, Object> create\(String type, Map<String, String> payload, CreateOptions options\)[\s\S]*?insert\(prepare\(type, payload, options, true\)\)/,
+  "共享主数据创建服务必须同时提供无写入校验、人工创建和带选项创建契约"
+);
+assertContains(
+  masterDataCreateService,
+  /enum ReferenceMode\s*\{\s*CODE_OR_NAME,\s*CODE_ONLY[\s\S]*?static CreateOptions manual\(\)[\s\S]*?ReferenceMode\.CODE_OR_NAME[\s\S]*?static CreateOptions importStrict\(Map<String, String> explicitDefaults\)[\s\S]*?ReferenceMode\.CODE_ONLY/,
+  "共享主数据创建服务必须区分人工编码或名称匹配与导入严格编码匹配"
+);
+assertContains(
+  masterDataCreateService,
+  /if \(referenceMode == ReferenceMode\.CODE_ONLY\)[\s\S]*?WHERE enabled = TRUE[\s\S]*?audit_status = 'AUDITED'[\s\S]*?AND code = \?[\s\S]*?else \{[\s\S]*?AND \(code = \? OR name = \?\)/,
+  "物料导入引用必须仅按已审核启用编码匹配，人工创建仍允许编码或名称匹配"
 );
 assertContains(
   productMasterReferenceMigration,
@@ -368,8 +395,8 @@ assertContains(
   "物料主档必须用隐藏 UUID 外键引用类别、单位、默认仓库、默认供应商和默认生产车间"
 );
 assertContains(
-  masterDataController,
-  /createProduct[\s\S]*?requiredReference\("md_product_category"[\s\S]*?requiredReference\("md_unit"[\s\S]*?optionalReference\("md_warehouse"[\s\S]*?optionalReference\("md_supplier"[\s\S]*?optionalReference\("md_production_department"[\s\S]*?updateProduct[\s\S]*?requiredReference\("md_product_category"[\s\S]*?validateProductReferencesBeforeAudit[\s\S]*?assertNotReferencedByProduct/,
+  masterDataCreateService + masterDataPatchService + masterDataController,
+  /productValues[\s\S]*?requiredReference\(\s*"md_product_category"[\s\S]*?requiredReference\(\s*"md_unit"[\s\S]*?optionalReference\(\s*"md_warehouse"[\s\S]*?optionalReference\(\s*"md_supplier"[\s\S]*?optionalReference\(\s*"md_production_department"[\s\S]*?"product"[\s\S]*?requiredReference\("category",\s*"product_category_id",\s*"md_product_category"[\s\S]*?requiredReference\("unit",\s*"unit_id",\s*"md_unit"[\s\S]*?optionalReference\("default_warehouse_code",\s*"default_warehouse_id",\s*"md_warehouse"[\s\S]*?optionalReference\("default_workshop",\s*"default_workshop_id",\s*"md_production_department"[\s\S]*?optionalReference\("default_supplier_code",\s*"default_supplier_id",\s*"md_supplier"[\s\S]*?validateProductReferencesBeforeAudit[\s\S]*?assertNotReferencedByProduct/,
   "物料保存和审核必须由后端校验已审核启用主数据引用，并阻止被引用主数据随意反审核/禁用"
 );
 assertContains(
@@ -443,7 +470,7 @@ assertContains(
   "物料类别建档必须维护上级类别，计量单位建档必须维护数量小数位"
 );
 assertContains(
-  materialCategoryUnitMigration + masterDataController + listBackendSources,
+  materialCategoryUnitMigration + masterDataCreateService + masterDataController + listBackendSources,
   /CREATE TABLE IF NOT EXISTS md_product_category[\s\S]*?CREATE TABLE IF NOT EXISTS md_unit[\s\S]*?ALTER TABLE md_product[\s\S]*?ADD COLUMN IF NOT EXISTS oe_no[\s\S]*?case "productCategory"[\s\S]*?case "unit"[\s\S]*?case "product-category-list"[\s\S]*?case "unit-master-list"/,
   "后端必须落库物料类别、计量单位和云星辰物料页关键字段，并接入统一主数据接口"
 );
@@ -563,7 +590,7 @@ assertContains(
   "物料、客户、供应商、仓库必须拥有只读可见系统编号 system_no，且 UUID 主键保持隐藏"
 );
 assertContains(
-  masterDataController + listBackendSources,
+  masterDataCreateService + masterDataController + listBackendSources,
   /system_no::text AS "systemNo"/,
   "主数据新增、启停和列表接口必须返回 systemNo 给前端显示"
 );

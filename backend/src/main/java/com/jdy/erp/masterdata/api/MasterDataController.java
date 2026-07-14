@@ -1,12 +1,12 @@
 package com.jdy.erp.masterdata.api;
 
-import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.jdy.erp.masterdata.application.MasterDataCreateService;
 import com.jdy.erp.masterdata.application.MasterDataPatchService;
 import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
@@ -34,23 +34,20 @@ public class MasterDataController {
     private static final Set<String> SPARSE_PATCH_TYPES = Set.of(
         "product", "customer", "supplier", "warehouse", "employee", "financialAccount"
     );
-    private static final Set<String> EMPLOYEE_CREATE_FIELDS = Set.of(
-        "code", "name", "position", "department", "phone", "email", "remark", "status"
-    );
-    private static final Set<String> FINANCIAL_ACCOUNT_CREATE_FIELDS = Set.of(
-        "code", "name", "accountType", "bankName", "accountNo", "accountHolder", "currency", "remark", "status"
-    );
 
     private final JdbcTemplate jdbcTemplate;
+    private final MasterDataCreateService masterDataCreateService;
     private final MasterDataPatchService masterDataPatchService;
     private final OperationLogService operationLogService;
 
     public MasterDataController(
         JdbcTemplate jdbcTemplate,
+        MasterDataCreateService masterDataCreateService,
         MasterDataPatchService masterDataPatchService,
         OperationLogService operationLogService
     ) {
         this.jdbcTemplate = jdbcTemplate;
+        this.masterDataCreateService = masterDataCreateService;
         this.masterDataPatchService = masterDataPatchService;
         this.operationLogService = operationLogService;
     }
@@ -60,27 +57,9 @@ public class MasterDataController {
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public Map<String, Object> create(@PathVariable String type, @RequestBody Map<String, String> payload) {
-        var code = required(payload, "code");
-        var name = "unit".equals(type) ? payload.getOrDefault("name", code).trim() : required(payload, "name");
-        if (name.isBlank()) {
-            name = code;
-        }
-        var enabled = A140_MASTER_TYPES.contains(type)
-            ? createEnabledStatus(payload)
-            : !"禁用".equals(payload.getOrDefault("status", "启用"));
-        var result = switch (type) {
-            case "product" -> createProduct(code, name, payload, enabled);
-            case "customer" -> createCustomer(code, name, payload, enabled);
-            case "supplier" -> createSupplier(code, name, payload, enabled);
-            case "warehouse" -> createWarehouse(code, name, payload, enabled);
-            case "productCategory" -> createProductCategory(code, name, payload, enabled);
-            case "unit" -> createUnit(code, name, payload, enabled);
-            case "productionDepartment" -> createProductionDepartment(code, name, payload, enabled);
-            case "employee" -> createEmployee(code, name, payload, enabled);
-            case "financialAccount" -> createFinancialAccount(code, name, payload, enabled);
-            default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
-        };
+        var result = masterDataCreateService.create(type, payload);
         if (A140_MASTER_TYPES.contains(type)) {
+            var enabled = "启用".equals(String.valueOf(result.get("status")));
             logMasterDataChange(
                 "CREATE_MASTER_DATA",
                 type,
@@ -179,346 +158,6 @@ public class MasterDataController {
         return setEnabled(type, code, false);
     }
 
-    private Map<String, Object> createProduct(String code, String name, Map<String, String> payload, boolean enabled) {
-        var category = requiredReference("md_product_category", required(payload, "category"), "物料类别");
-        var unit = requiredReference("md_unit", required(payload, "unit"), "计量单位");
-        var defaultWarehouse = optionalReference("md_warehouse", optional(payload, "defaultWarehouseCode"), "默认仓库");
-        var defaultSupplier = optionalReference("md_supplier", optional(payload, "defaultSupplierCode"), "默认供应商");
-        var defaultWorkshop = optionalReference("md_production_department", optional(payload, "defaultWorkshop"), "默认生产车间");
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_product (
-                code, name, short_name, barcode, brand, spec, category, product_category_id, product_type, unit, unit_id, net_weight, gross_weight,
-                oe_no, position_name, surface_treatment,
-                is_purchase, is_sale, is_inventory, is_produce, is_subcontract,
-                default_warehouse_code, default_warehouse_id, default_workshop, default_workshop_id, sale_unit, purchase_unit, bom_unit,
-                default_supplier_code, default_supplier_id, issue_warehouse_code, issue_method,
-                tax_rate, default_sale_price, cost_price, min_sale_price, purchase_price, max_purchase_price, subcontract_price, wholesale_price, retail_price,
-                min_stock_qty, safety_stock_qty, max_stock_qty, remark, drawing_file_name, drawing_file_data, image_file_names, image_file_data, enabled
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?::uuid, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            code,
-            name,
-            optional(payload, "shortName"),
-            optional(payload, "barcode"),
-            optional(payload, "brand"),
-            payload.getOrDefault("spec", ""),
-            category.name(),
-            category.id(),
-            payload.getOrDefault("productType", "普通"),
-            unit.code(),
-            unit.id(),
-            optionalDecimal(payload, "netWeight", "净重"),
-            optionalDecimal(payload, "grossWeight", "毛重"),
-            optional(payload, "oeNo"),
-            optional(payload, "positionName"),
-            optional(payload, "surfaceTreatment"),
-            checked(payload, "isPurchase"),
-            checked(payload, "isSale"),
-            checked(payload, "isInventory", true),
-            checked(payload, "isProduce"),
-            checked(payload, "isSubcontract"),
-            defaultWarehouse.codeOrNull(),
-            defaultWarehouse.idOrNull(),
-            defaultWorkshop.nameOrNull(),
-            defaultWorkshop.idOrNull(),
-            payload.getOrDefault("saleUnit", unit.code()),
-            payload.getOrDefault("purchaseUnit", unit.code()),
-            payload.getOrDefault("bomUnit", unit.code()),
-            defaultSupplier.codeOrNull(),
-            defaultSupplier.idOrNull(),
-            optional(payload, "issueWarehouseCode"),
-            payload.getOrDefault("issueMethod", "按单领料"),
-            decimalOrDefault(payload, "taxRate", BigDecimal.valueOf(13)),
-            defaultSalePrice(payload),
-            optionalDecimal(payload, "costPrice", "成本价"),
-            optionalDecimal(payload, "minSalePrice", "最低销售价"),
-            optionalDecimal(payload, "purchasePrice", "采购价"),
-            optionalDecimal(payload, "maxPurchasePrice", "最高采购价"),
-            optionalDecimal(payload, "subcontractPrice", "委外价"),
-            optionalDecimal(payload, "wholesalePrice", "批发价"),
-            optionalDecimal(payload, "retailPrice", "零售价"),
-            optionalDecimal(payload, "minStockQty", "最低库存数量"),
-            optionalDecimal(payload, "safetyStockQty", "安全库存数量"),
-            optionalDecimal(payload, "maxStockQty", "最高库存数量"),
-            optional(payload, "remark"),
-            optional(payload, "drawingFileName"),
-            optional(payload, "drawingFileData"),
-            optional(payload, "imageFileNames"),
-            optional(payload, "imageFileData"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createCustomer(String code, String name, Map<String, String> payload, boolean enabled) {
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_customer (
-                code, name, short_name, customer_level, contact, phone, region, tax_no,
-                address, credit_limit, settlement_method, owner_name, remark, enabled
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            code,
-            name,
-            optional(payload, "shortName"),
-            payload.getOrDefault("customerLevel", "普通客户"),
-            payload.getOrDefault("contact", ""),
-            payload.getOrDefault("phone", ""),
-            payload.getOrDefault("region", ""),
-            optional(payload, "taxNo"),
-            optional(payload, "address"),
-            optionalDecimal(payload, "creditLimit", "信用额度"),
-            payload.getOrDefault("settlementMethod", "月结"),
-            optional(payload, "ownerName"),
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createSupplier(String code, String name, Map<String, String> payload, boolean enabled) {
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_supplier (
-                code, name, short_name, supplier_level, contact, phone, tax_no,
-                address, bank_account, settlement_method, owner_name, remark, enabled
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            code,
-            name,
-            optional(payload, "shortName"),
-            payload.getOrDefault("supplierLevel", "普通供应商"),
-            payload.getOrDefault("contact", ""),
-            payload.getOrDefault("phone", ""),
-            optional(payload, "taxNo"),
-            optional(payload, "address"),
-            optional(payload, "bankAccount"),
-            payload.getOrDefault("settlementMethod", "月结"),
-            optional(payload, "ownerName"),
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createWarehouse(String code, String name, Map<String, String> payload, boolean enabled) {
-        var allowNegative = "允许负库存".equals(payload.getOrDefault("stockPolicy", "不允许负库存"));
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_warehouse (code, name, warehouse_type, manager, phone, address, allow_negative_stock, remark, enabled)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            code,
-            name,
-            payload.getOrDefault("warehouseType", "普通仓"),
-            optional(payload, "manager"),
-            optional(payload, "phone"),
-            optional(payload, "address"),
-            allowNegative,
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createEmployee(String code, String name, Map<String, String> payload, boolean enabled) {
-        assertOnlyFields(payload, EMPLOYEE_CREATE_FIELDS);
-        code = boundedRequired(code, "员工编码", 80);
-        name = boundedRequired(name, "员工姓名", 200);
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_employee (code, name, position, department, phone, email, remark, enabled)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id,
-                      system_no::text AS "systemNo",
-                      code,
-                      name,
-                      COALESCE(position, '') AS position,
-                      COALESCE(department, '') AS department,
-                      COALESCE(phone, '') AS phone,
-                      COALESCE(email, '') AS email,
-                      COALESCE(remark, '') AS remark,
-                      version,
-                      CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
-                      CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                      to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
-            """,
-            code,
-            name,
-            boundedOptional(payload, "position", "岗位", 120),
-            boundedOptional(payload, "department", "部门", 160),
-            boundedOptional(payload, "phone", "手机", 80),
-            boundedOptional(payload, "email", "邮箱", 200),
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createFinancialAccount(String code, String name, Map<String, String> payload, boolean enabled) {
-        assertOnlyFields(payload, FINANCIAL_ACCOUNT_CREATE_FIELDS);
-        code = boundedRequired(code, "账户编码", 80);
-        name = boundedRequired(name, "账户名称", 200);
-        var accountType = requiredOneOf(payload, "accountType", Set.of("CASH", "BANK", "DEPOSIT"));
-        var currency = requiredOneOf(payload, "currency", Set.of("CNY", "USD"));
-        var bankName = boundedOptional(payload, "bankName", "开户行", 200);
-        var accountNo = boundedOptional(payload, "accountNo", "账号", 120);
-        var accountHolder = boundedOptional(payload, "accountHolder", "户名", 200);
-        if ("CASH".equals(accountType)) {
-            if (bankName != null || accountNo != null || accountHolder != null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CASH 账户不得填写开户行、账号或户名");
-            }
-        } else if (bankName == null || accountNo == null || accountHolder == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BANK/DEPOSIT 账户必须填写开户行、账号和户名");
-        }
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_financial_account (
-                code, name, account_type, bank_name, account_no, account_holder, currency, remark, enabled
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id,
-                      system_no::text AS "systemNo",
-                      code,
-                      name,
-                      account_type AS "accountType",
-                      COALESCE(bank_name, '') AS "bankName",
-                      COALESCE(account_no, '') AS "accountNo",
-                      COALESCE(account_holder, '') AS "accountHolder",
-                      currency,
-                      COALESCE(remark, '') AS remark,
-                      version,
-                      CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
-                      CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
-                      to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
-            """,
-            code,
-            name,
-            accountType,
-            bankName,
-            accountNo,
-            accountHolder,
-            currency,
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> updateProduct(String code, String name, Map<String, String> payload, boolean enabled) {
-        var category = requiredReference("md_product_category", required(payload, "category"), "物料类别");
-        var unit = requiredReference("md_unit", required(payload, "unit"), "计量单位");
-        var defaultWarehouse = optionalReference("md_warehouse", optional(payload, "defaultWarehouseCode"), "默认仓库");
-        var defaultSupplier = optionalReference("md_supplier", optional(payload, "defaultSupplierCode"), "默认供应商");
-        var defaultWorkshop = optionalReference("md_production_department", optional(payload, "defaultWorkshop"), "默认生产车间");
-        return updateAndReturn("""
-            UPDATE md_product
-            SET name = ?, short_name = ?, barcode = ?, brand = ?, spec = ?, category = ?, product_category_id = ?::uuid, product_type = ?, unit = ?, unit_id = ?::uuid, net_weight = ?, gross_weight = ?,
-                oe_no = ?, position_name = ?, surface_treatment = ?,
-                is_purchase = ?, is_sale = ?, is_inventory = ?, is_produce = ?, is_subcontract = ?,
-                default_warehouse_code = ?, default_warehouse_id = ?::uuid, default_workshop = ?, default_workshop_id = ?::uuid,
-                sale_unit = ?, purchase_unit = ?, bom_unit = ?, default_supplier_code = ?, default_supplier_id = ?::uuid, issue_warehouse_code = ?, issue_method = ?,
-                tax_rate = ?, default_sale_price = ?, cost_price = ?, min_sale_price = ?, purchase_price = ?, max_purchase_price = ?, subcontract_price = ?,
-                wholesale_price = ?, retail_price = ?, min_stock_qty = ?, safety_stock_qty = ?, max_stock_qty = ?, remark = ?,
-                drawing_file_name = ?, drawing_file_data = COALESCE(NULLIF(?, ''), drawing_file_data),
-                image_file_names = ?, image_file_data = COALESCE(NULLIF(?, ''), image_file_data),
-                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
-            WHERE code = ?
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            name,
-            optional(payload, "shortName"),
-            optional(payload, "barcode"),
-            optional(payload, "brand"),
-            payload.getOrDefault("spec", ""),
-            category.name(),
-            category.id(),
-            payload.getOrDefault("productType", "普通"),
-            unit.code(),
-            unit.id(),
-            optionalDecimal(payload, "netWeight", "净重"),
-            optionalDecimal(payload, "grossWeight", "毛重"),
-            optional(payload, "oeNo"),
-            optional(payload, "positionName"),
-            optional(payload, "surfaceTreatment"),
-            checked(payload, "isPurchase"),
-            checked(payload, "isSale"),
-            checked(payload, "isInventory", true),
-            checked(payload, "isProduce"),
-            checked(payload, "isSubcontract"),
-            defaultWarehouse.codeOrNull(),
-            defaultWarehouse.idOrNull(),
-            defaultWorkshop.nameOrNull(),
-            defaultWorkshop.idOrNull(),
-            payload.getOrDefault("saleUnit", unit.code()),
-            payload.getOrDefault("purchaseUnit", unit.code()),
-            payload.getOrDefault("bomUnit", unit.code()),
-            defaultSupplier.codeOrNull(),
-            defaultSupplier.idOrNull(),
-            optional(payload, "issueWarehouseCode"),
-            payload.getOrDefault("issueMethod", "按单领料"),
-            decimalOrDefault(payload, "taxRate", BigDecimal.valueOf(13)),
-            defaultSalePrice(payload),
-            optionalDecimal(payload, "costPrice", "成本价"),
-            optionalDecimal(payload, "minSalePrice", "最低销售价"),
-            optionalDecimal(payload, "purchasePrice", "采购价"),
-            optionalDecimal(payload, "maxPurchasePrice", "最高采购价"),
-            optionalDecimal(payload, "subcontractPrice", "委外价"),
-            optionalDecimal(payload, "wholesalePrice", "批发价"),
-            optionalDecimal(payload, "retailPrice", "零售价"),
-            optionalDecimal(payload, "minStockQty", "最低库存数量"),
-            optionalDecimal(payload, "safetyStockQty", "安全库存数量"),
-            optionalDecimal(payload, "maxStockQty", "最高库存数量"),
-            optional(payload, "remark"),
-            optional(payload, "drawingFileName"),
-            optional(payload, "drawingFileData"),
-            optional(payload, "imageFileNames"),
-            optional(payload, "imageFileData"),
-            enabled,
-            code
-        );
-    }
-
-    private Map<String, Object> createProductCategory(String code, String name, Map<String, String> payload, boolean enabled) {
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_product_category (code, name, parent_code, sort_no, remark, enabled)
-            VALUES (?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
-            """,
-            code,
-            name,
-            optional(payload, "parentCode"),
-            integerOrDefault(payload, "sortNo", 0, "排序"),
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createUnit(String code, String name, Map<String, String> payload, boolean enabled) {
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_unit (code, name, decimal_places, sort_no, remark, enabled)
-            VALUES (?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
-            """,
-            code,
-            name,
-            integerOrDefault(payload, "decimalPlaces", 0, "数量小数位"),
-            integerOrDefault(payload, "sortNo", 0, "排序"),
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
-    private Map<String, Object> createProductionDepartment(String code, String name, Map<String, String> payload, boolean enabled) {
-        return jdbcTemplate.queryForMap("""
-            INSERT INTO md_production_department (code, name, manager, remark, enabled, audit_status)
-            VALUES (?, ?, ?, ?, ?, 'DRAFT')
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name, CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
-            """,
-            code,
-            name,
-            optional(payload, "manager"),
-            optional(payload, "remark"),
-            enabled
-        );
-    }
-
     private Map<String, Object> updateProductCategory(String code, String name, Map<String, String> payload, boolean enabled) {
         return updateAndReturn("""
             UPDATE md_product_category
@@ -549,56 +188,6 @@ public class MasterDataController {
             enabled,
             code
         );
-    }
-
-    private MasterReference requiredReference(String table, String value, String label) {
-        return resolveReference(table, value, label, true);
-    }
-
-    private MasterReference optionalReference(String table, String value, String label) {
-        return resolveReference(table, value, label, false);
-    }
-
-    private MasterReference resolveReference(String table, String value, String label, boolean required) {
-        if (!isSupportedReferenceTable(table)) {
-            throw new IllegalArgumentException("Unsupported reference table: " + table);
-        }
-        var normalized = value == null ? "" : value.trim();
-        if (normalized.isBlank()) {
-            if (required) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "必填");
-            }
-            return MasterReference.empty();
-        }
-        var rows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id, code, name
-            FROM %s
-            WHERE enabled = TRUE
-              AND audit_status = 'AUDITED'
-              AND (code = ? OR name = ?)
-            ORDER BY CASE WHEN code = ? THEN 0 ELSE 1 END, code
-            LIMIT 2
-            """.formatted(table), normalized, normalized, normalized);
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未审核或已禁用");
-        }
-        var hasExactCode = rows.stream().anyMatch(row -> normalized.equals(String.valueOf(row.get("code"))));
-        if (rows.size() > 1 && !hasExactCode) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "名称不唯一，请输入编码");
-        }
-        var row = rows.get(0);
-        return new MasterReference(
-            String.valueOf(row.get("id")),
-            String.valueOf(row.get("code")),
-            String.valueOf(row.get("name"))
-        );
-    }
-
-    private boolean isSupportedReferenceTable(String table) {
-        return switch (table) {
-            case "md_product_category", "md_unit", "md_warehouse", "md_supplier", "md_production_department" -> true;
-            default -> false;
-        };
     }
 
     private void validateProductReferencesBeforeAudit(String code) {
@@ -654,112 +243,6 @@ public class MasterDataController {
             case "productionDepartment" -> "default_workshop_id";
             default -> null;
         };
-    }
-
-    private record MasterReference(String id, String code, String name) {
-        static MasterReference empty() {
-            return new MasterReference(null, null, null);
-        }
-
-        String idOrNull() {
-            return id;
-        }
-
-        String codeOrNull() {
-            return code;
-        }
-
-        String nameOrNull() {
-            return name;
-        }
-    }
-
-    private BigDecimal defaultSalePrice(Map<String, String> payload) {
-        var value = payload.getOrDefault("defaultSalePrice", "").trim();
-        if (value.isBlank()) {
-            return null;
-        }
-        try {
-            var price = new BigDecimal(value);
-            if (price.compareTo(BigDecimal.ZERO) < 0) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "默认销售价不能小于 0");
-            }
-            return price;
-        } catch (NumberFormatException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "默认销售价格式不正确");
-        }
-    }
-
-    private Map<String, Object> updateCustomer(String code, String name, Map<String, String> payload, boolean enabled) {
-        return updateAndReturn("""
-            UPDATE md_customer
-            SET name = ?, short_name = ?, customer_level = ?, contact = ?, phone = ?, region = ?, tax_no = ?,
-                address = ?, credit_limit = ?, settlement_method = ?, owner_name = ?, remark = ?,
-                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
-            WHERE code = ?
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            name,
-            optional(payload, "shortName"),
-            payload.getOrDefault("customerLevel", "普通客户"),
-            payload.getOrDefault("contact", ""),
-            payload.getOrDefault("phone", ""),
-            payload.getOrDefault("region", ""),
-            optional(payload, "taxNo"),
-            optional(payload, "address"),
-            optionalDecimal(payload, "creditLimit", "信用额度"),
-            payload.getOrDefault("settlementMethod", "月结"),
-            optional(payload, "ownerName"),
-            optional(payload, "remark"),
-            enabled,
-            code
-        );
-    }
-
-    private Map<String, Object> updateSupplier(String code, String name, Map<String, String> payload, boolean enabled) {
-        return updateAndReturn("""
-            UPDATE md_supplier
-            SET name = ?, short_name = ?, supplier_level = ?, contact = ?, phone = ?, tax_no = ?,
-                address = ?, bank_account = ?, settlement_method = ?, owner_name = ?, remark = ?,
-                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
-            WHERE code = ?
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            name,
-            optional(payload, "shortName"),
-            payload.getOrDefault("supplierLevel", "普通供应商"),
-            payload.getOrDefault("contact", ""),
-            payload.getOrDefault("phone", ""),
-            optional(payload, "taxNo"),
-            optional(payload, "address"),
-            optional(payload, "bankAccount"),
-            payload.getOrDefault("settlementMethod", "月结"),
-            optional(payload, "ownerName"),
-            optional(payload, "remark"),
-            enabled,
-            code
-        );
-    }
-
-    private Map<String, Object> updateWarehouse(String code, String name, Map<String, String> payload, boolean enabled) {
-        var allowNegative = "允许负库存".equals(payload.getOrDefault("stockPolicy", "不允许负库存"));
-        return updateAndReturn("""
-            UPDATE md_warehouse
-            SET name = ?, warehouse_type = ?, manager = ?, phone = ?, address = ?, allow_negative_stock = ?, remark = ?,
-                enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
-            WHERE code = ?
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name
-            """,
-            name,
-            payload.getOrDefault("warehouseType", "普通仓"),
-            optional(payload, "manager"),
-            optional(payload, "phone"),
-            optional(payload, "address"),
-            allowNegative,
-            optional(payload, "remark"),
-            enabled,
-            code
-        );
     }
 
     private Map<String, Object> updateProductionDepartment(String code, String name, Map<String, String> payload, boolean enabled) {
@@ -994,37 +477,6 @@ public class MasterDataController {
         };
     }
 
-    private boolean createEnabledStatus(Map<String, String> payload) {
-        if (payload == null || !payload.containsKey("status")) {
-            return true;
-        }
-        return switch (String.valueOf(payload.get("status")).trim()) {
-            case "启用" -> true;
-            case "禁用" -> false;
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status 只允许“启用”或“禁用”");
-        };
-    }
-
-    private String requiredOneOf(Map<String, String> payload, String field, Set<String> allowed) {
-        var value = required(payload, field);
-        if (!allowed.contains(value)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " 只允许 " + String.join("/", allowed));
-        }
-        return value;
-    }
-
-    private void assertOnlyFields(Map<String, String> payload, Set<String> allowed) {
-        if (payload == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体必须为 JSON 对象");
-        }
-        payload.keySet().stream()
-            .filter(field -> !allowed.contains(field))
-            .findFirst()
-            .ifPresent(field -> {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不允许创建字段: " + field);
-            });
-    }
-
     private PatchRequest patchRequest(JsonNode requestBody) {
         if (requestBody == null || !requestBody.isObject()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体必须为 JSON 对象");
@@ -1080,25 +532,6 @@ public class MasterDataController {
         return value.isBlank() ? null : value;
     }
 
-    private String boundedRequired(String value, String label, int maxLength) {
-        var normalized = value == null ? "" : value.trim();
-        if (normalized.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能为空");
-        }
-        if (normalized.length() > maxLength) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能超过" + maxLength + "个字符");
-        }
-        return normalized;
-    }
-
-    private String boundedOptional(Map<String, String> payload, String field, String label, int maxLength) {
-        var value = optional(payload, field);
-        if (value != null && value.length() > maxLength) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能超过" + maxLength + "个字符");
-        }
-        return value;
-    }
-
     private int integerOrDefault(Map<String, String> payload, String field, int defaultValue, String label) {
         var value = payload.getOrDefault(field, "").trim();
         if (value.isBlank()) {
@@ -1110,46 +543,6 @@ public class MasterDataController {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能小于 0");
             }
             return number;
-        } catch (NumberFormatException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "格式不正确");
-        }
-    }
-
-    private boolean checked(Map<String, String> payload, String field) {
-        return checked(payload, field, false);
-    }
-
-    private boolean checked(Map<String, String> payload, String field, boolean defaultValue) {
-        var value = payload.get(field);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        return "true".equalsIgnoreCase(value) || "是".equals(value) || "1".equals(value) || "on".equalsIgnoreCase(value);
-    }
-
-    private BigDecimal decimalOrDefault(Map<String, String> payload, String field, BigDecimal defaultValue) {
-        var value = payload.getOrDefault(field, "").trim();
-        if (value.isBlank()) {
-            return defaultValue;
-        }
-        return parseNonNegativeDecimal(value, field);
-    }
-
-    private BigDecimal optionalDecimal(Map<String, String> payload, String field, String label) {
-        var value = payload.getOrDefault(field, "").trim();
-        if (value.isBlank()) {
-            return null;
-        }
-        return parseNonNegativeDecimal(value, label);
-    }
-
-    private BigDecimal parseNonNegativeDecimal(String value, String label) {
-        try {
-            var decimal = new BigDecimal(value);
-            if (decimal.compareTo(BigDecimal.ZERO) < 0) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能小于 0");
-            }
-            return decimal;
         } catch (NumberFormatException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "格式不正确");
         }
