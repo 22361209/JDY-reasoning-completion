@@ -357,6 +357,13 @@
             </form>
           </section>
         </div>
+        <ReportQueryPage
+          v-else-if="activeReportDefinition"
+          :key="activeReportDefinition.entryId"
+          :definition="activeReportDefinition"
+          :account-set-key="session.accountSetId.value || session.accountSetCode.value"
+          @open-document="openReportSourceDocument"
+        />
         <DataListPage
           v-else-if="tabs.activeTab.value.kind === 'list' || tabs.activeTab.value.kind === 'report' || Boolean(documentTypeByListTabId(tabs.activeTabId.value))"
           :list-key="tabs.activeTabId.value"
@@ -831,6 +838,7 @@ import {
 } from "./documentModel";
 import { excludedModules, moduleCatalog } from "../modules/catalog";
 import DataListPage from "../components/DataListPage.vue";
+import ReportQueryPage from "../components/report/ReportQueryPage.vue";
 import { fieldOptionValue } from "../components/fields/fieldOptions";
 import OtherStockInForm from "../modules/inventory/other-stock-in/OtherStockInForm.vue";
 import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOutForm.vue";
@@ -856,6 +864,8 @@ import MasterDataRecordPage from "../modules/master-data/MasterDataRecordPage.vu
 import { masterDataDefinitions } from "../modules/master-data/registry";
 import MasterDataImportPage from "../modules/master-data/import/MasterDataImportPage.vue";
 import { masterDataImportDefinitionForList } from "../modules/master-data/import/importRegistry";
+import { reportDefinitionForEntryId } from "../modules/reports/reportRegistry";
+import type { ReportSourceOpenRequest } from "../modules/reports/reportTypes";
 import type { MasterDataField } from "../modules/master-data/types";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
@@ -945,6 +955,9 @@ const masterDataImportTabId = "master-data-import";
 const numberingRuleSettingsTabId = "numbering-rule-settings";
 const masterRecords = reactive<Record<string, MasterRecordState>>({});
 const activeMasterRecord = computed(() => masterRecords[tabs.activeTabId.value] ?? null);
+const activeReportDefinition = computed(() => tabs.activeTab.value.kind === "report"
+  ? reportDefinitionForEntryId(tabs.activeTabId.value)
+  : null);
 const activeMasterRecordDirty = computed(() => Boolean(tabs.activeTab.value?.dirty));
 const canMaintainActiveMasterRecord = computed(() => {
   const record = activeMasterRecord.value;
@@ -1162,6 +1175,23 @@ function openEntry(entry: ShellEntry) {
 
 function openQueryEntry(entry: ShellEntry) {
   openEntry(entry.mode === "report" ? entry : { ...entry, mode: "list" });
+}
+
+function openReportSourceDocument(payload: ReportSourceOpenRequest) {
+  if (!payload.type || !payload.billNo) {
+    return;
+  }
+  const targetTabId = payload.type === outboundDocumentType
+    ? outboundTabId
+    : openableDocumentTarget(payload.type).tabId;
+  if (!confirmDirtyTabReplacement(targetTabId, `继续会打开来源单 ${payload.billNo}`)) {
+    return;
+  }
+  void openDocumentFromModule({
+    type: payload.type,
+    billNo: payload.billNo,
+    sourceLineNo: payload.sourceLineNo
+  });
 }
 
 function openMasterDataImport(payload: { listKey: string }) {

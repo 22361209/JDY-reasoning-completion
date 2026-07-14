@@ -52,7 +52,8 @@
       "scripts/a139-list-fail-closed-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a147-inventory-source-trace-regression.mjs",
-      "scripts/a147-inventory-source-trace-migration-regression.mjs"
+      "scripts/a147-inventory-source-trace-migration-regression.mjs",
+      "scripts/a148-inventory-movement-report-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -88,7 +89,8 @@
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a143-master-data-import-regression.mjs",
-      "scripts/a146-numbering-rule-closure-regression.mjs"
+      "scripts/a146-numbering-rule-closure-regression.mjs",
+      "scripts/a148-inventory-movement-report-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -109,7 +111,8 @@
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a143-master-data-import-regression.mjs",
       "scripts/a146-numbering-rule-closure-regression.mjs",
-      "scripts/a147-inventory-source-trace-regression.mjs"
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a148-inventory-movement-report-regression.mjs"
     ],
     "system": [
       "scripts/a119-account-set-switch-ui-regression.mjs",
@@ -171,7 +174,8 @@
       "scripts/a143-master-data-import-migration-regression.mjs"
     ],
     "reports": [
-      "scripts/a145-report-query-foundation-regression.mjs"
+      "scripts/a145-report-query-foundation-regression.mjs",
+      "scripts/a148-inventory-movement-report-regression.mjs"
     ]
   },
   "full": [
@@ -302,7 +306,8 @@
     "scripts/a146-numbering-rule-closure-regression.mjs",
     "scripts/a146-numbering-rule-migration-regression.mjs",
     "scripts/a147-inventory-source-trace-regression.mjs",
-    "scripts/a147-inventory-source-trace-migration-regression.mjs"
+    "scripts/a147-inventory-source-trace-migration-regression.mjs",
+    "scripts/a148-inventory-movement-report-regression.mjs"
   ],
   "exemptions": [
     {
