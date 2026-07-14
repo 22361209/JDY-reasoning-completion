@@ -101,6 +101,7 @@ class InventoryFormalPostingTraceIntegrationTest {
     private String customerId;
     private String customerCode;
     private String runPrefix;
+    private String isolatedAccountSetId;
 
     @BeforeEach
     void setUp() {
@@ -169,6 +170,183 @@ class InventoryFormalPostingTraceIntegrationTest {
 
         assertBalanceAndLedger(sourceWarehouseId, "100");
         assertBalanceAndLedger(targetWarehouseId, "0");
+    }
+
+    @Test
+    void migratedHeaderOnlyPostingCanBeReversedWithoutGuessingItsOldLine() {
+        var document = insertWarehouseDocument(
+            "other_stock_in", "other_stock_in_line", "QTRK-IN", new BigDecimal("5")
+        );
+        markOtherStockInAudited(document);
+        var historicalId = insertMigratedHeaderOnlyFact(
+            document, accountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "105", 1
+        );
+        setSourceBalance("105");
+
+        otherStockInAppService.reverse(document.billNo());
+
+        var reverse = fact(document, "OTHER_STOCK_IN_REVERSE", sourceWarehouseId);
+        assertExactSource(reverse, document, "REVERSE", "-5");
+        assertThat(reverse.get("reversalOfTxnId")).isEqualTo(historicalId);
+        assertThat(jdbcTemplate.queryForMap("""
+            SELECT source_bill_line_id::text AS "sourceBillLineId",
+                   trace_quality AS "traceQuality",
+                   reversal_of_txn_id::text AS "reversalOfTxnId"
+            FROM inv_stock_txn
+            WHERE id = ?::uuid
+            """, historicalId))
+            .containsEntry("sourceBillLineId", null)
+            .containsEntry("traceQuality", "HEADER_ONLY")
+            .containsEntry("reversalOfTxnId", null);
+        assertThat(otherStockInStatus(document)).isEqualTo("DRAFT");
+        assertBalanceAndLedger(sourceWarehouseId, "100");
+    }
+
+    @Test
+    void migratedHeaderOnlyReservationUsesItsLegacyDeliveryPrefix() {
+        var document = insertDeliveryDocument("5");
+        markDeliveryAudited(document);
+        var historicalId = insertMigratedHeaderOnlyFactWithPrefix(
+            document, accountSetId,
+            "DELIVERY_NOTICE_RESERVE", "DELIVERY_NOTICE",
+            "RESERVE", "0", "100", 1
+        );
+        setSourceReservation("5");
+
+        deliveryNoticeAppService.reverse(document.billNo());
+
+        var release = fact(document, "DELIVERY_NOTICE_RESERVE_REVERSE", sourceWarehouseId);
+        assertExactSource(release, document, "RELEASE", "0");
+        assertThat(release.get("reversalOfTxnId")).isEqualTo(historicalId);
+        assertThat(deliveryStatus(document)).isEqualTo("DRAFT");
+        assertThat(stockTriple())
+            .containsEntry("onHand", new BigDecimal("100.0000"))
+            .containsEntry("reserved", new BigDecimal("0.0000"))
+            .containsEntry("available", new BigDecimal("100.0000"));
+        assertBalanceAndLedger(sourceWarehouseId, "100");
+    }
+
+    @Test
+    void migratedReservationAlreadyFollowedByLegacyReleaseIsNotReleasedTwice() {
+        var document = insertDeliveryDocument("5");
+        markDeliveryAudited(document);
+        insertMigratedHeaderOnlyFactWithPrefix(
+            document, accountSetId,
+            "DELIVERY_NOTICE_RESERVE", "DELIVERY_NOTICE",
+            "RESERVE", "0", "100", 1
+        );
+        insertMigratedHeaderOnlyFactWithPrefix(
+            document, accountSetId,
+            "DELIVERY_NOTICE_RESERVE_REVERSE", "DELIVERY_NOTICE_REVERSE",
+            "RELEASE", "0", "100", 2
+        );
+        setSourceReservation("5");
+
+        assertThatThrownBy(() -> deliveryNoticeAppService.reverse(document.billNo()))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT))
+            .hasMessageContaining("未找到可关联的原库存流水");
+
+        assertThat(deliveryStatus(document)).isEqualTo("AUDITED");
+        assertThat(stockTriple())
+            .containsEntry("reserved", new BigDecimal("5.0000"))
+            .containsEntry("available", new BigDecimal("95.0000"));
+        assertThat(jdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM inv_stock_txn
+            WHERE source_bill_id = ?::uuid
+              AND txn_type = 'DELIVERY_NOTICE_RESERVE_REVERSE'
+            """, Integer.class, document.billId())).isEqualTo(1);
+    }
+
+    @Test
+    void ambiguousMigratedHeaderOnlyPostingsFailClosedAndRollbackTheDocument() {
+        var document = insertWarehouseDocument(
+            "other_stock_in", "other_stock_in_line", "QTRK-IN", new BigDecimal("5")
+        );
+        markOtherStockInAudited(document);
+        insertMigratedHeaderOnlyFact(document, accountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "105", 1);
+        insertMigratedHeaderOnlyFact(document, accountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "110", 2);
+        setSourceBalance("110");
+
+        assertThatThrownBy(() -> otherStockInAppService.reverse(document.billNo()))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT))
+            .hasMessageContaining("存在歧义");
+
+        assertThat(otherStockInStatus(document)).isEqualTo("AUDITED");
+        assertThat(reverseFactCount(document)).isZero();
+        assertBalanceAndLedger(sourceWarehouseId, "110");
+    }
+
+    @Test
+    void migratedHeaderOnlyFallbackNeverCrossesAccountSetScope() {
+        var document = insertWarehouseDocument(
+            "other_stock_in", "other_stock_in_line", "QTRK-IN", new BigDecimal("5")
+        );
+        markOtherStockInAudited(document);
+        isolatedAccountSetId = insertIsolatedAccountSet();
+        var foreignHistoricalId = insertMigratedHeaderOnlyFact(
+            document, isolatedAccountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "5", 1
+        );
+
+        assertThatThrownBy(() -> otherStockInAppService.reverse(document.billNo()))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT))
+            .hasMessageContaining("未找到可关联的原库存流水");
+
+        assertThat(otherStockInStatus(document)).isEqualTo("AUDITED");
+        assertThat(reverseFactCount(document)).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM inv_stock_txn
+            WHERE reversal_of_txn_id = ?::uuid
+            """, Integer.class, foreignHistoricalId)).isZero();
+        assertBalanceAndLedger(sourceWarehouseId, "100");
+    }
+
+    @Test
+    void exactPostingRemainsPreferredOverAmbiguousMigratedHistory() {
+        var document = insertWarehouseDocument(
+            "other_stock_in", "other_stock_in_line", "QTRK-IN", new BigDecimal("5")
+        );
+        otherStockInAppService.audit(document.billNo());
+        var exactId = String.valueOf(fact(document, "OTHER_STOCK_IN", sourceWarehouseId).get("id"));
+        insertMigratedHeaderOnlyFact(document, accountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "110", 1);
+        insertMigratedHeaderOnlyFact(document, accountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "115", 2);
+        setSourceBalance("115");
+
+        otherStockInAppService.reverse(document.billNo());
+
+        var reverse = fact(document, "OTHER_STOCK_IN_REVERSE", sourceWarehouseId);
+        assertThat(reverse.get("reversalOfTxnId")).isEqualTo(exactId);
+        assertThat(otherStockInStatus(document)).isEqualTo("DRAFT");
+        assertBalanceAndLedger(sourceWarehouseId, "110");
+    }
+
+    @Test
+    void migratedForwardAlreadyFollowedByHistoricalReverseIsNotReversedTwice() {
+        var document = insertWarehouseDocument(
+            "other_stock_in", "other_stock_in_line", "QTRK-IN", new BigDecimal("5")
+        );
+        markOtherStockInAudited(document);
+        insertMigratedHeaderOnlyFact(document, accountSetId, "OTHER_STOCK_IN", "AUDIT", "5", "105", 1);
+        insertMigratedHeaderOnlyFact(
+            document, accountSetId, "OTHER_STOCK_IN_REVERSE", "REVERSE", "-5", "100", 2
+        );
+
+        assertThatThrownBy(() -> otherStockInAppService.reverse(document.billNo()))
+            .isInstanceOf(ResponseStatusException.class)
+            .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT))
+            .hasMessageContaining("未找到可关联的原库存流水");
+
+        assertThat(otherStockInStatus(document)).isEqualTo("AUDITED");
+        assertThat(reverseFactCount(document)).isEqualTo(1);
+        assertBalanceAndLedger(sourceWarehouseId, "100");
     }
 
     @Test
@@ -847,6 +1025,150 @@ class InventoryFormalPostingTraceIntegrationTest {
         return new DocumentFixture(billId, lineId, billNo, "STOCK_TRANSFER");
     }
 
+    private DocumentFixture insertDeliveryDocument(String quantity) {
+        var saved = deliveryNoticeAppService.saveDraft(deliveryRequest(null, quantity));
+        var billId = String.valueOf(saved.get("id"));
+        return new DocumentFixture(
+            billId,
+            lineId("delivery_notice_line", billId),
+            String.valueOf(saved.get("billNo")),
+            "DELIVERY_NOTICE"
+        );
+    }
+
+    private void markOtherStockInAudited(DocumentFixture document) {
+        jdbcTemplate.update(
+            "UPDATE other_stock_in SET status = 'AUDITED' WHERE id = ?::uuid",
+            document.billId()
+        );
+    }
+
+    private void markDeliveryAudited(DocumentFixture document) {
+        jdbcTemplate.update(
+            "UPDATE delivery_notice SET status = 'AUDITED' WHERE id = ?::uuid",
+            document.billId()
+        );
+    }
+
+    private String insertMigratedHeaderOnlyFact(
+        DocumentFixture document,
+        String factAccountSetId,
+        String txnType,
+        String postingAction,
+        String qtyDelta,
+        String qtyOnHandAfter,
+        int sequence
+    ) {
+        return insertMigratedHeaderOnlyFactWithPrefix(
+            document, factAccountSetId, txnType, txnType,
+            postingAction, qtyDelta, qtyOnHandAfter, sequence
+        );
+    }
+
+    private String insertMigratedHeaderOnlyFactWithPrefix(
+        DocumentFixture document,
+        String factAccountSetId,
+        String txnType,
+        String sourceBillPrefix,
+        String postingAction,
+        String qtyDelta,
+        String qtyOnHandAfter,
+        int sequence
+    ) {
+        return jdbcTemplate.queryForObject("""
+            INSERT INTO inv_stock_txn (
+                account_set_id, txn_type, product_id, warehouse_id, qty_delta,
+                source_bill_type, source_bill_id, source_bill_line_id,
+                source_bill_no, source_bill_date, posting_action,
+                qty_on_hand_after, trace_quality, reversal_of_txn_id,
+                amount, occurred_at
+            )
+            VALUES (
+                ?::uuid, ?, ?::uuid, ?::uuid, ?::numeric,
+                ?, ?::uuid, NULL,
+                ?, ?, ?,
+                ?::numeric, 'HEADER_ONLY', NULL,
+                0, clock_timestamp() + (? * INTERVAL '1 microsecond')
+            )
+            RETURNING id::text
+            """, String.class,
+            factAccountSetId, txnType, productId, sourceWarehouseId, qtyDelta,
+            sourceBillPrefix + ":" + document.billNo(), document.billId(),
+            document.billNo(), BUSINESS_DATE, postingAction,
+            qtyOnHandAfter, sequence
+        );
+    }
+
+    private void setSourceBalance(String quantity) {
+        jdbcTemplate.update("""
+            UPDATE inv_stock_balance
+            SET qty_on_hand = ?::numeric,
+                qty_available = ?::numeric,
+                updated_at = now(),
+                version = version + 1
+            WHERE account_set_id = ?::uuid
+              AND product_id = ?::uuid
+              AND warehouse_id = ?::uuid
+            """, quantity, quantity, accountSetId, productId, sourceWarehouseId);
+    }
+
+    private void setSourceReservation(String quantity) {
+        jdbcTemplate.update("""
+            UPDATE inv_stock_balance
+            SET qty_reserved = ?::numeric,
+                qty_available = qty_on_hand - ?::numeric,
+                updated_at = now(),
+                version = version + 1
+            WHERE account_set_id = ?::uuid
+              AND product_id = ?::uuid
+              AND warehouse_id = ?::uuid
+            """, quantity, quantity, accountSetId, productId, sourceWarehouseId);
+    }
+
+    private String otherStockInStatus(DocumentFixture document) {
+        return jdbcTemplate.queryForObject(
+            "SELECT status FROM other_stock_in WHERE id = ?::uuid",
+            String.class,
+            document.billId()
+        );
+    }
+
+    private String deliveryStatus(DocumentFixture document) {
+        return jdbcTemplate.queryForObject(
+            "SELECT status FROM delivery_notice WHERE id = ?::uuid",
+            String.class,
+            document.billId()
+        );
+    }
+
+    private int reverseFactCount(DocumentFixture document) {
+        return jdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM inv_stock_txn
+            WHERE source_bill_id = ?::uuid
+              AND posting_action = 'REVERSE'
+            """, Integer.class, document.billId());
+    }
+
+    private String insertIsolatedAccountSet() {
+        return jdbcTemplate.queryForObject("""
+            INSERT INTO sys_account_set (
+                code, name, environment, database_name, schema_name,
+                attachment_prefix, redis_key_prefix, enabled, initialized
+            )
+            VALUES (
+                ?, ?, '本地开发', current_database(), current_schema(),
+                ?, ?, TRUE, TRUE
+            )
+            RETURNING id::text
+            """, String.class,
+            runPrefix + "-ISOLATED",
+            runPrefix + " 隔离账套",
+            "account-sets/" + runPrefix + "-ISOLATED",
+            runPrefix + "-ISOLATED"
+        );
+    }
+
     private String sourceBillType(String billKind) {
         return switch (billKind) {
             case "QTRK-IN" -> "OTHER_STOCK_IN";
@@ -974,6 +1296,10 @@ class InventoryFormalPostingTraceIntegrationTest {
             jdbcTemplate.update("DELETE FROM stock_count_loss WHERE bill_no LIKE ?", runPrefix + "%");
             jdbcTemplate.update("DELETE FROM stock_transfer WHERE bill_no LIKE ?", runPrefix + "%");
             jdbcTemplate.update("DELETE FROM delivery_notice WHERE bill_no LIKE ?", runPrefix + "%");
+        }
+        if (isolatedAccountSetId != null) {
+            jdbcTemplate.update("DELETE FROM sys_account_set WHERE id = ?::uuid", isolatedAccountSetId);
+            isolatedAccountSetId = null;
         }
         jdbcTemplate.update("DELETE FROM md_product WHERE id = ?::uuid", productId);
         if (customerId != null) {

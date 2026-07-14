@@ -214,7 +214,7 @@ public class InventoryPostingService {
         BigDecimal qtyDelta,
         BigDecimal qtyOnHandAfter
     ) {
-        var reversalOf = resolveReversal(command, source);
+        var reversalOf = resolveReversal(command, source, qtyDelta);
         jdbcTemplate.queryForObject("""
                 INSERT INTO inv_stock_txn (
                     account_set_id,
@@ -258,7 +258,11 @@ public class InventoryPostingService {
             );
     }
 
-    private UUID resolveReversal(InventoryPostingCommand command, PostingSource source) {
+    private UUID resolveReversal(
+        InventoryPostingCommand command,
+        PostingSource source,
+        BigDecimal reverseQtyDelta
+    ) {
         var originalAction = switch (command.postingAction()) {
             case REVERSE -> PostingAction.AUDIT;
             case RED_REVERSE -> PostingAction.RED_AUDIT;
@@ -271,7 +275,18 @@ public class InventoryPostingService {
         var originalTxnType = command.txnType().endsWith("_REVERSE")
             ? command.txnType().substring(0, command.txnType().length() - "_REVERSE".length())
             : command.txnType();
-        var rows = jdbcTemplate.queryForList("""
+        var historicalBillSuffix = ":" + command.sourceBillNo().trim();
+        var historicalForwardDocumentPrefix = originalAction == PostingAction.RED_AUDIT
+            ? command.sourceBillType().trim() + "_RED"
+            : command.sourceBillType().trim();
+        var historicalReverseDocumentPrefix = command.postingAction() == PostingAction.RED_REVERSE
+            ? command.sourceBillType().trim() + "_RED_REVERSE"
+            : command.sourceBillType().trim() + "_REVERSE";
+        var historicalForwardTxnSourceType = originalTxnType + historicalBillSuffix;
+        var historicalForwardDocumentSourceType = historicalForwardDocumentPrefix + historicalBillSuffix;
+        var historicalReverseTxnSourceType = command.txnType() + historicalBillSuffix;
+        var historicalReverseDocumentSourceType = historicalReverseDocumentPrefix + historicalBillSuffix;
+        var exactRows = jdbcTemplate.queryForList("""
             SELECT id::text AS id
             FROM inv_stock_txn
             WHERE account_set_id = ?::uuid
@@ -296,10 +311,71 @@ public class InventoryPostingService {
             source.accountSetId(), command.sourceBillType(), command.sourceBillId(), command.sourceBillLineId(),
             source.productId(), source.warehouseId(), originalAction.name(), originalTxnType
         );
-        if (rows.isEmpty()) {
+        if (!exactRows.isEmpty()) {
+            return UUID.fromString(String.valueOf(exactRows.getFirst().get("id")));
+        }
+
+        // V106/V107 deliberately retained only header identity for locatable
+        // pre-upgrade facts. Never guess a line: a migrated forward fact is a
+        // valid fallback only when all persisted business dimensions match and
+        // exactly one still-unreversed candidate remains.
+        var historicalRows = jdbcTemplate.queryForList("""
+            SELECT original.id::text AS id
+            FROM inv_stock_txn original
+            WHERE original.account_set_id = ?::uuid
+              AND original.source_bill_id = ?::uuid
+              AND original.source_bill_line_id IS NULL
+              AND original.source_bill_type IN (?, ?)
+              AND original.source_bill_no = ?
+              AND original.source_bill_date = ?
+              AND original.product_id = ?::uuid
+              AND original.warehouse_id = ?::uuid
+              AND original.posting_action = ?
+              AND original.txn_type = ?
+              AND original.qty_delta = ?
+              AND original.trace_quality = 'HEADER_ONLY'
+              AND original.reversal_of_txn_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM inv_stock_txn reversal
+                  WHERE reversal.account_set_id = original.account_set_id
+                    AND reversal.reversal_of_txn_id = original.id
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM inv_stock_txn historical_reversal
+                  WHERE historical_reversal.account_set_id = original.account_set_id
+                    AND historical_reversal.source_bill_id = original.source_bill_id
+                    AND historical_reversal.source_bill_line_id IS NULL
+                    AND historical_reversal.source_bill_type IN (?, ?)
+                    AND historical_reversal.source_bill_no = original.source_bill_no
+                    AND historical_reversal.source_bill_date = original.source_bill_date
+                    AND historical_reversal.product_id = original.product_id
+                    AND historical_reversal.warehouse_id = original.warehouse_id
+                    AND historical_reversal.posting_action = ?
+                    AND historical_reversal.txn_type = ?
+                    AND historical_reversal.qty_delta = ?
+                    AND historical_reversal.trace_quality = 'HEADER_ONLY'
+                    AND historical_reversal.occurred_at >= original.occurred_at
+              )
+            ORDER BY original.occurred_at DESC, original.id DESC
+            LIMIT 2
+            FOR UPDATE OF original
+            """,
+            source.accountSetId(), command.sourceBillId(),
+            historicalForwardTxnSourceType, historicalForwardDocumentSourceType,
+            command.sourceBillNo().trim(), command.sourceBillDate(), source.productId(), source.warehouseId(),
+            originalAction.name(), originalTxnType, reverseQtyDelta.negate(),
+            historicalReverseTxnSourceType, historicalReverseDocumentSourceType,
+            command.postingAction().name(), command.txnType(), reverseQtyDelta
+        );
+        if (historicalRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "未找到可关联的原库存流水，不能执行反向动作");
         }
-        return UUID.fromString(String.valueOf(rows.get(0).get("id")));
+        if (historicalRows.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "迁移历史库存流水存在歧义，不能猜测来源行");
+        }
+        return UUID.fromString(String.valueOf(historicalRows.getFirst().get("id")));
     }
 
     private void lockPostingFact(InventoryPostingCommand command, PostingSource source) {

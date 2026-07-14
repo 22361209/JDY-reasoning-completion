@@ -288,6 +288,42 @@ assert(!service.includes("DEFAULT now()"), "inventory posting must not rely on a
 assert(service.includes("pg_advisory_xact_lock"), "exact posting facts must be serialized before duplicate checks");
 assert(service.includes("assertNoActiveForwardFact"), "active exact posting facts must be idempotency guarded");
 assert(service.includes("NOT EXISTS"), "reverse lookup must ignore facts already reversed");
+const exactReversalLookupIndex = service.indexOf("var exactRows = jdbcTemplate.queryForList");
+const historicalReversalLookupIndex = service.indexOf("var historicalRows = jdbcTemplate.queryForList");
+assert(exactReversalLookupIndex >= 0, "reverse lookup must retain the exact source-line path");
+assert(
+  historicalReversalLookupIndex > exactReversalLookupIndex,
+  "migrated header-only fallback must run only after exact source-line lookup"
+);
+for (const marker of [
+  'historicalBillSuffix = ":" + command.sourceBillNo().trim()',
+  "historicalForwardDocumentPrefix = originalAction == PostingAction.RED_AUDIT",
+  "historicalReverseDocumentPrefix = command.postingAction() == PostingAction.RED_REVERSE",
+  "historicalForwardTxnSourceType = originalTxnType + historicalBillSuffix",
+  "historicalForwardDocumentSourceType = historicalForwardDocumentPrefix + historicalBillSuffix",
+  "historicalReverseTxnSourceType = command.txnType() + historicalBillSuffix",
+  "historicalReverseDocumentSourceType = historicalReverseDocumentPrefix + historicalBillSuffix",
+  "original.account_set_id = ?::uuid",
+  "original.source_bill_id = ?::uuid",
+  "original.source_bill_line_id IS NULL",
+  "original.source_bill_type IN (?, ?)",
+  "original.source_bill_no = ?",
+  "original.source_bill_date = ?",
+  "original.product_id = ?::uuid",
+  "original.warehouse_id = ?::uuid",
+  "original.posting_action = ?",
+  "original.txn_type = ?",
+  "original.qty_delta = ?",
+  "original.trace_quality = 'HEADER_ONLY'",
+  "LIMIT 2",
+  "historicalRows.size() != 1"
+]) {
+  assert(service.includes(marker), `migrated reversal fallback dropped fail-closed marker: ${marker}`);
+}
+assert(
+  service.includes("historical_reversal.occurred_at >= original.occurred_at"),
+  "migrated fallback must reject a forward fact already followed by historical reversal"
+);
 assert(!/UPDATE\s+inv_stock_txn/i.test(service), "posted inventory facts must never be overwritten");
 assert(!/DELETE\s+FROM\s+inv_stock_txn/i.test(service), "posted inventory facts must never be deleted");
 assert(!service.includes("@Deprecated"), "production inventory posting service must not retain legacy overloads");
@@ -442,6 +478,20 @@ assert(salesReturnDelete.includes("AND status = 'DRAFT'"), "sales return final h
 const lifecycleAssertions = await text(
   "backend/src/test/java/com/jdy/erp/testsupport/InventoryTraceAssertions.java"
 );
+const formalTraceRegression = await text(
+  "backend/src/test/java/com/jdy/erp/inventory/application/InventoryFormalPostingTraceIntegrationTest.java"
+);
+for (const marker of [
+  "migratedHeaderOnlyPostingCanBeReversedWithoutGuessingItsOldLine",
+  "migratedHeaderOnlyReservationUsesItsLegacyDeliveryPrefix",
+  "migratedReservationAlreadyFollowedByLegacyReleaseIsNotReleasedTwice",
+  "ambiguousMigratedHeaderOnlyPostingsFailClosedAndRollbackTheDocument",
+  "migratedHeaderOnlyFallbackNeverCrossesAccountSetScope",
+  "exactPostingRemainsPreferredOverAmbiguousMigratedHistory",
+  "migratedForwardAlreadyFollowedByHistoricalReverseIsNotReversedTwice"
+]) {
+  assert(formalTraceRegression.includes(marker), `migrated reversal dynamic coverage dropped: ${marker}`);
+}
 for (const marker of [
   'containsEntry("accountSetId", expectedInventoryScopeId)',
   'containsEntry("sourceBillId", source.get("sourceBillId"))',
