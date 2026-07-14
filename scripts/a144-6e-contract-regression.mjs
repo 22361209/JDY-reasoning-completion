@@ -137,7 +137,7 @@ assert(item6e.targetAcceptance === "A3", "6E 目标验收等级必须为 A3");
 assert(item6e.predecessorIds?.length === 1 && item6e.predecessorIds[0] === "6D", "6E predecessor 必须只有 6D");
 
 const allowedPaths = frontmatterList(currentTask, "allowedPaths");
-assert(allowedPaths.length === 157, "A144 allowedPaths 数量必须精确冻结为 157");
+assert(allowedPaths.length === 160, "A144 allowedPaths 数量必须精确冻结为 160");
 assert(new Set(allowedPaths).size === allowedPaths.length, "A144 allowedPaths 不得重复");
 assert(
   allowedPaths.every((allowedPath) => !allowedPath.startsWith("/") && !/[?*\[\]]/.test(allowedPath)),
@@ -145,7 +145,7 @@ assert(
 );
 const allowedPathsHash = createHash("sha256").update([...allowedPaths].sort().join("\n")).digest("hex");
 assert(
-  allowedPathsHash === "0ca602864897748bd2b9af9d5726df67bb2324fd84a0c4b577b0fe6609da50ec",
+  allowedPathsHash === "4a29a77ea8b87b2591e00dc03c7fe88f4bf7f6efde5e0a6c8c8b7fc2d4f26b60",
   "A144 allowedPaths 精确集合不得漂移"
 );
 const plannedScripts = [
@@ -164,6 +164,13 @@ const plannedScripts = [
 ];
 for (const plannedScript of plannedScripts) {
   assert(allowedPaths.includes(plannedScript), `allowedPaths 必须包含 ${plannedScript}`);
+}
+for (const poolFixPath of [
+  "backend/src/main/java/com/jdy/erp/system/tenant/TenantDataSourceConfig.java",
+  "backend/src/main/resources/application.yml",
+  "backend/src/test/java/com/jdy/erp/JdyErpApplicationTests.java"
+]) {
+  assert(allowedPaths.includes(poolFixPath), `allowedPaths 必须包含全量测试连接池前置修复 ${poolFixPath}`);
 }
 assert(
   allowedPaths.includes("frontend/src/modules/reports/reportTypes.ts"),
