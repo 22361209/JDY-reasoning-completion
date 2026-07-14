@@ -29,9 +29,12 @@ import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -39,6 +42,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public final class MasterDataImportService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MasterDataImportService.class);
     private static final int DEFAULT_ROW_PAGE_SIZE = 100;
     private static final int MAX_ROW_PAGE_SIZE = 500;
     private static final int DEFAULT_JOB_PAGE_SIZE = 20;
@@ -73,6 +77,45 @@ public final class MasterDataImportService {
         this.operationLogService = operationLogService;
         this.objectMapper = objectMapper;
         this.transactions = new TransactionTemplate(transactionManager);
+    }
+
+    @Scheduled(
+        fixedDelayString = "${jdy.master-data.import.cleanup-fixed-delay-ms:60000}",
+        initialDelayString = "${jdy.master-data.import.cleanup-initial-delay-ms:60000}"
+    )
+    public void expireOverdueImportBatches() {
+        try {
+            TenantContext.setPlatform();
+            var accountSets = jdbcTemplate.queryForList("""
+                SELECT id::text AS id,
+                       code,
+                       name,
+                       COALESCE(database_name, '') AS "databaseName",
+                       COALESCE(schema_name, '') AS "schemaName",
+                       COALESCE(redis_key_prefix, '') AS "redisKeyPrefix",
+                       COALESCE(attachment_prefix, '') AS "attachmentPrefix"
+                FROM sys_account_set
+                WHERE NULLIF(BTRIM(schema_name), '') IS NOT NULL
+                  AND LOWER(BTRIM(schema_name)) <> 'public'
+                ORDER BY code
+                """);
+            for (var accountSet : accountSets) {
+                try {
+                    TenantContext.setTenant(accountSet);
+                    transactions.executeWithoutResult(ignored -> expireOverdueInCurrentTenant());
+                } catch (RuntimeException exception) {
+                    LOGGER.warn(
+                        "A143 import expiry sweep failed: accountSetCode={}, errorType={}",
+                        accountSet.get("code"),
+                        exception.getClass().getSimpleName()
+                    );
+                } finally {
+                    TenantContext.clear();
+                }
+            }
+        } finally {
+            TenantContext.clear();
+        }
     }
 
     public List<TemplateView> templates() {
@@ -521,6 +564,9 @@ public final class MasterDataImportService {
                 byCode.putIfAbsent(code, row);
             }
         });
+        var parentByCode = new LinkedHashMap<String, String>();
+        byCode.forEach((code, row) -> parentByCode.put(code, normalized(row.payload.get("parentCode"))));
+        var existingParentByCode = new LinkedHashMap<String, String>();
         for (var row : rows) {
             var code = normalized(row.payload.get("code"));
             var parent = normalized(row.payload.get("parentCode"));
@@ -530,58 +576,81 @@ public final class MasterDataImportService {
             if (parent.equals(code)) {
                 row.addError("parentCode", "CATEGORY_PARENT_SELF", "上级类别不能引用自身", parent);
             } else if (!byCode.containsKey(parent)) {
-                var lockClause = lockExistingParents ? " FOR SHARE" : "";
-                if (jdbcTemplate.queryForList(
-                    "SELECT 1 FROM md_product_category WHERE code = ? LIMIT 1" + lockClause,
-                    parent
-                ).isEmpty()) {
+                if (!collectExistingCategoryAncestors(
+                    parent,
+                    byCode.keySet(),
+                    existingParentByCode,
+                    lockExistingParents
+                )) {
                     row.addError("parentCode", "CATEGORY_PARENT_NOT_FOUND", "上级类别编码不存在", parent);
                 }
             }
         }
-        var cycleCodes = categoryCycleCodes(byCode);
+        parentByCode.putAll(existingParentByCode);
+        var cycleCodes = categoryCycleCodes(parentByCode);
         cycleCodes.forEach(code -> {
             var row = byCode.get(code);
-            row.addError("parentCode", "CATEGORY_PARENT_CYCLE", "类别上级关系形成环", row.payload.get("parentCode"));
+            if (row != null) {
+                row.addError("parentCode", "CATEGORY_PARENT_CYCLE", "类别上级关系形成环", row.payload.get("parentCode"));
+            }
         });
     }
 
-    private Set<String> categoryCycleCodes(Map<String, MutableRow> byCode) {
-        var color = new HashMap<String, Integer>();
-        var stack = new ArrayList<String>();
-        var cycles = new LinkedHashSet<String>();
-        for (var code : byCode.keySet()) {
-            visitCategory(code, byCode, color, stack, cycles);
+    private boolean collectExistingCategoryAncestors(
+        String directParent,
+        Set<String> importedCodes,
+        Map<String, String> existingParentByCode,
+        boolean lockExistingParents
+    ) {
+        var current = directParent;
+        var directParentFound = existingParentByCode.containsKey(directParent);
+        while (!current.isBlank()
+            && !importedCodes.contains(current)
+            && !existingParentByCode.containsKey(current)) {
+            var lockClause = lockExistingParents ? " FOR SHARE" : "";
+            var matches = jdbcTemplate.queryForList("""
+                SELECT code, COALESCE(parent_code, '') AS "parentCode"
+                FROM md_product_category
+                WHERE code = ?
+                LIMIT 1%s
+                """.formatted(lockClause), current);
+            if (matches.isEmpty()) {
+                return directParentFound || !current.equals(directParent);
+            }
+            var match = matches.getFirst();
+            var code = normalized(String.valueOf(match.get("code")));
+            var parent = normalized(String.valueOf(match.get("parentCode")));
+            existingParentByCode.put(code, parent);
+            if (code.equals(directParent)) {
+                directParentFound = true;
+            }
+            current = parent;
         }
-        return cycles;
+        return directParentFound || importedCodes.contains(directParent);
     }
 
-    private void visitCategory(
-        String code,
-        Map<String, MutableRow> byCode,
-        Map<String, Integer> color,
-        List<String> stack,
-        Set<String> cycles
-    ) {
-        var state = color.getOrDefault(code, 0);
-        if (state == 2) {
-            return;
-        }
-        if (state == 1) {
-            var index = stack.indexOf(code);
-            if (index >= 0) {
-                cycles.addAll(stack.subList(index, stack.size()));
+    private Set<String> categoryCycleCodes(Map<String, String> parentByCode) {
+        var completed = new LinkedHashSet<String>();
+        var cycles = new LinkedHashSet<String>();
+        for (var start : parentByCode.keySet()) {
+            if (completed.contains(start)) {
+                continue;
             }
-            return;
+            var path = new ArrayList<String>();
+            var pathIndexes = new HashMap<String, Integer>();
+            var current = start;
+            while (!current.isBlank() && parentByCode.containsKey(current) && !completed.contains(current)) {
+                var existingIndex = pathIndexes.putIfAbsent(current, path.size());
+                if (existingIndex != null) {
+                    cycles.addAll(path.subList(existingIndex, path.size()));
+                    break;
+                }
+                path.add(current);
+                current = normalized(parentByCode.get(current));
+            }
+            completed.addAll(path);
         }
-        color.put(code, 1);
-        stack.add(code);
-        var parent = normalized(byCode.get(code).payload.get("parentCode"));
-        if (byCode.containsKey(parent)) {
-            visitCategory(parent, byCode, color, stack, cycles);
-        }
-        stack.removeLast();
-        color.put(code, 2);
+        return cycles;
     }
 
     private List<StoredRow> stableCreateOrder(ImportDefinition definition, List<StoredRow> rows) {
@@ -683,6 +752,21 @@ public final class MasterDataImportService {
             jdbcTemplate.update(sql,
                 scope.accountSetId().toString(), scope.accountSetCode(), scope.userId().toString(), scope.username(), id.toString());
         }
+    }
+
+    private int expireOverdueInCurrentTenant() {
+        return jdbcTemplate.update("""
+            UPDATE md_import_batch
+            SET status = 'EXPIRED',
+                rows_payload = '[]'::jsonb,
+                committed_rows = 0,
+                committed_at = NULL,
+                payload_cleared_at = now(),
+                updated_at = now(),
+                version = version + 1
+            WHERE status IN ('VALIDATED', 'INVALID', 'STALE', 'FAILED')
+              AND expires_at <= now()
+            """);
     }
 
     private void expireLocked(UUID id) {
