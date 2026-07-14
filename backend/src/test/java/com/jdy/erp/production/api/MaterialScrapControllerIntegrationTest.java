@@ -13,7 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -68,6 +70,17 @@ class MaterialScrapControllerIntegrationTest {
         assertRoute("reverse", PostMapping.class, "/production/material-scraps/{billNo}/reverse");
         assertRoute("stockIn", PostMapping.class, "/production/material-scraps/{billNo}/stock-in");
         assertRoute("reverseStockIn", PostMapping.class, "/production/material-scraps/{billNo}/reverse-stock-in");
+        assertThat(mappedRoutes()).containsExactlyInAnyOrder(
+            "GET /production/material-scraps/{billNo}",
+            "GET /production/material-issues/{billNo}/material-scrap-preview",
+            "POST /production/material-issues/{billNo}/push-material-scrap",
+            "POST /production/material-scraps/draft",
+            "DELETE /production/material-scraps/{billNo}",
+            "POST /production/material-scraps/{billNo}/audit",
+            "POST /production/material-scraps/{billNo}/reverse",
+            "POST /production/material-scraps/{billNo}/stock-in",
+            "POST /production/material-scraps/{billNo}/reverse-stock-in"
+        );
 
         for (var methodName : List.of(
             "detail", "previewFromIssue", "pushFromIssue", "saveDraft", "deleteDraft",
@@ -113,6 +126,35 @@ class MaterialScrapControllerIntegrationTest {
             .filter(candidate -> candidate.getName().equals(name))
             .findFirst()
             .orElseThrow();
+    }
+
+    private List<String> mappedRoutes() {
+        var routes = new ArrayList<String>();
+        for (var candidate : MaterialScrapController.class.getDeclaredMethods()) {
+            var get = candidate.getAnnotation(GetMapping.class);
+            if (get != null) {
+                addRoutes(routes, "GET", get.value(), get.path());
+            }
+            var post = candidate.getAnnotation(PostMapping.class);
+            if (post != null) {
+                addRoutes(routes, "POST", post.value(), post.path());
+            }
+            var delete = candidate.getAnnotation(DeleteMapping.class);
+            if (delete != null) {
+                addRoutes(routes, "DELETE", delete.value(), delete.path());
+            }
+        }
+        return routes;
+    }
+
+    private void addRoutes(List<String> routes, String verb, String[] values, String[] paths) {
+        var declaredPaths = new LinkedHashSet<String>();
+        declaredPaths.addAll(Arrays.asList(values));
+        declaredPaths.addAll(Arrays.asList(paths));
+        if (declaredPaths.isEmpty()) {
+            declaredPaths.add("");
+        }
+        declaredPaths.stream().map(path -> verb + " " + path).forEach(routes::add);
     }
 
     private <A extends java.lang.annotation.Annotation> void assertRoute(

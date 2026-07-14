@@ -170,10 +170,20 @@ class TenantMaterialScrapIsolationTest {
             FROM public.inv_stock_balance
             WHERE warehouse_id IN (?::uuid, ?::uuid)
             """, Integer.class, fixtureA.targetWarehouseId(), fixtureB.targetWarehouseId())).isZero();
+        for (var tenantIdentity : List.of(a, b)) {
+            assertThat(platformJdbcTemplate.queryForObject("""
+                SELECT count(*)::int
+                FROM public.sys_operation_log
+                WHERE target_id = ?::uuid
+                   OR target_no = ?
+                """, Integer.class, tenantIdentity.id(), tenantIdentity.billNo()))
+                .as(tenantIdentity.id())
+                .isZero();
+        }
     }
 
     private ScrapIdentity createAndAudit(Fixture fixture, String reason) {
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo(), null);
+        var pushed = fixture.trackScrap(materialScrapAppService.pushFromIssue(fixture.sourceIssueNo(), null));
         var billNo = String.valueOf(pushed.get("billNo"));
         materialScrapAppService.saveDraft(new ScrapDraftRequest(
             billNo,

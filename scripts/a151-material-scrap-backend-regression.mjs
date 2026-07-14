@@ -123,6 +123,8 @@ for (const route of [
   check(source.controller.includes(route), `controller must expose frozen route: ${route}`);
 }
 check(source.controller.includes('@RequestMapping("/api")'), "material scrap controller must use the shared /api prefix");
+check(source.controller.includes('@DeleteMapping("/production/material-scraps/{billNo}")'), "material scrap controller must preserve the frozen DELETE route");
+check(count(source.controller, /@(GetMapping|PostMapping|DeleteMapping)\(/g) === 9, "material scrap controller must expose exactly nine mapped operations");
 check(count(source.controller, /@RequirePermission\("production\.document\.audit"\)/g) === 1, "material scrap controller must centrally require the existing production permission");
 check(!/JdbcTemplate|PostingPipeline|InventoryPosting/.test(source.controller), "controller must not contain business or inventory rules");
 
@@ -169,7 +171,13 @@ for (const marker of [
   "auditStatusAndSuccessLogRollBackTogetherWhenLogPersistenceFails",
   "concurrentStockInAndReverseUseFreshLockedLineStateAndOnlyOneCanWin",
   "concurrentQuotaAllowsOneAuditAndLeavesTheLoserBusinessTransactionClean",
+  "sharedLifecyclePolicyRejectsHeaderAndLineCloseFreezeActions",
   "sourceRedAndWorkshopPredicatesAreRecheckedAndVoidReleasesSourceGuard",
+  "holdRowLock",
+  "awaitDatabaseLockWaiters",
+  "get(10, TimeUnit.SECONDS)",
+  "trackScrap",
+  "deleteTrackedScrapLogs",
   "scrapQty",
   "reissueQty",
   "reverseStockIn"
@@ -180,6 +188,7 @@ for (const marker of [
   "requestRecordsExposeOnlyTheFrozenNarrowWriteContract",
   "controllerPublishesExactlyTheFrozenApiUnderTheApiPrefix",
   "aWriteConflictUsesTheUnifiedHttpFailureAuditExactlyOnce",
+  "mappedRoutes",
   "logDeclaredWriteFailureOnce"
 ]) {
   check(source.controllerTest.includes(marker), `controller integration coverage must include: ${marker}`);
@@ -187,11 +196,13 @@ for (const marker of [
 for (const marker of [
   "formalListUsesRealCountLimitOffsetStatusAndDetailPredicates",
   "sourceSelectorSharesTheExecutablePredicateAndAuditedQuota",
+  "sourceSelectorDynamicallyRechecksEveryExecutableSourcePredicate",
   "adapterRejectsEveryContractOutsideItsTwoExplicitKeys"
 ]) {
   check(source.listTest.includes(marker), `real list coverage must include: ${marker}`);
 }
 check(source.tenantTest.includes("sameBillNumberFactsListsInventoryAndLogsStayInsideEachRoutedTenant"), "tenant test must cover same-number routed isolation");
+check(source.tenantTest.includes("public.sys_operation_log"), "tenant test must prove material scrap logs never land in public");
 check(source.numberingTest.includes("hasSize(27)") && source.numberingTest.includes('"materialScrap"'), "numbering integration test must freeze the 27th rule");
 check(source.lifecycleTest.includes('Map.entry("materialScrap", "production.document.audit")'), "lifecycle permission test must freeze materialScrap permission");
 

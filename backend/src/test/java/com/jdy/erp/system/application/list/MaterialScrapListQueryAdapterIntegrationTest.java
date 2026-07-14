@@ -160,6 +160,70 @@ class MaterialScrapListQueryAdapterIntegrationTest {
     }
 
     @Test
+    void sourceSelectorDynamicallyRechecksEveryExecutableSourcePredicate() {
+        var contract = contractRegistry.contractFor("material-scrap-source-selector", "detail");
+        assertSourceAvailable(contract, "baseline");
+
+        jdbcTemplate.update(
+            "UPDATE production_material_issue SET status = 'DRAFT' WHERE id = ?::uuid",
+            fixture.sourceIssueId()
+        );
+        assertSourceEmpty(contract, "source status");
+        jdbcTemplate.update(
+            "UPDATE production_material_issue SET status = 'AUDITED' WHERE id = ?::uuid",
+            fixture.sourceIssueId()
+        );
+        assertSourceAvailable(contract, "source status restored");
+
+        jdbcTemplate.update(
+            "UPDATE production_material_issue SET close_status = 'CLOSED' WHERE id = ?::uuid",
+            fixture.sourceIssueId()
+        );
+        assertSourceEmpty(contract, "source close status");
+        jdbcTemplate.update(
+            "UPDATE production_material_issue SET close_status = 'OPEN' WHERE id = ?::uuid",
+            fixture.sourceIssueId()
+        );
+        assertSourceAvailable(contract, "source close status restored");
+
+        jdbcTemplate.update(
+            "UPDATE production_material_issue SET frozen_status = 'FROZEN' WHERE id = ?::uuid",
+            fixture.sourceIssueId()
+        );
+        assertSourceEmpty(contract, "source frozen status");
+        jdbcTemplate.update(
+            "UPDATE production_material_issue SET frozen_status = 'NORMAL' WHERE id = ?::uuid",
+            fixture.sourceIssueId()
+        );
+        assertSourceAvailable(contract, "source frozen status restored");
+
+        var redId = jdbcTemplate.queryForObject("""
+            INSERT INTO production_material_issue (bill_no, task_id, red_source_bill_id, status)
+            VALUES (?, ?::uuid, ?::uuid, 'DRAFT')
+            RETURNING id::text
+            """, String.class, fixture.prefix() + "-SELECTOR-RED", fixture.taskId(), fixture.sourceIssueId());
+        assertSourceEmpty(contract, "non-VOID red child");
+        jdbcTemplate.update("DELETE FROM production_material_issue WHERE id = ?::uuid", redId);
+        assertSourceAvailable(contract, "red child removed");
+
+        jdbcTemplate.update(
+            "UPDATE md_production_department SET enabled = FALSE WHERE code = ?",
+            fixture.workshopCode()
+        );
+        assertSourceEmpty(contract, "workshop disabled");
+        jdbcTemplate.update(
+            "UPDATE md_production_department SET enabled = TRUE, audit_status = 'DRAFT' WHERE code = ?",
+            fixture.workshopCode()
+        );
+        assertSourceEmpty(contract, "workshop unaudited");
+        jdbcTemplate.update(
+            "UPDATE md_production_department SET audit_status = 'AUDITED' WHERE code = ?",
+            fixture.workshopCode()
+        );
+        assertSourceAvailable(contract, "workshop restored");
+    }
+
+    @Test
     void adapterRejectsEveryContractOutsideItsTwoExplicitKeys() {
         var unsupported = new ListQueryContract(
             "material-issue-form-list",
@@ -225,6 +289,27 @@ class MaterialScrapListQueryAdapterIntegrationTest {
             "",
             "",
             false
+        );
+    }
+
+    private void assertSourceAvailable(ListQueryContract contract, String predicate) {
+        var result = querySource(contract);
+        assertThat(result.total()).as(predicate).isEqualTo(1);
+        assertThat(result.rows()).as(predicate).hasSize(1);
+    }
+
+    private void assertSourceEmpty(ListQueryContract contract, String predicate) {
+        var result = querySource(contract);
+        assertThat(result.total()).as(predicate).isZero();
+        assertThat(result.rows()).as(predicate).isEmpty();
+    }
+
+    private ListQueryResult querySource(ListQueryContract contract) {
+        return adapter.query(
+            request("material-scrap-source-selector", fixture.sourceIssueNo(), "", 1, 20, "detail", ""),
+            contract,
+            support,
+            noSeedRows()
         );
     }
 

@@ -9,17 +9,26 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
+
+import javax.sql.DataSource;
 
 import com.jdy.erp.production.application.MaterialScrapAppService.ScrapDraftRequest;
 import com.jdy.erp.production.application.MaterialScrapAppService.ScrapLineRequest;
 import com.jdy.erp.shared.api.BillLifecycleController;
+import com.jdy.erp.shared.api.BillLifecycleController.ReasonRequest;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -42,6 +51,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class MaterialScrapAppServiceIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private MaterialScrapAppService materialScrapAppService;
@@ -107,7 +119,7 @@ public class MaterialScrapAppServiceIntegrationTest {
             assertDecimal(line.get("availableScrapQty"), "5");
         });
 
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var pushed = pushFromFixture();
         var billNo = String.valueOf(pushed.get("billNo"));
         assertThat(pushed).containsEntry("status", "DRAFT");
         var pushedDetail = materialScrapAppService.detail(billNo);
@@ -181,7 +193,7 @@ public class MaterialScrapAppServiceIntegrationTest {
 
     @Test
     void stockInIsASeparateWholeDocumentIdempotentLifecycle() {
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var pushed = pushFromFixture();
         var scrapId = String.valueOf(pushed.get("id"));
         var billNo = String.valueOf(pushed.get("billNo"));
         materialScrapAppService.saveDraft(request(
@@ -231,7 +243,7 @@ public class MaterialScrapAppServiceIntegrationTest {
     @Test
     void multiLineStockInRollsBackEveryLineWhenOneWarehouseBecomesInvalid() {
         var second = fixture.addSecondSourceLine();
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var pushed = pushFromFixture();
         var scrapId = String.valueOf(pushed.get("id"));
         var billNo = String.valueOf(pushed.get("billNo"));
         materialScrapAppService.saveDraft(new ScrapDraftRequest(
@@ -294,7 +306,7 @@ public class MaterialScrapAppServiceIntegrationTest {
 
     @Test
     void auditStatusAndSuccessLogRollBackTogetherWhenLogPersistenceFails() {
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var pushed = pushFromFixture();
         var billNo = String.valueOf(pushed.get("billNo"));
         materialScrapAppService.saveDraft(request(
             billNo, BigDecimal.ONE, "日志事务回滚", BigDecimal.ZERO, false, null
@@ -314,8 +326,27 @@ public class MaterialScrapAppServiceIntegrationTest {
     }
 
     @Test
+    void sharedLifecyclePolicyRejectsHeaderAndLineCloseFreezeActions() {
+        var pushed = pushFromFixture();
+        var billNo = String.valueOf(pushed.get("billNo"));
+
+        assertStatus(HttpStatus.BAD_REQUEST, () -> billLifecycleController.close(
+            "materialScrap", billNo, new ReasonRequest("材料报废单不支持关闭")
+        ));
+        assertStatus(HttpStatus.BAD_REQUEST, () -> billLifecycleController.freeze(
+            "materialScrap", billNo, new ReasonRequest("材料报废单不支持冻结")
+        ));
+        assertStatus(HttpStatus.BAD_REQUEST, () -> billLifecycleController.closeLine(
+            "materialScrap", billNo, 1, new ReasonRequest("材料报废单行不支持关闭")
+        ));
+        assertStatus(HttpStatus.BAD_REQUEST, () -> billLifecycleController.freezeLine(
+            "materialScrap", billNo, 1, new ReasonRequest("材料报废单行不支持冻结")
+        ));
+    }
+
+    @Test
     void concurrentStockInAndReverseUseFreshLockedLineStateAndOnlyOneCanWin() throws Exception {
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var pushed = pushFromFixture();
         var scrapId = String.valueOf(pushed.get("id"));
         var billNo = String.valueOf(pushed.get("billNo"));
         materialScrapAppService.saveDraft(request(
@@ -323,16 +354,33 @@ public class MaterialScrapAppServiceIntegrationTest {
         ));
         materialScrapAppService.audit(billNo);
 
+        var ready = new CountDownLatch(2);
         var start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
         List<Object> outcomes;
         try {
-            var stockFuture = executor.submit(() -> actionAfter(start, () -> materialScrapAppService.stockIn(billNo)));
-            var reverseFuture = executor.submit(() -> actionAfter(start, () -> materialScrapAppService.reverse(billNo)));
-            start.countDown();
-            outcomes = List.of(stockFuture.get(), reverseFuture.get());
+            try (var headerLock = holdRowLock("production_material_scrap", scrapId)) {
+                var stockFuture = executor.submit(() -> actionAfter(
+                    ready, start, () -> materialScrapAppService.stockIn(billNo)
+                ));
+                var reverseFuture = executor.submit(() -> actionAfter(
+                    ready, start, () -> materialScrapAppService.reverse(billNo)
+                ));
+                assertWorkersReady(ready);
+                start.countDown();
+                awaitDatabaseLockWaiters("production_material_scrap", 2);
+                assertBlockedOnHeldRow(stockFuture);
+                assertBlockedOnHeldRow(reverseFuture);
+                headerLock.release();
+                outcomes = List.of(
+                    stockFuture.get(10, TimeUnit.SECONDS),
+                    reverseFuture.get(10, TimeUnit.SECONDS)
+                );
+            }
         } finally {
+            start.countDown();
             executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
 
         assertThat(outcomes.stream().filter(Map.class::isInstance)).hasSize(1);
@@ -358,8 +406,8 @@ public class MaterialScrapAppServiceIntegrationTest {
 
     @Test
     void concurrentQuotaAllowsOneAuditAndLeavesTheLoserBusinessTransactionClean() throws Exception {
-        var first = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
-        var second = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var first = pushFromFixture();
+        var second = pushFromFixture();
         var firstNo = String.valueOf(first.get("billNo"));
         var secondNo = String.valueOf(second.get("billNo"));
         materialScrapAppService.saveDraft(request(
@@ -369,16 +417,29 @@ public class MaterialScrapAppServiceIntegrationTest {
             secondNo, new BigDecimal("4"), "并发二", BigDecimal.ZERO, false, null
         ));
 
+        var ready = new CountDownLatch(2);
         var start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
         List<Object> outcomes;
         try {
-            var firstFuture = executor.submit(() -> auditAfter(start, firstNo));
-            var secondFuture = executor.submit(() -> auditAfter(start, secondNo));
-            start.countDown();
-            outcomes = List.of(firstFuture.get(), secondFuture.get());
+            try (var sourceLineLock = holdRowLock("production_material_issue_line", fixture.sourceIssueLineId)) {
+                var firstFuture = executor.submit(() -> auditAfter(ready, start, firstNo));
+                var secondFuture = executor.submit(() -> auditAfter(ready, start, secondNo));
+                assertWorkersReady(ready);
+                start.countDown();
+                awaitDatabaseLockWaiters("production_material_issue", 2);
+                assertBlockedOnHeldRow(firstFuture);
+                assertBlockedOnHeldRow(secondFuture);
+                sourceLineLock.release();
+                outcomes = List.of(
+                    firstFuture.get(10, TimeUnit.SECONDS),
+                    secondFuture.get(10, TimeUnit.SECONDS)
+                );
+            }
         } finally {
+            start.countDown();
             executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
 
         assertThat(outcomes.stream().filter(Map.class::isInstance)).hasSize(1);
@@ -421,7 +482,7 @@ public class MaterialScrapAppServiceIntegrationTest {
         assertStatus(HttpStatus.CONFLICT, () -> materialScrapAppService.previewFromIssue(fixture.sourceIssueNo));
         jdbcTemplate.update("DELETE FROM production_material_issue WHERE id = ?::uuid", redId);
 
-        var pushed = materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null);
+        var pushed = pushFromFixture();
         var billNo = String.valueOf(pushed.get("billNo"));
         var workshopSnapshot = String.valueOf(document(materialScrapAppService.detail(billNo)).get("workshopName"));
         jdbcTemplate.update("""
@@ -455,13 +516,18 @@ public class MaterialScrapAppServiceIntegrationTest {
         )).containsEntry("status", "DRAFT");
     }
 
-    private Object auditAfter(CountDownLatch start, String billNo) {
-        return actionAfter(start, () -> materialScrapAppService.audit(billNo));
+    private Object auditAfter(CountDownLatch ready, CountDownLatch start, String billNo) {
+        return actionAfter(ready, start, () -> materialScrapAppService.audit(billNo));
     }
 
-    private Object actionAfter(CountDownLatch start, Supplier<Map<String, Object>> action) {
+    private Object actionAfter(
+        CountDownLatch ready,
+        CountDownLatch start,
+        Supplier<Map<String, Object>> action
+    ) {
         bindTenant();
         try {
+            ready.countDown();
             start.await();
             return action.get();
         } catch (ResponseStatusException exception) {
@@ -473,6 +539,69 @@ public class MaterialScrapAppServiceIntegrationTest {
             TenantContext.clear();
             RequestContextHolder.resetRequestAttributes();
         }
+    }
+
+    private void assertWorkersReady(CountDownLatch ready) throws InterruptedException {
+        assertThat(ready.await(5, TimeUnit.SECONDS))
+            .as("both workers must be ready before the shared row lock is released")
+            .isTrue();
+    }
+
+    private void assertBlockedOnHeldRow(Future<Object> future) {
+        assertThatThrownBy(() -> future.get(300, TimeUnit.MILLISECONDS))
+            .as("the business action must wait for the deliberately held database row lock")
+            .isInstanceOf(TimeoutException.class);
+    }
+
+    private void awaitDatabaseLockWaiters(String table, int expected) {
+        var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        do {
+            var waiters = jdbcTemplate.queryForObject("""
+                SELECT count(*)::int
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND state = 'active'
+                  AND wait_event_type = 'Lock'
+                  AND query ILIKE ?
+                """, Integer.class, "%" + table + "%");
+            if (waiters != null && waiters >= expected) {
+                return;
+            }
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+        } while (System.nanoTime() < deadline);
+        throw new AssertionError("Expected " + expected + " database lock waiters on " + table);
+    }
+
+    private HeldRowLock holdRowLock(String table, String id) throws Exception {
+        var allowedTable = switch (table) {
+            case "production_material_scrap", "production_material_issue_line" -> table;
+            default -> throw new IllegalArgumentException("Unsupported test row lock table: " + table);
+        };
+        Connection connection = dataSource.getConnection();
+        var acquired = false;
+        try {
+            connection.setAutoCommit(false);
+            try (var statement = connection.prepareStatement(
+                "SELECT id FROM " + allowedTable + " WHERE id = ?::uuid FOR UPDATE"
+            )) {
+                statement.setString(1, id);
+                try (var result = statement.executeQuery()) {
+                    if (!result.next()) {
+                        throw new AssertionError("Missing row for deterministic concurrency lock: " + id);
+                    }
+                }
+            }
+            acquired = true;
+            return new HeldRowLock(connection);
+        } finally {
+            if (!acquired) {
+                connection.close();
+            }
+        }
+    }
+
+    private Map<String, Object> pushFromFixture() {
+        return fixture.trackScrap(materialScrapAppService.pushFromIssue(fixture.sourceIssueNo, null));
     }
 
     private ScrapDraftRequest request(
@@ -526,6 +655,32 @@ public class MaterialScrapAppServiceIntegrationTest {
         assertThat((BigDecimal) value).isEqualByComparingTo(expected);
     }
 
+    private static final class HeldRowLock implements AutoCloseable {
+        private Connection connection;
+
+        private HeldRowLock(Connection connection) {
+            this.connection = connection;
+        }
+
+        private void release() throws Exception {
+            var held = connection;
+            if (held == null) {
+                return;
+            }
+            connection = null;
+            try {
+                held.rollback();
+            } finally {
+                held.close();
+            }
+        }
+
+        @Override
+        public void close() throws Exception {
+            release();
+        }
+    }
+
     public static final class Fixture {
         private final JdbcTemplate jdbcTemplate;
         private final String accountSetId;
@@ -543,6 +698,7 @@ public class MaterialScrapAppServiceIntegrationTest {
         private final String sourceIssueLineId;
         private final String targetWarehouseCode;
         private final List<String> extraWarehouseIds = new java.util.ArrayList<>();
+        private final Map<String, String> trackedScraps = new LinkedHashMap<>();
 
         public Fixture(JdbcTemplate jdbcTemplate, String accountSetId) {
             this.jdbcTemplate = jdbcTemplate;
@@ -644,6 +800,7 @@ public class MaterialScrapAppServiceIntegrationTest {
                 RETURNING id::text
                 """, String.class,
                 billNo, billDate, sourceIssueId, workshopId, workshopCode, prefix + " 车间", status);
+            trackScrap(scrapId, billNo);
             jdbcTemplate.update("""
                 INSERT INTO production_material_scrap_line (
                     scrap_id, line_no, source_issue_line_id, product_id,
@@ -671,6 +828,23 @@ public class MaterialScrapAppServiceIntegrationTest {
                 scrapQty.signum() == 0 ? null : suffix + " 原因"
             );
             return new ScrapRow(scrapId, billNo);
+        }
+
+        public Map<String, Object> trackScrap(Map<String, Object> scrap) {
+            var scrapId = scrap.get("id");
+            var billNo = scrap.get("billNo");
+            if (scrapId == null || billNo == null) {
+                throw new AssertionError("Created material scrap must expose exact id and billNo");
+            }
+            trackScrap(String.valueOf(scrapId), String.valueOf(billNo));
+            return scrap;
+        }
+
+        private void trackScrap(String scrapId, String billNo) {
+            if (scrapId == null || scrapId.isBlank() || billNo == null || billNo.isBlank()) {
+                throw new AssertionError("Created material scrap must expose exact id and billNo");
+            }
+            trackedScraps.put(scrapId, billNo);
         }
 
         public AdditionalSourceLine addSecondSourceLine() {
@@ -734,6 +908,7 @@ public class MaterialScrapAppServiceIntegrationTest {
         }
 
         public void clean() {
+            deleteTrackedScrapLogs();
             jdbcTemplate.update("""
                 DELETE FROM sys_operation_log
                 WHERE target_id IN (
@@ -762,6 +937,25 @@ public class MaterialScrapAppServiceIntegrationTest {
                 jdbcTemplate.update("DELETE FROM md_warehouse WHERE id = ?::uuid", warehouseId);
             }
             jdbcTemplate.update("DELETE FROM md_production_department WHERE id = ?::uuid", workshopId);
+            deleteTrackedScrapLogs();
+            assertTrackedScrapLogsDeleted();
+        }
+
+        private void deleteTrackedScrapLogs() {
+            trackedScraps.forEach((scrapId, billNo) -> jdbcTemplate.update("""
+                DELETE FROM sys_operation_log
+                WHERE target_id = ?::uuid
+                   OR target_no = ?
+                """, scrapId, billNo));
+        }
+
+        private void assertTrackedScrapLogsDeleted() {
+            trackedScraps.forEach((scrapId, billNo) -> assertThat(jdbcTemplate.queryForObject("""
+                SELECT count(*)::int
+                FROM sys_operation_log
+                WHERE target_id = ?::uuid
+                   OR target_no = ?
+                """, Integer.class, scrapId, billNo)).isZero());
         }
 
         public String prefix() {
@@ -798,6 +992,10 @@ public class MaterialScrapAppServiceIntegrationTest {
 
         public String targetWarehouseCode() {
             return targetWarehouseCode;
+        }
+
+        public String taskId() {
+            return taskId;
         }
 
         public record ScrapRow(String id, String billNo) {
