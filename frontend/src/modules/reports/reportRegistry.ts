@@ -1,8 +1,13 @@
+import { financeReportDefinitions } from "./financeReports";
 import { inventoryMovementReport } from "./inventoryMovementReport";
 import { salesReportDefinitions } from "./salesReports";
 import type { ReportDefinition } from "./reportTypes";
 
-const definitions: readonly ReportDefinition[] = [inventoryMovementReport, ...salesReportDefinitions];
+const definitions: readonly ReportDefinition[] = [
+  inventoryMovementReport,
+  ...salesReportDefinitions,
+  ...financeReportDefinitions
+];
 const registry = new Map<string, ReportDefinition>();
 
 for (const definition of definitions) {

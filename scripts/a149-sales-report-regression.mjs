@@ -105,7 +105,11 @@ contains(inventoryFrontend, /sourceDrill:[\s\S]*?targets:[\s\S]*?"salesOut"[\s\S
 contains(reportPage, /props\.definition\.sourceDrill[\s\S]*?drill\.targets\.some[\s\S]*?drill\.trust\.acceptedValues\.includes/, "共享页面必须从 definition 读取 target/trust contract");
 excludes(reportPage, /trustedSourceTargets|row\.traceQuality === "EXACT"/, "共享页面不得硬编码 target 集合或库存 EXACT 规则");
 contains(reportRegistry, /import \{ salesReportDefinitions \} from "\.\/salesReports"/, "registry 必须 runtime import 销售领域 definitions");
-contains(reportRegistry, /\[inventoryMovementReport, \.\.\.salesReportDefinitions\]/, "registry 必须显式汇总库存与销售 definitions");
+contains(
+  reportRegistry,
+  /const definitions[\s\S]*?inventoryMovementReport[\s\S]*?\.\.\.salesReportDefinitions/,
+  "registry 必须显式汇总库存与销售 definitions，并允许后续领域继续注册"
+);
 excludes(frontend, /reportDefinitionForEntryId|isRegisteredReportEntry/, "销售领域配置不得反向 import reportRegistry");
 const importGraph = assertReportImportGraph(rootDir);
 assert(importGraph.checked && importGraph.domainConfigs.includes("frontend/src/modules/reports/salesReports.ts"), "A149 必须通过共享 report import graph 并覆盖销售配置");
