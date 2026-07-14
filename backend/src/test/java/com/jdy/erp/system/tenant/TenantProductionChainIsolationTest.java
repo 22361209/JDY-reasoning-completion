@@ -1,6 +1,9 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.assertExactLifecycle;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -16,6 +19,7 @@ import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.testsupport.InventoryTraceAssertions.SourceDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -110,6 +114,29 @@ class TenantProductionChainIsolationTest {
         var issueNoA = saveAndAuditIssue(taskBillNoA);
         assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
         var productInNoA = completeFromIssue(issueNoA, new BigDecimal("5"));
+        assertExactLifecycle(
+            jdbcTemplate,
+            productInDocument(productInNoA),
+            "PRODUCTION_COMPLETION", PARENT_CODE, WAREHOUSE_CODE,
+            fact("PRODUCTION_COMPLETE", "AUDIT", "5", "5")
+        );
+        productInAppService.reverse(productInNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            productInDocument(productInNoA),
+            "PRODUCTION_COMPLETION", PARENT_CODE, WAREHOUSE_CODE,
+            fact("PRODUCTION_COMPLETE", "AUDIT", "5", "5"),
+            reversal("PRODUCTION_COMPLETE_REVERSE", "REVERSE", "-5", "0", 0)
+        );
+        productInAppService.audit(productInNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            productInDocument(productInNoA),
+            "PRODUCTION_COMPLETION", PARENT_CODE, WAREHOUSE_CODE,
+            fact("PRODUCTION_COMPLETE", "AUDIT", "5", "5"),
+            reversal("PRODUCTION_COMPLETE_REVERSE", "REVERSE", "-5", "0", 0),
+            fact("PRODUCTION_COMPLETE", "AUDIT", "5", "5")
+        );
         assertBalance(PARENT_CODE, "5.0000", "0.0000", "5.0000");
         assertKitAnalysis(planNoA, "A119 账套A子件", "10.0000", "20.0000", "0.0000");
         assertListContainsSingle("production-plan-list", "A119 账套A母件", planNoA);
@@ -126,7 +153,13 @@ class TenantProductionChainIsolationTest {
         var taskBillNoB = pushDownPlanAndAssertPurchaseRequisition(planNoB, "A119 账套B供应商", "A119 账套B子件", "2.0000");
         var issueNoB = saveAndAuditIssue(taskBillNoB);
         assertBalance(COMPONENT_CODE, "2.0000", "0.0000", "2.0000");
-        completeFromIssue(issueNoB, BigDecimal.ONE);
+        var productInNoB = completeFromIssue(issueNoB, BigDecimal.ONE);
+        assertExactLifecycle(
+            jdbcTemplate,
+            productInDocument(productInNoB),
+            "PRODUCTION_COMPLETION", PARENT_CODE, WAREHOUSE_CODE,
+            fact("PRODUCTION_COMPLETE", "AUDIT", "1", "1")
+        );
         assertBalance(PARENT_CODE, "1.0000", "0.0000", "1.0000");
         assertThat(countProductsNamed("A119 账套A母件")).isZero();
         assertThat(countProductsNamed("A119 账套A子件")).isZero();
@@ -429,7 +462,15 @@ class TenantProductionChainIsolationTest {
             null
         ));
         var productInNo = generatedBillNo(saved, "产品入库单");
+        jdbcTemplate.update("""
+            UPDATE production_completion
+            SET created_at = TIMESTAMPTZ '2026-07-13 16:30:00+00'
+            WHERE bill_no = ?
+            """, productInNo);
         productInAppService.audit(productInNo);
+        @SuppressWarnings("unchecked")
+        var document = (Map<String, Object>) productInAppService.detail(productInNo).get("document");
+        assertThat(document.get("billDate")).isEqualTo("2026-07-14");
         return productInNo;
     }
 
@@ -536,6 +577,16 @@ class TenantProductionChainIsolationTest {
         var billNo = (String) saved.get("billNo");
         assertThat(billNo).as(label + "系统生成单号").isNotBlank();
         return billNo;
+    }
+
+    private SourceDocument productInDocument(String billNo) {
+        return new SourceDocument(
+            "production_completion",
+            "production_completion_line",
+            "completion_id",
+            "created_at",
+            billNo
+        );
     }
 
     private int countProductsNamed(String name) {

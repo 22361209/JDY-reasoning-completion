@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.purchase.application.PurchaseInAppService;
 import com.jdy.erp.sales.application.SalesOutAppService;
@@ -43,6 +44,7 @@ class RedReverseOperationLogIntegrationTest {
     private static final String PARTY_ID = "00000000-0000-0000-0000-000000000103";
     private static final String PRODUCT_ID = "00000000-0000-0000-0000-000000000104";
     private static final String WAREHOUSE_ID = "00000000-0000-0000-0000-000000000105";
+    private static final String RED_BILL_LINE_ID = "00000000-0000-0000-0000-000000000106";
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -70,6 +72,8 @@ class RedReverseOperationLogIntegrationTest {
     private ProductSnapshotService productSnapshotService;
     @Mock
     private RedReverseGuardService redReverseGuardService;
+    @Mock
+    private com.jdy.erp.inventory.application.InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     private SalesOutAppService salesOutAppService;
     private PurchaseInAppService purchaseInAppService;
@@ -89,7 +93,8 @@ class RedReverseOperationLogIntegrationTest {
             taxAmountCalculator,
             inventoryPostingService,
             productSnapshotService,
-            redReverseGuardService
+            redReverseGuardService,
+            inventoryTraceLifecycleService
         );
         purchaseInAppService = new PurchaseInAppService(
             jdbcTemplate,
@@ -102,7 +107,8 @@ class RedReverseOperationLogIntegrationTest {
             numberingService,
             taxAmountCalculator,
             productSnapshotService,
-            redReverseGuardService
+            redReverseGuardService,
+            inventoryTraceLifecycleService
         );
     }
 
@@ -143,13 +149,19 @@ class RedReverseOperationLogIntegrationTest {
         salesOutAppService.audit(RED_BILL_NO);
 
         InOrder order = inOrder(inventoryPostingService, conversionService, postingPipeline, operationLogService);
-        order.verify(inventoryPostingService).reverseShipReserved(
-            "CP-001",
-            "CK-001",
-            new BigDecimal("2"),
-            "SALES_OUT_RED",
-            "SALES_OUT_RED:" + RED_BILL_NO
-        );
+        order.verify(inventoryPostingService).reverseShipReserved(argThat(command ->
+            command != null
+                && "CP-001".equals(command.productCode())
+                && "CK-001".equals(command.warehouseCode())
+                && new BigDecimal("2").compareTo(command.quantity()) == 0
+                && "SALES_OUT_RED".equals(command.txnType())
+                && "SALES_OUT".equals(command.sourceBillType())
+                && RED_BILL_ID.equals(String.valueOf(command.sourceBillId()))
+                && RED_BILL_LINE_ID.equals(String.valueOf(command.sourceBillLineId()))
+                && RED_BILL_NO.equals(command.sourceBillNo())
+                && LocalDate.of(2026, 7, 12).equals(command.sourceBillDate())
+                && command.postingAction() == PostingAction.RED_AUDIT
+        ));
         order.verify(conversionService).decreaseExecutedQuantity(
             any(SourceExecutionSpec.class),
             eq(SOURCE_BILL_ID),
@@ -527,13 +539,17 @@ class RedReverseOperationLogIntegrationTest {
     }
 
     private Map<String, Object> postingLine() {
-        return Map.of(
-            "lineNo", 1,
-            "sourceOrderNo", SOURCE_BILL_NO,
-            "sourceLineNo", 1,
-            "productCode", "CP-001",
-            "warehouseCode", "CK-001",
-            "qty", new BigDecimal("-2")
+        return Map.ofEntries(
+            Map.entry("sourceBillId", RED_BILL_ID),
+            Map.entry("sourceBillLineId", RED_BILL_LINE_ID),
+            Map.entry("sourceBillNo", RED_BILL_NO),
+            Map.entry("sourceBillDate", LocalDate.of(2026, 7, 12)),
+            Map.entry("lineNo", 1),
+            Map.entry("sourceOrderNo", SOURCE_BILL_NO),
+            Map.entry("sourceLineNo", 1),
+            Map.entry("productCode", "CP-001"),
+            Map.entry("warehouseCode", "CK-001"),
+            Map.entry("qty", new BigDecimal("-2"))
         );
     }
 }

@@ -8,6 +8,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
@@ -15,8 +18,6 @@ import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGua
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
-import com.jdy.erp.shared.application.FinancePosting;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogCommand;
@@ -72,6 +73,7 @@ public class PurchaseInAppService {
     private final TaxAmountCalculator taxAmountCalculator;
     private final ProductSnapshotService productSnapshotService;
     private final RedReverseGuardService redReverseGuardService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public PurchaseInAppService(
         JdbcTemplate jdbcTemplate,
@@ -84,7 +86,8 @@ public class PurchaseInAppService {
         NumberingService numberingService,
         TaxAmountCalculator taxAmountCalculator,
         ProductSnapshotService productSnapshotService,
-        RedReverseGuardService redReverseGuardService
+        RedReverseGuardService redReverseGuardService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -97,6 +100,7 @@ public class PurchaseInAppService {
         this.taxAmountCalculator = taxAmountCalculator;
         this.productSnapshotService = productSnapshotService;
         this.redReverseGuardService = redReverseGuardService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -172,7 +176,7 @@ public class PurchaseInAppService {
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var currency = settlementCurrency(request);
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO purchase_in (bill_no, source_order_id, supplier_id, bill_date, department, status, total_amount, currency, owner_name)
             VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
@@ -186,6 +190,7 @@ public class PurchaseInAppService {
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_in.version + 1
+            WHERE purchase_in.status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
@@ -198,7 +203,12 @@ public class PurchaseInAppService {
             currency,
             request.ownerName()
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿采购入库单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("PURCHASE_IN", billId);
         jdbcTemplate.update("DELETE FROM purchase_in_line WHERE bill_id = ?::uuid", billId);
         insertLines("purchase_in_line", "bill_id", billId, request.sourceOrderNo(), request.lines());
         return bill;
@@ -235,14 +245,7 @@ public class PurchaseInAppService {
         }
         refreshPurchaseSourceStatuses(lines);
         for (var line : lines) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
-                String.valueOf(line.get("productCode")),
-                String.valueOf(line.get("warehouseCode")),
-                (BigDecimal) line.get("qty"),
-                "PURCHASE_IN",
-                "PURCHASE_IN:" + billNo
-            ));
+            postingPipeline.post(inventoryContext(line, (BigDecimal) line.get("qty"), "PURCHASE_IN", PostingAction.AUDIT));
         }
         postingPipeline.post(financeContext(row, "PURCHASE_IN"));
         return row;
@@ -269,14 +272,7 @@ public class PurchaseInAppService {
 	        }
 	        var lines = postingLines(billNo);
         for (var line : lines) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
-                String.valueOf(line.get("productCode")),
-                String.valueOf(line.get("warehouseCode")),
-                ((BigDecimal) line.get("qty")).negate(),
-                "PURCHASE_IN_REVERSE",
-                "PURCHASE_IN_REVERSE:" + billNo
-            ));
+            postingPipeline.post(inventoryContext(line, ((BigDecimal) line.get("qty")).negate(), "PURCHASE_IN_REVERSE", PostingAction.REVERSE));
         }
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
@@ -404,14 +400,7 @@ public class PurchaseInAppService {
 	        var lines = postingLines(billNo);
 	        for (var line : lines) {
 	            var qty = positiveRedQty(line, "采购入库红字单分录数量必须为负数");
-	            postingPipeline.post(new PostingContext(
-	                InventoryPostingHook.CHANNEL,
-	                String.valueOf(line.get("productCode")),
-	                String.valueOf(line.get("warehouseCode")),
-	                qty.negate(),
-	                "PURCHASE_IN_RED",
-	                "PURCHASE_IN_RED:" + billNo
-	            ));
+	            postingPipeline.post(inventoryContext(line, qty.negate(), "PURCHASE_IN_RED", PostingAction.RED_AUDIT));
 	            var sourceOrderId = sourceOrderIdFromLine(line);
 	            if (sourceOrderId != null) {
 	                conversionService.decreaseExecutedQuantity(
@@ -437,14 +426,7 @@ public class PurchaseInAppService {
 	        var lines = postingLines(billNo);
 	        for (var line : lines) {
 	            var qty = positiveRedQty(line, "采购入库红字单分录数量必须为负数");
-	            postingPipeline.post(new PostingContext(
-	                InventoryPostingHook.CHANNEL,
-	                String.valueOf(line.get("productCode")),
-	                String.valueOf(line.get("warehouseCode")),
-	                qty,
-	                "PURCHASE_IN_RED_REVERSE",
-	                "PURCHASE_IN_RED_REVERSE:" + billNo
-	            ));
+	            postingPipeline.post(inventoryContext(line, qty, "PURCHASE_IN_RED_REVERSE", PostingAction.RED_REVERSE));
 	            var sourceOrderId = sourceOrderIdFromLine(line);
 	            if (sourceOrderId != null) {
 	                conversionService.increaseExecutedQuantity(
@@ -490,7 +472,11 @@ public class PurchaseInAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo",
+            SELECT pi.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   pi.bill_no AS "sourceBillNo",
+                   pi.bill_date AS "sourceBillDate",
+                   l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -505,14 +491,29 @@ public class PurchaseInAppService {
             """, billNo);
     }
 
-    private PostingContext financeContext(Map<String, Object> row, String txnType) {
-        return new PostingContext(
-            FinancePosting.CHANNEL,
-            null,
-            null,
-            null,
+    private PostingContext inventoryContext(
+        Map<String, Object> line,
+        BigDecimal qty,
+        String txnType,
+        PostingAction postingAction
+    ) {
+        return PostingContext.inventory(InventoryPostingCommand.document(
+            String.valueOf(line.get("productCode")),
+            String.valueOf(line.get("warehouseCode")),
+            qty,
             txnType,
-            txnType + ":" + row.get("billNo"),
+            "PURCHASE_IN",
+            line.get("sourceBillId"),
+            line.get("sourceBillLineId"),
+            String.valueOf(line.get("sourceBillNo")),
+            line.get("sourceBillDate"),
+            postingAction
+        ));
+    }
+
+    private PostingContext financeContext(Map<String, Object> row, String txnType) {
+        return PostingContext.finance(
+            txnType,
             String.valueOf(row.get("billNo")),
             String.valueOf(row.get("supplierId")),
             toLocalDate(row.get("billDate")),

@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
 import org.springframework.http.HttpStatus;
@@ -51,17 +52,20 @@ public class BillLifecycleService {
     private final OperationLogService operationLogService;
     private final OperationLogFailureService operationLogFailureService;
     private final CurrentSessionService currentSessionService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public BillLifecycleService(
         JdbcTemplate jdbcTemplate,
         OperationLogService operationLogService,
         OperationLogFailureService operationLogFailureService,
-        CurrentSessionService currentSessionService
+        CurrentSessionService currentSessionService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.operationLogService = operationLogService;
         this.operationLogFailureService = operationLogFailureService;
         this.currentSessionService = currentSessionService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> transition(String table, String billNo, BillStatus from, BillStatus to) {
@@ -160,6 +164,7 @@ public class BillLifecycleService {
             SELECT id::text AS id, bill_no AS "billNo"
             FROM %s
             WHERE bill_no = ? AND status = ?
+            FOR UPDATE
             """.formatted(target.headerTable()), billNo, BillStatus.DRAFT.name());
         if (rows.isEmpty()) {
             var reason = conflictMessage == null ? "只有草稿单据可以删除" : conflictMessage;
@@ -167,14 +172,18 @@ public class BillLifecycleService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
         }
         var row = rows.get(0);
+        inventoryTraceLifecycleService.assertNoPostingHistory(row.get("id"));
         jdbcTemplate.update("""
             DELETE FROM %s
             WHERE %s = ?::uuid
             """.formatted(target.lineTable(), target.lineOwnerColumn()), row.get("id"));
-        jdbcTemplate.update("""
+        var deleted = jdbcTemplate.update("""
             DELETE FROM %s
-            WHERE id = ?::uuid
+            WHERE id = ?::uuid AND status = 'DRAFT'
             """.formatted(target.headerTable()), row.get("id"));
+        if (deleted != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据状态已变化，请刷新后重试");
+        }
         logLifecycleSuccess(
             target.module(),
             "DELETE",

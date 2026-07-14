@@ -166,7 +166,13 @@ class OperationLogFailureIntegrationTest {
         var jdbcTemplate = mock(JdbcTemplate.class);
         var successes = mock(OperationLogService.class);
         var failures = mock(OperationLogFailureService.class);
-        var lifecycle = new BillLifecycleService(jdbcTemplate, successes, failures, mock(CurrentSessionService.class));
+        var lifecycle = new BillLifecycleService(
+            jdbcTemplate,
+            successes,
+            failures,
+            mock(CurrentSessionService.class),
+            new com.jdy.erp.inventory.application.InventoryTraceLifecycleService(jdbcTemplate)
+        );
         var id = "00000000-0000-0000-0000-000000000137";
         when(jdbcTemplate.queryForList(contains("SELECT id::text AS id"), any(Object[].class))).thenReturn(java.util.List.of(Map.of(
             "id", id,
@@ -206,7 +212,13 @@ class OperationLogFailureIntegrationTest {
         var jdbcTemplate = mock(JdbcTemplate.class);
         var successes = mock(OperationLogService.class);
         var failures = mock(OperationLogFailureService.class);
-        var lifecycle = new BillLifecycleService(jdbcTemplate, successes, failures, mock(CurrentSessionService.class));
+        var lifecycle = new BillLifecycleService(
+            jdbcTemplate,
+            successes,
+            failures,
+            mock(CurrentSessionService.class),
+            new com.jdy.erp.inventory.application.InventoryTraceLifecycleService(jdbcTemplate)
+        );
         var id = "00000000-0000-0000-0000-000000000138";
         when(jdbcTemplate.queryForList(contains("UPDATE sales_order"), any(Object[].class))).thenReturn(java.util.List.of());
         when(jdbcTemplate.queryForList(contains("SELECT id::text AS id"), any(Object[].class))).thenReturn(java.util.List.of(Map.of(
@@ -233,7 +245,8 @@ class OperationLogFailureIntegrationTest {
             probeJdbc,
             mock(OperationLogService.class),
             probeFailures,
-            mock(CurrentSessionService.class)
+            mock(CurrentSessionService.class),
+            new com.jdy.erp.inventory.application.InventoryTraceLifecycleService(probeJdbc)
         );
         when(probeJdbc.queryForList(any(String.class), any(Object[].class))).thenReturn(java.util.List.of());
         assertThatThrownBy(() -> probeLifecycle.transition(

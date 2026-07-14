@@ -80,18 +80,32 @@ public class OpeningStockService {
         var amount = unitCost == null ? null : qty.multiply(unitCost).setScale(2, RoundingMode.HALF_UP);
         var productId = lookupService.lookupEnabledId("md_product", productCode, "物料");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
+        jdbcTemplate.update("""
+            INSERT INTO inv_stock_balance (
+                account_set_id, product_id, warehouse_id,
+                qty_on_hand, qty_available, qty_reserved
+            )
+            VALUES (?::uuid, ?::uuid, ?::uuid, 0, 0, 0)
+            ON CONFLICT (account_set_id, product_id, warehouse_id) DO NOTHING
+            """, accountSetId, productId, warehouseId);
         var oldRows = jdbcTemplate.queryForList("""
             SELECT qty_on_hand,
+                   qty_reserved,
                    amount
             FROM inv_stock_balance
             WHERE account_set_id = ?::uuid
               AND product_id = ?::uuid
               AND warehouse_id = ?::uuid
+            FOR UPDATE
             """, accountSetId, productId, warehouseId);
-        var oldQty = oldRows.isEmpty() ? BigDecimal.ZERO : BigDecimal.class.cast(oldRows.get(0).get("qty_on_hand"));
-        var oldAmount = oldRows.isEmpty() || oldRows.get(0).get("amount") == null
+        var oldQty = BigDecimal.class.cast(oldRows.getFirst().get("qty_on_hand"));
+        var oldReserved = BigDecimal.class.cast(oldRows.getFirst().get("qty_reserved"));
+        var oldAmount = oldRows.getFirst().get("amount") == null
             ? BigDecimal.ZERO
-            : BigDecimal.class.cast(oldRows.get(0).get("amount"));
+            : BigDecimal.class.cast(oldRows.getFirst().get("amount"));
+        if (qty.compareTo(oldReserved) < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "期初数量不能小于已预留数量");
+        }
         var opening = jdbcTemplate.queryForMap("""
             INSERT INTO inv_stock_opening (account_set_id, product_id, warehouse_id, qty, unit_cost, amount, remark, updated_by)
             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?::uuid)
@@ -105,23 +119,37 @@ public class OpeningStockService {
             RETURNING id::text AS id
             """, accountSetId, productId, warehouseId, qty, unitCost, amount, line.remark(), userId);
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_balance (account_set_id, product_id, warehouse_id, qty_on_hand, qty_available, qty_reserved, unit_cost, amount)
-            VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, 0, ?, ?)
-            ON CONFLICT (account_set_id, product_id, warehouse_id) DO UPDATE
-            SET qty_on_hand = EXCLUDED.qty_on_hand,
-                qty_reserved = 0,
-                qty_available = EXCLUDED.qty_available,
-                unit_cost = EXCLUDED.unit_cost,
-                amount = EXCLUDED.amount,
+            UPDATE inv_stock_balance
+            SET qty_on_hand = ?,
+                qty_available = ?,
+                unit_cost = ?,
+                amount = ?,
                 updated_at = now(),
-                version = inv_stock_balance.version + 1
-            """, accountSetId, productId, warehouseId, qty, qty, unitCost, amount);
+                version = version + 1
+            WHERE account_set_id = ?::uuid
+              AND product_id = ?::uuid
+              AND warehouse_id = ?::uuid
+            """, qty, qty.subtract(oldReserved), unitCost, amount, accountSetId, productId, warehouseId);
         var qtyDelta = qty.subtract(oldQty);
         var amountDelta = amount == null ? null : amount.subtract(oldAmount);
         jdbcTemplate.update("""
-            INSERT INTO inv_stock_txn (account_set_id, txn_type, product_id, warehouse_id, qty_delta, source_bill_type, source_bill_id, unit_cost, amount)
-            VALUES (?::uuid, 'OPENING_STOCK', ?::uuid, ?::uuid, ?, 'OPENING_STOCK', ?::uuid, ?, ?)
-            """, accountSetId, productId, warehouseId, qtyDelta, opening.get("id"), unitCost, amountDelta);
+            INSERT INTO inv_stock_txn (
+                account_set_id, txn_type, product_id, warehouse_id, qty_delta,
+                source_bill_type, source_bill_id, source_bill_line_id,
+                source_bill_no, source_bill_date, posting_action,
+                qty_on_hand_after, trace_quality, unit_cost, amount, occurred_at
+            )
+            SELECT
+                ?::uuid, 'OPENING_STOCK', ?::uuid, ?::uuid, ?,
+                'OPENING_STOCK', ?::uuid, ?::uuid,
+                ?, (fact_clock.occurred_at AT TIME ZONE 'Asia/Shanghai')::date,
+                'AUDIT', ?, 'CONTROLLED', ?, ?, fact_clock.occurred_at
+            FROM (SELECT clock_timestamp() AS occurred_at) fact_clock
+            """,
+            accountSetId, productId, warehouseId, qtyDelta,
+            opening.get("id"), opening.get("id"), "OPENING-" + opening.get("id"),
+            qty, unitCost, amountDelta
+        );
     }
 
     private BigDecimal nonNegative(BigDecimal value, String label) {

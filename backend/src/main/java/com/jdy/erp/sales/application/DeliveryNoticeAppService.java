@@ -8,7 +8,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.inventory.application.InventoryPostingService;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
@@ -62,6 +65,7 @@ public class DeliveryNoticeAppService {
     private final InventoryPostingService inventoryPostingService;
     private final ProductSnapshotService productSnapshotService;
     private final TenantDataScopeService tenantDataScopeService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public DeliveryNoticeAppService(
         JdbcTemplate jdbcTemplate,
@@ -73,7 +77,8 @@ public class DeliveryNoticeAppService {
         TaxAmountCalculator taxAmountCalculator,
         InventoryPostingService inventoryPostingService,
         ProductSnapshotService productSnapshotService,
-        TenantDataScopeService tenantDataScopeService
+        TenantDataScopeService tenantDataScopeService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -85,6 +90,7 @@ public class DeliveryNoticeAppService {
         this.inventoryPostingService = inventoryPostingService;
         this.productSnapshotService = productSnapshotService;
         this.tenantDataScopeService = tenantDataScopeService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -123,7 +129,7 @@ public class DeliveryNoticeAppService {
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var currency = inheritedCurrency(request);
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO delivery_notice (bill_no, customer_id, bill_date, department, status, total_amount, currency, owner_name, remark, created_by)
             VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
@@ -137,6 +143,7 @@ public class DeliveryNoticeAppService {
                 remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = delivery_notice.version + 1
+            WHERE delivery_notice.status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
@@ -150,7 +157,12 @@ public class DeliveryNoticeAppService {
             validationService.optionalText(request.remark()),
             currentSessionService.currentUserId()
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿发货通知单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("DELIVERY_NOTICE", billId);
         jdbcTemplate.update("DELETE FROM delivery_notice_line WHERE bill_id = ?::uuid", billId);
         insertLines(billId, request.sourceOrderNo(), request.lines());
         return bill;
@@ -173,13 +185,18 @@ public class DeliveryNoticeAppService {
         var lines = postingLines(billNo);
         lifecycleService.guardSourceLineQuantities(SALES_ORDER_NOTICE_QUANTITY_GUARD, sourceLineDemands(lines), billNo);
         for (var line : lines) {
-            inventoryPostingService.reserve(
+            inventoryPostingService.reserve(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 (BigDecimal) line.get("qty"),
                 "DELIVERY_NOTICE_RESERVE",
-                "DELIVERY_NOTICE:" + billNo
-            );
+                "DELIVERY_NOTICE",
+                line.get("sourceBillId"),
+                line.get("sourceBillLineId"),
+                billNo,
+                line.get("sourceBillDate"),
+                PostingAction.RESERVE
+            ));
         }
         return row;
     }
@@ -201,13 +218,18 @@ public class DeliveryNoticeAppService {
             "发货通知单不存在或不能反审核"
         );
         for (var line : postingLines(billNo)) {
-            inventoryPostingService.releaseReservation(
+            inventoryPostingService.releaseReservation(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 (BigDecimal) line.get("qty"),
                 "DELIVERY_NOTICE_RESERVE_REVERSE",
-                "DELIVERY_NOTICE_REVERSE:" + billNo
-            );
+                "DELIVERY_NOTICE",
+                line.get("sourceBillId"),
+                line.get("sourceBillLineId"),
+                billNo,
+                line.get("sourceBillDate"),
+                PostingAction.RELEASE
+            ));
         }
         return row;
     }
@@ -321,7 +343,10 @@ public class DeliveryNoticeAppService {
 
     private List<Map<String, Object>> detailLines(String billNo) {
         var lines = jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo",
+            SELECT dn.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   dn.bill_date AS "sourceBillDate",
+                   l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
                    l.product_id::text AS "productId",
@@ -380,7 +405,10 @@ public class DeliveryNoticeAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo",
+            SELECT dn.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   dn.bill_date AS "sourceBillDate",
+                   l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",

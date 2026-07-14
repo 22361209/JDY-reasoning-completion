@@ -8,6 +8,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.inventory.application.InventoryPostingService;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
@@ -15,7 +19,6 @@ import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGua
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.ConversionService;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
-import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogCommand;
@@ -28,7 +31,6 @@ import com.jdy.erp.shared.application.TaxAmountCalculator;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import com.jdy.erp.system.security.CurrentSessionService;
-import com.jdy.erp.inventory.application.InventoryPostingService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -82,6 +84,7 @@ public class SalesOutAppService {
     private final InventoryPostingService inventoryPostingService;
     private final ProductSnapshotService productSnapshotService;
     private final RedReverseGuardService redReverseGuardService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public SalesOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -96,7 +99,8 @@ public class SalesOutAppService {
         TaxAmountCalculator taxAmountCalculator,
         InventoryPostingService inventoryPostingService,
         ProductSnapshotService productSnapshotService,
-        RedReverseGuardService redReverseGuardService
+        RedReverseGuardService redReverseGuardService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -111,6 +115,7 @@ public class SalesOutAppService {
         this.inventoryPostingService = inventoryPostingService;
         this.productSnapshotService = productSnapshotService;
         this.redReverseGuardService = redReverseGuardService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -201,7 +206,7 @@ public class SalesOutAppService {
         var createdBy = currentSessionService.currentUserId();
         var sourceDeliveryNoticeId = sourceDeliveryNoticeId(request);
         var currency = inheritedCurrency(request);
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO sales_out (bill_no, source_order_id, source_delivery_notice_id, customer_id, bill_date, department, status, total_amount, currency, owner_name, remark, created_by)
             VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid)
             ON CONFLICT (bill_no) DO UPDATE
@@ -217,6 +222,7 @@ public class SalesOutAppService {
                 remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = sales_out.version + 1
+            WHERE sales_out.status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
@@ -232,7 +238,12 @@ public class SalesOutAppService {
             validationService.optionalText(request.remark()),
             createdBy
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿销售出库单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("SALES_OUT", billId);
         jdbcTemplate.update("DELETE FROM sales_out_line WHERE bill_id = ?::uuid", billId);
         insertLines(billId, request.sourceOrderNo(), request.lines());
         return bill;
@@ -269,13 +280,18 @@ public class SalesOutAppService {
         }
         refreshSalesSourceStatuses(lines);
         for (var line : lines) {
-            inventoryPostingService.shipReserved(
+            inventoryPostingService.shipReserved(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 (BigDecimal) line.get("qty"),
                 "SALES_OUT",
-                "SALES_OUT:" + billNo
-            );
+                "SALES_OUT",
+                line.get("sourceBillId"),
+                line.get("sourceBillLineId"),
+                billNo,
+                line.get("sourceBillDate"),
+                PostingAction.AUDIT
+            ));
         }
         postingPipeline.post(financeContext(row, "SALES_OUT"));
         return row;
@@ -305,13 +321,18 @@ public class SalesOutAppService {
 	        }
 	        var lines = postingLines(billNo);
         for (var line : lines) {
-            inventoryPostingService.reverseShipReserved(
+            inventoryPostingService.reverseShipReserved(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 (BigDecimal) line.get("qty"),
                 "SALES_OUT_REVERSE",
-                "SALES_OUT_REVERSE:" + billNo
-            );
+                "SALES_OUT",
+                line.get("sourceBillId"),
+                line.get("sourceBillLineId"),
+                billNo,
+                line.get("sourceBillDate"),
+                PostingAction.REVERSE
+            ));
         }
         for (var line : lines) {
             var sourceOrderId = sourceOrderIdFromLine(line);
@@ -420,13 +441,18 @@ public class SalesOutAppService {
 	        var lines = postingLines(billNo);
 	        for (var line : lines) {
 	            var qty = positiveRedQty(line, "销售出库红字单分录数量必须为负数");
-	            inventoryPostingService.reverseShipReserved(
+	            inventoryPostingService.reverseShipReserved(InventoryPostingCommand.document(
 	                String.valueOf(line.get("productCode")),
 	                String.valueOf(line.get("warehouseCode")),
 	                qty,
 	                "SALES_OUT_RED",
-	                "SALES_OUT_RED:" + billNo
-	            );
+	                "SALES_OUT",
+	                line.get("sourceBillId"),
+	                line.get("sourceBillLineId"),
+	                billNo,
+	                line.get("sourceBillDate"),
+	                PostingAction.RED_AUDIT
+	            ));
 	            var sourceOrderId = sourceOrderIdFromLine(line);
 	            if (sourceOrderId != null) {
 	                conversionService.decreaseExecutedQuantity(
@@ -452,13 +478,18 @@ public class SalesOutAppService {
 	        var lines = postingLines(billNo);
 	        for (var line : lines) {
 	            var qty = positiveRedQty(line, "销售出库红字单分录数量必须为负数");
-	            inventoryPostingService.shipReserved(
+	            inventoryPostingService.shipReserved(InventoryPostingCommand.document(
 	                String.valueOf(line.get("productCode")),
 	                String.valueOf(line.get("warehouseCode")),
 	                qty,
 	                "SALES_OUT_RED_REVERSE",
-	                "SALES_OUT_RED_REVERSE:" + billNo
-	            );
+	                "SALES_OUT",
+	                line.get("sourceBillId"),
+	                line.get("sourceBillLineId"),
+	                billNo,
+	                line.get("sourceBillDate"),
+	                PostingAction.RED_REVERSE
+	            ));
 	            var sourceOrderId = sourceOrderIdFromLine(line);
 	            if (sourceOrderId != null) {
 	                conversionService.increaseExecutedQuantity(
@@ -534,7 +565,10 @@ public class SalesOutAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo",
+            SELECT so.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   so.bill_date AS "sourceBillDate",
+                   l.line_no AS "lineNo",
                    l.source_order_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
                    l.source_delivery_notice_no AS "sourceDeliveryNoticeNo",
@@ -587,13 +621,8 @@ public class SalesOutAppService {
     }
 
     private PostingContext financeContext(Map<String, Object> row, String txnType) {
-        return new PostingContext(
-            FinancePosting.CHANNEL,
-            null,
-            null,
-            null,
+        return PostingContext.finance(
             txnType,
-            txnType + ":" + row.get("billNo"),
             String.valueOf(row.get("billNo")),
             String.valueOf(row.get("customerId")),
             toLocalDate(row.get("billDate")),

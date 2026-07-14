@@ -25,7 +25,8 @@
       "scripts/a113b-unit-price-bulk-fill-regression.mjs",
       "scripts/a126-sales-daily-usability-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
-      "scripts/a142-sales-return-regression.mjs"
+      "scripts/a142-sales-return-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs"
     ],
     "purchase": [
       "scripts/a92-sales-document-fields-regression.mjs",
@@ -34,7 +35,8 @@
       "scripts/a116-production-plan-pushdown-regression.mjs",
       "scripts/a116b-production-source-chain-regression.mjs",
       "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
-      "scripts/a141-formal-settlement-regression.mjs"
+      "scripts/a141-formal-settlement-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs"
     ],
     "inventory": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -48,7 +50,9 @@
       "scripts/a108-delivery-notice-reservation-regression.mjs",
       "scripts/a134-security-boundary-regression.mjs",
       "scripts/a139-list-fail-closed-regression.mjs",
-      "scripts/a142-sales-return-regression.mjs"
+      "scripts/a142-sales-return-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a147-inventory-source-trace-migration-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -67,7 +71,8 @@
       "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
       "scripts/a134-security-boundary-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
-      "scripts/a142-sales-return-regression.mjs"
+      "scripts/a142-sales-return-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs"
     ],
     "table": [
       "scripts/a91-frontend-ux-regression.mjs",
@@ -103,7 +108,8 @@
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a143-master-data-import-regression.mjs",
-      "scripts/a146-numbering-rule-closure-regression.mjs"
+      "scripts/a146-numbering-rule-closure-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs"
     ],
     "system": [
       "scripts/a119-account-set-switch-ui-regression.mjs",
@@ -121,7 +127,9 @@
       "scripts/a143-master-data-import-migration-regression.mjs",
       "scripts/a144-6e-contract-regression.mjs",
       "scripts/a146-numbering-rule-closure-regression.mjs",
-      "scripts/a146-numbering-rule-migration-regression.mjs"
+      "scripts/a146-numbering-rule-migration-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a147-inventory-source-trace-migration-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -142,7 +150,9 @@
       "scripts/a114-production-plan-snapshot-regression.mjs",
       "scripts/a116-production-plan-pushdown-regression.mjs",
       "scripts/a116b-production-source-chain-regression.mjs",
-      "scripts/a118-outsourcing-chain-regression.mjs"
+      "scripts/a118-outsourcing-chain-regression.mjs",
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a147-inventory-source-trace-migration-regression.mjs"
     ],
     "master-data": [
       "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
@@ -290,7 +300,9 @@
     "scripts/a144-6e-contract-regression.mjs",
     "scripts/a145-report-query-foundation-regression.mjs",
     "scripts/a146-numbering-rule-closure-regression.mjs",
-    "scripts/a146-numbering-rule-migration-regression.mjs"
+    "scripts/a146-numbering-rule-migration-regression.mjs",
+    "scripts/a147-inventory-source-trace-regression.mjs",
+    "scripts/a147-inventory-source-trace-migration-regression.mjs"
   ],
   "exemptions": [
     {

@@ -5,10 +5,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.PostingContext;
@@ -34,8 +34,9 @@ public class StockCountLossAppService {
     private final NumberingService numberingService;
     private final PostingPipeline postingPipeline;
     private final ProductSnapshotService productSnapshotService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
-    public StockCountLossAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, BillLifecycleService lifecycleService, PostingPipeline postingPipeline, NumberingService numberingService, ProductSnapshotService productSnapshotService) {
+    public StockCountLossAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, BillLifecycleService lifecycleService, PostingPipeline postingPipeline, NumberingService numberingService, ProductSnapshotService productSnapshotService, InventoryTraceLifecycleService inventoryTraceLifecycleService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
@@ -43,6 +44,7 @@ public class StockCountLossAppService {
         this.postingPipeline = postingPipeline;
         this.numberingService = numberingService;
         this.productSnapshotService = productSnapshotService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -94,7 +96,7 @@ public class StockCountLossAppService {
         var totalAmount = request.lines().stream()
             .map(line -> positive(line.qty(), "数量").multiply(nonNegativePrice(line.unitPrice())))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO stock_count_loss (bill_no, bill_date, department, document_type, business_type, status, total_amount, owner_name)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
@@ -118,7 +120,12 @@ public class StockCountLossAppService {
             request.ownerName(),
             BillStatus.DRAFT.name()
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿盘亏单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("STOCK_COUNT_LOSS", billId);
         jdbcTemplate.update("DELETE FROM stock_count_loss_line WHERE bill_id = ?::uuid", billId);
         insertLines(billId, request.lines());
         return bill;
@@ -129,7 +136,12 @@ public class StockCountLossAppService {
         var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.DRAFT, BillStatus.AUDITED,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "AUDIT", "stock_count_loss", "盘亏单不存在或已审核");
         for (var line : postingLines(billNo)) {
-            postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "STOCK_COUNT_LOSS", "STOCK_COUNT_LOSS:" + billNo));
+            postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
+                String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")),
+                ((BigDecimal) line.get("qty")).negate(), "STOCK_COUNT_LOSS", "STOCK_COUNT_LOSS",
+                line.get("sourceBillId"), line.get("sourceBillLineId"), billNo,
+                line.get("sourceBillDate"), PostingAction.AUDIT
+            )));
         }
         return row;
     }
@@ -139,7 +151,12 @@ public class StockCountLossAppService {
         var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "REVERSE", "stock_count_loss", "盘亏单不存在或不能反审核");
         for (var line : postingLines(billNo)) {
-            postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), (BigDecimal) line.get("qty"), "STOCK_COUNT_LOSS_REVERSE", "STOCK_COUNT_LOSS_REVERSE:" + billNo));
+            postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
+                String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")),
+                (BigDecimal) line.get("qty"), "STOCK_COUNT_LOSS_REVERSE", "STOCK_COUNT_LOSS",
+                line.get("sourceBillId"), line.get("sourceBillLineId"), billNo,
+                line.get("sourceBillDate"), PostingAction.REVERSE
+            )));
         }
         return row;
     }
@@ -166,7 +183,9 @@ public class StockCountLossAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT b.id::text AS "sourceBillId", l.id::text AS "sourceBillLineId",
+                   b.bill_date AS "sourceBillDate",
+                   p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM stock_count_loss_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id

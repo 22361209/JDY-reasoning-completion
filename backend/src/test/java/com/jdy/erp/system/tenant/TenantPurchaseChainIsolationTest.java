@@ -1,6 +1,9 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.assertExactLifecycle;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -15,6 +18,7 @@ import com.jdy.erp.purchase.application.PurchaseReturnAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.testsupport.InventoryTraceAssertions.SourceDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -103,10 +107,56 @@ class TenantPurchaseChainIsolationTest {
         assertRequisitionSelectable("A119 账套A采购物料", "4.0000");
         assertPurchaseOrderSelectable("A119 账套A采购物料", orderNoA, "0.0000", "8.0000");
         var inNoA = saveAndAuditPurchaseIn(new BigDecimal("5"), orderNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", inNoA),
+            "PURCHASE_IN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_IN", "AUDIT", "5", "5")
+        );
+        purchaseInAppService.reverse(inNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", inNoA),
+            "PURCHASE_IN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_IN", "AUDIT", "5", "5"),
+            reversal("PURCHASE_IN_REVERSE", "REVERSE", "-5", "0", 0)
+        );
+        purchaseInAppService.audit(inNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", inNoA),
+            "PURCHASE_IN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_IN", "AUDIT", "5", "5"),
+            reversal("PURCHASE_IN_REVERSE", "REVERSE", "-5", "0", 0),
+            fact("PURCHASE_IN", "AUDIT", "5", "5")
+        );
         assertPurchaseOrderSelectable("A119 账套A采购物料", orderNoA, "5.0000", "3.0000");
         assertBalance("5.0000", "0.0000", "5.0000");
         assertReturnSelectable("A119 账套A采购物料", inNoA, "0.0000", "5.0000");
         var returnNoA = saveAndAuditPurchaseReturn(new BigDecimal("2"), inNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_return", "purchase_return_line", returnNoA),
+            "PURCHASE_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_RETURN", "AUDIT", "-2", "3")
+        );
+        purchaseReturnAppService.reverse(returnNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_return", "purchase_return_line", returnNoA),
+            "PURCHASE_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_RETURN", "AUDIT", "-2", "3"),
+            reversal("PURCHASE_RETURN_REVERSE", "REVERSE", "2", "5", 0)
+        );
+        purchaseReturnAppService.audit(returnNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_return", "purchase_return_line", returnNoA),
+            "PURCHASE_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_RETURN", "AUDIT", "-2", "3"),
+            reversal("PURCHASE_RETURN_REVERSE", "REVERSE", "2", "5", 0),
+            fact("PURCHASE_RETURN", "AUDIT", "-2", "3")
+        );
         assertReturnSelectable("A119 账套A采购物料", inNoA, "2.0000", "3.0000");
         assertBalance("3.0000", "0.0000", "3.0000");
         assertListContainsOnlyTenantSupplier("purchase-requisition-list", "header", "A119 账套A供应商", REQUISITION_NO);
@@ -123,7 +173,13 @@ class TenantPurchaseChainIsolationTest {
         assertRequisitionSelectable("A119 账套B采购物料", "4.0000");
         var orderNoB = saveAndAuditPurchaseOrder(new BigDecimal("3"));
         assertRequisitionSelectable("A119 账套B采购物料", "1.0000");
-        saveAndAuditPurchaseIn(new BigDecimal("1"), orderNoB);
+        var inNoB = saveAndAuditPurchaseIn(new BigDecimal("1"), orderNoB);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", inNoB),
+            "PURCHASE_IN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_IN", "AUDIT", "1", "1")
+        );
         assertPurchaseOrderSelectable("A119 账套B采购物料", orderNoB, "1.0000", "2.0000");
         assertBalance("1.0000", "0.0000", "1.0000");
         assertThat(countSuppliersNamed("A119 账套A供应商")).isZero();
@@ -410,6 +466,10 @@ class TenantPurchaseChainIsolationTest {
         var billNo = (String) saved.get("billNo");
         assertThat(billNo).as(label + "系统生成单号").isNotBlank();
         return billNo;
+    }
+
+    private SourceDocument sourceDocument(String headerTable, String lineTable, String billNo) {
+        return new SourceDocument(headerTable, lineTable, "bill_id", "bill_date", billNo);
     }
 
     private int countSuppliersNamed(String name) {

@@ -5,8 +5,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogCommand;
@@ -36,6 +38,7 @@ public class MaterialIssueAppService {
     private final BillLifecycleService lifecycleService;
     private final TenantDataScopeService tenantDataScopeService;
     private final RedReverseGuardService redReverseGuardService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public MaterialIssueAppService(
         JdbcTemplate jdbcTemplate,
@@ -46,7 +49,8 @@ public class MaterialIssueAppService {
         NumberingService numberingService,
         BillLifecycleService lifecycleService,
         TenantDataScopeService tenantDataScopeService,
-        RedReverseGuardService redReverseGuardService
+        RedReverseGuardService redReverseGuardService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -57,6 +61,7 @@ public class MaterialIssueAppService {
         this.lifecycleService = lifecycleService;
         this.tenantDataScopeService = tenantDataScopeService;
         this.redReverseGuardService = redReverseGuardService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -66,7 +71,7 @@ public class MaterialIssueAppService {
                    t.bill_no AS "sourceOrderNo",
                    'SC' AS "customerCode",
                    COALESCE(t.product_name_snapshot, task_product.name, '生产车间') AS customer,
-                   to_char(i.created_at, 'YYYY-MM-DD') AS "billDate",
+                   to_char(i.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS "billDate",
                    '生产部' AS department,
                    i.status,
 	                   COALESCE(SUM(l.amount), 0) AS "totalAmount",
@@ -178,6 +183,7 @@ public class MaterialIssueAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿生产领料单可以覆盖保存");
         }
         var issueId = String.valueOf(issueRows.get(0).get("id"));
+        inventoryTraceLifecycleService.prepareForLineReplacement("PRODUCTION_MATERIAL_ISSUE", issueId);
         jdbcTemplate.update("DELETE FROM production_material_issue_line WHERE issue_id = ?::uuid", issueId);
         insertSnapshotIssueLines(issueId, taskRows.get(0).get("id"), materialWarehouseCode, request.lines());
         operationLogService.logCurrent(OperationLogCommand.success(
@@ -266,6 +272,8 @@ public class MaterialIssueAppService {
 	    public Map<String, Object> audit(String billNo) {
 	        var issueRows = jdbcTemplate.queryForList("""
 	            SELECT i.id::text AS id,
+	                   i.bill_no AS "billNo",
+	                   (i.created_at AT TIME ZONE 'Asia/Shanghai')::date AS "billDate",
 	                   i.task_id::text AS "taskId",
 	                   i.red_source_bill_id::text AS "redSourceBillId",
 	                   t.status AS "taskStatus",
@@ -275,6 +283,7 @@ public class MaterialIssueAppService {
 	            JOIN production_task t ON t.id = i.task_id
 	            WHERE i.bill_no = ?
 	              AND i.status = ?
+	            FOR UPDATE OF i, t
 	            """, billNo, BillStatus.DRAFT.name());
 	        if (issueRows.isEmpty()) {
 	            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在、非草稿或来源任务不能领料");
@@ -285,7 +294,7 @@ public class MaterialIssueAppService {
 	        }
 	        requireExecutableTask(issue, "领料");
 	        validateIssueQtyWithinTask(billNo, String.valueOf(issue.get("taskId")));
-	        postIssueLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE", "PRODUCTION_ISSUE:" + billNo);
+	        postIssueLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE", PostingAction.AUDIT);
 	        applyIssueQtyToTask(issue.get("id"), issue.get("taskId"));
 	        var rows = markAudited(issue.get("id"));
 	        operationLogService.logCurrent(OperationLogCommand.success(
@@ -301,7 +310,7 @@ public class MaterialIssueAppService {
 	        validateRedSourceStillAudited(issue.get("redSourceBillId"));
 	        validateRedIssueLinesMatchSource(billNo, issue.get("redSourceBillId"));
 	        validateRedIssueQtyWithinTask(issue.get("id"), issue.get("taskId"));
-	        postIssueLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE_RED", "PRODUCTION_ISSUE_RED:" + billNo);
+	        postIssueLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_ISSUE_RED", PostingAction.RED_AUDIT);
 	        applyIssueQtyToTask(issue.get("id"), issue.get("taskId"));
 	        var rows = markAudited(issue.get("id"));
 	        operationLogService.logCurrent(OperationLogCommand.success(
@@ -571,6 +580,7 @@ public class MaterialIssueAppService {
                    task_id::text AS "taskId"
             FROM production_material_issue
             WHERE bill_no = ? AND status = ?
+	        FOR UPDATE
             """, billNo, BillStatus.AUDITED.name());
         if (issueRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在或不能反审核");
@@ -588,11 +598,11 @@ public class MaterialIssueAppService {
             "生产领料单不存在或不能反审核"
 	        );
 	        if (isRedBill(row)) {
-	            postIssueLines(billNo, BigDecimal.ONE, "PRODUCTION_ISSUE_RED_REVERSE", "PRODUCTION_ISSUE_RED_REVERSE:" + billNo);
+	            postIssueLines(billNo, BigDecimal.ONE, "PRODUCTION_ISSUE_RED_REVERSE", PostingAction.RED_REVERSE);
 	            decrementTaskIssuedQty(issue.get("id"), issue.get("taskId"));
 	            return row;
 	        }
-	        postIssueLines(billNo, BigDecimal.ONE, "PRODUCTION_ISSUE_REVERSE", "PRODUCTION_ISSUE_REVERSE:" + billNo);
+	        postIssueLines(billNo, BigDecimal.ONE, "PRODUCTION_ISSUE_REVERSE", PostingAction.REVERSE);
 	        decrementTaskIssuedQty(issue.get("id"), issue.get("taskId"));
 	        return row;
 	    }
@@ -655,9 +665,15 @@ public class MaterialIssueAppService {
             """, issueId, lineNo, productId, productCode, productName, spec, warehouseId, qty, unitPrice, qty.multiply(unitPrice));
     }
 
-    private void postIssueLines(String billNo, BigDecimal sign, String txnType, String sourceBillType) {
+    private void postIssueLines(String billNo, BigDecimal sign, String txnType, PostingAction postingAction) {
         var lines = jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT i.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   i.bill_no AS "sourceBillNo",
+                   (i.created_at AT TIME ZONE 'Asia/Shanghai')::date AS "sourceBillDate",
+                   p.code AS "productCode",
+                   w.code AS "warehouseCode",
+                   l.qty
             FROM production_material_issue_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -666,13 +682,18 @@ public class MaterialIssueAppService {
             ORDER BY l.line_no
             """, billNo);
         for (var line : lines) {
-            post(
+            postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 ((BigDecimal) line.get("qty")).multiply(sign),
                 txnType,
-                sourceBillType
-            );
+                "PRODUCTION_MATERIAL_ISSUE",
+                line.get("sourceBillId"),
+                line.get("sourceBillLineId"),
+                String.valueOf(line.get("sourceBillNo")),
+                line.get("sourceBillDate"),
+                postingAction
+            )));
         }
     }
 
@@ -695,10 +716,6 @@ public class MaterialIssueAppService {
             var qty = (BigDecimal) line.get("qty");
             insertIssueLine(targetIssueId, line.get("lineNo"), line.get("productId"), line.get("productCode"), line.get("productName"), line.get("spec"), line.get("warehouseId"), negate ? qty.negate() : qty, (BigDecimal) line.get("unitPrice"));
         }
-    }
-
-    private void post(String productCode, String warehouseCode, BigDecimal qty, String txnType, String sourceBillType) {
-        postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, productCode, warehouseCode, qty, txnType, sourceBillType));
     }
 
     private String inventoryScopeId() {

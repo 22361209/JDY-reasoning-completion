@@ -5,10 +5,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.PostingContext;
@@ -34,6 +34,7 @@ public class StockTransferAppService {
     private final NumberingService numberingService;
     private final PostingPipeline postingPipeline;
     private final ProductSnapshotService productSnapshotService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public StockTransferAppService(
         JdbcTemplate jdbcTemplate,
@@ -42,7 +43,8 @@ public class StockTransferAppService {
         BillLifecycleService lifecycleService,
         PostingPipeline postingPipeline,
         NumberingService numberingService,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -51,6 +53,7 @@ public class StockTransferAppService {
         this.postingPipeline = postingPipeline;
         this.numberingService = numberingService;
         this.productSnapshotService = productSnapshotService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -97,7 +100,7 @@ public class StockTransferAppService {
     @Transactional
     public Map<String, Object> saveDraft(StockTransferDraftRequest request) {
         var billNo = numberingService.assignBillNo("stockTransfer", request.billNo());
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO stock_transfer (bill_no, bill_date, department, transfer_type, business_type, status, owner_name)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
@@ -121,7 +124,12 @@ public class StockTransferAppService {
             request.ownerName(),
             BillStatus.DRAFT.name()
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿调拨单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("STOCK_TRANSFER", billId);
         jdbcTemplate.update("DELETE FROM stock_transfer_line WHERE bill_id = ?::uuid", billId);
         insertLines(billId, request.lines());
         return bill;
@@ -133,8 +141,8 @@ public class StockTransferAppService {
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "AUDIT", "stock_transfer", "调拨单不存在或已审核");
         for (var line : postingLines(billNo)) {
             var qty = (BigDecimal) line.get("qty");
-            postLeg(line, String.valueOf(line.get("sourceWarehouseCode")), qty.negate(), "STOCK_TRANSFER_OUT", billNo);
-            postLeg(line, String.valueOf(line.get("targetWarehouseCode")), qty, "STOCK_TRANSFER_IN", billNo);
+            postLeg(line, String.valueOf(line.get("sourceWarehouseCode")), qty.negate(), "STOCK_TRANSFER_OUT", PostingAction.AUDIT);
+            postLeg(line, String.valueOf(line.get("targetWarehouseCode")), qty, "STOCK_TRANSFER_IN", PostingAction.AUDIT);
         }
         return row;
     }
@@ -145,8 +153,8 @@ public class StockTransferAppService {
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "REVERSE", "stock_transfer", "调拨单不存在或不能反审核");
         for (var line : postingLines(billNo)) {
             var qty = (BigDecimal) line.get("qty");
-            postLeg(line, String.valueOf(line.get("targetWarehouseCode")), qty.negate(), "STOCK_TRANSFER_IN_REVERSE", billNo);
-            postLeg(line, String.valueOf(line.get("sourceWarehouseCode")), qty, "STOCK_TRANSFER_OUT_REVERSE", billNo);
+            postLeg(line, String.valueOf(line.get("targetWarehouseCode")), qty.negate(), "STOCK_TRANSFER_IN_REVERSE", PostingAction.REVERSE);
+            postLeg(line, String.valueOf(line.get("sourceWarehouseCode")), qty, "STOCK_TRANSFER_OUT_REVERSE", PostingAction.REVERSE);
         }
         return row;
     }
@@ -156,15 +164,22 @@ public class StockTransferAppService {
         return lifecycleService.voidBill(LIFECYCLE_TARGET, billNo, request);
     }
 
-    private void postLeg(Map<String, Object> line, String warehouseCode, BigDecimal qtyDelta, String txnType, String billNo) {
-        postingPipeline.post(new PostingContext(
-            InventoryPostingHook.CHANNEL,
+    private void postLeg(
+        Map<String, Object> line,
+        String warehouseCode,
+        BigDecimal qtyDelta,
+        String txnType,
+        PostingAction postingAction
+    ) {
+        postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
             String.valueOf(line.get("productCode")),
             warehouseCode,
             qtyDelta,
             txnType,
-            txnType + ":" + billNo
-        ));
+            "STOCK_TRANSFER",
+            line.get("sourceBillId"), line.get("sourceBillLineId"),
+            String.valueOf(line.get("sourceBillNo")), line.get("sourceBillDate"), postingAction
+        )));
     }
 
     private void insertLines(Object billId, List<StockTransferLineRequest> lines) {
@@ -190,7 +205,9 @@ public class StockTransferAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode",
+            SELECT b.id::text AS "sourceBillId", l.id::text AS "sourceBillLineId",
+                   b.bill_no AS "sourceBillNo", b.bill_date AS "sourceBillDate",
+                   p.code AS "productCode",
                    sw.code AS "sourceWarehouseCode",
                    tw.code AS "targetWarehouseCode",
                    l.qty

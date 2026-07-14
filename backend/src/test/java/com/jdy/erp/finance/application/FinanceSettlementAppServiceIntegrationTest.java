@@ -34,7 +34,6 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.OperationLogFailureService;
 import com.jdy.erp.shared.application.OperationLogService;
-import com.jdy.erp.shared.application.FinancePosting;
 import com.jdy.erp.shared.application.PostingContext;
 import com.jdy.erp.shared.application.PostingPipeline;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -659,7 +658,8 @@ class FinanceSettlementAppServiceIntegrationTest {
             lifecycleJdbc,
             mock(OperationLogService.class),
             mock(OperationLogFailureService.class),
-            mock(CurrentSessionService.class)
+            mock(CurrentSessionService.class),
+            new com.jdy.erp.inventory.application.InventoryTraceLifecycleService(lifecycleJdbc)
         );
         var controller = new BillLifecycleController(lifecycle);
 
@@ -804,13 +804,8 @@ class FinanceSettlementAppServiceIntegrationTest {
         String amount,
         String currency
     ) {
-        return new PostingContext(
-            FinancePosting.CHANNEL,
-            null,
-            null,
-            null,
+        return PostingContext.finance(
             txnType,
-            txnType + ":" + sourceBillNo,
             sourceBillNo,
             partyId,
             LocalDate.of(2026, 7, 14),

@@ -15,6 +15,7 @@ const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
+const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upperToken = token.toUpperCase();
 const upgradeDatabase = `jdy_a141_mig_${token}`;
@@ -1009,9 +1010,14 @@ try {
   result.upgrade.latest.flywayOutputTail = flywayMigrate(upgradeDatabase);
   const latestHistory = migrationHistory(upgradeDatabase);
   const v105Rows = latestHistory.filter((row) => row.version === "105");
+  const v106Rows = latestHistory.filter((row) => row.version === "106");
+  const v107Rows = latestHistory.filter((row) => row.version === "107");
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(v105Rows.length === 1 && v105Rows[0].success === true, `V105 history mismatch: ${JSON.stringify(v105Rows)}`);
-  assert(latestHistory.at(-1)?.version === "105", `repository latest must be V105: ${JSON.stringify(latestHistory.at(-1))}`);
+  assert(v106Rows.length === 1 && v106Rows[0].success === true, `V106 history mismatch: ${JSON.stringify(v106Rows)}`);
+  assert(Number(v106Rows[0].checksum) === publishedV106Checksum, `published V106 checksum changed: ${JSON.stringify(v106Rows[0])}`);
+  assert(v107Rows.length === 1 && v107Rows[0].success === true, `V107 history mismatch: ${JSON.stringify(v107Rows)}`);
+  assert(latestHistory.at(-1)?.version === "107", `repository latest must be V107: ${JSON.stringify(latestHistory.at(-1))}`);
   assert(
     Number(latestNumbering.publicChecks) === 80
       && Number(latestNumbering.tenantChecks) === 80
@@ -1026,7 +1032,8 @@ try {
   }), "V105 must not change V102-V104 settlement semantics");
   result.upgrade.latest = {
     ...result.upgrade.latest,
-    history: v105Rows[0],
+    history: v107Rows[0],
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0] },
     numbering: latestNumbering
   };
 
@@ -1040,7 +1047,7 @@ try {
   const repeatNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(same(repeatFlywayHistory, latestHistory), "repeat Flyway migrate changed migration history");
   assert(same(repeatFlywaySnapshots, migratedSnapshots), "repeat Flyway migrate changed migrated settlement semantics");
-  assert(same(repeatNumbering, latestNumbering), "repeat Flyway migrate changed V105 numbering topology");
+  assert(same(repeatNumbering, latestNumbering), "repeat Flyway migrate changed repository-latest numbering topology");
   result.upgrade.repeatFlyway = {
     flywayOutputTail: repeatFlywayOutput,
     historyCountBefore: latestHistory.length,
@@ -1198,8 +1205,15 @@ try {
     .filter((name) => /^V\d+__.+\.sql$/.test(name))
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
   const historyScripts = freshHistory.map((row) => row.script);
+  const freshV105Rows = freshHistory.filter((row) => row.version === "105");
+  const freshV106Rows = freshHistory.filter((row) => row.version === "106");
+  const freshV107Rows = freshHistory.filter((row) => row.version === "107");
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration");
   assert(same(historyScripts, sourceFiles), "fresh Flyway history does not exactly match the versioned migration source set");
+  assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, `fresh V105 history mismatch: ${JSON.stringify(freshV105Rows)}`);
+  assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, `fresh V106 history mismatch: ${JSON.stringify(freshV106Rows)}`);
+  assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, `fresh V106 checksum changed: ${JSON.stringify(freshV106Rows[0])}`);
+  assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, `fresh V107 history mismatch: ${JSON.stringify(freshV107Rows)}`);
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1243,7 +1257,7 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "105", `fresh migration max version should be V105: ${JSON.stringify(freshHistory.at(-1))}`);
+  assert(freshHistory.at(-1)?.version === "107", `fresh migration max version should be V107: ${JSON.stringify(freshHistory.at(-1))}`);
   assert(Number(freshMetrics.managedTables) === 82, `fresh managed table count should be 82: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
@@ -1251,7 +1265,7 @@ try {
   assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
-  assert(Number(freshMetrics.managedChecks) === 80 && freshMetrics.numberingVersionType === "bigint", `fresh V105 numbering metrics mismatch: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedChecks) === 80 && freshMetrics.numberingVersionType === "bigint", `fresh V105 numbering metrics mismatch after V107: ${JSON.stringify(freshMetrics)}`);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,

@@ -1,6 +1,10 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.assertExactLifecycle;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -18,6 +22,7 @@ import com.jdy.erp.sales.application.SalesReturnAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.testsupport.InventoryTraceAssertions.SourceDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,8 +120,38 @@ class TenantSalesChainIsolationTest {
         assertQuoteConsumed();
         assertOrderSelectableStock("A119 账套A销售物料", orderNoA, "20.0000", "0.0000", "20.0000");
         var noticeNoA = saveAndAuditDeliveryNotice(new BigDecimal("4"), orderNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("delivery_notice", "delivery_notice_line", "bill_id", "bill_date", noticeNoA),
+            "DELIVERY_NOTICE", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("DELIVERY_NOTICE_RESERVE", "RESERVE", "0", "20")
+        );
         assertDeliveryStock(noticeNoA, "20.0000", "4.0000", "16.0000");
         var outNoA = saveAndAuditSalesOut(new BigDecimal("3"), noticeNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_out", "sales_out_line", "bill_id", "bill_date", outNoA),
+            "SALES_OUT", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_OUT", "AUDIT", "-3", "17")
+        );
+        assertThatThrownBy(() -> salesOutAppService.audit(outNoA)).hasMessageContaining("已审核");
+        salesOutAppService.reverse(outNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_out", "sales_out_line", "bill_id", "bill_date", outNoA),
+            "SALES_OUT", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_OUT", "AUDIT", "-3", "17"),
+            reversal("SALES_OUT_REVERSE", "REVERSE", "3", "20", 0)
+        );
+        salesOutAppService.audit(outNoA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_out", "sales_out_line", "bill_id", "bill_date", outNoA),
+            "SALES_OUT", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_OUT", "AUDIT", "-3", "17"),
+            reversal("SALES_OUT_REVERSE", "REVERSE", "3", "20", 0),
+            fact("SALES_OUT", "AUDIT", "-3", "17")
+        );
         assertDeliverySelectableRemaining(noticeNoA, "1.0000");
         assertBalance("17.0000", "1.0000", "16.0000");
         assertListContainsOnlyTenantCustomer("sales-order-form-list", "header", "A119 账套A客户", orderNoA);
@@ -131,6 +166,29 @@ class TenantSalesChainIsolationTest {
         var orderNoB = saveAndAuditOrder(new BigDecimal("2"), quoteNoB);
         assertOrderSelectableStock("A119 账套B销售物料", orderNoB, "7.0000", "0.0000", "7.0000");
         var noticeNoB = saveAndAuditDeliveryNotice(new BigDecimal("2"), orderNoB);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("delivery_notice", "delivery_notice_line", "bill_id", "bill_date", noticeNoB),
+            "DELIVERY_NOTICE", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("DELIVERY_NOTICE_RESERVE", "RESERVE", "0", "7")
+        );
+        deliveryNoticeAppService.reverse(noticeNoB);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("delivery_notice", "delivery_notice_line", "bill_id", "bill_date", noticeNoB),
+            "DELIVERY_NOTICE", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("DELIVERY_NOTICE_RESERVE", "RESERVE", "0", "7"),
+            reversal("DELIVERY_NOTICE_RESERVE_REVERSE", "RELEASE", "0", "7", 0)
+        );
+        deliveryNoticeAppService.audit(noticeNoB);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("delivery_notice", "delivery_notice_line", "bill_id", "bill_date", noticeNoB),
+            "DELIVERY_NOTICE", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("DELIVERY_NOTICE_RESERVE", "RESERVE", "0", "7"),
+            reversal("DELIVERY_NOTICE_RESERVE_REVERSE", "RELEASE", "0", "7", 0),
+            fact("DELIVERY_NOTICE_RESERVE", "RESERVE", "0", "7")
+        );
         assertDeliveryStock(noticeNoB, "7.0000", "2.0000", "5.0000");
         assertThat(countCustomersNamed("A119 账套A客户")).isZero();
         assertThat(countProductsNamed("A119 账套A销售物料")).isZero();
@@ -160,6 +218,29 @@ class TenantSalesChainIsolationTest {
         var noticeA = saveAndAuditDeliveryNotice(new BigDecimal("4"), orderA);
         var outA = saveAndAuditSalesOut(new BigDecimal("3"), noticeA);
         var returnA = saveAndAuditSalesReturn(outA, "A142 账套A退货");
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_return", "sales_return_line", "bill_id", "bill_date", returnA),
+            "SALES_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_RETURN", "AUDIT", "1", "8")
+        );
+        salesReturnAppService.reverse(returnA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_return", "sales_return_line", "bill_id", "bill_date", returnA),
+            "SALES_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_RETURN", "AUDIT", "1", "8"),
+            reversal("SALES_RETURN_REVERSE", "REVERSE", "-1", "7", 0)
+        );
+        salesReturnAppService.audit(returnA);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_return", "sales_return_line", "bill_id", "bill_date", returnA),
+            "SALES_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_RETURN", "AUDIT", "1", "8"),
+            reversal("SALES_RETURN_REVERSE", "REVERSE", "-1", "7", 0),
+            fact("SALES_RETURN", "AUDIT", "1", "8")
+        );
         assertReturnDetail(returnA, outA, "A142 账套A客户", "CNY");
         assertListContainsOnlyTenantCustomer("sales-return-form-list", "header", "A142 账套A客户", returnA);
         assertBalance("8.0000", "1.0000", "7.0000");
@@ -173,6 +254,12 @@ class TenantSalesChainIsolationTest {
         var noticeB = saveAndAuditDeliveryNotice(new BigDecimal("4"), orderB);
         var outB = saveAndAuditSalesOut(new BigDecimal("3"), noticeB);
         var returnB = saveAndAuditSalesReturn(outB, "A142 账套B退货");
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_return", "sales_return_line", "bill_id", "bill_date", returnB),
+            "SALES_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("SALES_RETURN", "AUDIT", "1", "8")
+        );
         assertThat(returnB).isEqualTo(returnA);
         assertReturnDetail(returnB, outB, "A142 账套B客户", "CNY");
         assertListContainsOnlyTenantCustomer("sales-return-form-list", "detail", "A142 账套B客户", returnB);
@@ -508,6 +595,16 @@ class TenantSalesChainIsolationTest {
         var billNo = (String) saved.get("billNo");
         assertThat(billNo).as(label + "系统生成单号").isNotBlank();
         return billNo;
+    }
+
+    private SourceDocument sourceDocument(
+        String headerTable,
+        String lineTable,
+        String lineBillColumn,
+        String headerDateColumn,
+        String billNo
+    ) {
+        return new SourceDocument(headerTable, lineTable, lineBillColumn, headerDateColumn, billNo);
     }
 
     private int countCustomersNamed(String name) {

@@ -10,7 +10,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.sales.application.DeliveryNoticeAppService;
 import com.jdy.erp.sales.application.SalesOrderAppService;
@@ -37,6 +40,14 @@ import org.springframework.web.server.ResponseStatusException;
 @SpringBootTest
 @Transactional
 class CoreBusinessFastIntegrationTest {
+    private static final LocalDate INVENTORY_FIXTURE_DATE = LocalDate.of(2026, 6, 26);
+    private static final UUID PIPELINE_POST_HEADER_ID = UUID.fromString("a1110000-0000-4000-8000-000000000001");
+    private static final UUID PIPELINE_POST_LINE_ID = UUID.fromString("a1110000-0000-4000-8000-000000000002");
+    private static final UUID RESERVATION_HEADER_ID = UUID.fromString("a1110000-0000-4000-8000-000000000003");
+    private static final UUID RESERVATION_LINE_ID = UUID.fromString("a1110000-0000-4000-8000-000000000004");
+    private static final UUID OVER_RESERVE_HEADER_ID = UUID.fromString("a1110000-0000-4000-8000-000000000005");
+    private static final UUID OVER_RESERVE_LINE_ID = UUID.fromString("a1110000-0000-4000-8000-000000000006");
+
     private static final BillLifecycleTarget SALES_ORDER_TARGET =
         new BillLifecycleTarget("sales_order", "sales_order_line", "order_id", "SALES", "sales_order");
     private static final BillLifecycleTarget SALES_OUT_TARGET =
@@ -305,18 +316,18 @@ class CoreBusinessFastIntegrationTest {
         var sourceBillNo = billNo("XSCK-A111-POST");
         resetStock("CP-001", "CK-001", "10", "0");
 
-        postingPipeline.post(new PostingContext("INVENTORY", "CP-001", "CK-001", new BigDecimal("5"), "A111_IN", "A111_POST"));
-        postingPipeline.post(new PostingContext(
-            "FINANCE",
-            null,
-            null,
-            null,
+        postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.test(
+            "CP-001", "CK-001", new BigDecimal("5"), "A111_IN", "A111_POST",
+            PIPELINE_POST_HEADER_ID, PIPELINE_POST_LINE_ID, "A111-POST",
+            INVENTORY_FIXTURE_DATE, PostingAction.AUDIT
+        )));
+        postingPipeline.post(PostingContext.finance(
             "SALES_OUT",
-            "sales_out",
             sourceBillNo,
             customerId("KH-001"),
             LocalDate.of(2026, 6, 26),
-            new BigDecimal("123.45")
+            new BigDecimal("123.45"),
+            "CNY"
         ));
 
         assertStock("CP-001", "CK-001", "15.0000", "0.0000", "15.0000");
@@ -328,19 +339,39 @@ class CoreBusinessFastIntegrationTest {
     void reservationKeepsAvailableEqualOnHandMinusReservedAndNonNegative() {
         resetStock("CP-001", "CK-001", "20", "0");
 
-        inventoryPostingService.reserve("CP-001", "CK-001", new BigDecimal("7"), "A111_RESERVE", "A111");
+        inventoryPostingService.reserve(InventoryPostingCommand.test(
+            "CP-001", "CK-001", new BigDecimal("7"), "A111_RESERVE", "A111",
+            RESERVATION_HEADER_ID, RESERVATION_LINE_ID, "A111-RESERVATION",
+            INVENTORY_FIXTURE_DATE, PostingAction.RESERVE
+        ));
         assertStock("CP-001", "CK-001", "20.0000", "7.0000", "13.0000");
 
-        inventoryPostingService.shipReserved("CP-001", "CK-001", new BigDecimal("5"), "A111_SHIP", "A111");
+        inventoryPostingService.shipReserved(InventoryPostingCommand.test(
+            "CP-001", "CK-001", new BigDecimal("5"), "A111_SHIP", "A111",
+            RESERVATION_HEADER_ID, RESERVATION_LINE_ID, "A111-RESERVATION",
+            INVENTORY_FIXTURE_DATE, PostingAction.AUDIT
+        ));
         assertStock("CP-001", "CK-001", "15.0000", "2.0000", "13.0000");
 
-        inventoryPostingService.reverseShipReserved("CP-001", "CK-001", new BigDecimal("5"), "A111_SHIP_REVERSE", "A111");
+        inventoryPostingService.reverseShipReserved(InventoryPostingCommand.test(
+            "CP-001", "CK-001", new BigDecimal("5"), "A111_SHIP_REVERSE", "A111",
+            RESERVATION_HEADER_ID, RESERVATION_LINE_ID, "A111-RESERVATION",
+            INVENTORY_FIXTURE_DATE, PostingAction.REVERSE
+        ));
         assertStock("CP-001", "CK-001", "20.0000", "7.0000", "13.0000");
 
-        inventoryPostingService.releaseReservation("CP-001", "CK-001", new BigDecimal("7"), "A111_RELEASE", "A111");
+        inventoryPostingService.releaseReservation(InventoryPostingCommand.test(
+            "CP-001", "CK-001", new BigDecimal("7"), "A111_RELEASE", "A111",
+            RESERVATION_HEADER_ID, RESERVATION_LINE_ID, "A111-RESERVATION",
+            INVENTORY_FIXTURE_DATE, PostingAction.RELEASE
+        ));
         assertStock("CP-001", "CK-001", "20.0000", "0.0000", "20.0000");
 
-        assertThatThrownBy(() -> inventoryPostingService.reserve("CP-001", "CK-001", new BigDecimal("21"), "A111_OVER_RESERVE", "A111"))
+        assertThatThrownBy(() -> inventoryPostingService.reserve(InventoryPostingCommand.test(
+            "CP-001", "CK-001", new BigDecimal("21"), "A111_OVER_RESERVE", "A111",
+            OVER_RESERVE_HEADER_ID, OVER_RESERVE_LINE_ID, "A111-OVER-RESERVE",
+            INVENTORY_FIXTURE_DATE, PostingAction.RESERVE
+        )))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("可用库存不足");
     }

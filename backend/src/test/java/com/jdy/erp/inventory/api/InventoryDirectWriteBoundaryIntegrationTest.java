@@ -2,6 +2,7 @@ package com.jdy.erp.inventory.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -11,6 +12,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.TraceQuality;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.inventory.application.InventoryTestAdjustmentAccessPolicy;
 import com.jdy.erp.inventory.config.InventoryTestAdjustmentProperties;
@@ -86,12 +89,29 @@ class InventoryDirectWriteBoundaryIntegrationTest {
         var accessPolicy = mock(InventoryTestAdjustmentAccessPolicy.class);
         var controller = new InventoryAdjustmentController(postingService, accessPolicy);
         var expected = Map.<String, Object>of("ok", true);
-        when(postingService.post("CP-001", "CK-001", new BigDecimal("2.5"), "A134_TEST_ADJUSTMENT", "A134:allowed"))
-            .thenReturn(expected);
+        when(postingService.post(argThat(command ->
+            command != null
+                && "CP-001".equals(command.productCode())
+                && "CK-001".equals(command.warehouseCode())
+                && new BigDecimal("2.5").compareTo(command.quantity()) == 0
+                && "A134_TEST_ADJUSTMENT".equals(command.txnType())
+                && "A134:allowed".equals(command.sourceBillType())
+                && "A134:allowed".equals(command.sourceBillNo())
+                && command.sourceBillId() != null
+                && command.sourceBillLineId() != null
+                && command.sourceBillDate() != null
+                && command.postingAction() == PostingAction.AUDIT
+                && command.traceQuality() == TraceQuality.TEST
+        ))).thenReturn(expected);
 
         assertThat(controller.adjust(request("A134_TEST_ADJUSTMENT", "A134:allowed"))).isEqualTo(expected);
         verify(accessPolicy).requireAllowed();
-        verify(postingService).post("CP-001", "CK-001", new BigDecimal("2.5"), "A134_TEST_ADJUSTMENT", "A134:allowed");
+        verify(postingService).post(argThat(command ->
+            command != null
+                && "A134_TEST_ADJUSTMENT".equals(command.txnType())
+                && "A134:allowed".equals(command.sourceBillType())
+                && command.traceQuality() == TraceQuality.TEST
+        ));
     }
 
     @Test

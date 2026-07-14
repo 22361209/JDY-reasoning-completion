@@ -17,7 +17,10 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.jdy.erp.finance.application.SalesReturnFinanceAppService;
 import com.jdy.erp.finance.application.SalesReturnFinanceAppService.FinanceResult;
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.inventory.application.InventoryPostingService;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
@@ -51,6 +54,7 @@ public class SalesReturnAppService {
     private final BillLifecycleService lifecycleService;
     private final OperationLogService operationLogService;
     private final CurrentSessionService currentSessionService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public SalesReturnAppService(
         JdbcTemplate jdbcTemplate,
@@ -60,7 +64,8 @@ public class SalesReturnAppService {
         SalesReturnFinanceAppService financeAppService,
         BillLifecycleService lifecycleService,
         OperationLogService operationLogService,
-        CurrentSessionService currentSessionService
+        CurrentSessionService currentSessionService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.numberingService = numberingService;
@@ -70,6 +75,7 @@ public class SalesReturnAppService {
         this.lifecycleService = lifecycleService;
         this.operationLogService = operationLogService;
         this.currentSessionService = currentSessionService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     @Transactional(readOnly = true)
@@ -177,13 +183,18 @@ public class SalesReturnAppService {
 
         var lines = lockAndValidateStoredSources(header);
         for (var line : lines) {
-            inventoryPostingService.post(
+            inventoryPostingService.post(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 decimal(line.get("qty")),
                 "SALES_RETURN",
-                "SALES_RETURN:" + normalizedBillNo
-            );
+                "SALES_RETURN",
+                header.get("id"),
+                line.get("sourceBillLineId"),
+                normalizedBillNo,
+                header.get("billDate"),
+                PostingAction.AUDIT
+            ));
         }
         var finance = financeAppService.applyAudit(normalizedBillNo);
         var updated = jdbcTemplate.queryForList("""
@@ -220,13 +231,18 @@ public class SalesReturnAppService {
         var lines = lockAndValidateStoredSources(header);
         var finance = financeAppService.reverseAudit(normalizedBillNo);
         for (var line : lines) {
-            inventoryPostingService.post(
+            inventoryPostingService.post(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 decimal(line.get("qty")).negate(),
                 "SALES_RETURN_REVERSE",
-                "SALES_RETURN_REVERSE:" + normalizedBillNo
-            );
+                "SALES_RETURN",
+                header.get("id"),
+                line.get("sourceBillLineId"),
+                normalizedBillNo,
+                header.get("billDate"),
+                PostingAction.REVERSE
+            ));
         }
         var updated = jdbcTemplate.queryForList("""
             UPDATE sales_return
@@ -260,6 +276,7 @@ public class SalesReturnAppService {
         if (!"DRAFT".equals(header.get("status"))) {
             throw conflict("只有草稿销售退货单可以删除");
         }
+        inventoryTraceLifecycleService.assertNoPostingHistory(header.get("id"));
         assertNoFinanceAllocations(header.get("id"));
         var summary = lineSummary(header.get("id"));
         var before = documentState(
@@ -384,6 +401,7 @@ public class SalesReturnAppService {
         if (updated.isEmpty()) {
             throw conflict("销售退货单版本已变化，请刷新后重试");
         }
+        inventoryTraceLifecycleService.prepareForLineReplacement("SALES_RETURN", header.get("id"));
         jdbcTemplate.update("DELETE FROM sales_return_line WHERE bill_id = ?::uuid", header.get("id"));
         insertLines(header.get("id"), draft.lines(), sources);
         var result = detail(billNo);
@@ -449,7 +467,8 @@ public class SalesReturnAppService {
 
     private List<Map<String, Object>> lockAndValidateStoredSources(Map<String, Object> header) {
         var rows = jdbcTemplate.queryForList("""
-            SELECT return_line.line_no AS "lineNo",
+            SELECT return_line.id::text AS "sourceBillLineId",
+                   return_line.line_no AS "lineNo",
                    return_line.source_out_line_id::text AS "storedSourceOutLineId",
                    return_line.source_out_no AS "storedSourceOutNo",
                    return_line.source_line_no AS "storedSourceLineNo",

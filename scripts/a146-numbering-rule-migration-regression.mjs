@@ -2,7 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -11,6 +11,7 @@ const resultPath = path.join(rootDir, "verification/a146-numbering-rule-migratio
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
+const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upgradeDatabase = `jdy_a146_mig_${token}`;
 const freshDatabase = `jdy_a146_fresh_${token}`;
@@ -111,6 +112,7 @@ function history(database) {
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'version', version,
       'script', script,
+      'checksum', checksum,
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
@@ -317,7 +319,14 @@ try {
   seedUpgradeFixture();
   result.upgrade.flyway = flyway(upgradeDatabase);
   const upgradeHistory = history(upgradeDatabase);
-  assert(upgradeHistory.at(-1)?.version === "105" && upgradeHistory.at(-1)?.success === true, "upgrade must end at successful V105", upgradeHistory.at(-1));
+  const v105Rows = upgradeHistory.filter((row) => row.version === "105");
+  const v106Rows = upgradeHistory.filter((row) => row.version === "106");
+  const v107Rows = upgradeHistory.filter((row) => row.version === "107");
+  assert(v105Rows.length === 1 && v105Rows[0].success === true, "upgrade must apply successful V105 exactly once", v105Rows);
+  assert(v106Rows.length === 1 && v106Rows[0].success === true, "upgrade must apply successful V106 exactly once", v106Rows);
+  assert(Number(v106Rows[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106Rows[0]);
+  assert(v107Rows.length === 1 && v107Rows[0].success === true, "upgrade must apply successful V107 exactly once", v107Rows);
+  assert(upgradeHistory.at(-1)?.version === "107", "repository latest upgrade must end at V107", upgradeHistory.at(-1));
   const shapes = {
     public: numberingShape(upgradeDatabase, "public"),
     tenant: numberingShape(upgradeDatabase, tenantSchema),
@@ -353,7 +362,14 @@ try {
     "tenant V105 topology mismatch",
     topologies.tenant
   );
-  result.upgrade = { ...result.upgrade, history: upgradeHistory.at(-1), shapes, topologies, indexCoverage };
+  result.upgrade = {
+    ...result.upgrade,
+    history: upgradeHistory.at(-1),
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0] },
+    shapes,
+    topologies,
+    indexCoverage
+  };
 
   const beforeRepeat = JSON.stringify({ history: upgradeHistory, shapes, topologies, indexCoverage });
   result.repeat.flyway = flyway(upgradeDatabase);
@@ -378,7 +394,7 @@ try {
       tenant: billNoIndexCoverage(upgradeDatabase, tenantSchema)
     }
   });
-  assert(beforeRepeat === afterRepeat, "repeat Flyway/sync must preserve exact V105 state");
+  assert(beforeRepeat === afterRepeat, "repeat Flyway/sync must be a no-op for exact repository-latest state");
   result.repeat = { ...result.repeat, syncCounts };
 
   const restored = restoreDataOnlySnapshot();
@@ -392,12 +408,31 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flyway = flyway(freshDatabase);
   const freshHistory = history(freshDatabase);
+  const sourceScripts = (await readdir(migrationDir))
+    .filter((name) => /^V\d+__.+\.sql$/.test(name))
+    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const freshV105Rows = freshHistory.filter((row) => row.version === "105");
+  const freshV106Rows = freshHistory.filter((row) => row.version === "106");
+  const freshV107Rows = freshHistory.filter((row) => row.version === "107");
   const freshShape = numberingShape(freshDatabase, "public");
-  assert(freshHistory.at(-1)?.version === "105", "fresh migration must end at V105", freshHistory.at(-1));
+  assert(freshHistory.every((row) => row.success === true), "fresh history must contain only successful migrations", freshHistory);
+  assert(JSON.stringify(freshHistory.map((row) => row.script)) === JSON.stringify(sourceScripts), "fresh history must exactly equal the migration source set");
+  assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, "fresh migration must apply successful V105 exactly once", freshV105Rows);
+  assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, "fresh migration must apply successful V106 exactly once", freshV106Rows);
+  assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106Rows[0]);
+  assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, "fresh migration must apply successful V107 exactly once", freshV107Rows);
+  assert(freshHistory.at(-1)?.version === "107", "fresh migration must end at V107", freshHistory.at(-1));
   assertShape("fresh public", freshShape, 4, null);
   const freshIndexCoverage = billNoIndexCoverage(freshDatabase, "public");
   assert(freshIndexCoverage === 26, "fresh public must retain unique btree coverage for all 26 formal bill_no columns", freshIndexCoverage);
-  result.fresh = { ...result.fresh, history: freshHistory.at(-1), shape: freshShape, indexCoverage: freshIndexCoverage };
+  result.fresh = {
+    ...result.fresh,
+    history: freshHistory.at(-1),
+    migrations: { v105: freshV105Rows[0], v106: freshV106Rows[0], v107: freshV107Rows[0] },
+    exactSourceHistory: true,
+    shape: freshShape,
+    indexCoverage: freshIndexCoverage
+  };
 
   createDatabase(invalidDatabase);
   flyway(invalidDatabase, 104);

@@ -17,6 +17,7 @@ const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
+const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upperToken = token.toUpperCase();
 const upgradeDatabase = `jdy_a142_mig_${token}`;
@@ -1004,9 +1005,14 @@ try {
   result.upgrade.latestFlywayOutput = flyway(upgradeDatabase);
   const latestHistory = history(upgradeDatabase);
   const v105 = latestHistory.filter((row) => row.version === "105");
+  const v106 = latestHistory.filter((row) => row.version === "106");
+  const v107 = latestHistory.filter((row) => row.version === "107");
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(v105.length === 1 && v105[0].success === true, "V105 history row missing or failed", v105);
-  assert(latestHistory.at(-1)?.version === "105", "repository latest upgrade must end at V105", latestHistory.at(-1));
+  assert(v106.length === 1 && v106[0].success === true, "V106 history row missing or failed", v106);
+  assert(Number(v106[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106[0]);
+  assert(v107.length === 1 && v107[0].success === true, "V107 history row missing or failed", v107);
+  assert(latestHistory.at(-1)?.version === "107", "repository latest upgrade must end at V107", latestHistory.at(-1));
   assert(
     Number(latestNumbering.publicChecks) === 80
       && Number(latestNumbering.tenantChecks) === 80
@@ -1020,7 +1026,8 @@ try {
     tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
     backup: receivableSnapshot(backupSchema, fixtures.tenant, true)
   }), "V105 must preserve V103/V104 sales-return semantics");
-  result.upgrade.latestHistory = v105[0];
+  result.upgrade.latestHistory = v107[0];
+  result.upgrade.latestMigrations = { v105: v105[0], v106: v106[0], v107: v107[0] };
   result.upgrade.latestNumbering = latestNumbering;
 
   const repeatHistoryBefore = latestHistory;
@@ -1214,7 +1221,15 @@ try {
   const sourceScripts = (await readdir(migrationDir))
     .filter((name) => /^V\d+__.+\.sql$/.test(name))
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const freshV105 = freshHistory.filter((row) => row.version === "105");
+  const freshV106 = freshHistory.filter((row) => row.version === "106");
+  const freshV107 = freshHistory.filter((row) => row.version === "107");
+  assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh history differs from migration source set");
+  assert(freshV105.length === 1 && freshV105[0].success === true, "fresh V105 history row missing or failed", freshV105);
+  assert(freshV106.length === 1 && freshV106[0].success === true, "fresh V106 history row missing or failed", freshV106);
+  assert(Number(freshV106[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106[0]);
+  assert(freshV107.length === 1 && freshV107[0].success === true, "fresh V107 history row missing or failed", freshV107);
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1235,7 +1250,7 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "105", "fresh migration max version should be V105", freshHistory.at(-1));
+  assert(freshHistory.at(-1)?.version === "107", "fresh migration max version should be V107", freshHistory.at(-1));
   assert(
     freshMetrics.managedTables === 82
       && freshMetrics.returnTables === 3
@@ -1244,7 +1259,7 @@ try {
       && freshMetrics.returnRows === 0
       && freshMetrics.managedChecks === 80
       && freshMetrics.numberingVersionType === "bigint",
-    "fresh V105 metrics mismatch",
+    "fresh V105 numbering metrics mismatch after V107",
     freshMetrics
   );
   result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, metrics: freshMetrics };

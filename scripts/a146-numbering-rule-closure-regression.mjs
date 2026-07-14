@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -10,6 +11,8 @@ const files = {
   controller: "backend/src/main/java/com/jdy/erp/shared/api/NumberingController.java",
   logCommand: "backend/src/main/java/com/jdy/erp/shared/application/OperationLogCommand.java",
   migration: "backend/src/main/resources/db/migration/V105__numbering_rule_reliability.sql",
+  inventoryTraceMigration: "backend/src/main/resources/db/migration/V106__inventory_source_trace.sql",
+  inventoryTraceCorrection: "backend/src/main/resources/db/migration/V107__inventory_source_trace_reaudit_fix.sql",
   api: "frontend/src/services/numberingApi.ts",
   page: "frontend/src/modules/system/numbering/NumberingRuleSettingsPage.vue",
   app: "frontend/src/app/App.vue",
@@ -37,6 +40,10 @@ function assert(condition, message) {
 
 function count(text, pattern) {
   return [...text.matchAll(pattern)].length;
+}
+
+function sha256(text) {
+  return createHash("sha256").update(text).digest("hex");
 }
 
 function methodBody(text, signature) {
@@ -99,6 +106,16 @@ for (const fragment of [
 }
 assert(source.migration.includes("Historical\n+-- backup schemas stay data-only snapshots") || source.migration.includes("backup schemas stay data-only snapshots"), "historical backup schemas must remain data-only");
 assert(source.migration.indexOf("ALTER COLUMN last_number TYPE BIGINT") < source.migration.indexOf("ck_document_number_sequence_last_number"), "V105 must widen the counter before installing checks");
+assert(sha256(source.inventoryTraceMigration) === "63a6e0a208c9dd91af07ff46d82e26142dc6ee7f140d86b7f830c38da1535e53", "published V106 migration source must remain byte-for-byte immutable");
+for (const fragment of [
+  "forward-only correction",
+  "uq_inv_stock_txn_exact_posting_fact",
+  "idx_inv_stock_txn_exact_posting_fact",
+  "registered backup",
+  "Asia/Shanghai"
+]) {
+  assert(source.inventoryTraceCorrection.includes(fragment), `V107 must preserve forward-correction contract fragment: ${fragment}`);
+}
 
 const saveApi = methodBody(source.api, "export async function saveNumberingRule");
 assert(saveApi.includes("version: rule.version"), "frontend PUT must send version");
@@ -166,13 +183,18 @@ for (const tier of [manifest.areas.system, manifest.full]) {
   assert(tier.includes("scripts/a146-numbering-rule-migration-regression.mjs"), "A146 migration gate must be registered in system and full");
 }
 assert(manifest.areas.security.includes("scripts/a146-numbering-rule-closure-regression.mjs"), "A146 permission/static gate must be registered in security");
-assert(source.a137.includes("checkConstraints: 80") && source.a137.includes("V105__numbering_rule_reliability.sql"), "A137 live/latest guard must advance to V105 and 80 CHECKs");
-for (const [name, migrationSource] of [
-  ["A141", source.a141Migration],
-  ["A142", source.a142Migration],
-  ["A143", source.a143Migration]
+assert(source.a137.includes("checkConstraints: 80") && source.a137.includes("V105__numbering_rule_reliability.sql"), "A137 numbering guard must preserve the V105 and 80-CHECK semantics");
+for (const [name, migrationSource, historicalTarget] of [
+  ["A141", source.a141Migration, "flywayMigrate(upgradeDatabase, 104)"],
+  ["A142", source.a142Migration, "flyway(upgradeDatabase, 104)"],
+  ["A143", source.a143Migration, "flyway(upgradeDatabase, 104)"],
+  ["A146", source.migrationTest, "flyway(upgradeDatabase, 104)"]
 ]) {
-  assert(migrationSource.includes("104") && migrationSource.includes('version === "105"'), `${name} migration gate must separate historical V104 from repository latest V105`);
+  assert(migrationSource.includes(historicalTarget), `${name} migration gate must preserve its historical target boundary`);
+  assert(migrationSource.includes('version === "105"') && migrationSource.includes("V105") && migrationSource.includes("numbering"), `${name} migration gate must preserve V105 numbering semantics`);
+  assert(migrationSource.includes('version === "106"') && migrationSource.includes("1207842815"), `${name} migration gate must enforce exactly one successful immutable V106`);
+  assert(migrationSource.includes('version === "107"'), `${name} migration gate must enforce exactly one successful V107`);
+  assert(migrationSource.includes("freshHistory") && migrationSource.includes("source"), `${name} migration gate must compare fresh history with migration sources`);
 }
 
 const result = {

@@ -1,6 +1,9 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.assertExactLifecycle;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -15,6 +18,7 @@ import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.testsupport.InventoryTraceAssertions.SourceDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -154,6 +158,8 @@ class TenantOutsourcingChainIsolationTest {
         String componentName,
         String supplierName
     ) {
+        var componentBefore = balanceQty(COMPONENT_CODE);
+        var componentQty = workQty.multiply(new BigDecimal("2"));
         var workOrder = outsourcingDocumentAppService.saveWorkOrder(new OutsourcingDocumentAppService.WorkOrderRequest(
             null,
             SUPPLIER_CODE,
@@ -174,21 +180,64 @@ class TenantOutsourcingChainIsolationTest {
         var issue = outsourcingDocumentAppService.pushIssue(workOrderBillNo);
         var issueBillNo = String.valueOf(issue.get("billNo"));
         outsourcingDocumentAppService.auditIssue(issueBillNo);
+        var componentAfterIssue = componentBefore.subtract(componentQty);
+        outsourcingDocumentAppService.reverseIssue(issueBillNo);
+        outsourcingDocumentAppService.auditIssue(issueBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            outsourcingDocument("outsourcing_material_issue", "outsourcing_material_issue_line", "issue_id", issueBillNo),
+            "OUTSOURCING_MATERIAL_ISSUE", COMPONENT_CODE, WAREHOUSE_CODE,
+            fact("OUTSOURCING_ISSUE", "AUDIT", componentQty.negate().toPlainString(), componentAfterIssue.toPlainString()),
+            reversal("OUTSOURCING_ISSUE_REVERSE", "REVERSE", componentQty.toPlainString(), componentBefore.toPlainString(), 0),
+            fact("OUTSOURCING_ISSUE", "AUDIT", componentQty.negate().toPlainString(), componentAfterIssue.toPlainString())
+        );
         assertNoIssueSources(workOrderBillNo);
 
         var receipt = outsourcingDocumentAppService.pushReceipt(workOrderBillNo, new OutsourcingDocumentAppService.QtyRequest(receiptQty));
         var receiptBillNo = String.valueOf(receipt.get("billNo"));
         outsourcingDocumentAppService.auditReceipt(receiptBillNo);
+        outsourcingDocumentAppService.reverseReceipt(receiptBillNo);
+        outsourcingDocumentAppService.auditReceipt(receiptBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            outsourcingDocument("outsourcing_receipt", "outsourcing_receipt_line", "receipt_id", receiptBillNo),
+            "OUTSOURCING_RECEIPT", PARENT_CODE, WAREHOUSE_CODE,
+            fact("OUTSOURCING_RECEIPT", "AUDIT", receiptQty.toPlainString(), receiptQty.toPlainString()),
+            reversal("OUTSOURCING_RECEIPT_REVERSE", "REVERSE", receiptQty.negate().toPlainString(), "0", 0),
+            fact("OUTSOURCING_RECEIPT", "AUDIT", receiptQty.toPlainString(), receiptQty.toPlainString())
+        );
         assertReceiptSourceRemaining(receiptBillNo, receiptQty);
 
         var returnBill = outsourcingDocumentAppService.pushReturn(receiptBillNo, new OutsourcingDocumentAppService.QtyRequest(returnQty));
         var returnBillNo = String.valueOf(returnBill.get("billNo"));
         outsourcingDocumentAppService.auditReturn(returnBillNo);
+        var parentAfterReturn = receiptQty.subtract(returnQty);
+        outsourcingDocumentAppService.reverseReturn(returnBillNo);
+        outsourcingDocumentAppService.auditReturn(returnBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            outsourcingDocument("outsourcing_return", "outsourcing_return_line", "return_id", returnBillNo),
+            "OUTSOURCING_RETURN", PARENT_CODE, WAREHOUSE_CODE,
+            fact("OUTSOURCING_RETURN", "AUDIT", returnQty.negate().toPlainString(), parentAfterReturn.toPlainString()),
+            reversal("OUTSOURCING_RETURN_REVERSE", "REVERSE", returnQty.toPlainString(), receiptQty.toPlainString(), 0),
+            fact("OUTSOURCING_RETURN", "AUDIT", returnQty.negate().toPlainString(), parentAfterReturn.toPlainString())
+        );
         assertReceiptSourceRemaining(receiptBillNo, receiptQty.subtract(returnQty));
 
         var scrap = outsourcingDocumentAppService.pushScrap(receiptBillNo, new OutsourcingDocumentAppService.QtyRequest(scrapQty));
         var scrapBillNo = String.valueOf(scrap.get("billNo"));
         outsourcingDocumentAppService.auditScrap(scrapBillNo);
+        var parentAfterScrap = parentAfterReturn.subtract(scrapQty);
+        outsourcingDocumentAppService.reverseScrap(scrapBillNo);
+        outsourcingDocumentAppService.auditScrap(scrapBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            outsourcingDocument("outsourcing_scrap", "outsourcing_scrap_line", "scrap_id", scrapBillNo),
+            "OUTSOURCING_SCRAP", PARENT_CODE, WAREHOUSE_CODE,
+            fact("OUTSOURCING_SCRAP", "AUDIT", scrapQty.negate().toPlainString(), parentAfterScrap.toPlainString()),
+            reversal("OUTSOURCING_SCRAP_REVERSE", "REVERSE", scrapQty.toPlainString(), parentAfterReturn.toPlainString(), 0),
+            fact("OUTSOURCING_SCRAP", "AUDIT", scrapQty.negate().toPlainString(), parentAfterScrap.toPlainString())
+        );
         assertReceiptSourceRemaining(receiptBillNo, receiptQty.subtract(returnQty).subtract(scrapQty));
         return new OutsourcingFlow(workOrderBillNo, issueBillNo, receiptBillNo, returnBillNo, scrapBillNo);
     }
@@ -340,6 +389,26 @@ class TenantOutsourcingChainIsolationTest {
         assertDecimal(row.get("onHand"), onHand);
         assertDecimal(row.get("reserved"), reserved);
         assertDecimal(row.get("available"), available);
+    }
+
+    private BigDecimal balanceQty(String productCode) {
+        return jdbcTemplate.queryForObject("""
+            SELECT b.qty_on_hand
+            FROM inv_stock_balance b
+            JOIN md_product p ON p.id = b.product_id
+            JOIN md_warehouse w ON w.id = b.warehouse_id
+            WHERE p.code = ?
+              AND w.code = ?
+            """, BigDecimal.class, productCode, WAREHOUSE_CODE);
+    }
+
+    private SourceDocument outsourcingDocument(
+        String headerTable,
+        String lineTable,
+        String lineBillColumn,
+        String billNo
+    ) {
+        return new SourceDocument(headerTable, lineTable, lineBillColumn, "bill_date", billNo);
     }
 
     private void assertListContainsSingle(String listKey, String keyword, String billNo) {

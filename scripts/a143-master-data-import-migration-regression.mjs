@@ -17,6 +17,7 @@ const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
+const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upperToken = token.toUpperCase();
 const upgradeDatabase = `jdy_a143_mig_${token}`;
@@ -805,8 +806,13 @@ try {
   result.upgrade.latestFlywayOutput = flyway(upgradeDatabase);
   const latestHistory = history(upgradeDatabase);
   const v105Rows = latestHistory.filter((row) => row.version === "105");
+  const v106Rows = latestHistory.filter((row) => row.version === "106");
+  const v107Rows = latestHistory.filter((row) => row.version === "107");
   assert(v105Rows.length === 1 && v105Rows[0].success === true, "V105 history row missing or failed", v105Rows);
-  assert(latestHistory.at(-1)?.version === "105", "repository latest upgrade must end at V105", latestHistory.at(-1));
+  assert(v106Rows.length === 1 && v106Rows[0].success === true, "V106 history row missing or failed", v106Rows);
+  assert(Number(v106Rows[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106Rows[0]);
+  assert(v107Rows.length === 1 && v107Rows[0].success === true, "V107 history row missing or failed", v107Rows);
+  assert(latestHistory.at(-1)?.version === "107", "repository latest upgrade must end at V107", latestHistory.at(-1));
   const latestTopologies = {
     public: schemaTopology(upgradeDatabase, "public"),
     tenant: schemaTopology(upgradeDatabase, tenantSchema),
@@ -822,7 +828,8 @@ try {
     latestNumbering
   );
   result.upgrade.latest = {
-    history: v105Rows[0],
+    history: v107Rows[0],
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0] },
     topologies: latestTopologies,
     numbering: latestNumbering
   };
@@ -850,7 +857,7 @@ try {
     numbering: numberingLatestMetrics(upgradeDatabase)
   };
   assert(same(syncCounts, [82, 82, 82]), "repeat tenant sync must return 82 every time", syncCounts);
-  assert(same(repeatBefore, repeatAfter), "repeat Flyway/sync must preserve exact V105 topology and history");
+  assert(same(repeatBefore, repeatAfter), "repeat Flyway/sync must be a no-op for exact repository-latest topology and history");
   result.repeat = {
     ...result.repeat,
     syncCounts,
@@ -997,8 +1004,16 @@ try {
   const sourceScripts = (await readdir(migrationDir))
     .filter((name) => /^V\d+__.+\.sql$/.test(name))
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const freshV105Rows = freshHistory.filter((row) => row.version === "105");
+  const freshV106Rows = freshHistory.filter((row) => row.version === "106");
+  const freshV107Rows = freshHistory.filter((row) => row.version === "107");
+  assert(freshHistory.every((row) => row.success === true), "fresh migration history contains a failed row", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh migration history must equal source migration set");
-  assert(freshHistory.at(-1)?.version === "105", "fresh migration max version must be V105", freshHistory.at(-1));
+  assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, "fresh V105 history row missing or failed", freshV105Rows);
+  assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, "fresh V106 history row missing or failed", freshV106Rows);
+  assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106Rows[0]);
+  assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, "fresh V107 history row missing or failed", freshV107Rows);
+  assert(freshHistory.at(-1)?.version === "107", "fresh migration max version must be V107", freshHistory.at(-1));
   const freshPublicTopology = schemaTopology(freshDatabase, "public");
   assertTopology("fresh public", freshPublicTopology, 174, 95, 80);
   psql(freshDatabase, `

@@ -6,7 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import com.jdy.erp.shared.application.InventoryPostingHook;
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogCommand;
@@ -254,7 +255,7 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """, issue.get("id"));
         for (var line : lines) {
-            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_ISSUE", billNo);
+            postInventory(issue, line, ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_ISSUE", "OUTSOURCING_MATERIAL_ISSUE", PostingAction.AUDIT);
             jdbcTemplate.update("""
                 UPDATE outsourcing_work_order_component
                 SET issued_qty = issued_qty + ?
@@ -281,7 +282,8 @@ public class OutsourcingDocumentAppService {
         }
         var issue = transition("outsourcing_material_issue", billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), "REVERSE_ISSUE");
         var lines = jdbcTemplate.queryForList("""
-            SELECT source_component_id::text AS "sourceComponentId",
+            SELECT id::text AS id,
+                   source_component_id::text AS "sourceComponentId",
                    product_code_snapshot AS "productCode",
                    warehouse_code_snapshot AS "warehouseCode",
                    qty
@@ -290,7 +292,7 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """, issue.get("id"));
         for (var line : lines) {
-            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), (BigDecimal) line.get("qty"), "OUTSOURCING_ISSUE_REVERSE", billNo);
+            postInventory(issue, line, (BigDecimal) line.get("qty"), "OUTSOURCING_ISSUE_REVERSE", "OUTSOURCING_MATERIAL_ISSUE", PostingAction.REVERSE);
             jdbcTemplate.update("""
                 UPDATE outsourcing_work_order_component
                 SET issued_qty = GREATEST(0, issued_qty - ?)
@@ -349,7 +351,8 @@ public class OutsourcingDocumentAppService {
     public Map<String, Object> auditReceipt(String billNo) {
         var receipt = transition("outsourcing_receipt", billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), "AUDIT_RECEIPT");
         var lines = jdbcTemplate.queryForList("""
-            SELECT source_work_order_line_id::text AS "sourceLineId",
+            SELECT id::text AS id,
+                   source_work_order_line_id::text AS "sourceLineId",
                    product_code_snapshot AS "productCode",
                    warehouse_code_snapshot AS "warehouseCode",
                    qty
@@ -358,7 +361,7 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """, receipt.get("id"));
         for (var line : lines) {
-            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), (BigDecimal) line.get("qty"), "OUTSOURCING_RECEIPT", billNo);
+            postInventory(receipt, line, (BigDecimal) line.get("qty"), "OUTSOURCING_RECEIPT", "OUTSOURCING_RECEIPT", PostingAction.AUDIT);
             jdbcTemplate.update("""
                 UPDATE outsourcing_work_order_line
                 SET received_qty = received_qty + ?
@@ -393,7 +396,8 @@ public class OutsourcingDocumentAppService {
         }
         var receipt = transition("outsourcing_receipt", billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), "REVERSE_RECEIPT");
         var lines = jdbcTemplate.queryForList("""
-            SELECT source_work_order_line_id::text AS "sourceLineId",
+            SELECT id::text AS id,
+                   source_work_order_line_id::text AS "sourceLineId",
                    product_code_snapshot AS "productCode",
                    warehouse_code_snapshot AS "warehouseCode",
                    qty
@@ -402,7 +406,7 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """, receipt.get("id"));
         for (var line : lines) {
-            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_RECEIPT_REVERSE", billNo);
+            postInventory(receipt, line, ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_RECEIPT_REVERSE", "OUTSOURCING_RECEIPT", PostingAction.REVERSE);
             jdbcTemplate.update("""
                 UPDATE outsourcing_work_order_line
                 SET received_qty = GREATEST(0, received_qty - ?)
@@ -584,7 +588,8 @@ public class OutsourcingDocumentAppService {
         var action = "return".equals(kind) ? "AUDIT_RETURN" : "AUDIT_SCRAP";
         var adjustment = transition(table, billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), action);
         var lines = jdbcTemplate.queryForList("""
-            SELECT source_receipt_line_id::text AS "sourceReceiptLineId",
+            SELECT id::text AS id,
+                   source_receipt_line_id::text AS "sourceReceiptLineId",
                    product_code_snapshot AS "productCode",
                    warehouse_code_snapshot AS "warehouseCode",
                    qty
@@ -593,7 +598,8 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """.formatted(lineTable, kind), adjustment.get("id"));
         for (var line : lines) {
-            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).negate(), "OUTSOURCING_" + kind.toUpperCase(), billNo);
+            var sourceType = "OUTSOURCING_" + kind.toUpperCase();
+            postInventory(adjustment, line, ((BigDecimal) line.get("qty")).negate(), sourceType, sourceType, PostingAction.AUDIT);
             jdbcTemplate.update("""
                 UPDATE outsourcing_receipt_line
                 SET %s_qty = %s_qty + ?
@@ -614,7 +620,8 @@ public class OutsourcingDocumentAppService {
         var action = "return".equals(kind) ? "REVERSE_RETURN" : "REVERSE_SCRAP";
         var adjustment = transition(table, billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), action);
         var lines = jdbcTemplate.queryForList("""
-            SELECT source_receipt_line_id::text AS "sourceReceiptLineId",
+            SELECT id::text AS id,
+                   source_receipt_line_id::text AS "sourceReceiptLineId",
                    product_code_snapshot AS "productCode",
                    warehouse_code_snapshot AS "warehouseCode",
                    qty
@@ -623,7 +630,8 @@ public class OutsourcingDocumentAppService {
             ORDER BY line_no
             """.formatted(lineTable, fkColumn), adjustment.get("id"));
         for (var line : lines) {
-            postInventory(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), (BigDecimal) line.get("qty"), "OUTSOURCING_" + kind.toUpperCase() + "_REVERSE", billNo);
+            var sourceType = "OUTSOURCING_" + kind.toUpperCase();
+            postInventory(adjustment, line, (BigDecimal) line.get("qty"), sourceType + "_REVERSE", sourceType, PostingAction.REVERSE);
             jdbcTemplate.update("""
                 UPDATE outsourcing_receipt_line
                 SET %s_qty = GREATEST(0, %s_qty - ?)
@@ -641,7 +649,7 @@ public class OutsourcingDocumentAppService {
             UPDATE %s
             SET status = ?, updated_at = now(), version = version + 1
             WHERE bill_no = ? AND status = ?
-            RETURNING id::text AS id, bill_no AS "billNo", status
+            RETURNING id::text AS id, bill_no AS "billNo", bill_date AS "billDate", status
             """.formatted(table), to, billNo, from);
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在或状态不允许当前操作");
@@ -999,8 +1007,26 @@ public class OutsourcingDocumentAppService {
         return value;
     }
 
-    private void postInventory(String productCode, String warehouseCode, BigDecimal qty, String txnType, String billNo) {
-        postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, productCode, warehouseCode, qty, txnType, txnType + ":" + billNo));
+    private void postInventory(
+        Map<String, Object> header,
+        Map<String, Object> line,
+        BigDecimal qty,
+        String txnType,
+        String sourceBillType,
+        PostingAction postingAction
+    ) {
+        postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
+            String.valueOf(line.get("productCode")),
+            String.valueOf(line.get("warehouseCode")),
+            qty,
+            txnType,
+            sourceBillType,
+            header.get("id"),
+            line.get("id"),
+            String.valueOf(header.get("billNo")),
+            header.get("billDate"),
+            postingAction
+        )));
     }
 
     private record Supplier(String id, String code, String name) {

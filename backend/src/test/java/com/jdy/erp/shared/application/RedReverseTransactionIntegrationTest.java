@@ -2,6 +2,9 @@ package com.jdy.erp.shared.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.assertExactLifecycle;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
+import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
@@ -17,6 +20,7 @@ import com.jdy.erp.purchase.application.PurchaseInAppService;
 import com.jdy.erp.sales.application.SalesOutAppService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
+import com.jdy.erp.testsupport.InventoryTraceAssertions.SourceDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -162,9 +166,15 @@ class RedReverseTransactionIntegrationTest {
         assertStock("10", "2", "8");
         assertThat(salesShippedQty()).isEqualByComparingTo("0");
         assertThat(salesOutStatus()).isEqualTo("NOT_OUT");
-        assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT_RED:" + salesRedBillNo)).isEqualTo(1);
+        assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT", salesRedBillNo, "RED_AUDIT")).isEqualTo(1);
         assertThat(financeCount("ar_receivable", salesRedBillNo)).isEqualTo(1);
         assertThat(financeAmount("ar_receivable", salesRedBillNo)).isEqualByComparingTo("-22.60");
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_out", "sales_out_line", salesRedBillNo),
+            "SALES_OUT", productCode, warehouseCode,
+            fact("SALES_OUT_RED", "RED_AUDIT", "2", "10")
+        );
 
         assertThatThrownBy(() -> salesOutAppService.audit(salesRedBillNo))
             .isInstanceOf(ResponseStatusException.class)
@@ -177,8 +187,26 @@ class RedReverseTransactionIntegrationTest {
         ));
         assertThat(operationCount(redBillId, "AUDIT", true)).isEqualTo(1);
         assertThat(operationCount(redBillId, "AUDIT", false)).isEqualTo(1);
-        assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT_RED:" + salesRedBillNo)).isEqualTo(1);
+        assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT", salesRedBillNo, "RED_AUDIT")).isEqualTo(1);
         assertThat(financeCount("ar_receivable", salesRedBillNo)).isEqualTo(1);
+
+        salesOutAppService.reverse(salesRedBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_out", "sales_out_line", salesRedBillNo),
+            "SALES_OUT", productCode, warehouseCode,
+            fact("SALES_OUT_RED", "RED_AUDIT", "2", "10"),
+            reversal("SALES_OUT_RED_REVERSE", "RED_REVERSE", "-2", "8", 0)
+        );
+        salesOutAppService.audit(salesRedBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("sales_out", "sales_out_line", salesRedBillNo),
+            "SALES_OUT", productCode, warehouseCode,
+            fact("SALES_OUT_RED", "RED_AUDIT", "2", "10"),
+            reversal("SALES_OUT_RED_REVERSE", "RED_REVERSE", "-2", "8", 0),
+            fact("SALES_OUT_RED", "RED_AUDIT", "2", "10")
+        );
     }
 
     @Test
@@ -199,9 +227,15 @@ class RedReverseTransactionIntegrationTest {
         assertStock("10", "0", "10");
         assertThat(purchaseReceivedQty()).isEqualByComparingTo("0");
         assertThat(purchaseInStatus()).isEqualTo("NOT_IN");
-        assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN_RED:" + purchaseRedBillNo)).isEqualTo(1);
+        assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN", purchaseRedBillNo, "RED_AUDIT")).isEqualTo(1);
         assertThat(financeCount("ap_payable", purchaseRedBillNo)).isEqualTo(1);
         assertThat(financeAmount("ap_payable", purchaseRedBillNo)).isEqualByComparingTo("-22.60");
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", purchaseRedBillNo),
+            "PURCHASE_IN", productCode, warehouseCode,
+            fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10")
+        );
 
         assertThatThrownBy(() -> purchaseInAppService.audit(purchaseRedBillNo))
             .isInstanceOf(ResponseStatusException.class)
@@ -214,8 +248,26 @@ class RedReverseTransactionIntegrationTest {
         ));
         assertThat(operationCount(redBillId, "AUDIT", true)).isEqualTo(1);
         assertThat(operationCount(redBillId, "AUDIT", false)).isEqualTo(1);
-        assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN_RED:" + purchaseRedBillNo)).isEqualTo(1);
+        assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN", purchaseRedBillNo, "RED_AUDIT")).isEqualTo(1);
         assertThat(financeCount("ap_payable", purchaseRedBillNo)).isEqualTo(1);
+
+        purchaseInAppService.reverse(purchaseRedBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", purchaseRedBillNo),
+            "PURCHASE_IN", productCode, warehouseCode,
+            fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10"),
+            reversal("PURCHASE_IN_RED_REVERSE", "RED_REVERSE", "2", "12", 0)
+        );
+        purchaseInAppService.audit(purchaseRedBillNo);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", purchaseRedBillNo),
+            "PURCHASE_IN", productCode, warehouseCode,
+            fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10"),
+            reversal("PURCHASE_IN_RED_REVERSE", "RED_REVERSE", "2", "12", 0),
+            fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10")
+        );
     }
 
     @Test
@@ -239,7 +291,7 @@ class RedReverseTransactionIntegrationTest {
         assertStock("8", "0", "8");
         assertThat(salesShippedQty()).isEqualByComparingTo("2");
         assertThat(salesOutStatus()).isEqualTo("PART_OUT");
-        assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT_RED:" + salesRedBillNo)).isZero();
+        assertThat(inventoryTxnCount("SALES_OUT_RED", "SALES_OUT", salesRedBillNo, "RED_AUDIT")).isZero();
         assertThat(financeCount("ar_receivable", salesRedBillNo)).isZero();
     }
 
@@ -264,7 +316,7 @@ class RedReverseTransactionIntegrationTest {
         assertStock("12", "0", "12");
         assertThat(purchaseReceivedQty()).isEqualByComparingTo("2");
         assertThat(purchaseInStatus()).isEqualTo("PART_IN");
-        assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN_RED:" + purchaseRedBillNo)).isZero();
+        assertThat(inventoryTxnCount("PURCHASE_IN_RED", "PURCHASE_IN", purchaseRedBillNo, "RED_AUDIT")).isZero();
         assertThat(financeCount("ap_payable", purchaseRedBillNo)).isZero();
     }
 
@@ -432,12 +484,21 @@ class RedReverseTransactionIntegrationTest {
             """, Integer.class, targetId, actionCode, success);
     }
 
-    private int inventoryTxnCount(String txnType, String sourceBillType) {
+    private int inventoryTxnCount(String txnType, String sourceBillType, String sourceBillNo, String postingAction) {
         return jdbcTemplate.queryForObject("""
             SELECT COUNT(*)::int
             FROM inv_stock_txn
-            WHERE product_id = ?::uuid AND txn_type = ? AND source_bill_type = ?
-            """, Integer.class, productId, txnType, sourceBillType);
+            WHERE product_id = ?::uuid
+              AND txn_type = ?
+              AND source_bill_type = ?
+              AND source_bill_no = ?
+              AND posting_action = ?
+              AND trace_quality = 'EXACT'
+            """, Integer.class, productId, txnType, sourceBillType, sourceBillNo, postingAction);
+    }
+
+    private SourceDocument sourceDocument(String headerTable, String lineTable, String billNo) {
+        return new SourceDocument(headerTable, lineTable, "bill_id", "bill_date", billNo);
     }
 
     private int financeCount(String table, String sourceBillNo) {

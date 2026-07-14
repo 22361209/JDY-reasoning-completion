@@ -5,10 +5,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.PostingContext;
@@ -34,6 +34,7 @@ public class OtherStockOutAppService {
     private final NumberingService numberingService;
     private final PostingPipeline postingPipeline;
     private final ProductSnapshotService productSnapshotService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public OtherStockOutAppService(
         JdbcTemplate jdbcTemplate,
@@ -42,7 +43,8 @@ public class OtherStockOutAppService {
         BillLifecycleService lifecycleService,
         PostingPipeline postingPipeline,
         NumberingService numberingService,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -51,6 +53,7 @@ public class OtherStockOutAppService {
         this.postingPipeline = postingPipeline;
         this.numberingService = numberingService;
         this.productSnapshotService = productSnapshotService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -99,7 +102,7 @@ public class OtherStockOutAppService {
         var totalAmount = request.lines().stream()
             .map(line -> positive(line.qty(), "数量").multiply(nonNegativePrice(line.unitPrice())))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO other_stock_out (bill_no, bill_date, department, business_type, status, total_amount, owner_name)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
@@ -123,7 +126,12 @@ public class OtherStockOutAppService {
             request.ownerName(),
             BillStatus.DRAFT.name()
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿其他出库单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("OTHER_STOCK_OUT", billId);
         jdbcTemplate.update("DELETE FROM other_stock_out_line WHERE bill_id = ?::uuid", billId);
         insertLines(billId, request.lines());
         return bill;
@@ -134,14 +142,15 @@ public class OtherStockOutAppService {
         var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.DRAFT, BillStatus.AUDITED,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "AUDIT", "other_stock_out", "其他出库单不存在或已审核");
         for (var line : postingLines(billNo)) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
+            postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 ((BigDecimal) line.get("qty")).negate(),
                 "OTHER_STOCK_OUT",
-                "OTHER_STOCK_OUT:" + billNo
-            ));
+                "OTHER_STOCK_OUT",
+                line.get("sourceBillId"), line.get("sourceBillLineId"), billNo,
+                line.get("sourceBillDate"), PostingAction.AUDIT
+            )));
         }
         return row;
     }
@@ -151,14 +160,15 @@ public class OtherStockOutAppService {
         var row = lifecycleService.transition(BILL_TABLE, billNo, BillStatus.AUDITED, BillStatus.DRAFT,
             "id::text AS id, bill_no AS \"billNo\", status", "INVENTORY", "REVERSE", "other_stock_out", "其他出库单不存在或不能反审核");
         for (var line : postingLines(billNo)) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
+            postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
                 String.valueOf(line.get("productCode")),
                 String.valueOf(line.get("warehouseCode")),
                 (BigDecimal) line.get("qty"),
                 "OTHER_STOCK_OUT_REVERSE",
-                "OTHER_STOCK_OUT_REVERSE:" + billNo
-            ));
+                "OTHER_STOCK_OUT",
+                line.get("sourceBillId"), line.get("sourceBillLineId"), billNo,
+                line.get("sourceBillDate"), PostingAction.REVERSE
+            )));
         }
         return row;
     }
@@ -185,7 +195,9 @@ public class OtherStockOutAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT b.id::text AS "sourceBillId", l.id::text AS "sourceBillLineId",
+                   b.bill_date AS "sourceBillDate",
+                   p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM other_stock_out_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id

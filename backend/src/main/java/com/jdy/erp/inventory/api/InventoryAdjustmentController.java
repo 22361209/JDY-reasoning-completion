@@ -1,9 +1,13 @@
 package com.jdy.erp.inventory.api;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
 import com.jdy.erp.inventory.application.InventoryTestAdjustmentAccessPolicy;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.system.security.RequirePermission;
@@ -36,13 +40,19 @@ public class InventoryAdjustmentController {
     @RequirePermission("system.account_set.manage")
     public Map<String, Object> adjust(@RequestBody InventoryAdjustmentRequest request) {
         accessPolicy.requireAllowed();
-        return postingService.post(
+        var txnType = requireTestSource(request.txnType(), "txnType");
+        var sourceBillType = requireTestSource(request.sourceBillType(), "sourceBillType");
+        return postingService.post(InventoryPostingCommand.testAdjustment(
             request.productCode(),
             request.warehouseCode(),
             request.qtyDelta(),
-            requireTestSource(request.txnType(), "txnType"),
-            requireTestSource(request.sourceBillType(), "sourceBillType")
-        );
+            txnType,
+            sourceBillType,
+            deterministicId("TEST_HEADER", sourceBillType),
+            deterministicId("TEST_LINE", sourceBillType + ":" + request.productCode() + ":" + request.warehouseCode()),
+            sourceBillType,
+            LocalDate.now()
+        ));
     }
 
     private String requireTestSource(String value, String field) {
@@ -54,6 +64,10 @@ public class InventoryAdjustmentController {
             );
         }
         return normalized;
+    }
+
+    private UUID deterministicId(String namespace, String value) {
+        return UUID.nameUUIDFromBytes((namespace + ":" + value).getBytes(StandardCharsets.UTF_8));
     }
 
     public record InventoryAdjustmentRequest(

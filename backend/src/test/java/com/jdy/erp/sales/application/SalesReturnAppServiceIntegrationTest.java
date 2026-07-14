@@ -145,7 +145,7 @@ class SalesReturnAppServiceIntegrationTest {
     }
 
     @Test
-    void cnyDraftCasAuditReplayReverseAndDeleteKeepInventoryAndFinanceExact() {
+    void cnyDraftCasAuditReplayReverseAndHistoryGuardKeepInventoryAndFinanceExact() {
         var source = insertSource("CNY", customerId, "10.0000", "10.00", "13.0000", "113.00", "30.00");
         var inventoryBefore = inventoryQuantity();
         assertThat(queryList("sales-out-return-source-selector", source.billNo(), "detail"))
@@ -279,15 +279,21 @@ class SalesReturnAppServiceIntegrationTest {
                 .containsEntry("returnOffsetAmount", "0.00")
                 .containsEntry("unsettledAmount", "83.00"));
 
-        assertThat(salesReturnAppService.deleteDraft(billNo))
-            .containsEntry("billNo", billNo)
-            .containsEntry("status", "DELETED");
+        assertThatThrownBy(() -> salesReturnAppService.deleteDraft(billNo))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("已有库存过账历史");
         assertThat(jdbcTemplate.queryForObject(
-            "SELECT COUNT(*)::int FROM sales_return WHERE bill_no = ?",
-            Integer.class,
+            "SELECT status FROM sales_return WHERE bill_no = ?",
+            String.class,
             billNo
-        )).isZero();
-        assertThat(actionLogCount("DELETE", billNo)).isEqualTo(1);
+        )).isEqualTo("DRAFT");
+        assertThat(jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)::int
+            FROM inv_stock_txn txn
+            JOIN sales_return header ON header.id = txn.source_bill_id
+            WHERE header.bill_no = ?
+            """, Integer.class, billNo)).isEqualTo(2);
+        assertThat(actionLogCount("DELETE", billNo)).isZero();
     }
 
     @Test
@@ -557,21 +563,31 @@ class SalesReturnAppServiceIntegrationTest {
                 .map(row -> String.valueOf(row.get("billNo")))
                 .findFirst()
                 .orElseThrow();
+            var untouchedDraftNo = auditedNo.equals(firstNo) ? secondNo : firstNo;
             salesReturnAppService.reverse(auditedNo);
-            salesReturnAppService.deleteDraft(firstNo);
-            salesReturnAppService.deleteDraft(secondNo);
+            assertThat(salesReturnAppService.deleteDraft(untouchedDraftNo))
+                .containsEntry("status", "DELETED");
+            assertThatThrownBy(() -> salesReturnAppService.deleteDraft(auditedNo))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("已有库存过账历史");
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM sales_return WHERE bill_no = ?",
+                String.class,
+                auditedNo
+            )).isEqualTo("DRAFT");
             assertThat(inventoryQuantity()).isEqualByComparingTo(inventoryBefore);
         } finally {
             executor.shutdownNow();
             jdbcTemplate.update("DELETE FROM sys_operation_log WHERE target_no IN (?, ?)", firstNo, secondNo);
+            jdbcTemplate.update("""
+                DELETE FROM inv_stock_txn
+                WHERE source_bill_id IN (
+                    SELECT id FROM sales_return WHERE bill_no IN (?, ?)
+                )
+                """, firstNo, secondNo);
             jdbcTemplate.update("DELETE FROM sales_return WHERE bill_no IN (?, ?)", firstNo, secondNo);
             jdbcTemplate.update("DELETE FROM ar_receivable WHERE id = ?::uuid", source.receivableId());
             jdbcTemplate.update("DELETE FROM sales_out WHERE id = ?::uuid", source.salesOutId());
-            jdbcTemplate.update(
-                "DELETE FROM inv_stock_txn WHERE source_bill_type LIKE ? OR source_bill_type LIKE ?",
-                "%" + firstNo + "%",
-                "%" + secondNo + "%"
-            );
         }
     }
 

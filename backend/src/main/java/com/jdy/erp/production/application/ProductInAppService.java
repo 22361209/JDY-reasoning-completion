@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogCommand;
@@ -37,8 +39,9 @@ public class ProductInAppService {
     private final BillLifecycleService lifecycleService;
     private final ProductSnapshotService productSnapshotService;
     private final RedReverseGuardService redReverseGuardService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
-    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService, BillLifecycleService lifecycleService, ProductSnapshotService productSnapshotService, RedReverseGuardService redReverseGuardService) {
+    public ProductInAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, PostingPipeline postingPipeline, OperationLogService operationLogService, NumberingService numberingService, BillLifecycleService lifecycleService, ProductSnapshotService productSnapshotService, RedReverseGuardService redReverseGuardService, InventoryTraceLifecycleService inventoryTraceLifecycleService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
@@ -48,6 +51,7 @@ public class ProductInAppService {
         this.lifecycleService = lifecycleService;
         this.productSnapshotService = productSnapshotService;
         this.redReverseGuardService = redReverseGuardService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -57,7 +61,7 @@ public class ProductInAppService {
                    t.bill_no AS "sourceOrderNo",
                    'SC' AS "customerCode",
                    '生产车间' AS customer,
-                   to_char(c.created_at, 'YYYY-MM-DD') AS "billDate",
+                   to_char(c.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS "billDate",
                    '生产部' AS department,
 	                   c.status,
 	                   COALESCE(SUM(l.amount), 0) AS "totalAmount",
@@ -131,6 +135,7 @@ public class ProductInAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿产品入库单可以覆盖保存");
         }
         var completionId = String.valueOf(completionRows.get(0).get("id"));
+        inventoryTraceLifecycleService.prepareForLineReplacement("PRODUCTION_COMPLETION", completionId);
         jdbcTemplate.update("DELETE FROM production_completion_line WHERE completion_id = ?::uuid", completionId);
         var totalQty = insertDraftCompletionLines(completionId, task, defaultQty, request.lines());
         validateCompletionQtyWithinTask(String.valueOf(task.get("id")), totalQty);
@@ -200,6 +205,7 @@ public class ProductInAppService {
 	            JOIN production_task t ON t.id = c.task_id
 	            WHERE c.bill_no = ?
 	              AND c.status = ?
+	            FOR UPDATE OF c, t
 	            """, billNo, BillStatus.DRAFT.name());
 	        if (completionRows.isEmpty()) {
 	            throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库单不存在、非草稿或来源任务不能完工入库");
@@ -211,7 +217,7 @@ public class ProductInAppService {
 	        requireExecutableTask(completion, "完工入库");
 	        var qty = (BigDecimal) completion.get("qty");
 	        validateCompletionQtyWithinTask(String.valueOf(completion.get("taskId")), qty);
-        postCompletionLines(billNo, BigDecimal.ONE, "PRODUCTION_COMPLETE", "PRODUCTION_COMPLETE:" + billNo);
+        postCompletionLines(billNo, BigDecimal.ONE, "PRODUCTION_COMPLETE", PostingAction.AUDIT);
         var taskRows = jdbcTemplate.queryForList("""
             UPDATE production_task
             SET completed_qty = completed_qty + ?,
@@ -243,7 +249,7 @@ public class ProductInAppService {
 	    private Map<String, Object> auditRedBill(Map<String, Object> completion, String billNo) {
 	        var qty = (BigDecimal) completion.get("qty");
 	        validateRedCompletion(completion, billNo, qty);
-	        postCompletionLines(billNo, BigDecimal.ONE, "PRODUCTION_COMPLETE_RED", "PRODUCTION_COMPLETE_RED:" + billNo);
+	        postCompletionLines(billNo, BigDecimal.ONE, "PRODUCTION_COMPLETE_RED", PostingAction.RED_AUDIT);
 	        var taskRows = jdbcTemplate.queryForList("""
 	            UPDATE production_task
 	            SET completed_qty = completed_qty + ?,
@@ -297,11 +303,11 @@ public class ProductInAppService {
 	            "产品入库单不存在或不能反审核"
 	        );
 	        if (isRedBill(row)) {
-	            postCompletionLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_COMPLETE_RED_REVERSE", "PRODUCTION_COMPLETE_RED_REVERSE:" + billNo);
+	            postCompletionLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_COMPLETE_RED_REVERSE", PostingAction.RED_REVERSE);
 	            decrementTaskCompletedQty(String.valueOf(row.get("taskId")), (BigDecimal) row.get("qty"));
 	            return row;
 	        }
-	        postCompletionLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_COMPLETE_REVERSE", "PRODUCTION_COMPLETE_REVERSE:" + billNo);
+	        postCompletionLines(billNo, BigDecimal.ONE.negate(), "PRODUCTION_COMPLETE_REVERSE", PostingAction.REVERSE);
 	        decrementTaskCompletedQty(String.valueOf(row.get("taskId")), (BigDecimal) row.get("qty"));
 	        return row;
     }
@@ -341,9 +347,13 @@ public class ProductInAppService {
             """, completionId, lineNo, productId, productCode, productName, spec, warehouseId, qty, unitPrice, qty.multiply(unitPrice));
     }
 
-    private void postCompletionLines(String billNo, BigDecimal sign, String txnType, String sourceBillType) {
+    private void postCompletionLines(String billNo, BigDecimal sign, String txnType, PostingAction postingAction) {
         var lines = jdbcTemplate.queryForList("""
-            SELECT p.code AS "productCode", w.code AS "warehouseCode", l.qty
+            SELECT c.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   c.bill_no AS "sourceBillNo",
+                   (c.created_at AT TIME ZONE 'Asia/Shanghai')::date AS "sourceBillDate",
+                   p.code AS "productCode", w.code AS "warehouseCode", l.qty
             FROM production_completion_line l
             JOIN md_product p ON p.id = l.product_id
             JOIN md_warehouse w ON w.id = l.warehouse_id
@@ -352,7 +362,18 @@ public class ProductInAppService {
             ORDER BY l.line_no
             """, billNo);
         for (var line : lines) {
-            post(String.valueOf(line.get("productCode")), String.valueOf(line.get("warehouseCode")), ((BigDecimal) line.get("qty")).multiply(sign), txnType, sourceBillType);
+            postingPipeline.post(PostingContext.inventory(InventoryPostingCommand.document(
+                String.valueOf(line.get("productCode")),
+                String.valueOf(line.get("warehouseCode")),
+                ((BigDecimal) line.get("qty")).multiply(sign),
+                txnType,
+                "PRODUCTION_COMPLETION",
+                line.get("sourceBillId"),
+                line.get("sourceBillLineId"),
+                String.valueOf(line.get("sourceBillNo")),
+                line.get("sourceBillDate"),
+                postingAction
+            )));
         }
     }
 
@@ -617,10 +638,6 @@ public class ProductInAppService {
                 updated_at = now()
             WHERE id = ?::uuid
             """, qty, taskId);
-    }
-
-    private void post(String productCode, String warehouseCode, BigDecimal qty, String txnType, String sourceBillType) {
-        postingPipeline.post(new PostingContext(InventoryPostingHook.CHANNEL, productCode, warehouseCode, qty, txnType, sourceBillType));
     }
 
     private BigDecimal positive(BigDecimal value, String label) {

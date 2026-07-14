@@ -3,11 +3,14 @@ package com.jdy.erp.system.tenant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.inventory.application.OpeningStockService;
 import com.jdy.erp.inventory.application.OtherStockInAppService;
@@ -28,6 +31,14 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 @SpringBootTest
 class TenantInventoryIsolationTest {
+    private static final LocalDate INVENTORY_FIXTURE_DATE = LocalDate.of(2026, 6, 30);
+    private static final UUID TENANT_A_ADJUST_HEADER_ID = UUID.fromString("a1190000-0000-4000-8000-000000000001");
+    private static final UUID TENANT_A_ADJUST_LINE_ID = UUID.fromString("a1190000-0000-4000-8000-000000000002");
+    private static final UUID TENANT_A_RESERVATION_HEADER_ID = UUID.fromString("a1190000-0000-4000-8000-000000000003");
+    private static final UUID TENANT_A_RESERVATION_LINE_ID = UUID.fromString("a1190000-0000-4000-8000-000000000004");
+    private static final UUID TENANT_B_ADJUST_HEADER_ID = UUID.fromString("a1190000-0000-4000-8000-000000000005");
+    private static final UUID TENANT_B_ADJUST_LINE_ID = UUID.fromString("a1190000-0000-4000-8000-000000000006");
+
     @Autowired
     private AccountSetManagementService accountSetManagementService;
 
@@ -99,10 +110,26 @@ class TenantInventoryIsolationTest {
             "A119-4-2 tenant A"
         )));
         saveAndAuditOtherStockIn(new BigDecimal("4"));
-        inventoryPostingService.post("A119-INV", "CK-001", new BigDecimal("5"), "A119_ADJUST_IN", "A119");
-        inventoryPostingService.reserve("A119-INV", "CK-001", new BigDecimal("4"), "A119_RESERVE", "A119");
-        inventoryPostingService.shipReserved("A119-INV", "CK-001", new BigDecimal("3"), "A119_SHIP", "A119");
-        inventoryPostingService.releaseReservation("A119-INV", "CK-001", new BigDecimal("1"), "A119_RELEASE", "A119");
+        inventoryPostingService.post(InventoryPostingCommand.test(
+            "A119-INV", "CK-001", new BigDecimal("5"), "A119_ADJUST_IN", "A119",
+            TENANT_A_ADJUST_HEADER_ID, TENANT_A_ADJUST_LINE_ID, "A119-ADJUST-A",
+            INVENTORY_FIXTURE_DATE, PostingAction.AUDIT
+        ));
+        inventoryPostingService.reserve(InventoryPostingCommand.test(
+            "A119-INV", "CK-001", new BigDecimal("4"), "A119_RESERVE", "A119",
+            TENANT_A_RESERVATION_HEADER_ID, TENANT_A_RESERVATION_LINE_ID, "A119-RESERVATION-A",
+            INVENTORY_FIXTURE_DATE, PostingAction.RESERVE
+        ));
+        inventoryPostingService.shipReserved(InventoryPostingCommand.test(
+            "A119-INV", "CK-001", new BigDecimal("3"), "A119_SHIP", "A119",
+            TENANT_A_RESERVATION_HEADER_ID, TENANT_A_RESERVATION_LINE_ID, "A119-RESERVATION-A",
+            INVENTORY_FIXTURE_DATE, PostingAction.AUDIT
+        ));
+        inventoryPostingService.releaseReservation(InventoryPostingCommand.test(
+            "A119-INV", "CK-001", new BigDecimal("1"), "A119_RELEASE", "A119",
+            TENANT_A_RESERVATION_HEADER_ID, TENANT_A_RESERVATION_LINE_ID, "A119-RESERVATION-A",
+            INVENTORY_FIXTURE_DATE, PostingAction.RELEASE
+        ));
         assertBalance("A119-INV", "16.0000", "0.0000", "16.0000");
         assertThat(openingStockService.rows()).hasSize(1);
         assertThat(txnCount()).isEqualTo(6);
@@ -118,7 +145,11 @@ class TenantInventoryIsolationTest {
             "A119-4-2 tenant B"
         )));
         saveAndAuditOtherStockIn(new BigDecimal("2"));
-        inventoryPostingService.post("A119-INV", "CK-001", new BigDecimal("1"), "A119_ADJUST_IN", "A119");
+        inventoryPostingService.post(InventoryPostingCommand.test(
+            "A119-INV", "CK-001", new BigDecimal("1"), "A119_ADJUST_IN", "A119",
+            TENANT_B_ADJUST_HEADER_ID, TENANT_B_ADJUST_LINE_ID, "A119-ADJUST-B",
+            INVENTORY_FIXTURE_DATE, PostingAction.AUDIT
+        ));
         assertBalance("A119-INV", "5.0000", "0.0000", "5.0000");
         assertThat(openingStockService.rows()).hasSize(1);
         assertThat(txnCount()).isEqualTo(3);

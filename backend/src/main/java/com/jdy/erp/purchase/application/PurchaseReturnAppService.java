@@ -6,14 +6,15 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.inventory.application.InventoryPostingCommand;
+import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.inventory.application.InventoryTraceLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.BillLifecycleService.BillLifecycleTarget;
 import com.jdy.erp.shared.application.BillLifecycleService.VoidRequest;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityDemand;
 import com.jdy.erp.shared.application.BillLifecycleService.SourceLineQuantityGuard;
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
-import com.jdy.erp.shared.application.FinancePosting;
-import com.jdy.erp.shared.application.InventoryPostingHook;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.PostingContext;
@@ -62,6 +63,7 @@ public class PurchaseReturnAppService {
     private final NumberingService numberingService;
     private final TaxAmountCalculator taxAmountCalculator;
     private final ProductSnapshotService productSnapshotService;
+    private final InventoryTraceLifecycleService inventoryTraceLifecycleService;
 
     public PurchaseReturnAppService(
         JdbcTemplate jdbcTemplate,
@@ -71,7 +73,8 @@ public class PurchaseReturnAppService {
         PostingPipeline postingPipeline,
         NumberingService numberingService,
         TaxAmountCalculator taxAmountCalculator,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        InventoryTraceLifecycleService inventoryTraceLifecycleService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -81,6 +84,7 @@ public class PurchaseReturnAppService {
         this.numberingService = numberingService;
         this.taxAmountCalculator = taxAmountCalculator;
         this.productSnapshotService = productSnapshotService;
+        this.inventoryTraceLifecycleService = inventoryTraceLifecycleService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -198,7 +202,7 @@ public class PurchaseReturnAppService {
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
-        var bill = jdbcTemplate.queryForMap("""
+        var bills = jdbcTemplate.queryForList("""
             INSERT INTO purchase_return (bill_no, supplier_id, bill_date, department, status, total_amount, owner_name, remark)
             VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
@@ -213,6 +217,7 @@ public class PurchaseReturnAppService {
                 frozen_status = 'NORMAL',
                 updated_at = now(),
                 version = purchase_return.version + 1
+            WHERE purchase_return.status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount"
             """,
             billNo,
@@ -224,7 +229,12 @@ public class PurchaseReturnAppService {
             request.ownerName(),
             validationService.optionalText(request.remark())
         );
+        if (bills.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿采购退货单可以覆盖保存");
+        }
+        var bill = bills.getFirst();
         var billId = bill.get("id");
+        inventoryTraceLifecycleService.prepareForLineReplacement("PURCHASE_RETURN", billId);
         jdbcTemplate.update("DELETE FROM purchase_return_line WHERE bill_id = ?::uuid", billId);
         insertLines(billId, request.lines());
         return bill;
@@ -249,14 +259,7 @@ public class PurchaseReturnAppService {
             "采购退货单不存在或已审核"
         );
         for (var line : lines) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
-                String.valueOf(line.get("productCode")),
-                String.valueOf(line.get("warehouseCode")),
-                ((BigDecimal) line.get("qty")).negate(),
-                "PURCHASE_RETURN",
-                "PURCHASE_RETURN:" + billNo
-            ));
+            postingPipeline.post(inventoryContext(line, ((BigDecimal) line.get("qty")).negate(), "PURCHASE_RETURN", PostingAction.AUDIT));
         }
         postingPipeline.post(financeContext(row, "PURCHASE_RETURN", ((BigDecimal) row.get("totalAmount")).negate()));
         return row;
@@ -276,14 +279,7 @@ public class PurchaseReturnAppService {
             "采购退货单不存在或不能反审核"
         );
         for (var line : postingLines(billNo)) {
-            postingPipeline.post(new PostingContext(
-                InventoryPostingHook.CHANNEL,
-                String.valueOf(line.get("productCode")),
-                String.valueOf(line.get("warehouseCode")),
-                (BigDecimal) line.get("qty"),
-                "PURCHASE_RETURN_REVERSE",
-                "PURCHASE_RETURN_REVERSE:" + billNo
-            ));
+            postingPipeline.post(inventoryContext(line, (BigDecimal) line.get("qty"), "PURCHASE_RETURN_REVERSE", PostingAction.REVERSE));
         }
         postingPipeline.post(financeContext(row, "PURCHASE_RETURN_REVERSE", (BigDecimal) row.get("totalAmount")));
         return row;
@@ -331,7 +327,11 @@ public class PurchaseReturnAppService {
 
     private List<Map<String, Object>> postingLines(String billNo) {
         return jdbcTemplate.queryForList("""
-            SELECT l.line_no AS "lineNo",
+            SELECT pr.id::text AS "sourceBillId",
+                   l.id::text AS "sourceBillLineId",
+                   pr.bill_no AS "sourceBillNo",
+                   pr.bill_date AS "sourceBillDate",
+                   l.line_no AS "lineNo",
                    l.source_in_no AS "sourceOrderNo",
                    l.source_line_no AS "sourceLineNo",
                    COALESCE(l.product_code_snapshot, p.code) AS "productCode",
@@ -346,6 +346,26 @@ public class PurchaseReturnAppService {
             """, billNo);
     }
 
+    private PostingContext inventoryContext(
+        Map<String, Object> line,
+        BigDecimal qty,
+        String txnType,
+        PostingAction postingAction
+    ) {
+        return PostingContext.inventory(InventoryPostingCommand.document(
+            String.valueOf(line.get("productCode")),
+            String.valueOf(line.get("warehouseCode")),
+            qty,
+            txnType,
+            "PURCHASE_RETURN",
+            line.get("sourceBillId"),
+            line.get("sourceBillLineId"),
+            String.valueOf(line.get("sourceBillNo")),
+            line.get("sourceBillDate"),
+            postingAction
+        ));
+    }
+
     private List<SourceLineQuantityDemand> sourceLineDemands(List<Map<String, Object>> lines) {
         return lines.stream()
             .map(line -> new SourceLineQuantityDemand(
@@ -357,13 +377,8 @@ public class PurchaseReturnAppService {
     }
 
     private PostingContext financeContext(Map<String, Object> row, String txnType, BigDecimal amount) {
-        return new PostingContext(
-            FinancePosting.CHANNEL,
-            null,
-            null,
-            null,
+        return PostingContext.finance(
             txnType,
-            txnType + ":" + row.get("billNo"),
             String.valueOf(row.get("billNo")),
             String.valueOf(row.get("supplierId")),
             toLocalDate(row.get("billDate")),
