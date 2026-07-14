@@ -140,14 +140,28 @@
             class="tab-close"
             type="button"
             :aria-label="`关闭${tab.title}`"
+            :aria-disabled="tab.id === masterDataImportTabId && masterDataImportCommitting"
+            :title="tab.id === masterDataImportTabId && masterDataImportCommitting ? '正在确认导入，取得最终结果前不能关闭' : ''"
             :data-testid="`close-${tab.id}`"
-            @click.stop="tabs.requestClose(tab.id)"
+            @click.stop="requestTabClose(tab.id)"
           >
             x
           </button>
         </div>
       </nav>
       <section class="content-area" data-testid="content-area">
+        <MasterDataImportPage
+          v-if="hasMasterDataImportTab"
+          v-show="tabs.activeTab.value.id === masterDataImportTabId"
+          ref="masterDataImportPageRef"
+          :tenant-name="session.tenantName.value"
+          :account-set-code="session.accountSetCode.value"
+          :can-import="session.hasPermission('master.data.manage')"
+          @committing-change="masterDataImportCommitting = $event"
+          @dirty-change="markMasterDataImportDirty"
+          @open-list="openMasterDataImportTargetList"
+        />
+        <template v-if="tabs.activeTab.value.id !== masterDataImportTabId">
         <div v-if="tabs.activeTab.value.kind === 'home'" class="home-board">
           <section class="home-head">
             <div>
@@ -180,7 +194,7 @@
           <p>模块功能面板在统一工作容器内打开，左侧和顶部全局区保持稳定。</p>
           <div class="empty-shell">请选择功能名称、查询小按钮或直达新增入口继续。</div>
         </div>
-        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['account-set-settings', 'opening-stock-settings', 'numbering-rule-settings', 'print-template-settings', 'role-permission-settings', 'user-role-list', 'security-settings', 'notification-provider-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
+        <div v-else-if="tabs.activeTab.value.kind === 'shell' && !['master-data-import', 'account-set-settings', 'opening-stock-settings', 'numbering-rule-settings', 'print-template-settings', 'role-permission-settings', 'user-role-list', 'security-settings', 'notification-provider-settings'].includes(tabs.activeTab.value.id)" class="panel-page">
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <div class="empty-shell">首版范围裁剪：该入口仅保留壳层，不进入深层业务页。</div>
         </div>
@@ -355,6 +369,7 @@
           @view-master-data="openViewMasterData"
           @edit-master-data="openEditMasterData"
           @copy-master-data="openCopyMasterData"
+          @open-master-data-import="openMasterDataImport"
         />
         <MasterDataRecordPage
           v-else-if="activeMasterRecord"
@@ -780,6 +795,7 @@
           <h2>{{ tabs.activeTab.value.title }}</h2>
           <p>该入口保留统一工作区页签，等待后续批次接入。</p>
         </div>
+        </template>
       </section>
     </main>
     <div v-if="tabs.overflowMessage.value" class="modal-mask" data-testid="tab-overflow-modal">
@@ -795,7 +811,7 @@
         <p>{{ tabs.pendingCloseTab.value.title }} 有未保存内容，关闭后将丢失本次修改。</p>
         <div class="dialog-actions">
           <button type="button" @click="tabs.cancelClose">取消</button>
-          <button class="danger-action" type="button" @click="tabs.closeNow(tabs.pendingCloseTab.value!.id)">不保存</button>
+          <button class="danger-action" type="button" @click="closePendingTabWithoutSaving">不保存</button>
         </div>
       </div>
     </div>
@@ -836,6 +852,8 @@ import SettlementDocumentForm from "../modules/finance/SettlementDocumentForm.vu
 import type { SettlementCurrency, SettlementKind } from "../services/financeApi";
 import MasterDataRecordPage from "../modules/master-data/MasterDataRecordPage.vue";
 import { masterDataDefinitions } from "../modules/master-data/registry";
+import MasterDataImportPage from "../modules/master-data/import/MasterDataImportPage.vue";
+import { masterDataImportDefinitionForList } from "../modules/master-data/import/importRegistry";
 import type { MasterDataField } from "../modules/master-data/types";
 import LoginPage from "../modules/system/auth/LoginPage.vue";
 import PasswordChangeDialog from "../modules/system/auth/PasswordChangeDialog.vue";
@@ -921,6 +939,7 @@ const stockTransferTabId = "stock-transfer-form";
 const stockCountTabId = "stock-count-form";
 const stockCountGainTabId = "stock-count-gain-form";
 const stockCountLossTabId = "stock-count-loss-form";
+const masterDataImportTabId = "master-data-import";
 const masterRecords = reactive<Record<string, MasterRecordState>>({});
 const activeMasterRecord = computed(() => masterRecords[tabs.activeTabId.value] ?? null);
 const activeMasterRecordDirty = computed(() => Boolean(tabs.activeTab.value?.dirty));
@@ -963,6 +982,8 @@ const stockTransferFormRef = ref<InstanceType<typeof StockTransferForm> | null>(
 const stockCountFormRef = ref<InstanceType<typeof StockCountForm> | null>(null);
 const stockCountGainFormRef = ref<InstanceType<typeof StockCountForm> | null>(null);
 const stockCountLossFormRef = ref<InstanceType<typeof StockCountForm> | null>(null);
+const masterDataImportPageRef = ref<InstanceType<typeof MasterDataImportPage> | null>(null);
+const masterDataImportCommitting = ref(false);
 const loginPageRef = ref<InstanceType<typeof LoginPage> | null>(null);
 const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | null>(null);
 const shellSession = useShellSession({ loginPageRef, passwordChangeDialogRef });
@@ -992,6 +1013,7 @@ const typedModuleCatalog = moduleCatalog as unknown as ShellModule[];
 const typedExcludedModules = excludedModules as unknown as ShellModule[];
 const visibleModules = [...typedModuleCatalog, ...typedExcludedModules];
 const activeModule = computed(() => visibleModules.find((module) => module.name === activeModuleName.value) ?? typedModuleCatalog[0]);
+const hasMasterDataImportTab = computed(() => tabs.tabs.value.some((tab) => tab.id === masterDataImportTabId));
 const activeEntryGroups = computed(() => activeModule.value.groups
   .map((group) => ({ ...group, entries: group.entries.filter((entry) => canOpenEntry(entry)) }))
   .filter((group) => group.entries.length > 0));
@@ -1129,6 +1151,71 @@ function openQueryEntry(entry: ShellEntry) {
   openEntry(entry.mode === "report" ? entry : { ...entry, mode: "list" });
 }
 
+function openMasterDataImport(payload: { listKey: string }) {
+  if (!session.hasPermission("master.data.manage")) {
+    return;
+  }
+  const definition = masterDataImportDefinitionForList(payload.listKey);
+  if (!definition) {
+    return;
+  }
+  const opened = tabs.openTab({
+    id: masterDataImportTabId,
+    title: "Excel 导入",
+    module: "基础资料",
+    kind: "shell",
+    dirty: false
+  });
+  if (!opened) {
+    return;
+  }
+  activeModuleName.value = "基础资料";
+  modulePanelOpen.value = false;
+  void nextTick(() => masterDataImportPageRef.value?.openForList(payload.listKey));
+}
+
+function requestTabClose(tabId: string) {
+  if (tabId === masterDataImportTabId && masterDataImportCommitting.value) {
+    notifyMasterDataImportNavigationBlocked();
+    return;
+  }
+  tabs.requestClose(tabId);
+}
+
+function closePendingTabWithoutSaving() {
+  const pendingTab = tabs.pendingCloseTab.value;
+  if (!pendingTab) return;
+  if (pendingTab.id === masterDataImportTabId && masterDataImportCommitting.value) {
+    tabs.cancelClose();
+    notifyMasterDataImportNavigationBlocked();
+    return;
+  }
+  tabs.closeNow(pendingTab.id);
+}
+
+function notifyMasterDataImportNavigationBlocked() {
+  tabs.activeTabId.value = masterDataImportTabId;
+  void nextTick(() => masterDataImportPageRef.value?.notifyNavigationBlocked());
+}
+
+function openMasterDataImportTargetList(listKey: string) {
+  if (!session.hasPermission("master.data.manage")) {
+    return;
+  }
+  const definition = masterDataImportDefinitionForList(listKey);
+  if (!definition) {
+    return;
+  }
+  tabs.openTab({
+    id: definition.listKey,
+    title: `${definition.label}列表`,
+    module: "基础资料",
+    kind: "list",
+    dirty: false
+  });
+  activeModuleName.value = "基础资料";
+}
+
 function openAccountSetSettings() {
   openEntry({
     id: "account-set-settings",
@@ -1153,6 +1240,12 @@ function replaceAccountSets(nextAccountSets: SystemAccountSet[]) {
 
 async function requestAccountSetSwitch(accountSetCode: string) {
   if (!accountSetCode || accountSetCode === session.accountSetCode.value || accountSetSwitching.value) {
+    return;
+  }
+  if (masterDataImportCommitting.value) {
+    selectedAccountSetCode.value = session.accountSetCode.value;
+    accountSetSwitchMessage.value = "基础资料正在确认导入，取得最终结果前不能切换账套。";
+    notifyMasterDataImportNavigationBlocked();
     return;
   }
   const target = accountSets.value.find((accountSet) => accountSet.code === accountSetCode);
@@ -2581,6 +2674,12 @@ function clearActiveDirty() {
   const activeTab = tabs.tabs.value.find((tab) => tab.id === tabs.activeTabId.value);
   if (activeTab) {
     activeTab.dirty = false;
+  }
+}
+function markMasterDataImportDirty(dirty: boolean) {
+  const importTab = tabs.tabs.value.find((tab) => tab.id === masterDataImportTabId);
+  if (importTab) {
+    importTab.dirty = dirty;
   }
 }
 </script>

@@ -30,6 +30,7 @@ const registeredActions: Record<string, RegisteredAction> = {
   pushDown: { key: "pushDown", label: "下推", order: 120, testId: "push-down-document" },
   extra: { key: "extra", label: "执行", order: 130, testId: "extra-document-action" },
   delete: { key: "delete", label: "删除", order: 140, testId: "delete-document" },
+  importData: { key: "importData", label: "导入", order: 145, testId: "import-document" },
   export: { key: "export", label: "引出", order: 150, testId: "export-document" },
   print: { key: "print", label: "打印", order: 160, testId: "print-document" },
   complete: { key: "complete", label: "完成", order: 165, testId: "complete-document" },

@@ -443,6 +443,7 @@ import {
   lifecyclePolicyFor
 } from "../app/documentLifecyclePolicy";
 import { useMasterDataMaintenance } from "../modules/master-data/useMasterDataMaintenance";
+import { masterDataImportListKeys } from "../modules/master-data/import/importRegistry";
 import { useSessionStore } from "../stores/session";
 import { useDataListDefinition, type ListColumn, type OpenableDocumentType } from "./list/useDataListDefinition";
 import {
@@ -474,6 +475,7 @@ const emit = defineEmits<{
   viewMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
   editMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
   copyMasterData: [payload: { listKey: string; row: Record<string, unknown> }];
+  openMasterDataImport: [payload: { listKey: string }];
 }>();
 
 const tableVersion = ref(0);
@@ -675,6 +677,7 @@ const canMaintainCurrentList = computed(() => {
   const permission = maintainPermissionByListKey[props.listKey];
   return Boolean(permission) && session.hasPermission(permission);
 });
+const supportsMasterDataImport = computed(() => masterDataImportListKeys.has(props.listKey));
 const canMaintainStockAlert = computed(() => session.hasPermission("inventory.stock_alert.manage"));
 const supportsCreateCurrentList = computed(() => !isStockAlertList.value && (isMasterList.value || Boolean(openableDocumentType.value) || canCreateListRecord(props.listKey)));
 const supportsAuditCurrentList = computed(() => !isStockAlertList.value && Boolean(auditPermissionByListKey[props.listKey]));
@@ -908,6 +911,11 @@ const listToolbarActions = computed<ActionBarItem[]>(() => [
   })
 ]);
 const listMoreActions = computed<ActionBarItem[]>(() => [
+  defineAction("importData", {
+    visible: supportsMasterDataImport.value,
+    enabled: canMaintainCurrentList.value,
+    testId: "list-import"
+  }),
   defineAction("export", {
     enabled: true,
     testId: "list-export"
@@ -1613,6 +1621,10 @@ function handleListAction(actionKey: string) {
   }
   if (actionKey === "refresh") {
     void reload();
+    return;
+  }
+  if (actionKey === "importData") {
+    emit("openMasterDataImport", { listKey: props.listKey });
     return;
   }
   if (actionKey === "export") {
