@@ -79,6 +79,7 @@ public class AccountSetInitializationService {
             TRUNCATE TABLE
                 doc_edit_lock,
                 sys_list_filter_preset,
+                md_import_batch,
                 inv_stock_txn,
                 inv_stock_balance,
                 inv_stock_opening,

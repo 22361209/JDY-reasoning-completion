@@ -25,6 +25,7 @@ const tenantCode = `A141-MIG-${upperToken}`;
 const tenantId = randomUUID();
 const backupId = randomUUID();
 const backupName = `BK-${tenantCode}-${upperToken}`;
+const restoredImportBatchId = randomUUID();
 const redisNamespace = `jdy:a141:migration:${token}`;
 const passwordResetRedisPrefix = `jdy:a141:{migration-${token}}:password-reset`;
 const processes = [];
@@ -54,6 +55,7 @@ const result = {
     fixtures: {},
     migration102: {},
     migration103: {},
+    migration104: {},
     repeatFlyway: {},
     repeatTenantSync: {},
     restoreApi: {}
@@ -891,8 +893,10 @@ try {
   const migratedHistory = migrationHistory(upgradeDatabase);
   const v102Rows = migratedHistory.filter((row) => row.version === "102");
   const v103Rows = migratedHistory.filter((row) => row.version === "103");
+  const v104Rows = migratedHistory.filter((row) => row.version === "104");
   assert(v102Rows.length === 1 && v102Rows[0].success === true, `V102 history mismatch: ${JSON.stringify(v102Rows)}`);
   assert(v103Rows.length === 1 && v103Rows[0].success === true, `V103 history mismatch: ${JSON.stringify(v103Rows)}`);
+  assert(v104Rows.length === 1 && v104Rows[0].success === true, `V104 history mismatch: ${JSON.stringify(v104Rows)}`);
   const migratedSnapshots = {
     public: migratedSnapshot("public", fixtures.public),
     tenant: migratedSnapshot(tenantSchema, fixtures.tenant),
@@ -914,7 +918,6 @@ try {
   };
   result.upgrade.migration103 = {
     history: v103Rows[0],
-    managedTableCount: Number(psql(upgradeDatabase, "SELECT count(*) FROM public.sys_tenant_managed_table")),
     salesReturnTables: Number(psql(upgradeDatabase, `
       SELECT count(*) FROM information_schema.tables
       WHERE table_schema = 'public'
@@ -927,9 +930,47 @@ try {
         AND column_name = 'return_offset_amount'
     `))
   };
-  assert(result.upgrade.migration103.managedTableCount === 81, "V103 should expose 81 managed tenant tables");
   assert(result.upgrade.migration103.salesReturnTables === 3, "V103 should expose three sales return tables");
   assert(result.upgrade.migration103.receivableOffsetColumn === 1, "V103 should add ar_receivable.return_offset_amount");
+  result.upgrade.migration104 = {
+    history: v104Rows[0],
+    managedTableCount: Number(psql(upgradeDatabase, "SELECT count(*) FROM public.sys_tenant_managed_table")),
+    importBatchTables: Number(psql(upgradeDatabase, `
+      SELECT count(*)
+      FROM information_schema.tables
+      WHERE table_schema IN ('public', ${sqlLiteral(tenantSchema)}, ${sqlLiteral(backupSchema)})
+        AND table_name = 'md_import_batch'
+    `)),
+    managedConstraints: Number(psql(upgradeDatabase, `
+      SELECT count(*)
+      FROM pg_constraint constraint_row
+      JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+      JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+      WHERE schema_row.nspname IN ('public', ${sqlLiteral(tenantSchema)})
+        AND table_row.relname = 'md_import_batch'
+    `)),
+    backupConstraints: Number(psql(upgradeDatabase, `
+      SELECT count(*)
+      FROM pg_constraint constraint_row
+      JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+      JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+      WHERE schema_row.nspname = ${sqlLiteral(backupSchema)}
+        AND table_row.relname = 'md_import_batch'
+    `)),
+    accountSetForeignKeys: Number(psql(upgradeDatabase, `
+      SELECT count(*)
+      FROM pg_constraint constraint_row
+      JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+      JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+      WHERE schema_row.nspname = 'public'
+        AND table_row.relname = 'md_import_batch'
+        AND constraint_row.contype = 'f'
+    `))
+  };
+  assert(result.upgrade.migration104.managedTableCount === 82, "V104 should expose 82 managed tenant tables");
+  assert(result.upgrade.migration104.importBatchTables === 3, "V104 should create the batch table in public, tenant and historical backup schemas");
+  assert(result.upgrade.migration104.managedConstraints > 0 && result.upgrade.migration104.backupConstraints === 0, "V104 managed/backup constraint modes differ from contract");
+  assert(result.upgrade.migration104.accountSetForeignKeys === 0, "V104 must not add an account-set FK exemption");
 
   const repeatFlywayOutput = flywayMigrate(upgradeDatabase);
   const repeatFlywayHistory = migrationHistory(upgradeDatabase);
@@ -962,7 +1003,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
   const tenantAfterSync = migratedSnapshot(tenantSchema, fixtures.tenant);
-  assert(same(syncCounts, [81, 81]), `repeat tenant sync counts should be 81/81, got ${JSON.stringify(syncCounts)}`);
+  assert(same(syncCounts, [82, 82]), `repeat tenant sync counts should be 82/82, got ${JSON.stringify(syncCounts)}`);
   assert(same(tenantBeforeSync, tenantAfterSync), "repeat tenant sync changed migrated settlement data");
   result.upgrade.repeatTenantSync = {
     managedCounts: syncCounts,
@@ -970,6 +1011,37 @@ try {
     afterDigest: digest(tenantAfterSync),
     idempotent: true
   };
+
+  psql(upgradeDatabase, `
+    INSERT INTO ${quoteIdentifier(backupSchema)}.md_import_batch (
+      id, account_set_id, account_set_code, created_by, created_by_username,
+      import_type, template_version, original_file_name, file_sha256, file_size_bytes,
+      status, total_rows, valid_rows, error_rows, committed_rows, rows_payload,
+      created_at, expires_at, updated_at, version
+    )
+    SELECT ${sqlLiteral(restoredImportBatchId)}::uuid,
+           ${sqlLiteral(tenantId)}::uuid,
+           ${sqlLiteral(tenantCode)},
+           id,
+           username,
+           'customer',
+           1,
+           'a141-restore.xlsx',
+           repeat('a', 64),
+           128,
+           'VALIDATED',
+           1,
+           1,
+           0,
+           0,
+           '[{"rowNo":3,"payload":{"code":"A141-C001"},"errors":[]}]'::jsonb,
+           now(),
+           now() + interval '30 minutes',
+           now(),
+           0
+    FROM public.sys_user
+    WHERE username = 'admin'
+  `);
 
   psql(upgradeDatabase, `
     BEGIN;
@@ -1022,6 +1094,23 @@ try {
       WHERE id = ${sqlLiteral(backupId)}::uuid
     `);
     assert(restoreMetadata.restoredAtSet === true && restoreMetadata.restoredBySet === true, "restore metadata was not updated");
+    const restoredImportBatch = sqlJson(upgradeDatabase, `
+      SELECT jsonb_build_object(
+        'status', status,
+        'payload', rows_payload,
+        'payloadCleared', payload_cleared_at IS NOT NULL,
+        'version', version
+      )::text
+      FROM ${quoteIdentifier(tenantSchema)}.md_import_batch
+      WHERE id = ${sqlLiteral(restoredImportBatchId)}::uuid
+    `);
+    assert(
+      restoredImportBatch.status === "EXPIRED"
+        && same(restoredImportBatch.payload, [])
+        && restoredImportBatch.payloadCleared === true
+        && Number(restoredImportBatch.version) === 1,
+      `restore must expire and clear unsubmitted import batches: ${JSON.stringify(restoredImportBatch)}`
+    );
     result.upgrade.restoreApi = {
       status: restore.status,
       backupName,
@@ -1030,6 +1119,7 @@ try {
       restoredDigest: digest(restored),
       backupDigest: digest(migratedSnapshots.backup),
       exactSemanticRestore: true,
+      importBatch: restoredImportBatch,
       metadata: restoreMetadata
     };
   } finally {
@@ -1062,6 +1152,11 @@ try {
         WHERE table_schema = 'public'
           AND table_name IN ('sales_return', 'sales_return_line', 'sales_return_finance_allocation')
       ),
+      'importBatchTables', (
+        SELECT count(*) FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'md_import_batch'
+      ),
       'receivableOffsetColumns', (
         SELECT count(*) FROM information_schema.columns
         WHERE table_schema = 'public'
@@ -1076,9 +1171,11 @@ try {
       )
     )::text
   `);
-  assert(Number(freshMetrics.managedTables) === 81, `fresh managed table count should be 81: ${JSON.stringify(freshMetrics)}`);
+  assert(freshHistory.at(-1)?.version === "104", `fresh migration max version should be V104: ${JSON.stringify(freshHistory.at(-1))}`);
+  assert(Number(freshMetrics.managedTables) === 82, `fresh managed table count should be 82: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.importBatchTables) === 1, `fresh import batch table count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
@@ -1118,7 +1215,7 @@ console.log(JSON.stringify({
   upgrade: {
     target: result.upgrade.target101.maxVersion,
     migrated: result.upgrade.migration102.history?.version,
-    latest: result.upgrade.migration103.history?.version,
+    latest: result.upgrade.migration104.history?.version,
     tenantSync: result.upgrade.repeatTenantSync.managedCounts,
     restoreStatus: result.upgrade.restoreApi.status
   },

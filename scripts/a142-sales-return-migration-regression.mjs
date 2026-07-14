@@ -46,6 +46,8 @@ const restoreFixture = {
   salesReturnId: randomUUID(),
   salesReturnLineId: randomUUID(),
   allocationId: randomUUID(),
+  unsubmittedImportBatchId: randomUUID(),
+  committedImportBatchId: randomUUID(),
   productCategoryCode: `A142-PC-${upperToken}`,
   unitCode: `A142-U-${upperToken}`,
   productCode: `A142-P-${upperToken}`,
@@ -280,6 +282,34 @@ function shapeSnapshot(schema, constrained) {
   `);
 }
 
+function importBatchShape(schema, constrained) {
+  const q = sqlLiteral(schema);
+  return sqlJson(upgradeDatabase, `
+    SELECT jsonb_build_object(
+      'tables', (SELECT count(*) FROM information_schema.tables WHERE table_schema = ${q} AND table_name = 'md_import_batch'),
+      'rows', (SELECT count(*) FROM ${quoteIdentifier(schema)}.md_import_batch),
+      'constraints', (
+        SELECT count(*)
+        FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+        WHERE schema_row.nspname = ${q}
+          AND table_row.relname = 'md_import_batch'
+      ),
+      'foreignKeys', (
+        SELECT count(*)
+        FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+        WHERE schema_row.nspname = ${q}
+          AND table_row.relname = 'md_import_batch'
+          AND constraint_row.contype = 'f'
+      ),
+      'expectedConstraintMode', ${constrained ? "'managed'" : "'backup'"}
+    )::text
+  `);
+}
+
 function timestampExpression(column) {
   return `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 }
@@ -401,7 +431,86 @@ function seedRestoreFixture() {
       'USD', 100.00, 40.00, 0.00, 60.00, 70.00, 60.00, 10.00, 0.00,
       TIMESTAMPTZ '2026-07-14 01:05:00+00', TIMESTAMPTZ '2026-07-14 01:05:00+00'
     );
+    INSERT INTO ${q}.md_import_batch (
+      id, account_set_id, account_set_code, created_by, created_by_username,
+      import_type, template_version, original_file_name, file_sha256, file_size_bytes,
+      status, total_rows, valid_rows, error_rows, committed_rows, rows_payload,
+      created_at, expires_at, committed_at, payload_cleared_at, updated_at, version
+    )
+    SELECT ${sqlLiteral(restoreFixture.unsubmittedImportBatchId)}::uuid,
+           ${sqlLiteral(tenantId)}::uuid,
+           ${sqlLiteral(tenantCode)},
+           id,
+           username,
+           'customer',
+           1,
+           'a142-unsubmitted.xlsx',
+           repeat('a', 64),
+           128,
+           'VALIDATED',
+           1,
+           1,
+           0,
+           0,
+           '[{"rowNo":3,"payload":{"code":"A142-C001"},"errors":[]}]'::jsonb,
+           TIMESTAMPTZ '2026-07-14 01:06:00+00',
+           TIMESTAMPTZ '2026-07-14 01:36:00+00',
+           NULL,
+           NULL,
+           TIMESTAMPTZ '2026-07-14 01:06:00+00',
+           0
+    FROM public.sys_user
+    WHERE username = 'admin';
+    INSERT INTO ${q}.md_import_batch (
+      id, account_set_id, account_set_code, created_by, created_by_username,
+      import_type, template_version, original_file_name, file_sha256, file_size_bytes,
+      status, total_rows, valid_rows, error_rows, committed_rows, rows_payload,
+      created_at, expires_at, committed_at, payload_cleared_at, updated_at, version
+    )
+    SELECT ${sqlLiteral(restoreFixture.committedImportBatchId)}::uuid,
+           ${sqlLiteral(tenantId)}::uuid,
+           ${sqlLiteral(tenantCode)},
+           id,
+           username,
+           'customer',
+           1,
+           'a142-committed.xlsx',
+           repeat('b', 64),
+           128,
+           'COMMITTED',
+           1,
+           1,
+           0,
+           1,
+           '[]'::jsonb,
+           TIMESTAMPTZ '2026-07-14 01:06:00+00',
+           TIMESTAMPTZ '2026-07-14 01:36:00+00',
+           TIMESTAMPTZ '2026-07-14 01:10:00+00',
+           TIMESTAMPTZ '2026-07-14 01:10:00+00',
+           TIMESTAMPTZ '2026-07-14 01:10:00+00',
+           0
+    FROM public.sys_user
+    WHERE username = 'admin';
     COMMIT;
+  `);
+}
+
+function importBatchSnapshot(schema) {
+  const q = quoteIdentifier(schema);
+  return sqlJson(upgradeDatabase, `
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'id', id::text,
+      'status', status,
+      'payload', rows_payload,
+      'payloadCleared', payload_cleared_at IS NOT NULL,
+      'committedRows', committed_rows,
+      'version', version
+    ) ORDER BY id), '[]'::jsonb)::text
+    FROM ${q}.md_import_batch
+    WHERE id IN (
+      ${sqlLiteral(restoreFixture.unsubmittedImportBatchId)}::uuid,
+      ${sqlLiteral(restoreFixture.committedImportBatchId)}::uuid
+    )
   `);
 }
 
@@ -504,6 +613,11 @@ function mutateRestoreFixture() {
     UPDATE ${q}.sales_out_line
     SET qty = 1.0000, amount = 10.00, price_tax_total = 10.00
     WHERE id = ${sqlLiteral(restoreFixture.salesOutLineId)}::uuid;
+    DELETE FROM ${q}.md_import_batch
+    WHERE id IN (
+      ${sqlLiteral(restoreFixture.unsubmittedImportBatchId)}::uuid,
+      ${sqlLiteral(restoreFixture.committedImportBatchId)}::uuid
+    );
     COMMIT;
   `);
   return restoreSemanticSnapshot(tenantSchema);
@@ -794,7 +908,9 @@ try {
   result.upgrade.latest = flyway(upgradeDatabase);
   const migratedHistory = history(upgradeDatabase);
   const v103 = migratedHistory.filter((row) => row.version === "103");
+  const v104 = migratedHistory.filter((row) => row.version === "104");
   assert(v103.length === 1 && v103[0].success === true, "V103 history row missing or failed", v103);
+  assert(v104.length === 1 && v104[0].success === true, "V104 history row missing or failed", v104);
   const after = {
     public: receivableSnapshot("public", fixtures.public, true),
     tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
@@ -816,18 +932,43 @@ try {
   assert(shapes.public.offsetColumn === 1 && shapes.tenant.offsetColumn === 1 && shapes.backup.offsetColumn === 1, "V103 offset column missing", shapes);
   assert(shapes.public.rows === 0 && shapes.tenant.rows === 0 && shapes.backup.rows === 0, "V103 unexpectedly invented return rows", shapes);
   assert(shapes.public.constraints > 0 && shapes.tenant.constraints > 0 && shapes.backup.constraints === 0, "V103 managed/backup constraint modes differ from contract", shapes);
+  const importShapes = {
+    public: importBatchShape("public", true),
+    tenant: importBatchShape(tenantSchema, true),
+    backup: importBatchShape(backupSchema, false)
+  };
+  assert(
+    importShapes.public.tables === 1 && importShapes.tenant.tables === 1 && importShapes.backup.tables === 1,
+    "V104 did not create one import batch table in every schema",
+    importShapes
+  );
+  assert(
+    importShapes.public.rows === 0 && importShapes.tenant.rows === 0 && importShapes.backup.rows === 0,
+    "V104 unexpectedly invented import batches",
+    importShapes
+  );
+  assert(
+    importShapes.public.constraints > 0 && importShapes.tenant.constraints > 0 && importShapes.backup.constraints === 0,
+    "V104 managed/backup constraint modes differ from contract",
+    importShapes
+  );
+  assert(
+    importShapes.public.foreignKeys === 0 && importShapes.tenant.foreignKeys === 0 && importShapes.backup.foreignKeys === 0,
+    "V104 added a forbidden import-batch FK exemption",
+    importShapes
+  );
   const managedCount = Number(psql(upgradeDatabase, "SELECT count(*) FROM public.sys_tenant_managed_table"));
-  assert(managedCount === 81, `V103 managed table count should be 81, got ${managedCount}`);
+  assert(managedCount === 82, `V104 managed table count should be 82, got ${managedCount}`);
   result.upgrade = {
     ...result.upgrade,
-    history: v103[0], managedCount, shapes,
+    history: v104[0], salesReturnHistory: v103[0], managedCount, shapes, importShapes,
     beforeDigests: Object.fromEntries(Object.entries(before).map(([key, value]) => [key, digest(value)])),
     afterDigests: Object.fromEntries(Object.entries(after).map(([key, value]) => [key, digest(value)])),
     negativeAndZeroReceivablesPreserved: true
   };
 
   const repeatHistoryBefore = history(upgradeDatabase);
-  const repeatSnapshotBefore = { rows: after, shapes };
+  const repeatSnapshotBefore = { rows: after, shapes, importShapes };
   result.repeat.flywayOutput = flyway(upgradeDatabase);
   const repeatHistoryAfter = history(upgradeDatabase);
   const syncCounts = [
@@ -844,16 +985,22 @@ try {
       public: shapeSnapshot("public", true),
       tenant: shapeSnapshot(tenantSchema, true),
       backup: shapeSnapshot(backupSchema, false)
+    },
+    importShapes: {
+      public: importBatchShape("public", true),
+      tenant: importBatchShape(tenantSchema, true),
+      backup: importBatchShape(backupSchema, false)
     }
   };
   assert(same(repeatHistoryBefore, repeatHistoryAfter), "repeat Flyway changed migration history");
-  assert(same(syncCounts, [81, 81]), "repeat tenant sync did not return 81/81", syncCounts);
-  assert(same(repeatSnapshotBefore, repeatSnapshotAfter), "repeat Flyway/sync changed V103 semantics");
+  assert(same(syncCounts, [82, 82]), "repeat tenant sync did not return 82/82", syncCounts);
+  assert(same(repeatSnapshotBefore, repeatSnapshotAfter), "repeat Flyway/sync changed V103/V104 semantics");
   result.repeat = { ...result.repeat, syncCounts, historyDigest: digest(repeatHistoryAfter), semanticDigest: digest(repeatSnapshotAfter) };
 
   assert(redisNamespaceKeys().length === 0, "isolated Redis namespace was not empty before backend startup");
   seedRestoreFixture();
   const semanticBeforeBackup = restoreSemanticSnapshot(tenantSchema);
+  const importBatchesBeforeBackup = importBatchSnapshot(tenantSchema);
   assert(
     semanticBeforeBackup.factCounts.headers === 1
       && semanticBeforeBackup.factCounts.lines === 1
@@ -866,6 +1013,13 @@ try {
   assert(semanticBeforeBackup.receivable?.returnOffsetAmount === "60.00", "restore fixture AR offset mismatch", semanticBeforeBackup.receivable);
   assert(semanticBeforeBackup.allocation?.offsetAmount === "60.00", "restore fixture allocation offset mismatch", semanticBeforeBackup.allocation);
   assert(semanticBeforeBackup.allocation?.pendingRefundAmount === "10.00", "restore fixture pending refund mismatch", semanticBeforeBackup.allocation);
+  assert(
+    importBatchesBeforeBackup.length === 2
+      && importBatchesBeforeBackup.some((row) => row.status === "VALIDATED")
+      && importBatchesBeforeBackup.some((row) => row.status === "COMMITTED"),
+    "import batch restore fixtures were not created",
+    importBatchesBeforeBackup
+  );
 
   const backend = await startBackend();
   let cookie = null;
@@ -883,7 +1037,7 @@ try {
     assert(backupResponse.status === 200 && backupResponse.data?.ok === true, `formal backup API failed ${backupResponse.status}: ${backupResponse.text}`);
     const formalBackup = backupResponse.data?.backup;
     assert(formalBackup?.id && formalBackup?.backupName && formalBackup?.backupSchemaName, `formal backup response incomplete: ${backupResponse.text}`);
-    assert(Number(formalBackup.tableCount) === 81, "formal backup did not copy all 81 managed tables", formalBackup);
+    assert(Number(formalBackup.tableCount) === 82, "formal backup did not copy all 82 managed tables", formalBackup);
     assert(/^[0-9a-f-]{36}$/i.test(String(formalBackup.id)), "formal backup id is not a UUID", formalBackup);
     quoteIdentifier(String(formalBackup.backupSchemaName));
 
@@ -894,8 +1048,16 @@ try {
     });
     const backupShape = shapeSnapshot(String(formalBackup.backupSchemaName), false);
     assert(backupShape.rows === 1 && backupShape.constraints === 0, "formal backup return table shape mismatch", backupShape);
+    const importBatchesInBackup = importBatchSnapshot(String(formalBackup.backupSchemaName));
+    assert(same(importBatchesInBackup, importBatchesBeforeBackup), "formal backup changed import batch facts", {
+      tenant: importBatchesBeforeBackup,
+      backup: importBatchesInBackup
+    });
+    const importBackupShape = importBatchShape(String(formalBackup.backupSchemaName), false);
+    assert(importBackupShape.rows === 2 && importBackupShape.constraints === 0, "formal backup import batch shape mismatch", importBackupShape);
 
     const mutated = mutateRestoreFixture();
+    const mutatedImportBatches = importBatchSnapshot(tenantSchema);
     assert(!same(mutated, semanticInBackup), "tenant mutation did not change restore semantics");
     assert(
       mutated.factCounts.headers === 0
@@ -905,6 +1067,7 @@ try {
       mutated.factCounts
     );
     assert(mutated.receivable?.returnOffsetAmount === "0.00", "tenant mutation did not clear AR return offset", mutated.receivable);
+    assert(mutatedImportBatches.length === 0, "tenant mutation did not remove import batches", mutatedImportBatches);
 
     const restoreResponse = await apiRequest(
       backend.baseUrl,
@@ -914,10 +1077,29 @@ try {
     );
     assert(restoreResponse.status === 200 && restoreResponse.data?.ok === true, `formal restore API failed ${restoreResponse.status}: ${restoreResponse.text}`);
     const semanticAfterRestore = restoreSemanticSnapshot(tenantSchema);
+    const importBatchesAfterRestore = importBatchSnapshot(tenantSchema);
     assert(same(semanticAfterRestore, semanticInBackup), "formal restore API did not exactly restore A142 semantic summary", {
       restoredDigest: digest(semanticAfterRestore),
       backupDigest: digest(semanticInBackup)
     });
+    const restoredUnsubmitted = importBatchesAfterRestore.find((row) => row.id === restoreFixture.unsubmittedImportBatchId);
+    const restoredCommitted = importBatchesAfterRestore.find((row) => row.id === restoreFixture.committedImportBatchId);
+    assert(
+      restoredUnsubmitted?.status === "EXPIRED"
+        && same(restoredUnsubmitted.payload, [])
+        && restoredUnsubmitted.payloadCleared === true
+        && Number(restoredUnsubmitted.version) === 1,
+      "restore did not expire and clear the unsubmitted import batch",
+      restoredUnsubmitted
+    );
+    assert(
+      restoredCommitted?.status === "COMMITTED"
+        && same(restoredCommitted.payload, [])
+        && restoredCommitted.payloadCleared === true
+        && Number(restoredCommitted.version) === 0,
+      "restore changed the committed import result",
+      restoredCommitted
+    );
     const restoreMetadata = sqlJson(upgradeDatabase, `
       SELECT jsonb_build_object(
         'restoredAtSet', restored_at IS NOT NULL,
@@ -946,6 +1128,13 @@ try {
       restoredDigest: digest(semanticAfterRestore),
       exactSemanticBackup: true,
       exactSemanticRestore: true,
+      importBatches: {
+        beforeBackup: importBatchesBeforeBackup,
+        inBackup: importBatchesInBackup,
+        afterRestore: importBatchesAfterRestore,
+        unsubmittedExpired: true,
+        committedPreserved: true
+      },
       facts: semanticAfterRestore,
       mutation: {
         factCounts: mutated.factCounts,
@@ -974,11 +1163,20 @@ try {
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
       'returnTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('sales_return','sales_return_line','sales_return_finance_allocation')),
       'offsetColumn', (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='ar_receivable' AND column_name='return_offset_amount'),
+      'importBatchTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='md_import_batch'),
       'returnRows', (SELECT count(*) FROM public.sales_return)
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "103", "fresh migration max version should be V103", freshHistory.at(-1));
-  assert(freshMetrics.managedTables === 81 && freshMetrics.returnTables === 3 && freshMetrics.offsetColumn === 1 && freshMetrics.returnRows === 0, "fresh V103 metrics mismatch", freshMetrics);
+  assert(freshHistory.at(-1)?.version === "104", "fresh migration max version should be V104", freshHistory.at(-1));
+  assert(
+    freshMetrics.managedTables === 82
+      && freshMetrics.returnTables === 3
+      && freshMetrics.offsetColumn === 1
+      && freshMetrics.importBatchTables === 1
+      && freshMetrics.returnRows === 0,
+    "fresh V104 metrics mismatch",
+    freshMetrics
+  );
   result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, metrics: freshMetrics };
 } catch (error) {
   primaryError = error;

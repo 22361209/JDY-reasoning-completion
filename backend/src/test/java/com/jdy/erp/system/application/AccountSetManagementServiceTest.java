@@ -112,12 +112,13 @@ class AccountSetManagementServiceTest {
         assertThat(tableExists(schema, "sales_return")).isTrue();
         assertThat(tableExists(schema, "sales_return_line")).isTrue();
         assertThat(tableExists(schema, "sales_return_finance_allocation")).isTrue();
+        assertThat(tableExists(schema, "md_import_batch")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
-        assertThat(managedConstraintCount(schema, "p")).isEqualTo(81);
+        assertThat(managedConstraintCount(schema, "p")).isEqualTo(82);
         assertThat(managedConstraintCount(schema, "u")).isEqualTo(76);
         assertThat(managedConstraintCount(schema, "f")).isEqualTo(170);
         assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
-        assertThat(managedConstraintCount(schema, "c")).isEqualTo(64);
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(76);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
@@ -238,6 +239,8 @@ class AccountSetManagementServiceTest {
 
         createSalesOrderFixture(schemaA, codeA);
         createSalesOrderFixture(schemaB, codeB);
+        createImportBatchFixture(schemaA, codeA, "VALIDATED", "initialize-a");
+        createImportBatchFixture(schemaB, codeB, "VALIDATED", "initialize-b");
 
         bindRequest();
         currentSessionService.login("admin", "admin123", codeA);
@@ -247,6 +250,8 @@ class AccountSetManagementServiceTest {
 
         assertThat(countRows(schemaA, "sales_order")).isZero();
         assertThat(countRows(schemaB, "sales_order")).isEqualTo(1);
+        assertThat(countRows(schemaA, "md_import_batch")).isZero();
+        assertThat(countRows(schemaB, "md_import_batch")).isEqualTo(1);
         var initialized = platformJdbcTemplate.queryForObject(
             "SELECT initialized FROM sys_account_set WHERE code = ?",
             Boolean.class,
@@ -283,13 +288,25 @@ class AccountSetManagementServiceTest {
             VALUES ('OPS-USD', '运维恢复美元账户', 'BANK', 'Test Bank', '00123', 'Test Holder',
                     'USD', TRUE, 'AUDITED')
             """.formatted(quoteIdentifier(schema)));
+        var unsubmittedImportIds = List.of(
+            createImportBatchFixture(schema, code, "VALIDATED", "restore-validated"),
+            createImportBatchFixture(schema, code, "INVALID", "restore-invalid"),
+            createImportBatchFixture(schema, code, "STALE", "restore-stale"),
+            createImportBatchFixture(schema, code, "FAILED", "restore-failed")
+        );
+        var expiredImportId = createImportBatchFixture(
+            schema, code, "EXPIRED", "restore-expired"
+        );
+        var committedImportId = createImportBatchFixture(
+            schema, code, "COMMITTED", "restore-committed"
+        );
 
         var backupResult = maintenanceService.backupCurrentAccountSet();
         @SuppressWarnings("unchecked")
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
         var backupSchema = String.valueOf(backup.get("backupSchemaName"));
         createdBackupSchemas.add(backupSchema);
-        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("81");
+        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("82");
         platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
         platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
         var backupLogId = platformJdbcTemplate.queryForObject("""
@@ -303,9 +320,11 @@ class AccountSetManagementServiceTest {
         platformJdbcTemplate.update("DELETE FROM %s.md_product_category WHERE code = 'OPS'".formatted(quoteIdentifier(schema)));
         platformJdbcTemplate.update("DELETE FROM %s.md_employee WHERE code = 'OPS-E'".formatted(quoteIdentifier(schema)));
         platformJdbcTemplate.update("DELETE FROM %s.md_financial_account WHERE code = 'OPS-USD'".formatted(quoteIdentifier(schema)));
+        platformJdbcTemplate.update("DELETE FROM %s.md_import_batch".formatted(quoteIdentifier(schema)));
         assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isZero();
         assertThat(countRowsWhere(schema, "md_employee", "code = 'OPS-E'")).isZero();
         assertThat(countRowsWhere(schema, "md_financial_account", "code = 'OPS-USD'")).isZero();
+        assertThat(countRows(schema, "md_import_batch")).isZero();
 
         maintenanceService.restoreCurrentAccountSet(String.valueOf(backup.get("backupName")));
 
@@ -318,6 +337,11 @@ class AccountSetManagementServiceTest {
             """.formatted(quoteIdentifier(schema))))
             .containsEntry("currency", "USD")
             .containsEntry("accountNo", "00123");
+        for (var importId : unsubmittedImportIds) {
+            assertImportBatchState(schema, importId, "EXPIRED", 1L);
+        }
+        assertImportBatchState(schema, expiredImportId, "EXPIRED", 0L);
+        assertImportBatchState(schema, committedImportId, "COMMITTED", 0L);
         var logRows = platformJdbcTemplate.queryForList("""
             SELECT account_set_code AS "accountSetCode",
                    account_set_name AS "accountSetName"
@@ -454,6 +478,104 @@ class AccountSetManagementServiceTest {
             INSERT INTO %s.sales_order (bill_no, customer_id, bill_date)
             VALUES (?, ?::uuid, current_date)
             """.formatted(quoteIdentifier(schema)), code + "-SO", customerId);
+    }
+
+    private String createImportBatchFixture(
+        String schema,
+        String accountSetCode,
+        String status,
+        String fileName
+    ) {
+        var committed = "COMMITTED".equals(status);
+        var expired = "EXPIRED".equals(status);
+        var invalid = "INVALID".equals(status) || "STALE".equals(status);
+        var failed = "FAILED".equals(status);
+        var payloadCleared = committed || expired;
+        var rowsPayload = payloadCleared
+            ? "[]"
+            : invalid
+                ? "[{\"rowNo\":3,\"payload\":{\"code\":\"A143-C001\"},\"errors\":[{\"field\":\"code\",\"code\":\"DUPLICATE\"}]}]"
+                : "[{\"rowNo\":3,\"payload\":{\"code\":\"A143-C001\"},\"errors\":[]}]";
+        return platformJdbcTemplate.queryForObject("""
+            INSERT INTO %s.md_import_batch (
+                account_set_id,
+                account_set_code,
+                created_by,
+                created_by_username,
+                import_type,
+                template_version,
+                original_file_name,
+                file_sha256,
+                file_size_bytes,
+                status,
+                total_rows,
+                valid_rows,
+                error_rows,
+                committed_rows,
+                rows_payload,
+                failure_reason,
+                expires_at,
+                committed_at,
+                payload_cleared_at
+            )
+            SELECT account_set.id,
+                   account_set.code,
+                   actor.id,
+                   actor.username,
+                   'customer',
+                   1,
+                   ?,
+                   ?,
+                   128,
+                   ?,
+                   1,
+                   ?,
+                   ?,
+                   ?,
+                   ?::jsonb,
+                   ?,
+                   now() + interval '30 minutes',
+                   CASE WHEN ? THEN now() ELSE NULL END,
+                   CASE WHEN ? THEN now() ELSE NULL END
+            FROM public.sys_account_set account_set
+            CROSS JOIN public.sys_user actor
+            WHERE account_set.code = ?
+              AND actor.username = 'admin'
+            RETURNING id::text
+            """.formatted(quoteIdentifier(schema)),
+            String.class,
+            fileName + ".xlsx",
+            "a".repeat(64),
+            status,
+            invalid ? 0 : 1,
+            invalid ? 1 : 0,
+            committed ? 1 : 0,
+            rowsPayload,
+            failed ? "A143 fixture failure" : null,
+            committed,
+            payloadCleared,
+            accountSetCode
+        );
+    }
+
+    private void assertImportBatchState(
+        String schema,
+        String importId,
+        String expectedStatus,
+        long expectedVersion
+    ) {
+        assertThat(platformJdbcTemplate.queryForMap("""
+            SELECT status,
+                   rows_payload::text AS payload,
+                   payload_cleared_at IS NOT NULL AS "payloadCleared",
+                   version
+            FROM %s.md_import_batch
+            WHERE id = ?::uuid
+            """.formatted(quoteIdentifier(schema)), importId))
+            .containsEntry("status", expectedStatus)
+            .containsEntry("payload", "[]")
+            .containsEntry("payloadCleared", true)
+            .containsEntry("version", expectedVersion);
     }
 
     private List<String> productionDepartmentCodes(String schema) {

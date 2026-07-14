@@ -25,7 +25,7 @@ class TenantSchemaProvisionerTest {
             Integer.class,
             "tenant_a137",
             true
-        )).thenReturn(81);
+        )).thenReturn(82);
 
         provisioner.provisionNewSchema("tenant_a137");
 
@@ -49,7 +49,7 @@ class TenantSchemaProvisionerTest {
 
         assertThatThrownBy(() -> provisioner.provisionSchema("tenant_incomplete"))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("81 张受管表");
+            .hasMessageContaining("82 张受管表");
 
         verify(jdbcTemplate, never()).update(anyString());
     }

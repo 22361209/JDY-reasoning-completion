@@ -180,6 +180,7 @@ public class AccountSetMaintenanceService {
                     quoteIdentifier(restorePlan.tableName())
                 ));
         }
+        expireRestoredImportBatches(schema);
         platformJdbcTemplate.update("""
             UPDATE sys_account_set_backup
             SET restored_at = now(),
@@ -193,6 +194,20 @@ public class AccountSetMaintenanceService {
             "backups", currentBackups(),
             "message", "当前账套已从备份恢复。"
         );
+    }
+
+    private void expireRestoredImportBatches(String schema) {
+        platformJdbcTemplate.update("""
+            UPDATE %s.md_import_batch
+            SET status = 'EXPIRED',
+                committed_rows = 0,
+                committed_at = NULL,
+                rows_payload = '[]'::jsonb,
+                payload_cleared_at = GREATEST(now(), created_at),
+                updated_at = GREATEST(now(), created_at),
+                version = version + 1
+            WHERE status IN ('VALIDATED', 'INVALID', 'STALE', 'FAILED')
+            """.formatted(quoteIdentifier(schema)));
     }
 
     private Map<String, Object> backupByName(String accountSetId, String backupName) {
