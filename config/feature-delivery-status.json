@@ -217,23 +217,22 @@
     {
       "id": "F008",
       "state": "verified",
-      "level": "A1",
-      "exposure": "hold",
+      "level": "A4",
+      "exposure": "published",
       "surface": "shared",
       "catalogEntryIds": [],
       "evidence": [
         "docs/验收报告/验收报告-A17-分录Excel多行粘贴-20260624.md",
-        "docs/验收报告/验收报告-A43-操作日志引出-20260624.md"
+        "docs/验收报告/验收报告-A43-操作日志引出-20260624.md",
+        "docs/验收报告/验收报告-A143-基础资料Excel导入-20260714.md"
       ],
-      "knownGaps": [
-        "列表引出和分录 Excel 粘贴已有证据，但基础资料 Excel 文件导入尚未实现。"
-      ],
+      "knownGaps": [],
       "capabilityChecks": {
         "entry": "verified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
