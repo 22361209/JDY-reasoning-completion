@@ -54,7 +54,8 @@
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a147-inventory-source-trace-regression.mjs",
       "scripts/a147-inventory-source-trace-migration-regression.mjs",
-      "scripts/a148-inventory-movement-report-regression.mjs"
+      "scripts/a148-inventory-movement-report-regression.mjs",
+      "scripts/a151-material-scrap-backend-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -75,7 +76,8 @@
       "scripts/a134-security-boundary-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
-      "scripts/a147-inventory-source-trace-regression.mjs"
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a151-material-scrap-backend-regression.mjs"
     ],
     "table": [
       "scripts/a91-frontend-ux-regression.mjs",
@@ -114,7 +116,8 @@
       "scripts/a143-master-data-import-regression.mjs",
       "scripts/a146-numbering-rule-closure-regression.mjs",
       "scripts/a147-inventory-source-trace-regression.mjs",
-      "scripts/a148-inventory-movement-report-regression.mjs"
+      "scripts/a148-inventory-movement-report-regression.mjs",
+      "scripts/a151-material-scrap-backend-regression.mjs"
     ],
     "system": [
       "scripts/a119-account-set-switch-ui-regression.mjs",
@@ -134,7 +137,9 @@
       "scripts/a146-numbering-rule-closure-regression.mjs",
       "scripts/a146-numbering-rule-migration-regression.mjs",
       "scripts/a147-inventory-source-trace-regression.mjs",
-      "scripts/a147-inventory-source-trace-migration-regression.mjs"
+      "scripts/a147-inventory-source-trace-migration-regression.mjs",
+      "scripts/a151-material-scrap-backend-regression.mjs",
+      "scripts/a151-material-scrap-migration-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -157,7 +162,9 @@
       "scripts/a116b-production-source-chain-regression.mjs",
       "scripts/a118-outsourcing-chain-regression.mjs",
       "scripts/a147-inventory-source-trace-regression.mjs",
-      "scripts/a147-inventory-source-trace-migration-regression.mjs"
+      "scripts/a147-inventory-source-trace-migration-regression.mjs",
+      "scripts/a151-material-scrap-backend-regression.mjs",
+      "scripts/a151-material-scrap-migration-regression.mjs"
     ],
     "master-data": [
       "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
@@ -313,7 +320,9 @@
     "scripts/a147-inventory-source-trace-migration-regression.mjs",
     "scripts/a148-inventory-movement-report-regression.mjs",
     "scripts/a149-sales-report-regression.mjs",
-    "scripts/a150-finance-report-regression.mjs"
+    "scripts/a150-finance-report-regression.mjs",
+    "scripts/a151-material-scrap-backend-regression.mjs",
+    "scripts/a151-material-scrap-migration-regression.mjs"
   ],
   "exemptions": [
     {
