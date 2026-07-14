@@ -112,6 +112,15 @@ public class MasterDataImportController {
             .body(new ByteArrayResource(receipt.bytes()));
     }
 
+    @PostMapping("/jobs/{jobId}/confirm")
+    public JobView confirm(
+        @PathVariable String jobId,
+        @RequestParam(defaultValue = "1") int page,
+        @RequestParam(defaultValue = "100") int pageSize
+    ) {
+        return importService.confirm(jobId, page, pageSize);
+    }
+
     private String attachment(String fileName) {
         return ContentDisposition.attachment()
             .filename(fileName, StandardCharsets.UTF_8)

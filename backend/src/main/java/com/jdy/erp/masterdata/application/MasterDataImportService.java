@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -104,7 +106,7 @@ public final class MasterDataImportService {
         if (parsed.rows().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Excel 未包含非空数据行");
         }
-        var validated = validateRows(definition, parsed.rows().stream().map(StoredRow::from).toList());
+        var validated = validateRows(definition, parsed.rows().stream().map(StoredRow::from).toList(), false);
         var validRows = (int) validated.stream().filter(StoredRow::valid).count();
         var errorRows = validated.size() - validRows;
         var status = errorRows == 0 ? JobStatus.VALIDATED : JobStatus.INVALID;
@@ -244,12 +246,183 @@ public final class MasterDataImportService {
         return new Receipt("master-data-import-" + id + "-errors.xlsx", bytes);
     }
 
-    private List<StoredRow> validateRows(ImportDefinition definition, List<StoredRow> inputRows) {
+    public JobView confirm(String jobId, int requestedRowPage, int requestedRowPageSize) {
+        var id = visibleJobId(jobId);
+        var page = positivePage(requestedRowPage);
+        var pageSize = boundedPageSize(requestedRowPageSize, DEFAULT_ROW_PAGE_SIZE, MAX_ROW_PAGE_SIZE);
+        final ConfirmOutcome outcome;
+        try {
+            outcome = Objects.requireNonNull(transactions.execute(ignored -> confirmInTransaction(id, page, pageSize)));
+        } catch (DataIntegrityViolationException | ResponseStatusException exception) {
+            var raced = markAfterRollback(id, true, exception);
+            if (raced.status() == JobStatus.COMMITTED) {
+                return raced.job();
+            }
+            if (raced.status() == JobStatus.EXPIRED) {
+                throw new ResponseStatusException(HttpStatus.GONE, "预检任务已过期，请重新上传并预检");
+            }
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "确认时资料已变化，整批未写入");
+        } catch (RuntimeException exception) {
+            var failed = markAfterRollback(id, false, exception);
+            if (failed.status() == JobStatus.COMMITTED) {
+                return failed.job();
+            }
+            if (failed.status() == JobStatus.EXPIRED) {
+                throw new ResponseStatusException(HttpStatus.GONE, "预检任务已过期，请重新上传并预检");
+            }
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "导入确认失败，整批已回滚");
+        }
+        return switch (outcome.status()) {
+            case COMMITTED -> outcome.job();
+            case EXPIRED -> throw new ResponseStatusException(HttpStatus.GONE, "预检任务已过期，请重新上传并预检");
+            case STALE -> throw new ResponseStatusException(HttpStatus.CONFLICT, "确认时资料已变化，整批未写入");
+            default -> throw new ResponseStatusException(HttpStatus.CONFLICT, "当前任务状态不允许确认");
+        };
+    }
+
+    private ConfirmOutcome confirmInTransaction(UUID id, int page, int pageSize) {
+        var scope = currentScope();
+        var row = ownedJob(scope, id, true);
+        var status = JobStatus.valueOf(String.valueOf(row.get("status")));
+        if (status == JobStatus.COMMITTED) {
+            return new ConfirmOutcome(status, view(row, List.of(), page, pageSize, 0));
+        }
+        if (status == JobStatus.EXPIRED) {
+            return new ConfirmOutcome(status, view(row, List.of(), page, pageSize, 0));
+        }
+        if (!offsetDateTime(row.get("expiresAt")).isAfter(OffsetDateTime.now())) {
+            expireLocked(id);
+            var expired = ownedJob(scope, id, false);
+            return new ConfirmOutcome(JobStatus.EXPIRED, view(expired, List.of(), page, pageSize, 0));
+        }
+        if (status != JobStatus.VALIDATED) {
+            return new ConfirmOutcome(status, view(row, List.of(), page, pageSize, 0));
+        }
+        var definition = definitions.require(String.valueOf(row.get("type")));
+        var storedRows = readRows(String.valueOf(row.get("rowsPayload")));
+        var validated = validateRows(definition, storedRows, true);
+        var errorRows = (int) validated.stream().filter(stored -> !stored.valid()).count();
+        if (errorRows > 0) {
+            var validRows = validated.size() - errorRows;
+            jdbcTemplate.update("""
+                UPDATE md_import_batch
+                SET status = 'STALE',
+                    valid_rows = ?,
+                    error_rows = ?,
+                    committed_rows = 0,
+                    rows_payload = ?::jsonb,
+                    failure_reason = NULL,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = ?::uuid
+                """, validRows, errorRows, writeRows(validated), id.toString());
+            var stale = ownedJob(scope, id, false);
+            var visibleRows = pageRows(validated, page, pageSize);
+            return new ConfirmOutcome(JobStatus.STALE, view(stale, visibleRows, page, pageSize, validated.size()));
+        }
+        for (var stored : stableCreateOrder(definition, validated)) {
+            createService.create(definition.type(), stored.payload(), CreateOptions.importStrict(definition.defaults()));
+        }
+        jdbcTemplate.update("""
+            UPDATE md_import_batch
+            SET status = 'COMMITTED',
+                valid_rows = total_rows,
+                error_rows = 0,
+                committed_rows = total_rows,
+                rows_payload = '[]'::jsonb,
+                failure_reason = NULL,
+                committed_at = now(),
+                payload_cleared_at = now(),
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+            """, id.toString());
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "MASTER_DATA",
+            "CONFIRM_MASTER_DATA_IMPORT",
+            "MASTER_DATA_IMPORT",
+            id,
+            definition.type(),
+            OperationLogCommand.ActorMode.CURRENT_USER,
+            null,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, JobStatus.VALIDATED.name(),
+                OperationLogCommand.StateField.SOURCE_COUNT, validated.size()
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, JobStatus.COMMITTED.name(),
+                OperationLogCommand.StateField.SOURCE_COUNT, validated.size()
+            ),
+            summaryReason(
+                definition.type(),
+                validated.size(),
+                0,
+                String.valueOf(row.get("fileSha256"))
+            )
+        ));
+        var committed = ownedJob(scope, id, false);
+        return new ConfirmOutcome(JobStatus.COMMITTED, view(committed, List.of(), page, pageSize, 0));
+    }
+
+    private ConfirmOutcome markAfterRollback(UUID id, boolean stale, RuntimeException exception) {
+        return Objects.requireNonNull(transactions.execute(ignored -> {
+            var scope = currentScope();
+            var row = ownedJob(scope, id, true);
+            var status = JobStatus.valueOf(String.valueOf(row.get("status")));
+            if (status == JobStatus.COMMITTED) {
+                return new ConfirmOutcome(status, view(row, List.of(), 1, DEFAULT_ROW_PAGE_SIZE, 0));
+            }
+            if (status != JobStatus.VALIDATED) {
+                return new ConfirmOutcome(status, view(row, List.of(), 1, DEFAULT_ROW_PAGE_SIZE, 0));
+            }
+            if (stale) {
+                var storedRows = readRows(String.valueOf(row.get("rowsPayload")));
+                var validated = validateRows(definitions.require(String.valueOf(row.get("type"))), storedRows, true);
+                if (validated.stream().allMatch(StoredRow::valid) && !validated.isEmpty()) {
+                    var first = validated.getFirst();
+                    validated = replaceFirst(validated, first.withError(new RowError(
+                        first.rowNo(), "code", "CONFIRM_CONFLICT", "确认时资料已变化，请重新预检", first.payload().get("code")
+                    )));
+                }
+                var errorRows = (int) validated.stream().filter(value -> !value.valid()).count();
+                jdbcTemplate.update("""
+                    UPDATE md_import_batch
+                    SET status = 'STALE',
+                        valid_rows = ?,
+                        error_rows = ?,
+                        rows_payload = ?::jsonb,
+                        failure_reason = NULL,
+                        updated_at = now(),
+                        version = version + 1
+                    WHERE id = ?::uuid
+                    """, validated.size() - errorRows, errorRows, writeRows(validated), id.toString());
+                var updated = ownedJob(scope, id, false);
+                return new ConfirmOutcome(JobStatus.STALE, view(updated, pageRows(validated, 1, DEFAULT_ROW_PAGE_SIZE), 1, DEFAULT_ROW_PAGE_SIZE, validated.size()));
+            }
+            jdbcTemplate.update("""
+                UPDATE md_import_batch
+                SET status = 'FAILED',
+                    committed_rows = 0,
+                    failure_reason = ?,
+                    updated_at = now(),
+                    version = version + 1
+                WHERE id = ?::uuid
+                """, "确认事务失败: " + exception.getClass().getSimpleName(), id.toString());
+            var updated = ownedJob(scope, id, false);
+            return new ConfirmOutcome(JobStatus.FAILED, view(updated, List.of(), 1, DEFAULT_ROW_PAGE_SIZE, 0));
+        }));
+    }
+
+    private List<StoredRow> validateRows(
+        ImportDefinition definition,
+        List<StoredRow> inputRows,
+        boolean lockCategoryParents
+    ) {
         var rows = inputRows.stream().sorted(Comparator.comparingInt(StoredRow::rowNo)).map(MutableRow::new).toList();
         addFileDuplicateErrors(rows, "code", "DUPLICATE_FILE_CODE", "工作簿内编码重复");
         if ("productCategory".equals(definition.type())) {
             addFileDuplicateErrors(rows, "name", "DUPLICATE_FILE_NAME", "工作簿内类别名称重复");
-            validateCategoryParents(rows);
+            validateCategoryParents(rows, lockCategoryParents);
             validateExistingCategoryNames(rows);
         }
         if ("financialAccount".equals(definition.type())) {
@@ -340,7 +513,7 @@ public final class MasterDataImportService {
         }
     }
 
-    private void validateCategoryParents(List<MutableRow> rows) {
+    private void validateCategoryParents(List<MutableRow> rows, boolean lockExistingParents) {
         var byCode = new LinkedHashMap<String, MutableRow>();
         rows.forEach(row -> {
             var code = normalized(row.payload.get("code"));
@@ -357,8 +530,9 @@ public final class MasterDataImportService {
             if (parent.equals(code)) {
                 row.addError("parentCode", "CATEGORY_PARENT_SELF", "上级类别不能引用自身", parent);
             } else if (!byCode.containsKey(parent)) {
+                var lockClause = lockExistingParents ? " FOR SHARE" : "";
                 if (jdbcTemplate.queryForList(
-                    "SELECT 1 FROM md_product_category WHERE code = ? LIMIT 1",
+                    "SELECT 1 FROM md_product_category WHERE code = ? LIMIT 1" + lockClause,
                     parent
                 ).isEmpty()) {
                     row.addError("parentCode", "CATEGORY_PARENT_NOT_FOUND", "上级类别编码不存在", parent);
@@ -408,6 +582,45 @@ public final class MasterDataImportService {
         }
         stack.removeLast();
         color.put(code, 2);
+    }
+
+    private List<StoredRow> stableCreateOrder(ImportDefinition definition, List<StoredRow> rows) {
+        if (!"productCategory".equals(definition.type())) {
+            return rows.stream().sorted(Comparator.comparingInt(StoredRow::rowNo)).toList();
+        }
+        var byCode = new LinkedHashMap<String, StoredRow>();
+        rows.forEach(row -> byCode.put(row.payload().get("code"), row));
+        var indegree = new HashMap<String, Integer>();
+        var children = new HashMap<String, List<String>>();
+        byCode.keySet().forEach(code -> indegree.put(code, 0));
+        byCode.forEach((code, row) -> {
+            var parent = normalized(row.payload().get("parentCode"));
+            if (byCode.containsKey(parent)) {
+                indegree.put(code, indegree.get(code) + 1);
+                children.computeIfAbsent(parent, ignored -> new ArrayList<>()).add(code);
+            }
+        });
+        var ready = new PriorityQueue<String>(Comparator.comparingInt(code -> byCode.get(code).rowNo()));
+        indegree.forEach((code, value) -> {
+            if (value == 0) {
+                ready.add(code);
+            }
+        });
+        var ordered = new ArrayList<StoredRow>();
+        while (!ready.isEmpty()) {
+            var code = ready.remove();
+            ordered.add(byCode.get(code));
+            for (var child : children.getOrDefault(code, List.of())) {
+                var next = indegree.compute(child, (ignored, value) -> value - 1);
+                if (next == 0) {
+                    ready.add(child);
+                }
+            }
+        }
+        if (ordered.size() != rows.size()) {
+            throw new IllegalStateException("类别拓扑排序失败");
+        }
+        return List.copyOf(ordered);
     }
 
     private Map<String, Object> ownedJob(Scope scope, UUID id, boolean forUpdate) {
@@ -472,6 +685,21 @@ public final class MasterDataImportService {
         }
     }
 
+    private void expireLocked(UUID id) {
+        jdbcTemplate.update("""
+            UPDATE md_import_batch
+            SET status = 'EXPIRED',
+                rows_payload = '[]'::jsonb,
+                committed_rows = 0,
+                committed_at = NULL,
+                payload_cleared_at = now(),
+                updated_at = now(),
+                version = version + 1
+            WHERE id = ?::uuid
+              AND status <> 'COMMITTED'
+            """, id.toString());
+    }
+
     private JobView view(
         Map<String, Object> row,
         List<JobRowView> rows,
@@ -503,6 +731,12 @@ public final class MasterDataImportService {
             rowPageSize,
             rowTotal
         );
+    }
+
+    private List<JobRowView> pageRows(List<StoredRow> rows, int page, int pageSize) {
+        var offset = boundedOffset(page, pageSize, rows.size());
+        var end = Math.min(offset + pageSize, rows.size());
+        return rows.subList(offset, end).stream().map(StoredRow::view).toList();
     }
 
     private List<StoredRow> readRows(String json) {
@@ -645,6 +879,12 @@ public final class MasterDataImportService {
         return OffsetDateTime.parse(String.valueOf(value));
     }
 
+    private List<StoredRow> replaceFirst(List<StoredRow> rows, StoredRow replacement) {
+        var result = new ArrayList<>(rows);
+        result.set(0, replacement);
+        return List.copyOf(result);
+    }
+
     public enum JobStatus {
         VALIDATED,
         INVALID,
@@ -717,6 +957,9 @@ public final class MasterDataImportService {
     private record Scope(UUID accountSetId, String accountSetCode, UUID userId, String username) {
     }
 
+    private record ConfirmOutcome(JobStatus status, JobView job) {
+    }
+
     private record StoredRow(int rowNo, Map<String, String> payload, List<RowError> errors) {
         private StoredRow {
             payload = Map.copyOf(new LinkedHashMap<>(payload));
@@ -729,6 +972,12 @@ public final class MasterDataImportService {
 
         boolean valid() {
             return errors.isEmpty();
+        }
+
+        StoredRow withError(RowError error) {
+            var next = new ArrayList<>(errors);
+            next.add(error);
+            return new StoredRow(rowNo, payload, next);
         }
 
         JobRowView view() {
