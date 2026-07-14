@@ -546,6 +546,7 @@ function previewCellValue(row: MasterDataImportPreviewDisplayRow, key: string) {
 }
 
 function previewCellTitle(row: MasterDataImportPreviewDisplayRow, column: TableCoreColumn) {
+  if (column.key === "valid") return row.valid ? "可导入" : "错误";
   return previewCellValue(row, column.key);
 }
 

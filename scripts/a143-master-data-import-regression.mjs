@@ -505,6 +505,7 @@ for (const testId of fixedTestIds) {
 assertContains(importPage, /import TableCore/, "错误预览必须导入 TableCore");
 assertContains(importPage, /<TableCore/, "错误预览必须复用 TableCore");
 assertNotContains(importPage, /DataListPage/, "错误预览不得复用业务 DataListPage");
+assertContains(importPage, /function previewCellTitle[\s\S]*?column\.key === "valid"[\s\S]*?row\.valid \? "可导入" : "错误"/, "错误预览结果列 title 必须使用可读状态而不是布尔原值");
 assertContains(importPage, /\.xlsx \/ 10 MiB \/ 5,000 行[\s\S]*?只新增[\s\S]*?导入后为草稿[\s\S]*?整批原子/, "首屏必须固定展示四项导入边界");
 assertContains(importPage, /accept="\.xlsx,application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet"/, "文件选择器只能提示 .xlsx");
 assertContains(importPage, /将新增 \{\{ importState\.currentJob\.value\?\.validRows \?\? 0 \}\} 条草稿，任一失败整批回滚/, "确认前必须显示原子新增二次提示");
@@ -667,6 +668,9 @@ assertContains(baseCss, /\.master-data-import-confirm-dialog:focus \{[\s\S]*?out
 
 assertContains(baseCss, /\.master-data-import-page \{[\s\S]*?max-width: 100%[\s\S]*?overflow: hidden/, "导入页面自身不得横向溢出");
 assertContains(baseCss, /\.master-data-import-table-wrap[\s\S]*?overflow: hidden/, "预览表滚动必须限制在表格容器内");
+assertContains(baseCss, /\.master-data-import-preview-table \.table-core-body-wrapper td \{[^}]*overflow: hidden[^}]*text-overflow: ellipsis[^}]*white-space: nowrap[^}]*\}/, "预览表长业务编码和原值必须在同一单元格规则内裁切");
+assertContains(baseCss, /\.master-data-import-preview-table \.table-core-body-wrapper td > span \{[^}]*min-width: 0[^}]*max-width: 100%[^}]*\}/, "预览表文本节点必须在同一规则内受单元格宽度约束");
+assertContains(baseCss, /\.master-data-import-preview-table \.table-core-body-wrapper td > span:not\(\.master-data-import-row-state\) \{[^}]*display: block[^}]*overflow: hidden[^}]*text-overflow: ellipsis[^}]*\}/, "预览表文本节点必须在同一规则内裁切且不得覆盖相邻列");
 assertContains(baseCss, /@media \(max-width: 1200px\)[\s\S]*?\.master-data-import-layout[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/, "导入工作区必须提供窄屏单列布局");
 assertContains(baseCss, /@media \(max-width: 900px\)[\s\S]*?\.master-data-import-workspace,[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/, "导入表单和摘要必须提供更窄屏响应式布局");
 

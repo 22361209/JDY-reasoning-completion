@@ -5091,6 +5091,24 @@ th {
   overflow-y: auto;
 }
 
+.master-data-import-preview-table .table-core-body-wrapper td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-data-import-preview-table .table-core-body-wrapper td > span {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.master-data-import-preview-table .table-core-body-wrapper td > span:not(.master-data-import-row-state) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .master-data-import-preview-table .master-data-import-row-invalid td {
   background: #fff6f3;
 }
