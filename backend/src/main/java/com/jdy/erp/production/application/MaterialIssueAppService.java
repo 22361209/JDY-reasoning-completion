@@ -74,6 +74,8 @@ public class MaterialIssueAppService {
                    to_char(i.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS "billDate",
                    '生产部' AS department,
                    i.status,
+	                   i.close_status AS "closeStatus",
+	                   i.frozen_status AS "frozenStatus",
 	                   COALESCE(SUM(l.amount), 0) AS "totalAmount",
 	                   '本地管理员' AS "ownerName",
 	                   (

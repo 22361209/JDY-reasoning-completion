@@ -45,6 +45,10 @@
     :can-push-down="canPushDownProductIn"
     push-down-label="下推产品入库"
     push-down-test-id="push-product-in-from-material-issue"
+    :show-extra-action="canPushDownMaterialScrap"
+    :can-extra-action="canPushDownMaterialScrap"
+    extra-action-label="材料报废"
+    extra-action-test-id="push-material-scrap-from-material-issue"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-party-code-column="false"
@@ -87,6 +91,7 @@
     @unfreeze-document="document.openLifecycleAction('unfreeze')"
     @source-select="openSourceSelector"
     @push-down="pushDownProductIn"
+    @extra-action="pushDownMaterialScrap"
     @delete-document="noop"
     @export-document="document.exportCurrent"
     @print-document="document.printCurrent"
@@ -147,14 +152,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useSourceSelectorLifecycle } from "../../../app/sourceSelectorLifecycle";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
 import SourceSelectorDialog, { type SourceSelectorColumn } from "../../../components/SourceSelectorDialog.vue";
-import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
+import type { DocumentDetail, RoutableDocumentType } from "../../../services/documentApi";
 import {
   fetchMaterialIssuePreviewFromTask,
+  checkMaterialScrapPushEligibility,
   fetchSelectableProductionTasks,
   pushDownMaterialIssueProductIn,
   type MaterialIssuePreview,
@@ -180,7 +186,8 @@ const emit = defineEmits<{
   clearDirty: [];
   showExisting: [];
   overrideLock: [];
-  requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestOpenDocument: [payload: { type: RoutableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestPushMaterialScrap: [payload: { issueBillNo: string }];
 }>();
 
 const document = useMaterialIssueDocument({
@@ -237,6 +244,49 @@ const canPushDownProductIn = computed(() => (
   Boolean(document.form.billNo) &&
   props.hasPermission("production.document.audit")
 ));
+const materialScrapPushEligible = ref(false);
+const hasMaterialScrapPushHeader = computed(() => (
+  document.form.status === "AUDITED" &&
+  document.form.closeStatus !== "CLOSED" &&
+  document.form.frozenStatus !== "FROZEN" &&
+  !document.form.redSourceBillNo &&
+  !document.form.redReverseBillNo &&
+  Boolean(document.form.billNo) &&
+  props.hasPermission("production.document.audit")
+));
+const canPushDownMaterialScrap = computed(() => (
+  hasMaterialScrapPushHeader.value && materialScrapPushEligible.value
+));
+let materialScrapEligibilityRequest = 0;
+
+watch(
+  () => [
+    document.form.billNo,
+    document.form.status,
+    document.form.closeStatus,
+    document.form.frozenStatus,
+    document.form.redSourceBillNo,
+    document.form.redReverseBillNo
+  ] as const,
+  async () => {
+    const currentRequest = materialScrapEligibilityRequest + 1;
+    materialScrapEligibilityRequest = currentRequest;
+    materialScrapPushEligible.value = false;
+    if (!hasMaterialScrapPushHeader.value) {
+      return;
+    }
+    const checkedBillNo = document.form.billNo;
+    const result = await checkMaterialScrapPushEligibility(checkedBillNo);
+    if (
+      currentRequest === materialScrapEligibilityRequest
+      && checkedBillNo === document.form.billNo
+      && hasMaterialScrapPushHeader.value
+    ) {
+      materialScrapPushEligible.value = result.ok && result.eligible;
+    }
+  },
+  { immediate: true }
+);
 
 const dialogBindings = computed(() => ({
   pendingZeroEntrySave: document.pendingZeroEntrySave.value,
@@ -387,6 +437,13 @@ async function pushDownProductIn() {
   emit("requestOpenDocument", { type: "productIn", billNo });
 }
 
+function pushDownMaterialScrap() {
+  if (!canPushDownMaterialScrap.value) {
+    return;
+  }
+  emit("requestPushMaterialScrap", { issueBillNo: document.form.billNo });
+}
+
 function sourceSelectorRowKey(row: SelectableProductionTaskLine | unknown) {
   const typed = row as SelectableProductionTaskLine;
   return String(typed.billNo ?? "");
@@ -427,5 +484,9 @@ function applyDetail(detail: DocumentDetail, message = "", sourceLineNo: number 
   document.applyDetail(detail, message, sourceLineNo);
 }
 
-defineExpose({ loadByBillNo, startNew, applyDetail });
+function setMessage(message: string) {
+  document.message.value = message;
+}
+
+defineExpose({ loadByBillNo, startNew, applyDetail, setMessage });
 </script>

@@ -1,4 +1,5 @@
-import { fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
+import { fetchListRows } from "./listApi";
+import { exactSourceFilter, fetchSourceSelectorRows, type SourceSelectorColumnFilters } from "./sourceSelectorListApi";
 
 export interface ProductionWriteResult {
   ok: boolean;
@@ -114,6 +115,84 @@ export interface MaterialIssuePreview {
   lines?: MaterialIssuePreviewLine[];
 }
 
+export interface MaterialScrapLine {
+  id?: string;
+  lineNo?: number | string;
+  sourceIssueLineId: string;
+  productId?: string;
+  productCode: string;
+  productName: string;
+  spec: string;
+  unit: string;
+  sourceWarehouseId?: string;
+  sourceWarehouseCode: string;
+  issueQty: number | string;
+  availableScrapQty: number | string;
+  scrapQty: number | string;
+  scrapReason: string;
+  reissueQty: number | string;
+  isStockIn: boolean;
+  targetWarehouseId?: string;
+  targetWarehouseCode: string;
+  stockInStatus: "NOT_REQUIRED" | "PENDING" | "STOCKED_IN" | "REVERSED" | string;
+}
+
+export interface MaterialScrapDocument {
+  id?: string;
+  billNo: string;
+  billDate: string;
+  businessType: "PRODUCTION_SCRAP" | string;
+  sourceIssueId?: string;
+  sourceIssueNo: string;
+  workshopId?: string;
+  workshopCode: string;
+  workshopName: string;
+  status: "PREVIEW" | "DRAFT" | "AUDITED" | "VOID" | string;
+  closeStatus?: string;
+  frozenStatus?: string;
+  stockInStatus: "NOT_REQUIRED" | "PENDING" | "STOCKED_IN" | "REVERSED" | string;
+  version?: number | string;
+}
+
+export interface MaterialScrapDetail {
+  action?: string;
+  document?: Partial<MaterialScrapDocument>;
+  lines?: MaterialScrapLine[];
+}
+
+export interface MaterialScrapDraftPayload {
+  billNo?: string;
+  sourceIssueNo: string;
+  billDate: string;
+  businessType: "PRODUCTION_SCRAP";
+  lines: Array<{
+    sourceIssueLineId: string;
+    scrapQty: number | string;
+    scrapReason?: string;
+    reissueQty: number | string;
+    isStockIn: boolean;
+    targetWarehouseCode?: string;
+  }>;
+}
+
+export interface SelectableMaterialScrapSourceLine {
+  id?: string;
+  billNo?: string;
+  billDate?: string;
+  workshopCode?: string;
+  workshopName?: string;
+  sourceIssueLineId?: string;
+  lineNo?: number | string;
+  productId?: string;
+  productCode?: string;
+  productName?: string;
+  spec?: string;
+  unit?: string;
+  sourceWarehouseCode?: string;
+  issueQty?: number | string;
+  availableScrapQty?: number | string;
+}
+
 export interface ProductionSourceSelectorQuery {
   keyword: string;
   columnFilters?: SourceSelectorColumnFilters;
@@ -221,6 +300,45 @@ export function pushDownMaterialIssueProductIn(billNo: string) {
   return postJson(`/api/production/material-issues/${encodeURIComponent(billNo)}/push-product-in`, {});
 }
 
+export function fetchMaterialScrapDetail(billNo: string) {
+  return requestJson(`/api/production/material-scraps/${encodeURIComponent(billNo)}`, "GET");
+}
+
+export function fetchMaterialScrapPreview(issueBillNo: string) {
+  return requestJson(`/api/production/material-issues/${encodeURIComponent(issueBillNo)}/material-scrap-preview`, "GET");
+}
+
+export function pushDownMaterialIssueScrap(issueBillNo: string) {
+  return postJson(`/api/production/material-issues/${encodeURIComponent(issueBillNo)}/push-material-scrap`, {});
+}
+
+export function saveMaterialScrapDraft(payload: MaterialScrapDraftPayload) {
+  return postJson(
+    "/api/production/material-scraps/draft",
+    compactPayload(payload as unknown as Record<string, unknown>)
+  );
+}
+
+export function auditMaterialScrap(billNo: string) {
+  return postJson(`/api/production/material-scraps/${encodeURIComponent(billNo)}/audit`, {});
+}
+
+export function reverseMaterialScrap(billNo: string) {
+  return postJson(`/api/production/material-scraps/${encodeURIComponent(billNo)}/reverse`, {});
+}
+
+export function deleteMaterialScrap(billNo: string) {
+  return requestJson(`/api/production/material-scraps/${encodeURIComponent(billNo)}`, "DELETE");
+}
+
+export function stockInMaterialScrap(billNo: string) {
+  return postJson(`/api/production/material-scraps/${encodeURIComponent(billNo)}/stock-in`, {});
+}
+
+export function reverseStockInMaterialScrap(billNo: string) {
+  return postJson(`/api/production/material-scraps/${encodeURIComponent(billNo)}/reverse-stock-in`, {});
+}
+
 export function fetchMaterialIssuePreviewFromTask(taskBillNo: string) {
   return requestJson(`/api/production/tasks/${encodeURIComponent(taskBillNo)}/material-issue-preview`, "GET");
 }
@@ -269,5 +387,43 @@ export async function fetchSelectableProductionTasks(query: ProductionSourceSele
     ok: result.ok,
     message: result.message,
     data: result.rows as SelectableProductionTaskLine[]
+  };
+}
+
+export async function fetchSelectableMaterialScrapSources(query: ProductionSourceSelectorQuery) {
+  const result = await fetchSourceSelectorRows({
+    listKey: "material-scrap-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    pageSize: 1000
+  });
+  return {
+    ok: result.ok,
+    message: result.message,
+    data: result.rows as SelectableMaterialScrapSourceLine[]
+  };
+}
+
+export async function checkMaterialScrapPushEligibility(issueBillNo: string) {
+  const billNo = issueBillNo.trim();
+  if (!billNo) {
+    return { ok: true, message: "", eligible: false };
+  }
+  const result = await fetchListRows("material-scrap-source-selector", {
+    keyword: "",
+    page: 1,
+    pageSize: 1,
+    view: "detail",
+    columnFilters: exactSourceFilter("billNo", billNo)
+  });
+  const eligible = Boolean(
+    result.ok
+    && (result.data?.total ?? 0) > 0
+    && result.data?.rows.some((row) => String(row.billNo ?? "") === billNo)
+  );
+  return {
+    ok: result.ok,
+    message: result.message,
+    eligible
   };
 }

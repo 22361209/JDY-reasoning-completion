@@ -43,6 +43,7 @@ const endpointByType = {
   productionTask: "/api/production/tasks",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
+  materialScrap: "/api/production/material-scraps",
   productIn: "/api/production/product-ins",
   otherStockIn: "/api/other-stock-ins",
   otherStockOut: "/api/other-stock-outs",
@@ -64,6 +65,7 @@ const detailEndpointByType = {
   salesReturn: "/api/sales-returns",
   salesOut: "/api/sales-outs",
   materialIssue: "/api/production/material-issues",
+  materialScrap: "/api/production/material-scraps",
   productIn: "/api/production/product-ins",
   otherStockIn: "/api/other-stock-ins",
   otherStockOut: "/api/other-stock-outs",
@@ -93,7 +95,8 @@ const outputTypeByDocumentType = {
 } as const;
 
 export type DocumentType = keyof typeof endpointByType;
-export type OpenableDocumentType = keyof typeof detailEndpointByType;
+export type RoutableDocumentType = keyof typeof detailEndpointByType;
+export type OpenableDocumentType = Exclude<RoutableDocumentType, "materialScrap">;
 export type OutputDocumentType = keyof typeof outputTypeByDocumentType;
 
 export interface DocumentLockState {
@@ -150,6 +153,12 @@ export interface DocumentDetail {
     billNo: string;
     version?: string | number;
     sourceOrderNo?: string;
+    sourceIssueNo?: string;
+    businessType?: string;
+    workshopId?: string;
+    workshopCode?: string;
+    workshopName?: string;
+    stockInStatus?: string;
     customerCode?: string;
     supplierCode?: string;
     customer?: string;
@@ -224,6 +233,17 @@ export interface DocumentDetail {
     stockReserved?: number | string;
     stockAvailable?: number | string;
     stockInTransit?: number | string;
+    sourceIssueLineId?: string;
+    sourceWarehouseId?: string;
+    sourceWarehouseCode?: string;
+    issueQty?: number | string;
+    availableScrapQty?: number | string;
+    scrapQty?: number | string;
+    scrapReason?: string;
+    reissueQty?: number | string;
+    isStockIn?: boolean;
+    targetWarehouseId?: string;
+    stockInStatus?: string;
   }>;
 }
 
@@ -289,7 +309,7 @@ export async function auditDocument(type: DocumentType, billNo: string) {
   return callDocument(`${endpointByType[type]}/${encodeURIComponent(billNo)}/audit`, "POST");
 }
 
-export async function fetchDocumentDetail(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentDetail }> {
+export async function fetchDocumentDetail(type: RoutableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentDetail }> {
   const result = await callDocument(`${detailEndpointByType[type]}/${encodeURIComponent(billNo)}`, "GET");
   if (!result.ok || !result.data) {
     return { ok: false, message: result.message };
@@ -297,15 +317,15 @@ export async function fetchDocumentDetail(type: OpenableDocumentType, billNo: st
   return normalizeDocumentDetail(result.data);
 }
 
-export async function acquireDocumentLock(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+export async function acquireDocumentLock(type: RoutableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
   return callDocumentLock(`/api/document-locks/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/acquire`, "POST");
 }
 
-export async function overrideDocumentLock(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+export async function overrideDocumentLock(type: RoutableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
   return callDocumentLock(`/api/document-locks/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}/override`, "POST");
 }
 
-export async function releaseDocumentLock(type: OpenableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
+export async function releaseDocumentLock(type: RoutableDocumentType, billNo: string): Promise<{ ok: boolean; message: string; data?: DocumentLockState }> {
   return callDocumentLock(`/api/document-locks/${encodeURIComponent(type)}/${encodeURIComponent(billNo)}`, "DELETE");
 }
 
@@ -362,6 +382,9 @@ export async function savePrintTemplate(documentType: string, payload: Omit<Prin
 }
 
 function toBackendPayload(type: DocumentType, payload: DocumentDraftPayload) {
+  if (type === "materialScrap") {
+    throw new Error("materialScrap uses its dedicated production API payload");
+  }
   const base = {
     billNo: payload.billNo,
     sourceOrderNo: payload.sourceOrderNo,

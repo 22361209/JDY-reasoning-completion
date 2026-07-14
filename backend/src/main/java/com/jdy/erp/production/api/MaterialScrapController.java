@@ -4,6 +4,7 @@ import java.util.Map;
 
 import com.jdy.erp.production.application.MaterialScrapAppService;
 import com.jdy.erp.production.application.MaterialScrapAppService.ScrapDraftRequest;
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,9 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequirePermission("production.document.audit")
 public class MaterialScrapController {
     private final MaterialScrapAppService materialScrapAppService;
+    private final DocumentLockService lockService;
 
-    public MaterialScrapController(MaterialScrapAppService materialScrapAppService) {
+    public MaterialScrapController(
+        MaterialScrapAppService materialScrapAppService,
+        DocumentLockService lockService
+    ) {
         this.materialScrapAppService = materialScrapAppService;
+        this.lockService = lockService;
     }
 
     @GetMapping("/production/material-scraps/{billNo}")
@@ -47,7 +53,13 @@ public class MaterialScrapController {
     @PostMapping("/production/material-scraps/draft")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, Object> saveDraft(@RequestBody ScrapDraftRequest request) {
-        return materialScrapAppService.saveDraft(request);
+        lockService.assertWritable("materialScrap", request.billNo());
+        var result = materialScrapAppService.saveDraft(request);
+        lockService.releaseIfOwned(
+            "materialScrap",
+            String.valueOf(result.getOrDefault("billNo", request.billNo()))
+        );
+        return result;
     }
 
     @DeleteMapping("/production/material-scraps/{billNo}")

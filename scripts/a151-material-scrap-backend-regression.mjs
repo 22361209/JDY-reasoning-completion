@@ -104,6 +104,9 @@ for (const marker of [
 const audit = methodBody(source.service, "public Map<String, Object> audit(");
 check(!audit.includes("postingPipeline.post") && !audit.includes("InventoryPostingCommand.document"), "scrap audit must not deduct or add inventory");
 check(audit.indexOf("lockSourceBeforeScrap") < audit.indexOf("lockScrapHeader"), "audit must lock source quota before scrap header");
+const saveDraft = methodBody(source.service, "public Map<String, Object> saveDraft(");
+check(saveDraft.indexOf("normalizeBusinessType(request.businessType())") < saveDraft.indexOf("validationService.required(request.sourceIssueNo()"), "draft business type must fail closed before source validation or lookup");
+check(count(saveDraft, /normalizeBusinessType\(request\.businessType\(\)\)/g) === 1, "draft business type must be normalized exactly once before persistence");
 const sourceLock = methodBody(source.service, "private void lockSourceBeforeScrap(");
 check(sourceLock.includes("guardSourceLineIdQuantities"), "source lock helper must use the shared UUID quota guard");
 const stockChange = methodBody(source.service, "private Map<String, Object> changeStockIn(");
@@ -127,6 +130,11 @@ check(source.controller.includes('@DeleteMapping("/production/material-scraps/{b
 check(count(source.controller, /@(GetMapping|PostMapping|DeleteMapping)\(/g) === 9, "material scrap controller must expose exactly nine mapped operations");
 check(count(source.controller, /@RequirePermission\("production\.document\.audit"\)/g) === 1, "material scrap controller must centrally require the existing production permission");
 check(!/JdbcTemplate|PostingPipeline|InventoryPosting/.test(source.controller), "controller must not contain business or inventory rules");
+const controllerSaveDraft = methodBody(source.controller, "public Map<String, Object> saveDraft(");
+check(controllerSaveDraft.indexOf("lockService.assertWritable") < controllerSaveDraft.indexOf("materialScrapAppService.saveDraft")
+  && controllerSaveDraft.indexOf("materialScrapAppService.saveDraft") < controllerSaveDraft.indexOf("lockService.releaseIfOwned"),
+"draft controller must check the lock before the write and release it only after success");
+check(controllerSaveDraft.includes('result.getOrDefault("billNo", request.billNo())'), "draft controller must release the actual returned bill number");
 
 for (const marker of [
   "SourceLineIdQuantityGuard",
@@ -166,6 +174,7 @@ check(source.stateGuard.includes('"material-scrap-form-list"') && source.stateGu
 
 for (const marker of [
   "zeroDraftIsValidButAuditRevalidatesPositiveQuantityAndReason",
+  "unsupportedBusinessTypeFailsBeforeSourceLookupAndCreatesNoFacts",
   "fullyConsumedSourceIsRejectedByPreviewAndPushInsteadOfCreatingZeroDrafts",
   "stockInIsASeparateWholeDocumentIdempotentLifecycle",
   "multiLineStockInRollsBackEveryLineWhenOneWarehouseBecomesInvalid",
@@ -188,6 +197,8 @@ for (const marker of [
 for (const marker of [
   "requestRecordsExposeOnlyTheFrozenNarrowWriteContract",
   "controllerPublishesExactlyTheFrozenApiUnderTheApiPrefix",
+  "draftSaveChecksTheLockBeforeWritingAndReleasesTheReturnedBillNumber",
+  "aLockedDraftNeverReachesTheWriteOrReleasesTheLock",
   "aWriteConflictUsesTheUnifiedHttpFailureAuditExactlyOnce",
   "mappedRoutes",
   "logDeclaredWriteFailureOnce"

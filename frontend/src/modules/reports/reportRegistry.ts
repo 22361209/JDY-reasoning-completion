@@ -1,12 +1,14 @@
 import { financeReportDefinitions } from "./financeReports";
 import { inventoryMovementReport } from "./inventoryMovementReport";
+import { materialScrapReport } from "./materialScrapReport";
 import { salesReportDefinitions } from "./salesReports";
 import type { ReportDefinition } from "./reportTypes";
 
 const definitions: readonly ReportDefinition[] = [
   inventoryMovementReport,
   ...salesReportDefinitions,
-  ...financeReportDefinitions
+  ...financeReportDefinitions,
+  materialScrapReport
 ];
 const registry = new Map<string, ReportDefinition>();
 

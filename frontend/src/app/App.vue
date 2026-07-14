@@ -594,6 +594,22 @@
           @show-existing="tabs.activeTabId.value = materialIssueTabId"
           @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
+          @request-push-material-scrap="pushMaterialScrapFromIssue"
+        />
+        <MaterialScrapForm
+          v-else-if="tabs.activeTab.value.id === materialScrapTabId"
+          ref="materialScrapFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :locked="materialScrapFormLocked"
+          :lock-message="materialScrapFormLockMessage"
+          :can-override-lock="materialScrapCanOverrideLock"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :account-set-key="session.accountSetId.value || session.accountSetCode.value"
+          :has-permission="session.hasPermission"
+          @override-lock="overrideActiveDocumentLock"
+          @request-start-new="startNewMaterialScrapFromPage"
         />
         <ProductInForm
           v-else-if="tabs.activeTab.value.id === productInTabId"
@@ -845,6 +861,15 @@ import OtherStockOutForm from "../modules/inventory/other-stock-out/OtherStockOu
 import StockCountForm from "../modules/inventory/stock-count/StockCountForm.vue";
 import StockTransferForm from "../modules/inventory/stock-transfer/StockTransferForm.vue";
 import MaterialIssueForm from "../modules/production/material-issue/MaterialIssueForm.vue";
+import MaterialScrapForm from "../modules/production/material-scrap/MaterialScrapForm.vue";
+import {
+  applyMaterialScrapSharedDetail,
+  materialScrapSharedBusy,
+  materialScrapSharedDirty,
+  materialScrapSharedDirtyRevision,
+  resetMaterialScrapRuntime,
+  startNewMaterialScrapSharedRuntime
+} from "../modules/production/material-scrap/useMaterialScrapDocument";
 import BomForm from "../modules/production/bom/BomForm.vue";
 import ProductionPlanForm from "../modules/production/production-plan/ProductionPlanForm.vue";
 import ProductionTaskForm from "../modules/production/production-task/ProductionTaskForm.vue";
@@ -878,9 +903,11 @@ import OpeningStockPage from "../modules/inventory/opening-stock/OpeningStockPag
 import PermissionMatrixPage from "../modules/system/permission/PermissionMatrixPage.vue";
 import SecuritySettingsPage from "../modules/system/security/SecuritySettingsPage.vue";
 import UserManagementPage from "../modules/system/user/UserManagementPage.vue";
-import { acquireDocumentLock, fetchDocumentDetail, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type OpenableDocumentType, type PrintTemplateConfig } from "../services/documentApi";
+import { acquireDocumentLock, fetchDocumentDetail, fetchPrintTemplates, overrideDocumentLock, releaseDocumentLock, savePrintTemplate, type DocumentDetail, type DocumentLockState, type DownstreamDocumentRef, type PrintTemplateConfig } from "../services/documentApi";
+import type { RoutableDocumentType as OpenableDocumentType } from "../services/documentApi";
 import { auditMasterData, createMasterData, deleteMasterData, patchMasterData, reverseAuditMasterData, setMasterDataStatus, updateMasterData, type MasterDataPatchValue } from "../services/listApi";
 import { fetchSalesOrderDetail } from "../services/salesOrderApi";
+import { pushDownMaterialIssueScrap } from "../services/productionApi";
 import { switchCurrentAccountSet, type SystemAccountSet } from "../services/systemApi";
 import { usePreferenceStore } from "../stores/preferences";
 import { useSessionStore } from "../stores/session";
@@ -894,6 +921,35 @@ interface ShellEntry {
   dirty?: boolean;
   permission?: string;
   permissions?: string[];
+}
+interface MaterialScrapTabReplacementOptions {
+  nextAction: string;
+  nextBillNo?: string;
+  dirtyAlreadyConfirmed?: boolean;
+  confirmedSnapshot?: MaterialScrapTabSnapshot;
+  allowDuringPush?: boolean;
+  prepare?: () => Promise<{ ok: boolean; message: string; data?: DocumentDetail }>;
+  apply: (detail: DocumentDetail | null, isCurrent: () => boolean) => Promise<boolean | void> | boolean | void;
+}
+interface MaterialScrapTabSnapshot {
+  accountSetKey: string;
+  exists: boolean;
+  dirty: boolean;
+  lockedObjectId: string;
+  lockReadOnly: boolean;
+  lockMessage: string;
+  lockCanOverride: boolean;
+  dirtyRevision: number;
+}
+interface MaterialScrapTabReplacementResult {
+  ok: boolean;
+  cancelled: boolean;
+  message: string;
+}
+interface DocumentOpenOptions {
+  materialScrapDirtyAlreadyConfirmed?: boolean;
+  materialScrapConfirmedSnapshot?: MaterialScrapTabSnapshot;
+  materialScrapAllowDuringPush?: boolean;
 }
 interface EntryGroup {
   title: string;
@@ -936,6 +992,7 @@ const receiptTabId = "ar-receipt-form";
 const paymentTabId = "ap-payment-form";
 const purchaseReturnTabId = "purchase-return-form";
 const materialIssueTabId = "material-issue-form";
+const materialScrapTabId = "material-scrap-form";
 const productInTabId = "product-in-form";
 const bomFormTabId = "bom-form";
 const productionPlanTabId = "production-plan-form";
@@ -964,8 +1021,14 @@ const canMaintainActiveMasterRecord = computed(() => {
   return Boolean(record && canMaintainMasterRecord(record));
 });
 tabs.onBeforeClose((tab) => {
+  if (tab.id === materialScrapTabId) {
+    if (!materialScrapInternalRollbackClose) {
+      materialScrapOpenRequestSerial += 1;
+    }
+    resetMaterialScrapRuntime(currentMaterialScrapAccountSetKey());
+  }
   const type = documentTypeByFormTabId(tab.id);
-  if (type && tab.lockedObjectId) {
+  if (type && tab.lockedObjectId && !(tab.id === materialScrapTabId && materialScrapInternalRollbackClose)) {
     void releaseDocumentLock(type, tab.lockedObjectId);
   }
   if (masterRecords[tab.id]) {
@@ -983,6 +1046,15 @@ const receiptFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(n
 const paymentFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
 const purchaseReturnFormRef = ref<InstanceType<typeof PurchaseReturnForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
+const materialScrapFormRef = ref<InstanceType<typeof MaterialScrapForm> | null>(null);
+const materialScrapPushInFlight = ref(false);
+const materialScrapReplacementInFlight = ref(false);
+const materialScrapOverrideInFlight = ref(false);
+const materialScrapMutationInFlight = materialScrapSharedBusy;
+let materialScrapOpenRequestSerial = 0;
+let materialScrapReplacementPendingCount = 0;
+let materialScrapInternalRollbackClose = false;
+let materialScrapReplacementQueue: Promise<void> = Promise.resolve();
 const productInFormRef = ref<InstanceType<typeof ProductInForm> | null>(null);
 const bomFormRef = ref<InstanceType<typeof BomForm> | null>(null);
 const productionPlanFormRef = ref<InstanceType<typeof ProductionPlanForm> | null>(null);
@@ -1024,6 +1096,10 @@ const keyword = ref("");
 const selectedAccountSetCode = ref(session.accountSetCode.value);
 const accountSetSwitching = ref(false);
 const accountSetSwitchMessage = ref("");
+watch(materialScrapSharedDirty, (dirty) => {
+  const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+  if (tab) tab.dirty = dirty;
+}, { flush: "sync" });
 const activeModuleName = ref("销售管理");
 const modulePanelOpen = ref(false);
 const suppressNavigationUntil = ref(0);
@@ -1098,6 +1174,27 @@ const currentAccountSetStatus = computed(() => {
 const activeLockReadOnly = computed(() => Boolean(tabs.activeTab.value.lockReadOnly));
 const activeLockMessage = computed(() => tabs.activeTab.value.lockMessage ?? "");
 const activeLockCanOverride = computed(() => Boolean(tabs.activeTab.value.lockCanOverride));
+const materialScrapConcurrentOperationInFlight = computed(() => (
+  accountSetSwitching.value
+  || materialScrapMutationInFlight.value
+  || materialScrapReplacementInFlight.value
+  || materialScrapPushInFlight.value
+  || materialScrapOverrideInFlight.value
+));
+const materialScrapFormLocked = computed(() => activeLockReadOnly.value || materialScrapConcurrentOperationInFlight.value);
+const materialScrapFormLockMessage = computed(() => {
+  if (accountSetSwitching.value) return "正在切换账套，材料报废单暂不可操作。";
+  if (materialScrapMutationInFlight.value) return "材料报废单操作正在处理中，请等待最终结果。";
+  if (materialScrapReplacementInFlight.value) return "正在切换材料报废单，请等待页面加载完成。";
+  if (materialScrapPushInFlight.value) return "正在下推生成材料报废单，请等待最终结果。";
+  if (materialScrapOverrideInFlight.value) return "正在取得材料报废单编辑锁，请等待最终结果。";
+  return activeLockMessage.value;
+});
+const materialScrapCanOverrideLock = computed(() => (
+  activeLockReadOnly.value
+  && activeLockCanOverride.value
+  && !materialScrapConcurrentOperationInFlight.value
+));
 const isSalesOrderForm = computed(() => tabs.activeTab.value.id === "sales-order-form");
 const isSalesQuoteForm = computed(() => tabs.activeTab.value.id === salesQuoteTabId);
 watch(() => session.accountSetCode.value, (code) => {
@@ -1140,7 +1237,7 @@ function selectModule(name: string) {
   activeModuleName.value = name;
   modulePanelOpen.value = true;
 }
-function openEntry(entry: ShellEntry) {
+async function openEntry(entry: ShellEntry) {
   if (!canOpenEntry(entry)) {
     return;
   }
@@ -1149,6 +1246,18 @@ function openEntry(entry: ShellEntry) {
   activeModuleName.value = effectiveEntry.module;
   const isQuery = effectiveEntry.mode === "list" || effectiveEntry.mode === "report";
   const id = effectiveEntry.mode === "list" && !effectiveEntry.id.endsWith("-list") && !effectiveEntry.id.endsWith("-report") ? `${effectiveEntry.id}-list` : effectiveEntry.id;
+  if (effectiveEntry.mode === "form" && id === materialScrapTabId) {
+    const replacement = await openNewMaterialScrapDocument({
+      title: effectiveEntry.label,
+      module: effectiveEntry.module,
+      nextAction: "继续会新建空白材料报废单"
+    });
+    if (replacement.ok) {
+      modulePanelOpen.value = false;
+      suppressNavigationUntil.value = Date.now() + 250;
+    }
+    return;
+  }
   if (
     effectiveEntry.mode === "form"
     && isSettlementFormTabId(id)
@@ -1194,6 +1303,71 @@ function openReportSourceDocument(payload: ReportSourceOpenRequest) {
   });
 }
 
+async function pushMaterialScrapFromIssue(payload: { issueBillNo: string }) {
+  const issueBillNo = payload.issueBillNo.trim();
+  if (!issueBillNo || materialScrapPushInFlight.value) {
+    return;
+  }
+  if (
+    accountSetSwitching.value
+    || materialScrapMutationInFlight.value
+    || materialScrapReplacementInFlight.value
+    || materialScrapOverrideInFlight.value
+  ) {
+    const message = "材料报废单正在保存、预览、切换账套/单据或取得编辑锁，完成后才能再次下推。";
+    formMessage.value = message;
+    materialIssueFormRef.value?.setMessage(message);
+    return;
+  }
+  materialScrapPushInFlight.value = true;
+  try {
+    if (!confirmDirtyTabReplacement(materialScrapTabId, `继续会由生产领料单 ${issueBillNo} 生成并打开新的材料报废草稿`)) {
+      return;
+    }
+    const confirmedSnapshot = snapshotMaterialScrapTab();
+    const result = await pushDownMaterialIssueScrap(issueBillNo);
+    if (!result.ok) {
+      const message = result.message || "生产领料单下推材料报废失败。";
+      formMessage.value = message;
+      materialIssueFormRef.value?.setMessage(message);
+      return;
+    }
+    const billNo = String(result.data?.billNo ?? "");
+    if (!billNo) {
+      const message = "材料报废草稿已生成，但返回单号为空。";
+      formMessage.value = message;
+      materialIssueFormRef.value?.setMessage(message);
+      return;
+    }
+    materialIssueFormRef.value?.setMessage(`已下推生成材料报废草稿 ${billNo}`);
+    const opened = await openMaterialScrapDocument(
+      { billNo },
+      {
+        materialScrapDirtyAlreadyConfirmed: true,
+        materialScrapConfirmedSnapshot: confirmedSnapshot,
+        materialScrapAllowDuringPush: true
+      }
+    );
+    if (!opened.ok) {
+      const recoveryMessage = `材料报废草稿 ${billNo} 已生成，但当前页面未覆盖。${opened.message || "请从材料报废单列表重新打开。"}`;
+      formMessage.value = recoveryMessage;
+      materialIssueFormRef.value?.setMessage(recoveryMessage);
+    }
+  } finally {
+    materialScrapPushInFlight.value = false;
+  }
+}
+
+async function startNewMaterialScrapFromPage(payload: { dirtyAlreadyConfirmed: boolean }) {
+  const snapshot = snapshotMaterialScrapTab();
+  const dirtyAlreadyConfirmed = Boolean(payload?.dirtyAlreadyConfirmed && snapshot.dirty);
+  await openNewMaterialScrapDocument({
+    nextAction: "继续会在当前页面新建空白材料报废单",
+    dirtyAlreadyConfirmed,
+    confirmedSnapshot: dirtyAlreadyConfirmed ? snapshot : undefined
+  });
+}
+
 function openMasterDataImport(payload: { listKey: string }) {
   if (!session.hasPermission("master.data.manage")) {
     return;
@@ -1222,6 +1396,19 @@ function requestTabClose(tabId: string) {
     notifyMasterDataImportNavigationBlocked();
     return;
   }
+  if (
+    tabId === materialScrapTabId
+    && (
+      accountSetSwitching.value
+      || materialScrapMutationInFlight.value
+      || materialScrapReplacementInFlight.value
+      || materialScrapPushInFlight.value
+      || materialScrapOverrideInFlight.value
+    )
+  ) {
+    formMessage.value = "材料报废单操作尚未完成，当前页签不能关闭。";
+    return;
+  }
   tabs.requestClose(tabId);
 }
 
@@ -1231,6 +1418,20 @@ function closePendingTabWithoutSaving() {
   if (pendingTab.id === masterDataImportTabId && masterDataImportCommitting.value) {
     tabs.cancelClose();
     notifyMasterDataImportNavigationBlocked();
+    return;
+  }
+  if (
+    pendingTab.id === materialScrapTabId
+    && (
+      accountSetSwitching.value
+      || materialScrapMutationInFlight.value
+      || materialScrapReplacementInFlight.value
+      || materialScrapPushInFlight.value
+      || materialScrapOverrideInFlight.value
+    )
+  ) {
+    tabs.cancelClose();
+    formMessage.value = "材料报废单操作尚未完成，当前页签不能关闭。";
     return;
   }
   tabs.closeNow(pendingTab.id);
@@ -1291,6 +1492,17 @@ async function requestAccountSetSwitch(accountSetCode: string) {
     notifyMasterDataImportNavigationBlocked();
     return;
   }
+  if (
+    materialScrapMutationInFlight.value
+    || materialScrapReplacementInFlight.value
+    || materialScrapPushInFlight.value
+    || materialScrapOverrideInFlight.value
+  ) {
+    selectedAccountSetCode.value = session.accountSetCode.value;
+    accountSetSwitchMessage.value = "材料报废单正在保存、预览、切换或下推，完成前不能切换账套。";
+    formMessage.value = accountSetSwitchMessage.value;
+    return;
+  }
   const target = accountSets.value.find((accountSet) => accountSet.code === accountSetCode);
   const targetName = target?.name || accountSetCode;
   const dirtyTabs = tabs.tabs.value.filter((tab) => tab.id !== "home" && tab.dirty);
@@ -1321,6 +1533,12 @@ async function requestAccountSetSwitch(accountSetCode: string) {
 }
 
 function applyAccountSetSummary(accountSet: SystemAccountSet) {
+  const accountSetChanged = accountSet.code !== session.accountSetCode.value
+    || Boolean(session.accountSetId.value && accountSet.id && accountSet.id !== session.accountSetId.value);
+  if (accountSetChanged) {
+    materialScrapOpenRequestSerial += 1;
+    resetMaterialScrapRuntime(currentMaterialScrapAccountSetKey());
+  }
   session.tenantName.value = accountSet.name;
   session.accountSetCode.value = accountSet.code;
   session.accountSetId.value = accountSet.id || "";
@@ -1390,6 +1608,14 @@ function startNewModuleDocument(entryId: string) {
 
 async function openCreateDocumentFromList(payload: { type: OpenableDocumentType }) {
   const target = openableDocumentTarget(payload.type);
+  if (payload.type === "materialScrap") {
+    await openNewMaterialScrapDocument({
+      title: target.title,
+      module: target.module,
+      nextAction: "继续会从材料报废列表新建空白单据"
+    });
+    return;
+  }
   const opened = tabs.openTab({
     id: target.tabId,
     title: target.title,
@@ -1592,6 +1818,201 @@ function confirmDirtyTabReplacement(tabId: string, nextAction: string) {
   return !existing?.dirty || window.confirm(`${existing.title}有未保存内容，${nextAction}。确定继续吗？`);
 }
 
+function snapshotMaterialScrapTab(): MaterialScrapTabSnapshot {
+  const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+  return {
+    accountSetKey: currentMaterialScrapAccountSetKey(),
+    exists: Boolean(tab),
+    dirty: Boolean(tab?.dirty),
+    lockedObjectId: String(tab?.lockedObjectId ?? ""),
+    lockReadOnly: Boolean(tab?.lockReadOnly),
+    lockMessage: String(tab?.lockMessage ?? ""),
+    lockCanOverride: Boolean(tab?.lockCanOverride),
+    dirtyRevision: materialScrapSharedDirtyRevision.value
+  };
+}
+
+function materialScrapSnapshotMatches(snapshot: MaterialScrapTabSnapshot) {
+  const current = snapshotMaterialScrapTab();
+  return current.accountSetKey === snapshot.accountSetKey
+    && current.exists === snapshot.exists
+    && current.dirty === snapshot.dirty
+    && current.lockedObjectId === snapshot.lockedObjectId
+    && current.lockReadOnly === snapshot.lockReadOnly
+    && current.lockMessage === snapshot.lockMessage
+    && current.lockCanOverride === snapshot.lockCanOverride
+    && current.dirtyRevision === snapshot.dirtyRevision;
+}
+
+function currentMaterialScrapAccountSetKey() {
+  return session.accountSetId.value || session.accountSetCode.value;
+}
+
+function replaceMaterialScrapTab(
+  options: MaterialScrapTabReplacementOptions
+): Promise<MaterialScrapTabReplacementResult> {
+  const blockedMessage = accountSetSwitching.value
+    ? "账套正在切换，完成前不能打开或新建材料报废单。"
+    : materialScrapPushInFlight.value && !options.allowDuringPush
+      ? "材料报废下推正在等待最终结果，完成前不能替换材料报废页。"
+      : materialScrapMutationInFlight.value
+        ? "材料报废单正在执行保存、预览或生命周期操作，完成前不能替换页面。"
+        : materialScrapOverrideInFlight.value
+          ? "材料报废单正在取得编辑锁，完成前不能替换页面。"
+          : "";
+  if (blockedMessage) {
+    formMessage.value = blockedMessage;
+    return Promise.resolve({ ok: false, cancelled: false, message: blockedMessage });
+  }
+  const requestId = materialScrapOpenRequestSerial + 1;
+  materialScrapOpenRequestSerial = requestId;
+  materialScrapReplacementPendingCount += 1;
+  materialScrapReplacementInFlight.value = true;
+  const execute = async (): Promise<MaterialScrapTabReplacementResult> => {
+    let confirmedSnapshotForRestore: MaterialScrapTabSnapshot | null = null;
+    let releasedPreviousLockBillNo = "";
+    if (requestId !== materialScrapOpenRequestSerial) {
+      return { ok: false, cancelled: true, message: "打开请求已被后续材料报废单请求替代。" };
+    }
+    if (materialScrapMutationInFlight.value) {
+      return { ok: false, cancelled: false, message: "材料报废单正在执行保存或生命周期操作，完成前不能替换页面。" };
+    }
+    try {
+      if (
+        !options.dirtyAlreadyConfirmed
+        && !confirmDirtyTabReplacement(materialScrapTabId, options.nextAction)
+      ) {
+        return { ok: false, cancelled: true, message: "" };
+      }
+      if (options.dirtyAlreadyConfirmed && !options.confirmedSnapshot) {
+        return { ok: false, cancelled: false, message: "材料报废页缺少已确认状态快照，已阻止覆盖。" };
+      }
+      const confirmedSnapshot = options.confirmedSnapshot ?? snapshotMaterialScrapTab();
+      confirmedSnapshotForRestore = confirmedSnapshot;
+      if (!materialScrapSnapshotMatches(confirmedSnapshot)) {
+        return { ok: false, cancelled: false, message: "确认后材料报废页内容已变化，已阻止覆盖。" };
+      }
+
+      let detail: DocumentDetail | null = null;
+      if (options.prepare) {
+        const prepared = await options.prepare();
+        if (!prepared.ok || !prepared.data) {
+          const message = prepared.message || "材料报废单详情加载失败。";
+          formMessage.value = message;
+          return { ok: false, cancelled: false, message };
+        }
+        detail = prepared.data;
+      }
+      if (requestId !== materialScrapOpenRequestSerial) {
+        return { ok: false, cancelled: true, message: "打开请求已被后续材料报废单请求替代。" };
+      }
+      if (!materialScrapSnapshotMatches(confirmedSnapshot)) {
+        return { ok: false, cancelled: false, message: "加载期间材料报废页内容已变化，已阻止覆盖。" };
+      }
+      if (materialScrapMutationInFlight.value) {
+        return { ok: false, cancelled: false, message: "材料报废单操作尚未完成，已阻止覆盖。" };
+      }
+
+      const existing = tabs.tabs.value.find((tab) => tab.id === materialScrapTabId);
+      const previousLockBillNo = existing?.lockedObjectId;
+      if (previousLockBillNo && previousLockBillNo !== options.nextBillNo) {
+        const released = await releaseDocumentLock("materialScrap", previousLockBillNo);
+        if (!released.ok) {
+          const message = `材料报废单 ${previousLockBillNo} 的编辑锁释放失败，已阻止覆盖当前页面：${released.message || "锁服务未返回成功状态。"}`;
+          formMessage.value = message;
+          return { ok: false, cancelled: false, message };
+        }
+        releasedPreviousLockBillNo = previousLockBillNo;
+      }
+
+      if (
+        requestId !== materialScrapOpenRequestSerial
+        || !materialScrapSnapshotMatches(confirmedSnapshot)
+        || materialScrapMutationInFlight.value
+      ) {
+        await restoreReleasedMaterialScrapLock(releasedPreviousLockBillNo, confirmedSnapshot);
+        return { ok: false, cancelled: false, message: "释放旧锁期间材料报废页状态已变化，已阻止覆盖。" };
+      }
+
+      const applied = await options.apply(detail, () => (
+        requestId === materialScrapOpenRequestSerial
+        && currentMaterialScrapAccountSetKey() === confirmedSnapshot.accountSetKey
+      ));
+      if (applied === false) {
+        await restoreReleasedMaterialScrapLock(releasedPreviousLockBillNo, confirmedSnapshot);
+        rollbackMaterialScrapTabMetadata(confirmedSnapshot);
+        const message = formMessage.value || "材料报废页签打开失败。";
+        return { ok: false, cancelled: false, message };
+      }
+      return { ok: true, cancelled: false, message: "" };
+    } catch (error) {
+      const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+      if (options.nextBillNo && tab?.lockedObjectId === options.nextBillNo) {
+        await releaseDocumentLock("materialScrap", options.nextBillNo);
+      }
+      if (confirmedSnapshotForRestore) {
+        await restoreReleasedMaterialScrapLock(releasedPreviousLockBillNo, confirmedSnapshotForRestore);
+        rollbackMaterialScrapTabMetadata(confirmedSnapshotForRestore);
+      }
+      const message = error instanceof Error ? error.message : "材料报废页替换失败。";
+      formMessage.value = message;
+      return { ok: false, cancelled: false, message };
+    }
+  };
+  const result = materialScrapReplacementQueue.then(execute, execute);
+  const trackedResult = result.finally(() => {
+    materialScrapReplacementPendingCount = Math.max(0, materialScrapReplacementPendingCount - 1);
+    materialScrapReplacementInFlight.value = materialScrapReplacementPendingCount > 0;
+  });
+  materialScrapReplacementQueue = trackedResult.then(() => undefined, () => undefined);
+  return trackedResult;
+}
+
+function rollbackMaterialScrapTabMetadata(snapshot: MaterialScrapTabSnapshot) {
+  const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+  if (!snapshot.exists) {
+    if (tab) {
+      materialScrapInternalRollbackClose = true;
+      try {
+        tabs.closeNow(materialScrapTabId);
+      } finally {
+        materialScrapInternalRollbackClose = false;
+      }
+    }
+    return;
+  }
+  if (!tab || currentMaterialScrapAccountSetKey() !== snapshot.accountSetKey) return;
+  tab.dirty = snapshot.dirty;
+  tab.lockedObjectId = snapshot.lockedObjectId || undefined;
+  if (!snapshot.lockedObjectId) {
+    tab.lockReadOnly = snapshot.lockReadOnly;
+    tab.lockMessage = snapshot.lockMessage;
+    tab.lockCanOverride = snapshot.lockCanOverride;
+  }
+}
+
+async function restoreReleasedMaterialScrapLock(
+  previousLockBillNo: string,
+  snapshot: MaterialScrapTabSnapshot
+) {
+  if (!previousLockBillNo || currentMaterialScrapAccountSetKey() !== snapshot.accountSetKey) return;
+  const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+  if (!tab || snapshot.lockedObjectId !== previousLockBillNo) return;
+  const restored = await applyMaterialScrapDocumentLock(previousLockBillNo, () => (
+    currentMaterialScrapAccountSetKey() === snapshot.accountSetKey
+    && tabs.tabs.value.some((item) => item.id === materialScrapTabId)
+  ));
+  const restoredTab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+  if (restoredTab && currentMaterialScrapAccountSetKey() === snapshot.accountSetKey) {
+    restoredTab.dirty = snapshot.dirty;
+  }
+  if (!restored) {
+    tab.lockReadOnly = true;
+    tab.lockCanOverride = false;
+    tab.lockMessage = `材料报废单 ${previousLockBillNo} 的编辑锁恢复失败，已转只读。`;
+  }
+}
+
 function openOutsourcingForm(row: Record<string, unknown> | undefined, refValue: InstanceType<typeof OutsourcingDocumentForm> | null) {
   const billNo = row?.billNo == null ? "" : String(row.billNo);
   if (billNo) {
@@ -1615,6 +2036,7 @@ function documentTypeByListTabId(tabId: string): OpenableDocumentType | "" {
     "purchase-return-list": "purchaseReturn",
     "purchase-return-form-list": "purchaseReturn",
     "material-issue-form-list": "materialIssue",
+    "material-scrap-form-list": "materialScrap",
     "product-in-form-list": "productIn",
     "other-in-form-list": "otherStockIn",
     "other-out-form-list": "otherStockOut",
@@ -1637,6 +2059,7 @@ function documentTypeByFormTabId(tabId: string): OpenableDocumentType | "" {
     [purchaseInTabId]: "purchaseIn",
     [purchaseReturnTabId]: "purchaseReturn",
     [materialIssueTabId]: "materialIssue",
+    [materialScrapTabId]: "materialScrap",
     [productInTabId]: "productIn",
     [otherStockInTabId]: "otherStockIn",
     [otherStockOutTabId]: "otherStockOut",
@@ -1786,9 +2209,119 @@ function closeNavigation() {
   suppressNavigationUntil.value = 0;
 }
 function noop() {}
+async function openNewMaterialScrapDocument(options: {
+  title?: string;
+  module?: string;
+  nextAction: string;
+  dirtyAlreadyConfirmed?: boolean;
+  confirmedSnapshot?: MaterialScrapTabSnapshot;
+}) {
+  const title = options.title || "材料报废单";
+  const module = options.module || "生产管理";
+  return replaceMaterialScrapTab({
+    nextAction: options.nextAction,
+    dirtyAlreadyConfirmed: options.dirtyAlreadyConfirmed,
+    confirmedSnapshot: options.confirmedSnapshot,
+    apply: async () => {
+      const opened = tabs.openTab({
+        id: materialScrapTabId,
+        title,
+        module,
+        kind: "form",
+        dirty: true
+      });
+      if (!opened) {
+        formMessage.value = "页签数量已达上限，未新建材料报废单。";
+        return false;
+      }
+      const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+      if (tab) {
+        tab.dirty = true;
+        tab.lockedObjectId = undefined;
+        tab.lockReadOnly = false;
+        tab.lockMessage = "";
+        tab.lockCanOverride = false;
+      }
+      activeModuleName.value = module;
+      const started = startNewMaterialScrapSharedRuntime(currentMaterialScrapAccountSetKey());
+      if (!started) formMessage.value = "材料报废页状态已变化，未能新建空白草稿。";
+      return started;
+    }
+  });
+}
+
+async function openMaterialScrapDocument(
+  payload: { billNo: string; sourceLineNo?: number | null },
+  options: DocumentOpenOptions = {}
+): Promise<MaterialScrapTabReplacementResult> {
+  const billNo = payload.billNo.trim();
+  if (!billNo) {
+    return { ok: false, cancelled: false, message: "材料报废单号不能为空。" };
+  }
+  return replaceMaterialScrapTab({
+    nextAction: `继续会打开材料报废单 ${billNo}`,
+    nextBillNo: billNo,
+    dirtyAlreadyConfirmed: options.materialScrapDirtyAlreadyConfirmed,
+    confirmedSnapshot: options.materialScrapConfirmedSnapshot,
+    allowDuringPush: options.materialScrapAllowDuringPush,
+    prepare: () => fetchDocumentDetail("materialScrap", billNo),
+    apply: async (detail, isCurrent) => {
+      if (!detail) {
+        return false;
+      }
+      if (!isCurrent()) {
+        return false;
+      }
+      const target = openableDocumentTarget("materialScrap");
+      const opened = tabs.openTab({
+        id: target.tabId,
+        title: target.title,
+        module: target.module,
+        kind: "form",
+        dirty: false,
+        lockedObjectId: billNo
+      });
+      if (!opened) {
+        formMessage.value = `页签数量已达上限，未打开材料报废单 ${billNo}。`;
+        return false;
+      }
+      const lockApplied = await applyMaterialScrapDocumentLock(billNo, isCurrent);
+      if (!lockApplied) {
+        formMessage.value = `材料报废单 ${billNo} 的编辑锁获取期间页签已变化，当前请求已取消。`;
+        return false;
+      }
+      activeModuleName.value = target.module;
+      await nextTick();
+      if (!isCurrent() || !tabs.tabs.value.some((tab) => tab.id === materialScrapTabId)) {
+        await releaseDocumentLock("materialScrap", billNo);
+        return false;
+      }
+      const loadedMessage = payload.sourceLineNo
+        ? `已追踪打开${target.title} ${billNo}，定位到第 ${payload.sourceLineNo} 行`
+        : `已打开${target.title} ${billNo}`;
+      if (!applyMaterialScrapSharedDetail(currentMaterialScrapAccountSetKey(), detail, billNo, loadedMessage)) {
+        formMessage.value = `材料报废单 ${billNo} 加载期间状态已变化，当前请求已取消。`;
+        await releaseDocumentLock("materialScrap", billNo);
+        return false;
+      }
+      highlightedSourceBillNo.value = billNo;
+      highlightedSourceLineNo.value = payload.sourceLineNo ?? null;
+      if (tabs.activeTab.value.id === materialScrapTabId) {
+        scrollHighlightedSourceLineIntoView();
+      }
+      formMessage.value = loadedMessage;
+      return true;
+    }
+  });
+}
+
 async function openDocumentFromList(payload: { type: OpenableDocumentType; row: Record<string, unknown> }) {
   const billNo = String(payload.row.billNo ?? "");
   if (!billNo) {
+    return;
+  }
+  if (payload.type === "materialScrap") {
+    await openMaterialScrapDocument({ billNo });
     return;
   }
   if (payload.type === outboundDocumentType) {
@@ -1833,7 +2366,13 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
   formMessage.value = `已打开${target.title} ${billNo}`;
   clearActiveDirty();
 }
-async function openDocumentFromModule(payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }) {
+async function openDocumentFromModule(
+  payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null },
+  options: DocumentOpenOptions = {}
+) {
+  if (payload.type === "materialScrap") {
+    return openMaterialScrapDocument(payload, options);
+  }
   if (
     ((tabs.activeTab.value.id === outboundTabId || tabs.activeTab.value.id === deliveryNoticeTabId) && (payload.type === "salesOrder" || payload.type === "deliveryNotice"))
     || (tabs.activeTab.value.id === purchaseInTabId && payload.type === "purchaseOrder")
@@ -1948,6 +2487,8 @@ function openableDocumentTarget(type: OpenableDocumentType): { tabId: string; ti
       return { tabId: salesReturnTabId, title: "销售退货单", module: "销售管理", ref: salesReturnFormRef };
     case "materialIssue":
       return { tabId: materialIssueTabId, title: "生产领料单", module: "生产管理", ref: materialIssueFormRef };
+    case "materialScrap":
+      return { tabId: materialScrapTabId, title: "材料报废单", module: "生产管理", ref: materialScrapFormRef };
     case "productIn":
       return { tabId: productInTabId, title: "产品入库单", module: "生产管理", ref: productInFormRef };
     case "otherStockIn":
@@ -1985,6 +2526,27 @@ async function applyDocumentLock(tabId: string, type: OpenableDocumentType, bill
   applyLockStateToTab(tabId, lock.data);
 }
 
+async function applyMaterialScrapDocumentLock(billNo: string, isCurrent: () => boolean) {
+  const lock = await acquireDocumentLock("materialScrap", billNo);
+  const tab = tabs.tabs.value.find((item) => item.id === materialScrapTabId);
+  if (!tab || !isCurrent()) {
+    if (lock.ok) {
+      await releaseDocumentLock("materialScrap", billNo);
+    }
+    return false;
+  }
+  tab.lockedObjectId = billNo;
+  tab.dirty = false;
+  if (!lock.ok || !lock.data) {
+    tab.lockReadOnly = true;
+    tab.lockMessage = lock.message || "单据锁状态异常，已转只读";
+    tab.lockCanOverride = false;
+    return true;
+  }
+  applyLockStateToTab(materialScrapTabId, lock.data);
+  return true;
+}
+
 function applyLockStateToTab(tabId: string, lock: DocumentLockState) {
   const tab = tabs.tabs.value.find((item) => item.id === tabId);
   if (tab) {
@@ -2000,13 +2562,27 @@ async function overrideActiveDocumentLock() {
   if (!type || !tab.lockedObjectId) {
     return;
   }
-  const result = await overrideDocumentLock(type, tab.lockedObjectId);
-  if (!result.ok || !result.data) {
-    tab.lockMessage = result.message || "强制解锁失败。";
+  const isMaterialScrap = type === "materialScrap";
+  if (isMaterialScrap && (!tab.lockReadOnly || !tab.lockCanOverride)) {
+    formMessage.value = "材料报废单锁状态已变化，当前不能强制解锁。";
     return;
   }
-  applyLockStateToTab(tab.id, result.data);
-  formMessage.value = "已踢走当前持锁人，你可以编辑。";
+  if (isMaterialScrap && materialScrapConcurrentOperationInFlight.value) {
+    formMessage.value = "材料报废单正在切换账套/单据、保存、下推或取得编辑锁，当前不能强制解锁。";
+    return;
+  }
+  if (isMaterialScrap) materialScrapOverrideInFlight.value = true;
+  try {
+    const result = await overrideDocumentLock(type, tab.lockedObjectId);
+    if (!result.ok || !result.data) {
+      tab.lockMessage = result.message || "强制解锁失败。";
+      return;
+    }
+    applyLockStateToTab(tab.id, result.data);
+    formMessage.value = "已踢走当前持锁人，你可以编辑。";
+  } finally {
+    if (isMaterialScrap) materialScrapOverrideInFlight.value = false;
+  }
 }
 async function openDeliveryNoticeFromSalesOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");

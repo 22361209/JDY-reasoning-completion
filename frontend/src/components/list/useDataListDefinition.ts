@@ -29,7 +29,7 @@ export interface ListDefinition {
 
 type RawListDefinition = Omit<ListDefinition, "searchFields" | "dateField" | "supportsQuickDateFilter" | "lifecycleColumns"> & Partial<Pick<ListDefinition, "searchFields" | "dateField" | "supportsQuickDateFilter" | "lifecycleColumns">>;
 
-export type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "salesReturn" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
+export type OpenableDocumentType = "salesQuote" | "salesOrder" | "deliveryNotice" | "salesOut" | "salesReturn" | "purchaseOrder" | "purchaseIn" | "purchaseReturn" | "materialIssue" | "materialScrap" | "productIn" | "otherStockIn" | "otherStockOut" | "stockTransfer" | "stockCount" | "stockCountGain" | "stockCountLoss";
 
 const voidableDocumentListKeys = new Set([
   "sales-quote-form-list",
@@ -44,6 +44,7 @@ const voidableDocumentListKeys = new Set([
   "purchase-return-form-list",
   "production-task-form-list",
   "material-issue-form-list",
+  "material-scrap-form-list",
   "product-in-form-list",
   "other-in-form-list",
   "other-out-form-list",
@@ -489,6 +490,25 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "status", title: "状态", width: 100, visible: true },
       { field: "amount", title: "金额", width: 120, align: "right", visible: true },
       { field: "warehouse", title: "仓库", width: 140, visible: true }
+    ]
+  },
+  "material-scrap-form-list": {
+    title: "材料报废单",
+    subtitle: "材料报废单按来源领料记录报废数量；审核不重复扣库，报废入库作为独立整单动作。",
+    keywordPlaceholder: "报废单号、来源领料单、生产车间、商品、报废原因",
+    statuses: ["草稿", "已审核", "已作废"],
+    columns: [
+      { field: "billNo", title: "报废单号", width: 168, fixed: "left", visible: true },
+      { field: "billDate", title: "单据日期", width: 116, visible: true },
+      { field: "sourceIssueNo", title: "来源生产领料单", width: 176, visible: true },
+      { field: "workshopCode", title: "车间编码", width: 120, visible: true },
+      { field: "workshopName", title: "生产车间", width: 150, visible: true },
+      { field: "productCode", title: "商品编码", width: 144, visible: true },
+      { field: "productName", title: "商品名称", width: 180, visible: true },
+      { field: "scrapQty", title: "报废数量", width: 116, align: "right", visible: true },
+      { field: "reissueQty", title: "报废重发数量", width: 132, align: "right", visible: true },
+      { field: "stockInStatus", title: "报废入库状态", width: 132, visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
   "product-in-form-list": {
@@ -968,6 +988,30 @@ export function useDataListDefinition(listKey: () => string) {
         { field: "amount", title: "金额", width: 120, align: "right", visible: true },
         { field: "priceTaxTotal", title: "含税金额", width: 120, align: "right", visible: true },
         { field: "lineRemark", title: "行备注", width: 180, visible: true }
+      ];
+    }
+    if (listKey() === "material-scrap-form-list") {
+      return [
+        { field: "billNo", title: "报废单号", width: 168, fixed: "left", visible: true },
+        { field: "billDate", title: "单据日期", width: 116, visible: true },
+        { field: "sourceIssueNo", title: "来源生产领料单", width: 176, visible: true },
+        { field: "workshopCode", title: "车间编码", width: 120, visible: true },
+        { field: "workshopName", title: "生产车间", width: 150, visible: true },
+        { field: "status", title: "状态", width: 100, visible: true },
+        { field: "lineNo", title: "行号", width: 80, align: "right", visible: true },
+        { field: "productCode", title: "商品编码", width: 144, visible: true },
+        { field: "productName", title: "商品名称", width: 180, visible: true },
+        { field: "spec", title: "规格型号", width: 150, visible: true },
+        { field: "unit", title: "单位", width: 80, visible: true },
+        { field: "sourceWarehouseCode", title: "来源领料仓", width: 140, visible: true },
+        { field: "issueQty", title: "领料数量", width: 110, align: "right", visible: true },
+        { field: "availableScrapQty", title: "可报废数量", width: 116, align: "right", visible: true },
+        { field: "scrapQty", title: "报废数量", width: 116, align: "right", visible: true },
+        { field: "scrapReason", title: "报废原因", width: 180, visible: true },
+        { field: "reissueQty", title: "报废重发数量", width: 132, align: "right", visible: true },
+        { field: "isStockIn", title: "是否入库", width: 96, visible: true },
+        { field: "targetWarehouseCode", title: "目标报废仓", width: 140, visible: true },
+        { field: "stockInStatus", title: "报废入库状态", width: 132, visible: true }
       ];
     }
     const metadataDefinition = billDefinition.value;

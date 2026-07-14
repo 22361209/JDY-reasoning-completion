@@ -174,6 +174,63 @@ public class MaterialScrapAppServiceIntegrationTest {
     }
 
     @Test
+    void unsupportedBusinessTypeFailsBeforeSourceLookupAndCreatesNoFacts() {
+        var billNo = fixture.prefix() + "-INVALID-BUSINESS";
+        var missingSourceNo = fixture.prefix() + "-MISSING-SOURCE";
+        var scrapCountBefore = jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM production_material_scrap WHERE bill_no = ?",
+            Integer.class,
+            billNo
+        );
+        var stockTxnCountBefore = jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM inv_stock_txn WHERE product_id = ?::uuid",
+            Integer.class,
+            fixture.productId
+        );
+        var logCountBefore = jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM sys_operation_log WHERE target_no = ?",
+            Integer.class,
+            billNo
+        );
+        var invalid = new ScrapDraftRequest(
+            billNo,
+            missingSourceNo,
+            LocalDate.of(2026, 7, 14),
+            "OTHER",
+            List.of(new ScrapLineRequest(
+                fixture.sourceIssueLineId,
+                BigDecimal.ONE,
+                "非法业务类型不得落库",
+                BigDecimal.ZERO,
+                false,
+                null
+            ))
+        );
+
+        assertThatThrownBy(() -> materialScrapAppService.saveDraft(invalid))
+            .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
+                assertThat(error.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                assertThat(error.getReason()).isEqualTo("首版材料报废业务类型只允许 PRODUCTION_SCRAP");
+            });
+
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM production_material_scrap WHERE bill_no = ?",
+            Integer.class,
+            billNo
+        )).isEqualTo(scrapCountBefore);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM inv_stock_txn WHERE product_id = ?::uuid",
+            Integer.class,
+            fixture.productId
+        )).isEqualTo(stockTxnCountBefore);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM sys_operation_log WHERE target_no = ?",
+            Integer.class,
+            billNo
+        )).isEqualTo(logCountBefore);
+    }
+
+    @Test
     void fullyConsumedSourceIsRejectedByPreviewAndPushInsteadOfCreatingZeroDrafts() {
         fixture.insertScrap(
             "FULLY-CONSUMED",

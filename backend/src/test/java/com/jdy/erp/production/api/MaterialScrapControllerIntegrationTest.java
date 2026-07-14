@@ -1,9 +1,13 @@
 package com.jdy.erp.production.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -24,6 +29,7 @@ import com.jdy.erp.production.application.MaterialScrapAppService;
 import com.jdy.erp.production.application.MaterialScrapAppService.ScrapDraftRequest;
 import com.jdy.erp.production.application.MaterialScrapAppService.ScrapLineRequest;
 import com.jdy.erp.shared.api.ResponseStatusExceptionHandler;
+import com.jdy.erp.shared.application.DocumentLockService;
 import com.jdy.erp.shared.application.OperationLogFailureService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.security.RequirePermission;
@@ -97,6 +103,50 @@ class MaterialScrapControllerIntegrationTest {
     }
 
     @Test
+    void draftSaveChecksTheLockBeforeWritingAndReleasesTheReturnedBillNumber() {
+        var appService = mock(MaterialScrapAppService.class);
+        var lockService = mock(DocumentLockService.class);
+        var request = new ScrapDraftRequest(
+            "CLBF000001", "SCLL000001", null, "PRODUCTION_SCRAP", List.of()
+        );
+        when(appService.saveDraft(request)).thenReturn(Map.of(
+            "id", "00000000-0000-0000-0000-000000000001",
+            "billNo", "CLBF000099",
+            "status", "DRAFT"
+        ));
+        var controller = new MaterialScrapController(appService, lockService);
+
+        assertThat(controller.saveDraft(request))
+            .containsEntry("billNo", "CLBF000099")
+            .containsEntry("status", "DRAFT");
+
+        var ordered = inOrder(lockService, appService);
+        ordered.verify(lockService).assertWritable("materialScrap", "CLBF000001");
+        ordered.verify(appService).saveDraft(request);
+        ordered.verify(lockService).releaseIfOwned("materialScrap", "CLBF000099");
+    }
+
+    @Test
+    void aLockedDraftNeverReachesTheWriteOrReleasesTheLock() {
+        var appService = mock(MaterialScrapAppService.class);
+        var lockService = mock(DocumentLockService.class);
+        var request = new ScrapDraftRequest(
+            "CLBF000002", "SCLL000002", null, "PRODUCTION_SCRAP", List.of()
+        );
+        doThrow(new ResponseStatusException(HttpStatus.LOCKED, "单据已被其他用户锁定"))
+            .when(lockService)
+            .assertWritable("materialScrap", "CLBF000002");
+        var controller = new MaterialScrapController(appService, lockService);
+
+        assertThatThrownBy(() -> controller.saveDraft(request))
+            .isInstanceOfSatisfying(ResponseStatusException.class, error ->
+                assertThat(error.getStatusCode()).isEqualTo(HttpStatus.LOCKED));
+
+        verify(appService, never()).saveDraft(any());
+        verify(lockService, never()).releaseIfOwned(any(), any());
+    }
+
+    @Test
     void aWriteConflictUsesTheUnifiedHttpFailureAuditExactlyOnce() throws Exception {
         var appService = mock(MaterialScrapAppService.class);
         when(appService.audit("CLBF000001"))
@@ -106,7 +156,7 @@ class MaterialScrapControllerIntegrationTest {
         when(session.isAuthenticated()).thenReturn(true);
         when(failures.hasLoggedFailure(any(HttpServletRequest.class))).thenReturn(false);
         var mockMvc = MockMvcBuilders
-            .standaloneSetup(new MaterialScrapController(appService))
+            .standaloneSetup(new MaterialScrapController(appService, mock(DocumentLockService.class)))
             .setControllerAdvice(new ResponseStatusExceptionHandler(failures, session))
             .build();
 

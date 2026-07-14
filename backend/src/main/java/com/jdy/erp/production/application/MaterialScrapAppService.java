@@ -148,6 +148,7 @@ public class MaterialScrapAppService {
         if (request == null) {
             throw badRequest("材料报废草稿不能为空");
         }
+        var businessType = normalizeBusinessType(request.businessType());
         var sourceIssueNo = validationService.required(request.sourceIssueNo(), "来源生产领料单号");
         var requestedBillNo = validationService.optionalText(request.billNo());
         var existing = requestedBillNo == null ? null : optionalScrapHeader(requestedBillNo);
@@ -193,7 +194,7 @@ public class MaterialScrapAppService {
                 """,
                 scrapBillNo,
                 request.billDate() == null ? LocalDate.now(BUSINESS_ZONE) : request.billDate(),
-                normalizeBusinessType(request.businessType()),
+                businessType,
                 lockedSource.get("id"),
                 workshop.get("workshopId"),
                 workshop.get("workshopCode"),
@@ -231,7 +232,7 @@ public class MaterialScrapAppService {
                 WHERE id = ?::uuid
                 """,
                 request.billDate() == null ? existing.get("billDate") : request.billDate(),
-                normalizeBusinessType(request.businessType()),
+                businessType,
                 scrapId
             );
         }
