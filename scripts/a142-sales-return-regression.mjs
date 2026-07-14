@@ -90,6 +90,7 @@ let fixtureIds = null;
 let sharedStockBaseline = null;
 let sharedStockCleanupAuthorized = true;
 let mainReturn = null;
+let controlledInventoryCapability = false;
 
 function assert(condition, message, details = undefined) {
   if (!condition) {
@@ -162,6 +163,18 @@ function expectStatus(label, response, expected) {
     actual: response.status,
     body: response.text.slice(0, 800)
   });
+}
+
+async function requireControlledInventoryFixture() {
+  const health = await request("", "/api/system/health");
+  expectStatus("A142 controlled inventory fixture health", health, 200);
+  assert(
+    health.data?.testInventoryAdjustmentApi === true,
+    "A142 只允许在 local/test/regression + 显式库存测试开关 + BLD-TEST allowlist 下运行",
+    health.data
+  );
+  controlledInventoryCapability = true;
+  evidence.environment.controlledInventoryFixture = true;
 }
 
 async function requireApi(cookie, label, pathname, { method = "POST", body = undefined, expected = 200 } = {}) {
@@ -244,12 +257,120 @@ async function createReturn(sourceOutNo, qty, options = {}) {
   return response;
 }
 
-async function returnAction(billNo, action, { cookie = cookies.admin, expected = 200, schema = "public" } = {}) {
+function returnPostingHistory(schema, billNo) {
+  const actualSchema = schema === "replay" ? replayTenant?.schemaName : schema;
+  if (!actualSchema) return null;
+  const accountSetCode = actualSchema === "public" ? "BLD-TEST" : replayTenant?.code;
+  if (!accountSetCode) return null;
+  const t = (name) => schemaTable(actualSchema, name);
+  return dbJson(`
+    WITH account_set AS (
+      SELECT id FROM public.sys_account_set WHERE code=${sqlLiteral(accountSetCode)} AND enabled=TRUE
+    ), header AS (
+      SELECT id, bill_date FROM ${t("sales_return")} WHERE bill_no=${sqlLiteral(billNo)}
+    ), lines AS (
+      SELECT line.id, line.product_id, line.warehouse_id
+      FROM ${t("sales_return_line")} line
+      JOIN header ON header.id=line.bill_id
+    ), candidates AS (
+      SELECT txn.*
+      FROM ${t("inv_stock_txn")} txn
+      JOIN header ON txn.source_bill_id=header.id OR txn.source_bill_no=${sqlLiteral(billNo)}
+    ), canonical AS (
+      SELECT txn.*
+      FROM candidates txn
+      JOIN header ON TRUE
+      WHERE txn.source_bill_type='SALES_RETURN'
+        AND txn.source_bill_no=${sqlLiteral(billNo)}
+        AND txn.source_bill_id=header.id
+        AND txn.account_set_id=(SELECT id FROM account_set)
+        AND txn.source_bill_date=header.bill_date
+        AND txn.trace_quality='EXACT'
+        AND EXISTS (
+          SELECT 1 FROM lines line
+          WHERE line.id=txn.source_bill_line_id
+            AND line.product_id=txn.product_id
+            AND line.warehouse_id=txn.warehouse_id
+        )
+    )
+    SELECT jsonb_build_object(
+      'headerCount', (SELECT count(*) FROM header),
+      'accountSetCount', (SELECT count(*) FROM account_set),
+      'lineCount', (SELECT count(*) FROM lines),
+      'candidateCount', (SELECT count(*) FROM candidates),
+      'canonicalCount', (SELECT count(*) FROM canonical),
+      'forwardCount', (
+        SELECT count(*) FROM canonical
+        WHERE txn_type='SALES_RETURN' AND posting_action='AUDIT' AND reversal_of_txn_id IS NULL
+      ),
+      'reverseCount', (
+        SELECT count(*) FROM canonical
+        WHERE txn_type='SALES_RETURN_REVERSE' AND posting_action='REVERSE' AND reversal_of_txn_id IS NOT NULL
+      ),
+      'pairedReverseCount', (
+        SELECT count(*) FROM canonical reverse_txn
+        JOIN canonical forward_txn ON forward_txn.id=reverse_txn.reversal_of_txn_id
+        WHERE reverse_txn.txn_type='SALES_RETURN_REVERSE'
+          AND reverse_txn.posting_action='REVERSE'
+          AND forward_txn.txn_type='SALES_RETURN'
+          AND forward_txn.posting_action='AUDIT'
+          AND forward_txn.reversal_of_txn_id IS NULL
+          AND forward_txn.account_set_id=reverse_txn.account_set_id
+          AND forward_txn.product_id=reverse_txn.product_id
+          AND forward_txn.warehouse_id=reverse_txn.warehouse_id
+          AND forward_txn.source_bill_type=reverse_txn.source_bill_type
+          AND forward_txn.source_bill_no=reverse_txn.source_bill_no
+          AND forward_txn.source_bill_id=reverse_txn.source_bill_id
+          AND forward_txn.source_bill_line_id=reverse_txn.source_bill_line_id
+          AND forward_txn.source_bill_date=reverse_txn.source_bill_date
+      )
+    )::text
+  `);
+}
+
+function assertReturnDeleteHistory(schema, billNo, expectedHistory) {
+  const history = returnPostingHistory(schema, billNo);
+  assert(history?.headerCount === 1 && history.accountSetCount === 1 && history.lineCount > 0, `销售退货 ${billNo} 删除前必须存在唯一账套、单头及明细`, history);
+  if (!expectedHistory) {
+    assert(history.candidateCount === 0, `从未审核的销售退货 ${billNo} 不得产生库存过账历史`, history);
+    return history;
+  }
+  assert(
+    history.candidateCount === history.lineCount * 2
+      && history.canonicalCount === history.candidateCount
+      && history.forwardCount === history.lineCount
+      && history.reverseCount === history.lineCount
+      && history.pairedReverseCount === history.lineCount,
+    `已审核再反审核的销售退货 ${billNo} 必须保留完整 forward/reverse EXACT pair`,
+    history
+  );
+  return history;
+}
+
+async function returnAction(billNo, action, {
+  cookie = cookies.admin,
+  expected = undefined,
+  schema = "public",
+  expectPostingHistory = undefined
+} = {}) {
   const method = action === "detail" ? "GET" : action === "delete" ? "DELETE" : "POST";
   const route = action === "detail" || action === "delete"
     ? `/api/sales-returns/${encodeURIComponent(billNo)}`
     : `/api/sales-returns/${encodeURIComponent(billNo)}/${action}`;
-  return requireApi(cookie, `sales return ${billNo} ${action} (${schema})`, route, { method, expected });
+  let deleteHistory = null;
+  if (action === "delete") {
+    assert(typeof expectPostingHistory === "boolean", `销售退货 ${billNo} DELETE 必须由调用点显式声明是否曾过账`);
+    deleteHistory = assertReturnDeleteHistory(schema, billNo, expectPostingHistory);
+  }
+  const response = await requireApi(cookie, `sales return ${billNo} ${action} (${schema})`, route, {
+    method,
+    expected: expected ?? (expectPostingHistory ? 409 : 200)
+  });
+  if (action === "delete" && expectPostingHistory) {
+    assert(response.text.includes("库存过账历史"), `精确追溯销售退货 ${billNo} 必须禁止物理删除`, response.text);
+  }
+  if (deleteHistory) evidence.lifecycle[`deleteHistory:${schema}:${billNo}`] = deleteHistory;
+  return response;
 }
 
 function receiptPayload({ receivableId, customerId, accountId, currency, amount, remark }) {
@@ -454,6 +575,7 @@ function resolveFixtureIds(schema) {
 }
 
 function setupFixtures() {
+  assert(controlledInventoryCapability, "A142 写入夹具前必须通过受控库存能力门禁");
   assert(new URL(apiBase).hostname === "127.0.0.1" && new URL(frontendUrl).hostname === "127.0.0.1", "A142 只允许访问本机服务");
   assert(dbScalar("SELECT current_schema()") === "public", "A142 主夹具只允许准备在 public 测试 schema");
   const primaryAccount = dbJson(`
@@ -521,7 +643,7 @@ function setupFixtures() {
   insertBaseFixtures(replayTenant.schemaName);
   fixtureIds = { public: resolveFixtureIds("public"), replay: resolveFixtureIds(replayTenant.schemaName) };
   assert(Object.values(fixtureIds.public).every(Boolean) && Object.values(fixtureIds.replay).every(Boolean), "A142 双账套基础夹具 ID 必须完整", fixtureIds);
-  evidence.environment = { primaryAccount, replayTenant, lowRoleCode };
+  evidence.environment = { ...evidence.environment, primaryAccount, replayTenant, lowRoleCode };
 }
 
 async function loginFixtures() {
@@ -627,6 +749,47 @@ function captureSharedStockBaseline() {
   };
 }
 
+function expectedSharedStockState() {
+  const baseline = sharedStockBaseline?.state;
+  assert(baseline, "A142 计算共享库存状态前必须有基线");
+  return dbJson(`
+    WITH posting_delta AS (
+      SELECT COALESCE(SUM(txn.qty_delta), 0::numeric) AS on_hand_delta
+      FROM public.inv_stock_txn txn
+      JOIN public.md_product product ON product.id=txn.product_id
+      JOIN public.md_warehouse warehouse ON warehouse.id=txn.warehouse_id
+      JOIN public.sys_account_set account_set ON account_set.id=txn.account_set_id
+      WHERE product.code='CP-001' AND warehouse.code='CK-001' AND account_set.code='BLD-TEST'
+        AND (${inventoryPredicate("txn")})
+    ), notice_reservation AS (
+      SELECT COALESCE(SUM(line.qty), 0::numeric) AS reserved_qty
+      FROM public.delivery_notice document
+      JOIN public.delivery_notice_line line ON line.bill_id=document.id
+      JOIN public.md_product product ON product.id=line.product_id
+      JOIN public.md_warehouse warehouse ON warehouse.id=line.warehouse_id
+      WHERE document.status='AUDITED'
+        AND document.bill_no IN (${inValues(artifacts.deliveryNotices)})
+        AND product.code='CP-001' AND warehouse.code='CK-001'
+    ), shipped_reservation AS (
+      SELECT COALESCE(SUM(line.qty), 0::numeric) AS shipped_qty
+      FROM public.sales_out document
+      JOIN public.sales_out_line line ON line.bill_id=document.id
+      JOIN public.md_product product ON product.id=line.product_id
+      JOIN public.md_warehouse warehouse ON warehouse.id=line.warehouse_id
+      WHERE document.status='AUDITED'
+        AND document.bill_no IN (${inValues(artifacts.salesOuts)})
+        AND line.source_delivery_notice_no IN (${inValues(artifacts.deliveryNotices)})
+        AND product.code='CP-001' AND warehouse.code='CK-001'
+    )
+    SELECT jsonb_build_object(
+      'onHand', (${sqlLiteral(baseline.onHand)}::numeric + posting_delta.on_hand_delta)::text,
+      'reserved', (${sqlLiteral(baseline.reserved)}::numeric + notice_reservation.reserved_qty - shipped_reservation.shipped_qty)::text,
+      'available', (${sqlLiteral(baseline.available)}::numeric + posting_delta.on_hand_delta - notice_reservation.reserved_qty + shipped_reservation.shipped_qty)::text
+    )::text
+    FROM posting_delta CROSS JOIN notice_reservation CROSS JOIN shipped_reservation
+  `);
+}
+
 async function createSalesChain(currency) {
   const line = { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: currency === "USD" ? 10 : 20, taxRate: 13, lineRemark: `${fixturePrefix}-${currency}` };
   const orderDraft = await requireApi(cookies.admin, `${currency} sales order draft`, "/api/sales-orders/draft", {
@@ -721,7 +884,7 @@ async function verifyPermissions(source) {
     const billNo = generatedBill(created, "XSTH", `${role} permission return`);
     const detail = await returnAction(billNo, "detail", { cookie });
     assert(detail.data?.document?.status === "DRAFT", `${role} 必须可查看自己新建的退货草稿`, detail.data);
-    await returnAction(billNo, "delete", { cookie });
+    await returnAction(billNo, "delete", { cookie, expectPostingHistory: false });
     evidence.permissions.push({ role, selector: selector.status, create: created.status, detail: detail.status, delete: 200 });
   }
   const unknown = await list(cookies.admin, `${fixturePrefix}-unknown-list`, { keyword: "" });
@@ -797,7 +960,7 @@ async function verifyDraftCasNarrowCopy(source) {
   expectStatus("stale CAS update", stale, 409);
   const afterStale = await returnAction(billNo, "detail");
   assert(Number(afterStale.data?.lines?.[0]?.qty) === 0.75 && afterStale.data?.document?.remark === `${fixturePrefix}-cas-updated`, "旧版本 409 必须保留当前草稿原值", afterStale.data);
-  await returnAction(billNo, "delete");
+  await returnAction(billNo, "delete", { expectPostingHistory: false });
   evidence.lifecycle.cas = { billNo, initialVersion: "0", updatedVersion: "1", staleStatus: stale.status };
   evidence.coverage.draftCasNarrowCopy = true;
 }
@@ -864,7 +1027,7 @@ async function verifyZeroAmountAuditRollback(source) {
   assert(same(stockState(), stockBefore), "零金额审核失败必须回滚此前尝试的库存回补", { before: stockBefore, after: stockState() });
   assert(same(receivableAnyState("public", source.billNo), arBefore), "零金额审核失败必须保持 AR 完整不变", { before: arBefore, after: receivableAnyState("public", source.billNo) });
   assert(successAuditAfter === successAuditBefore, "零金额审核失败不得留下成功审核日志", { successAuditBefore, successAuditAfter });
-  await returnAction(billNo, "delete");
+  await returnAction(billNo, "delete", { expectPostingHistory: false });
   evidence.guards.zeroAmount = { billNo, totalAmount: 0, auditStatus: rejected.status, stockBefore, arBefore };
   evidence.coverage.zeroAmountRollback = true;
 }
@@ -897,7 +1060,7 @@ async function verifySaveVsSourceConcurrency() {
   if (reverseSaveWon) {
     assert(businessStatus("public", "sales_out", reverseChain.outNo) === "AUDITED" && returnDbState("public", reverseReturnNo)?.status === "DRAFT", "保存胜出时只能是源已审核 + 退货草稿终态");
     assert(same(stockState(), reverseStockBefore) && same(receivableLedgerState("public", reverseChain.outNo), reverseArBefore), "保存胜出、反审核 409 时库存和完整 AR 台账必须零副作用");
-    await returnAction(reverseReturnNo, "delete");
+    await returnAction(reverseReturnNo, "delete", { expectPostingHistory: false });
   } else {
     const returnResidue = Number(dbScalar(`SELECT count(*) FROM public.sales_return WHERE remark=${sqlLiteral(reverseReturnRemark)}`));
     assert(businessStatus("public", "sales_out", reverseChain.outNo) === "DRAFT" && !reverseSave.data?.document && returnResidue === 0, "反审核胜出时源只能落 DRAFT，退货保存不得留下单据", { sourceStatus: businessStatus("public", "sales_out", reverseChain.outNo), save: reverseSave.data, returnResidue });
@@ -960,7 +1123,7 @@ async function verifySaveVsSourceConcurrency() {
       WHERE source.bill_no=${sqlLiteral(redChain.outNo)} AND red.status <> 'VOID'
     `));
     assert(returnDbState("public", redReturnNo)?.status === "DRAFT" && redResidue === 0, "退货保存胜出时只能保留退货草稿，红冲不得留下半成品", { redResidue });
-    await returnAction(redReturnNo, "delete");
+    await returnAction(redReturnNo, "delete", { expectPostingHistory: false });
   } else {
     const returnResidue = Number(dbScalar(`SELECT count(*) FROM public.sales_return WHERE remark=${sqlLiteral(redReturnRemark)}`));
     assert(businessStatus("public", "sales_out", redBillNo) === "DRAFT" && returnResidue === 0, "红冲胜出时只能保留红字草稿，退货保存不得留下半成品", { returnResidue });
@@ -1022,7 +1185,7 @@ async function verifyUsdFullyReceivedChain(chain) {
   await returnAction(billNo, "reverse");
   await receiptAction(receiptNo, "reverse");
   await receiptAction(receiptNo, "delete");
-  await returnAction(billNo, "delete");
+  await returnAction(billNo, "delete", { expectPostingHistory: true });
   evidence.finance.fullyReceived = { billNo, receiptNo, currency: "USD", amount, reverseGuardStatus: 409 };
   evidence.coverage.usdFullyReceived = true;
 }
@@ -1052,7 +1215,7 @@ async function verifyPartiallyReceived(source) {
   const row = rowsFrom(selector).find((item) => item.billNo === source.billNo);
   assert(Number(row?.returnedQty) === 1.5 && Number(row?.remainingQty) === 0.5, "来源选择器必须展示正式已退量与剩余可退量", row);
   await returnAction(billNo, "reverse");
-  await returnAction(billNo, "delete");
+  await returnAction(billNo, "delete", { expectPostingHistory: true });
   await receiptAction(receiptNo, "reverse");
   await receiptAction(receiptNo, "delete");
   evidence.finance.partiallyReceived = { billNo, receiptNo, amount, offset, pending, selectorRow: row };
@@ -1086,8 +1249,8 @@ async function verifyConcurrentReturnAudit(source) {
   assert(same(decimalDelta(after.stock, before.stock), { onHand: 0.75, available: 0.75, reserved: 0 }), "并发审核只能产生一次库存回补", { before, after });
   assert(Number(after.ar.returnOffsetAmount) === Number(after.winner.totalAmount), "并发审核只能产生一次应收冲销", after);
   await returnAction(winner, "reverse");
-  await returnAction(winner, "delete");
-  await returnAction(loser, "delete");
+  await returnAction(winner, "delete", { expectPostingHistory: true });
+  await returnAction(loser, "delete", { expectPostingHistory: false });
   evidence.concurrency.returnAudit = { firstNo, secondNo, statuses, winner, loser, before, after };
   evidence.coverage.concurrentReturnAudit = true;
 }
@@ -1122,7 +1285,7 @@ async function verifyArLockConcurrency(source) {
   await receiptAction(receiptNo, "reverse", 409);
   await returnAction(returnNo, "reverse");
   await receiptAction(receiptNo, "reverse");
-  await returnAction(returnNo, "delete");
+  await returnAction(returnNo, "delete", { expectPostingHistory: true });
   await receiptAction(receiptNo, "delete");
   evidence.concurrency.arLock = { receiptNo, returnNo, receiptStatus: receiptAudit.status, returnStatus: returnAudit.status, finalAr, finalReturn };
   evidence.coverage.arLockConcurrency = true;
@@ -1141,8 +1304,8 @@ async function verifyLifoReverseGuard(source) {
   assert(returnDbState("public", firstNo)?.status === "AUDITED" && returnDbState("public", secondNo)?.status === "AUDITED", "LIFO 409 必须保持两张退货已审核状态");
   await returnAction(secondNo, "reverse");
   await returnAction(firstNo, "reverse");
-  await returnAction(secondNo, "delete");
-  await returnAction(firstNo, "delete");
+  await returnAction(secondNo, "delete", { expectPostingHistory: true });
+  await returnAction(firstNo, "delete", { expectPostingHistory: true });
   evidence.guards.lifo = { firstNo, secondNo, blockedStatus: blocked.status };
   evidence.coverage.lifo = true;
 }
@@ -1168,7 +1331,7 @@ async function verifyRedAndSourceGuards(sources) {
     body: { billDate, ownerName: "A142管理员" }
   });
   assert(reverseBlocked.text.includes("销售退货") && createRedBlocked.text.includes("销售退货"), "已有非 VOID 退货必须同时阻断源出库反审核与红冲", { reverse: reverseBlocked.text, red: createRedBlocked.text });
-  await returnAction(guardNo, "delete");
+  await returnAction(guardNo, "delete", { expectPostingHistory: false });
   evidence.guards.red = { redBillNo, redBlocked: redBlocked.status, guardNo, sourceReverse: reverseBlocked.status, sourceRed: createRedBlocked.status };
   evidence.coverage.redSourceConflict = true;
 }
@@ -1226,7 +1389,7 @@ async function verifyInventoryAndRefundGuards(source) {
     WHERE a.sales_return_id=sr.id AND sr.bill_no=${sqlLiteral(billNo)} AND a.refunded_amount=1
   `);
   await returnAction(billNo, "reverse");
-  await returnAction(billNo, "delete");
+  await returnAction(billNo, "delete", { expectPostingHistory: true });
   await receiptAction(receiptNo, "reverse");
   await receiptAction(receiptNo, "delete");
   evidence.guards.inventoryAndRefund = { billNo, receiptNo, insufficientStatus: insufficient.status, refundedStatus: refunded.status };
@@ -1310,8 +1473,8 @@ async function verifyTenantIsolation(publicSource, replaySource) {
   expectStatus("public same-number list", publicList, 200);
   expectStatus("tenant same-number list", replayList, 200);
   assert(rowsFrom(publicList).length === 1 && rowsFrom(replayList).length === 1, "双账套同号列表必须各返回且只返回本租户一张", { public: rowsFrom(publicList), replay: rowsFrom(replayList) });
-  await returnAction(codes.sameReturn, "delete", { cookie: cookies.admin, schema: "public" });
-  await returnAction(codes.sameReturn, "delete", { cookie: cookies.replayAdmin, schema: "replay" });
+  await returnAction(codes.sameReturn, "delete", { cookie: cookies.admin, schema: "public", expectPostingHistory: false });
+  await returnAction(codes.sameReturn, "delete", { cookie: cookies.replayAdmin, schema: "replay", expectPostingHistory: false });
   evidence.tenantIsolation = {
     billNo: codes.sameReturn,
     public: publicDetail.data,
@@ -1476,7 +1639,17 @@ async function verifyBrowser(source) {
   await page.getByTestId("list-keyword").fill(billNo);
   await page.getByTestId("list-keyword").press("Enter");
   await page.getByTestId(`open-document-${billNo}`).waitFor({ state: "visible", timeout: 10000 });
+  const reopenLockAcquireResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === `/api/document-locks/salesReturn/${billNo}/acquire`
+      && response.request().method() === "POST";
+  });
   await page.getByTestId(`open-document-${billNo}`).click();
+  const reopenLockAcquireResponse = await reopenLockAcquireResponsePromise;
+  assert(reopenLockAcquireResponse.status() === 200, "从列表重开销售退货草稿必须等待编辑锁取得成功", {
+    status: reopenLockAcquireResponse.status(),
+    body: await reopenLockAcquireResponse.text()
+  });
   await page.getByTestId("sales-return-party-code").waitFor({ state: "visible", timeout: 10000 });
   assert(await page.getByTestId("sales-return-bill-no").inputValue() === billNo && Number(await page.getByTestId("sales-return-line-qty").inputValue()) === 1, "首次保存后从列表重开必须恢复同一草稿和来源行");
   cookies.warehouse = (await context1366.cookies()).map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
@@ -1538,7 +1711,7 @@ async function closeMainReturn() {
   const stockAfterReverse = stockState();
   assert(same(decimalDelta(stockAfterReverse, stockBeforeReverse), { onHand: -0.5, available: -0.5, reserved: 0 }), "CNY 退货反审核必须只精确扣回本单回补的现存量和可用量", { before: stockBeforeReverse, after: stockAfterReverse });
   assert(same(receivableState("public", mainReturn.chain.outNo), mainReturn.beforeAr), "CNY 退货反审核必须精确恢复应收冲销且不改真实收款", { expected: mainReturn.beforeAr, actual: receivableState("public", mainReturn.chain.outNo) });
-  await returnAction(mainReturn.billNo, "delete");
+  await returnAction(mainReturn.billNo, "delete", { expectPostingHistory: true });
   evidence.lifecycle.mainReverse = { billNo: mainReturn.billNo, stockBeforeReverse, stockAfterReverse, delta: decimalDelta(stockAfterReverse, stockBeforeReverse), receivable: receivableState("public", mainReturn.chain.outNo) };
   evidence.coverage.reverseRestoration = true;
 }
@@ -1583,20 +1756,67 @@ function verifyOperationLogs() {
 function inventoryPredicate(alias = "txn") {
   const pairs = [
     ...artifacts.deliveryNotices.flatMap((billNo) => [
-      ["DELIVERY_NOTICE_RESERVE", `DELIVERY_NOTICE:${billNo}`],
-      ["DELIVERY_NOTICE_RESERVE_REVERSE", `DELIVERY_NOTICE_REVERSE:${billNo}`]
+      ["DELIVERY_NOTICE_RESERVE", "DELIVERY_NOTICE", billNo, "delivery_notice", "RESERVE", null],
+      ["DELIVERY_NOTICE_RESERVE_REVERSE", "DELIVERY_NOTICE", billNo, "delivery_notice", "RELEASE", "DELIVERY_NOTICE_RESERVE"]
     ]),
     ...artifacts.salesOuts.flatMap((billNo) => [
-      ["SALES_OUT", `SALES_OUT:${billNo}`],
-      ["SALES_OUT_REVERSE", `SALES_OUT_REVERSE:${billNo}`]
+      ["SALES_OUT", "SALES_OUT", billNo, "sales_out", "AUDIT", null],
+      ["SALES_OUT_REVERSE", "SALES_OUT", billNo, "sales_out", "REVERSE", "SALES_OUT"]
     ]),
     ...artifacts.returns.public.flatMap((billNo) => [
-      ["SALES_RETURN", `SALES_RETURN:${billNo}`],
-      ["SALES_RETURN_REVERSE", `SALES_RETURN_REVERSE:${billNo}`]
+      ["SALES_RETURN", "SALES_RETURN", billNo, "sales_return", "AUDIT", null],
+      ["SALES_RETURN_REVERSE", "SALES_RETURN", billNo, "sales_return", "REVERSE", "SALES_RETURN"]
     ])
   ];
   return [...new Map(pairs.map((pair) => [pair.join("\0"), pair])).values()]
-    .map(([txnType, sourceBillType]) => `(${alias}.txn_type=${sqlLiteral(txnType)} AND ${alias}.source_bill_type=${sqlLiteral(sourceBillType)})`)
+    .map(([txnType, sourceBillType, sourceBillNo, sourceTable, postingAction, originalTxnType]) => `(
+      ${alias}.txn_type=${sqlLiteral(txnType)}
+      AND ${alias}.source_bill_type=${sqlLiteral(sourceBillType)}
+      AND ${alias}.source_bill_no=${sqlLiteral(sourceBillNo)}
+      AND ${alias}.source_bill_id=(SELECT id FROM public.${sqlIdentifier(sourceTable)} WHERE bill_no=${sqlLiteral(sourceBillNo)})
+      AND EXISTS (
+        SELECT 1 FROM public.${sqlIdentifier(`${sourceTable}_line`)} line
+        WHERE line.bill_id=${alias}.source_bill_id
+          AND line.id=${alias}.source_bill_line_id
+          AND line.product_id=${alias}.product_id
+          AND line.warehouse_id=${alias}.warehouse_id
+      )
+      AND ${alias}.source_bill_date=(SELECT bill_date FROM public.${sqlIdentifier(sourceTable)} WHERE bill_no=${sqlLiteral(sourceBillNo)})
+      AND ${alias}.account_set_id=(SELECT id FROM public.sys_account_set WHERE code='BLD-TEST' AND enabled=TRUE)
+      AND ${alias}.trace_quality='EXACT'
+      AND ${alias}.posting_action=${sqlLiteral(postingAction)}
+      ${originalTxnType ? `AND EXISTS (
+        SELECT 1
+        FROM public.inv_stock_txn original
+        WHERE original.id=${alias}.reversal_of_txn_id
+          AND original.txn_type=${sqlLiteral(originalTxnType)}
+          AND original.posting_action=${sqlLiteral(postingAction === "RELEASE" ? "RESERVE" : "AUDIT")}
+          AND original.account_set_id=${alias}.account_set_id
+          AND original.product_id=${alias}.product_id
+          AND original.warehouse_id=${alias}.warehouse_id
+          AND original.source_bill_type=${alias}.source_bill_type
+          AND original.source_bill_no=${alias}.source_bill_no
+          AND original.source_bill_id=${alias}.source_bill_id
+          AND original.source_bill_line_id=${alias}.source_bill_line_id
+          AND original.source_bill_date=${alias}.source_bill_date
+          AND original.trace_quality='EXACT'
+          AND original.reversal_of_txn_id IS NULL
+      )` : `AND ${alias}.reversal_of_txn_id IS NULL`}
+    )`)
+    .join(" OR ") || "FALSE";
+}
+
+function inventoryOwnershipPredicate(alias = "txn") {
+  const sources = [
+    ...artifacts.deliveryNotices.map((billNo) => [billNo, "delivery_notice"]),
+    ...artifacts.salesOuts.map((billNo) => [billNo, "sales_out"]),
+    ...artifacts.returns.public.map((billNo) => [billNo, "sales_return"])
+  ];
+  return [...new Map(sources.map((source) => [source.join("\0"), source])).values()]
+    .map(([billNo, sourceTable]) => `(
+      ${alias}.source_bill_no=${sqlLiteral(billNo)}
+      OR ${alias}.source_bill_id=(SELECT id FROM public.${sqlIdentifier(sourceTable)} WHERE bill_no=${sqlLiteral(billNo)})
+    )`)
     .join(" OR ") || "FALSE";
 }
 
@@ -1616,16 +1836,28 @@ function ownedSharedStockTransactions() {
     JOIN public.md_warehouse w ON w.id=txn.warehouse_id
     JOIN public.sys_account_set a ON a.id=txn.account_set_id
     WHERE p.code='CP-001' AND w.code='CK-001' AND a.code='BLD-TEST'
+      AND (${inventoryOwnershipPredicate("txn")})
+  `) ?? [];
+}
+
+function canonicalSharedStockTransactions() {
+  return dbJson(`
+    SELECT COALESCE(jsonb_agg(${normalizedStockTransactionSql("txn")} ORDER BY txn.occurred_at, txn.id::text), '[]'::jsonb)::text
+    FROM public.inv_stock_txn txn
+    JOIN public.md_product p ON p.id=txn.product_id
+    JOIN public.md_warehouse w ON w.id=txn.warehouse_id
+    JOIN public.sys_account_set a ON a.id=txn.account_set_id
+    WHERE p.code='CP-001' AND w.code='CK-001' AND a.code='BLD-TEST'
       AND (${inventoryPredicate("txn")})
   `) ?? [];
 }
 
-async function recoveryRequest(cookie, label, pathname, method = "POST", body = undefined) {
+async function recoveryRequest(cookie, label, pathname, method = "POST", body = undefined, allowedStatuses = [200, 404]) {
   try {
     const response = await request(cookie, pathname, { method, body });
     const action = { label, method, pathname, status: response.status };
     evidence.cleanup.recovery.actions.push(action);
-    if (![200, 404].includes(response.status)) {
+    if (!allowedStatuses.includes(response.status)) {
       evidence.cleanup.recovery.errors.push({ ...action, body: response.text.slice(0, 500) });
     }
     return response;
@@ -1644,15 +1876,36 @@ function unique(values) {
 async function recoverReturns(schema, cookie, billNos) {
   for (const billNo of unique(billNos).reverse()) {
     let status = businessStatus(schema, "sales_return", billNo);
+    let traceProtected = false;
     if (status === "AUDITED") {
       await recoveryRequest(cookie, `${schema} sales return ${billNo} reverse`, `/api/sales-returns/${encodeURIComponent(billNo)}/reverse`);
       status = businessStatus(schema, "sales_return", billNo);
     }
     if (status === "DRAFT") {
-      await recoveryRequest(cookie, `${schema} sales return ${billNo} delete`, `/api/sales-returns/${encodeURIComponent(billNo)}`, "DELETE");
+      const hasHistory = Number(returnPostingHistory(schema, billNo)?.candidateCount ?? 0) > 0;
+      const response = await recoveryRequest(
+        cookie,
+        `${schema} sales return ${billNo} delete`,
+        `/api/sales-returns/${encodeURIComponent(billNo)}`,
+        "DELETE",
+        undefined,
+        hasHistory ? [200, 404, 409] : [200, 404]
+      );
+      traceProtected = Boolean(
+        hasHistory
+        && response?.status === 409
+        && response.text.includes("库存过账历史")
+      );
+      if (hasHistory && response?.status === 409 && !traceProtected) {
+        evidence.cleanup.recovery.errors.push({
+          label: `${schema} sales return ${billNo} trace-protected delete reason`,
+          expected: "库存过账历史",
+          actual: response.text.slice(0, 500)
+        });
+      }
       status = businessStatus(schema, "sales_return", billNo);
     }
-    if (status && status !== "VOID") {
+    if (status && status !== "VOID" && !(traceProtected && status === "DRAFT")) {
       evidence.cleanup.recovery.errors.push({ label: `${schema} sales return ${billNo} lifecycle recovery`, expected: "removed or VOID", actual: status });
     }
   }
@@ -1693,11 +1946,21 @@ function restoreSharedStockBaseline() {
   const stockEvidence = evidence.cleanup.recovery.stock;
   const current = stockSnapshot();
   const currentTransactions = ownedSharedStockTransactions();
+  const canonicalTransactions = canonicalSharedStockTransactions();
+  const expectedCurrentState = expectedSharedStockState();
   stockEvidence.afterApiRecovery = current?.state ?? null;
-  if (!same(current?.state, sharedStockBaseline.state)) {
-    throw new Error(`A142 API 恢复后共享库存三量未回基线，拒绝删除流水或覆盖 balance ${JSON.stringify({ expected: sharedStockBaseline.state, actual: current?.state ?? null })}`);
+  stockEvidence.expectedAfterApiRecovery = expectedCurrentState;
+  if (!same(current?.state, expectedCurrentState)) {
+    throw new Error(`A142 API 恢复后共享库存三量与本次精确追溯链不一致，拒绝删除流水或覆盖 balance ${JSON.stringify({
+      baseline: sharedStockBaseline.state,
+      expectedCurrentState,
+      actual: current?.state ?? null
+    })}`);
   }
   if (!current?.balance) throw new Error("A142 共享库存精确恢复找不到当前 balance");
+  if (!same(currentTransactions, canonicalTransactions)) {
+    throw new Error(`A142 本次业务链存在非 canonical EXACT 库存事实，拒绝按被测字段掩盖异常 ${JSON.stringify({ currentTransactions, canonicalTransactions })}`);
+  }
   const before = sharedStockBaseline.balance;
   dbScalar(`
     BEGIN;
@@ -1725,7 +1988,7 @@ function restoreSharedStockBaseline() {
       JOIN public.md_product product ON product.id=candidate.product_id
       JOIN public.md_warehouse warehouse ON warehouse.id=candidate.warehouse_id
       WHERE account_set.code='BLD-TEST' AND product.code='CP-001' AND warehouse.code='CK-001'
-        AND (${inventoryPredicate("candidate")});
+        AND (${inventoryOwnershipPredicate("candidate")});
       IF locked_txns IS DISTINCT FROM expected_current_txns THEN
         RAISE EXCEPTION 'A142 inventory cleanup refused: owned transaction set changed before row lock';
       END IF;
@@ -1745,7 +2008,7 @@ function restoreSharedStockBaseline() {
       USING public.sys_account_set account_set, public.md_product product, public.md_warehouse warehouse
       WHERE account_set.id=candidate.account_set_id AND product.id=candidate.product_id AND warehouse.id=candidate.warehouse_id
         AND account_set.code='BLD-TEST' AND product.code='CP-001' AND warehouse.code='CK-001'
-        AND (${inventoryPredicate("candidate")});
+        AND (${inventoryOwnershipPredicate("candidate")});
       GET DIAGNOSTICS deleted_count = ROW_COUNT;
       IF deleted_count IS DISTINCT FROM owned_posting_count THEN
         RAISE EXCEPTION 'A142 inventory cleanup refused: deleted owned transaction count mismatch';
@@ -1778,6 +2041,12 @@ function restoreSharedStockBaseline() {
 async function recoverFailureSafeState() {
   evidence.cleanup.recovery.attempted = true;
   try {
+    if (cookies.admin) {
+      cookies.admin = await loginApi(apiBase, users.admin.username, users.admin.password, "BLD-TEST");
+    }
+    if (cookies.replayAdmin && replayTenant?.code) {
+      cookies.replayAdmin = await loginApi(apiBase, users.replayAdmin.username, users.replayAdmin.password, replayTenant.code);
+    }
     const releasedFixtureLocks = dbJson(`
       WITH deleted AS (
         DELETE FROM public.doc_edit_lock lock
@@ -1802,9 +2071,6 @@ async function recoverFailureSafeState() {
     if (cookies.replayAdmin && replayTenant?.schemaName) await recoverReturns(replayTenant.schemaName, cookies.replayAdmin, artifacts.returns.replay);
     if (cookies.admin) {
       await recoverReceipts();
-      await recoverBusinessDocuments("sales_out", "sales-outs", artifacts.salesOuts);
-      await recoverBusinessDocuments("delivery_notice", "delivery-notices", artifacts.deliveryNotices);
-      await recoverBusinessDocuments("sales_order", "sales-orders", artifacts.salesOrders);
     }
   } catch (error) {
     evidence.cleanup.recovery.errors.push({ label: "unexpected API recovery failure", error: error instanceof Error ? error.message : String(error) });
@@ -1933,7 +2199,7 @@ function residueCounts() {
       'receivables', (SELECT count(*) FROM public.ar_receivable WHERE source_bill_no IN (${publicSources}) OR bill_no LIKE ${sqlLiteral(`${fixturePrefix}%`)}),
       'receipts', (SELECT count(*) FROM public.ar_receipt WHERE bill_no IN (${inValues(artifacts.receipts)}) OR remark LIKE ${sqlLiteral(`${fixturePrefix}%`)}),
       'warehouse', (SELECT count(*) FROM public.md_warehouse WHERE code=${sqlLiteral(codes.isolatedWarehouse)}),
-      'sharedStockTransactions', (SELECT count(*) FROM public.inv_stock_txn txn WHERE ${inventoryPredicate("txn")}),
+      'sharedStockTransactions', (SELECT count(*) FROM public.inv_stock_txn txn WHERE ${inventoryOwnershipPredicate("txn")}),
       'logs', (SELECT count(*) FROM public.sys_operation_log WHERE actor_username LIKE ${sqlLiteral(`${userPrefix}%`)} OR COALESCE(failure_reason, '') LIKE ${sqlLiteral(`%${fixturePrefix}%`)})
     )::text
   `);
@@ -1958,21 +2224,25 @@ async function cleanup() {
     browser = null;
   }
   const errors = [];
-  try {
-    await recoverFailureSafeState();
-  } catch (error) {
-    errors.push({ phase: "recovery", message: error instanceof Error ? error.message : String(error) });
+  if (controlledInventoryCapability) {
+    try {
+      await recoverFailureSafeState();
+    } catch (error) {
+      errors.push({ phase: "recovery", message: error instanceof Error ? error.message : String(error) });
+    }
   }
   await logoutSessions();
-  for (const [phase, action] of [
-    ["replay schema cleanup", () => { if (replayTenant?.schemaName) cleanupSchema(replayTenant.schemaName); }],
-    ["public schema cleanup", () => cleanupSchema("public")],
-    ["fixture user cleanup", () => cleanupUsersAndRole()]
-  ]) {
-    try {
-      action();
-    } catch (error) {
-      errors.push({ phase, message: error instanceof Error ? error.message : String(error) });
+  if (controlledInventoryCapability) {
+    for (const [phase, action] of [
+      ["replay schema cleanup", () => { if (replayTenant?.schemaName) cleanupSchema(replayTenant.schemaName); }],
+      ["public schema cleanup", () => cleanupSchema("public")],
+      ["fixture user cleanup", () => cleanupUsersAndRole()]
+    ]) {
+      try {
+        action();
+      } catch (error) {
+        errors.push({ phase, message: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
   try {
@@ -1994,6 +2264,7 @@ async function cleanup() {
 
 async function run() {
   await mkdir(screenshotDir, { recursive: true });
+  await requireControlledInventoryFixture();
   setupFixtures();
   await loginFixtures();
   const sources = prepareDirectSources();

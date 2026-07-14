@@ -90,6 +90,7 @@ let ids = null;
 let cookies = {};
 let chainStockBaseline = null;
 let directCleanupAuthorized = true;
+let controlledInventoryCapability = false;
 
 function assert(condition, message, details = undefined) {
   if (!condition) {
@@ -158,6 +159,18 @@ function expectStatus(label, response, expected) {
     actual: response.status,
     body: response.text.slice(0, 500)
   });
+}
+
+async function requireControlledInventoryFixture() {
+  const health = await request("", "/api/system/health");
+  expectStatus("A141 controlled inventory fixture health", health, 200);
+  assert(
+    health.data?.testInventoryAdjustmentApi === true,
+    "A141 只允许在 local/test/regression + 显式库存测试开关 + BLD-TEST allowlist 下运行",
+    health.data
+  );
+  controlledInventoryCapability = true;
+  evidence.environment.controlledInventoryFixture = true;
 }
 
 function schemaTable(schema, table) {
@@ -372,6 +385,7 @@ function insertTenantFixtures(schema) {
 }
 
 function setupFixtures() {
+  assert(controlledInventoryCapability, "A141 写入夹具前必须通过受控库存能力门禁");
   assert(new URL(apiBase).hostname === "127.0.0.1" && new URL(frontendUrl).hostname === "127.0.0.1", "A141 只允许访问本机服务");
   const currentSchema = dbScalar("SELECT current_schema()");
   assert(currentSchema === "public", "A141 只允许在 public 测试账套准备主夹具", { currentSchema });
@@ -442,7 +456,7 @@ function setupFixtures() {
   insertTenantFixtures(replayTenant.schemaName);
   ids = { public: fixtureIds("public"), replay: fixtureIds(replayTenant.schemaName) };
   assert(Object.values(ids.public).every(Boolean) && Object.values(ids.replay).every(Boolean), "A141 双账套夹具 ID 必须完整", ids);
-  evidence.environment = { primaryAccount, replayTenant, reportRoleCode, faultInjection: faultInjection || null };
+  evidence.environment = { ...evidence.environment, primaryAccount, replayTenant, reportRoleCode, faultInjection: faultInjection || null };
 }
 
 async function loginFixtures() {
@@ -1185,7 +1199,11 @@ async function verifyPurchaseCurrencyAndReturnGuards() {
 
   for (const billNo of [cnyIn, usdIn, usdDirectIn]) {
     await requireApi(cookies.admin, `reverse purchase in ${billNo}`, `/api/purchase-ins/${encodeURIComponent(billNo)}/reverse`);
-    await requireApi(cookies.admin, `delete purchase in ${billNo}`, `/api/purchase-ins/${encodeURIComponent(billNo)}`, { method: "DELETE" });
+    const protectedDelete = await requireApi(cookies.admin, `traced purchase in ${billNo} delete rejected`, `/api/purchase-ins/${encodeURIComponent(billNo)}`, {
+      method: "DELETE",
+      expected: 409
+    });
+    assert(protectedDelete.text.includes("库存过账历史"), `精确追溯采购入库 ${billNo} 必须禁止物理删除`, protectedDelete.text);
   }
   await requireApi(cookies.admin, "delete draft source purchase in", `/api/purchase-ins/${encodeURIComponent(draftIn)}`, { method: "DELETE" });
   evidence.lifecycle.purchaseCurrencyChain = { cnyOrder, usdOrder, cnyIn, usdIn, usdDirectIn, payments: chainPayments };
@@ -1265,6 +1283,37 @@ function stockCleanupSnapshot(productCode = "CP-001", warehouseCode = "CK-001") 
 
 function stockState(productCode = "CP-001", warehouseCode = "CK-001") {
   return stockCleanupSnapshot(productCode, warehouseCode)?.state ?? null;
+}
+
+function expectedChainStockState(productCode = "CP-001", warehouseCode = "CK-001") {
+  const baseline = chainStockBaseline?.state;
+  assert(baseline, "A141 计算测试链库存状态前必须有基线");
+  const deliveryBillNos = chainArtifacts.deliveryNotices.length
+    ? chainArtifacts.deliveryNotices.map(sqlLiteral).join(",")
+    : "NULL";
+  return dbJson(`
+    WITH posting_delta AS (
+      SELECT COALESCE(SUM(txn.qty_delta), 0::numeric) AS on_hand_delta
+      FROM public.inv_stock_txn txn
+      WHERE ${chainInventoryPredicate("txn")}
+    ), reservation_delta AS (
+      SELECT COALESCE(SUM(line.qty), 0::numeric) AS reserved_delta
+      FROM public.delivery_notice document
+      JOIN public.delivery_notice_line line ON line.bill_id=document.id
+      JOIN public.md_product product ON product.id=line.product_id
+      JOIN public.md_warehouse warehouse ON warehouse.id=line.warehouse_id
+      WHERE document.status='AUDITED'
+        AND document.bill_no IN (${deliveryBillNos})
+        AND product.code=${sqlLiteral(productCode)}
+        AND warehouse.code=${sqlLiteral(warehouseCode)}
+    )
+    SELECT jsonb_build_object(
+      'onHand', (${sqlLiteral(baseline.onHand)}::numeric + posting_delta.on_hand_delta)::text,
+      'reserved', (${sqlLiteral(baseline.reserved)}::numeric + reservation_delta.reserved_delta)::text,
+      'available', (${sqlLiteral(baseline.available)}::numeric + posting_delta.on_hand_delta - reservation_delta.reserved_delta)::text
+    )::text
+    FROM posting_delta CROSS JOIN reservation_delta
+  `);
 }
 
 function captureChainStockBaseline() {
@@ -1360,15 +1409,28 @@ async function verifySalesCurrencyChains() {
     const receiptBill = await settleChainReceivable(receivable, currency, `${currency}-chain`);
 
     await requireApi(cookies.admin, `${currency} sales out reverse`, `/api/sales-outs/${encodeURIComponent(outNo)}/reverse`);
-    await requireApi(cookies.admin, `${currency} sales out delete`, `/api/sales-outs/${encodeURIComponent(outNo)}`, { method: "DELETE" });
-    await requireApi(cookies.admin, `${currency} delivery reverse`, `/api/delivery-notices/${encodeURIComponent(noticeNo)}/reverse`);
-    await requireApi(cookies.admin, `${currency} delivery delete`, `/api/delivery-notices/${encodeURIComponent(noticeNo)}`, { method: "DELETE" });
-    await requireApi(cookies.admin, `${currency} sales order reverse`, `/api/sales-orders/${encodeURIComponent(orderNo)}/reverse`);
-    await requireApi(cookies.admin, `${currency} sales order delete`, `/api/sales-orders/${encodeURIComponent(orderNo)}`, { method: "DELETE" });
-    flows.push({ currency, orderNo, noticeNo, outNo, receivable: receivable.billNo, receiptBill });
+    const protectedDelete = await requireApi(cookies.admin, `${currency} traced sales out delete rejected`, `/api/sales-outs/${encodeURIComponent(outNo)}`, {
+      method: "DELETE",
+      expected: 409
+    });
+    assert(protectedDelete.text.includes("库存过账历史"), `${currency} 精确追溯单据必须禁止物理删除`, protectedDelete.text);
+    flows.push({
+      currency,
+      orderNo,
+      noticeNo,
+      outNo,
+      receivable: receivable.billNo,
+      receiptBill,
+      tracedDeleteStatus: protectedDelete.status
+    });
   }
   const finalStock = stockState();
-  assert(same(finalStock, baseline), "CNY/USD 销售真实链反审核/删除后库存三量必须恢复", { baseline, finalStock });
+  const expectedFinalStock = expectedChainStockState();
+  assert(same(finalStock, expectedFinalStock), "CNY/USD 销售真实链反审核后库存三量必须精确匹配保留追溯链", {
+    baseline,
+    expectedFinalStock,
+    finalStock
+  });
   evidence.lifecycle.salesCurrencyChains = flows;
   evidence.coverage.salesCurrencyChains = true;
 }
@@ -1530,23 +1592,69 @@ function businessDocumentStatus(table, billNo) {
 function chainInventoryPredicate(alias = "txn") {
   const exactSources = [
     ...chainArtifacts.deliveryNotices.flatMap((billNo) => [
-      ["DELIVERY_NOTICE_RESERVE", `DELIVERY_NOTICE:${billNo}`],
-      ["DELIVERY_NOTICE_RESERVE_REVERSE", `DELIVERY_NOTICE_REVERSE:${billNo}`]
+      ["DELIVERY_NOTICE_RESERVE", "DELIVERY_NOTICE", billNo, "delivery_notice", "RESERVE", null],
+      ["DELIVERY_NOTICE_RESERVE_REVERSE", "DELIVERY_NOTICE", billNo, "delivery_notice", "RELEASE", "DELIVERY_NOTICE_RESERVE"]
     ]),
     ...chainArtifacts.salesOuts.flatMap((billNo) => [
-      ["SALES_OUT", `SALES_OUT:${billNo}`],
-      ["SALES_OUT_REVERSE", `SALES_OUT_REVERSE:${billNo}`]
+      ["SALES_OUT", "SALES_OUT", billNo, "sales_out", "AUDIT", null],
+      ["SALES_OUT_REVERSE", "SALES_OUT", billNo, "sales_out", "REVERSE", "SALES_OUT"]
     ]),
     ...chainArtifacts.purchaseIns.flatMap((billNo) => [
-      ["PURCHASE_IN", `PURCHASE_IN:${billNo}`],
-      ["PURCHASE_IN_REVERSE", `PURCHASE_IN_REVERSE:${billNo}`]
+      ["PURCHASE_IN", "PURCHASE_IN", billNo, "purchase_in", "AUDIT", null],
+      ["PURCHASE_IN_REVERSE", "PURCHASE_IN", billNo, "purchase_in", "REVERSE", "PURCHASE_IN"]
     ]),
     ...chainArtifacts.purchaseReturns.flatMap((billNo) => [
-      ["PURCHASE_RETURN", `PURCHASE_RETURN:${billNo}`],
-      ["PURCHASE_RETURN_REVERSE", `PURCHASE_RETURN_REVERSE:${billNo}`]
+      ["PURCHASE_RETURN", "PURCHASE_RETURN", billNo, "purchase_return", "AUDIT", null],
+      ["PURCHASE_RETURN_REVERSE", "PURCHASE_RETURN", billNo, "purchase_return", "REVERSE", "PURCHASE_RETURN"]
     ])
   ];
-  return exactSources.map(([txnType, sourceBillType]) => `(${alias}.txn_type=${sqlLiteral(txnType)} AND ${alias}.source_bill_type=${sqlLiteral(sourceBillType)})`).join(" OR ") || "FALSE";
+  return exactSources.map(([txnType, sourceBillType, sourceBillNo, sourceTable, postingAction, originalTxnType]) => `(
+    ${alias}.txn_type=${sqlLiteral(txnType)}
+    AND ${alias}.source_bill_type=${sqlLiteral(sourceBillType)}
+    AND ${alias}.source_bill_no=${sqlLiteral(sourceBillNo)}
+    AND ${alias}.source_bill_id=(SELECT id FROM public.${sqlIdentifier(sourceTable)} WHERE bill_no=${sqlLiteral(sourceBillNo)})
+    AND EXISTS (
+      SELECT 1 FROM public.${sqlIdentifier(`${sourceTable}_line`)} line
+      WHERE line.bill_id=${alias}.source_bill_id
+        AND line.id=${alias}.source_bill_line_id
+        AND line.product_id=${alias}.product_id
+        AND line.warehouse_id=${alias}.warehouse_id
+    )
+    AND ${alias}.source_bill_date=(SELECT bill_date FROM public.${sqlIdentifier(sourceTable)} WHERE bill_no=${sqlLiteral(sourceBillNo)})
+    AND ${alias}.account_set_id=(SELECT id FROM public.sys_account_set WHERE code='BLD-TEST' AND enabled=TRUE)
+    AND ${alias}.trace_quality='EXACT'
+    AND ${alias}.posting_action=${sqlLiteral(postingAction)}
+    ${originalTxnType ? `AND EXISTS (
+      SELECT 1
+      FROM public.inv_stock_txn original
+      WHERE original.id=${alias}.reversal_of_txn_id
+        AND original.txn_type=${sqlLiteral(originalTxnType)}
+        AND original.posting_action=${sqlLiteral(postingAction === "RELEASE" ? "RESERVE" : "AUDIT")}
+        AND original.account_set_id=${alias}.account_set_id
+        AND original.product_id=${alias}.product_id
+        AND original.warehouse_id=${alias}.warehouse_id
+        AND original.source_bill_type=${alias}.source_bill_type
+        AND original.source_bill_no=${alias}.source_bill_no
+        AND original.source_bill_id=${alias}.source_bill_id
+        AND original.source_bill_line_id=${alias}.source_bill_line_id
+        AND original.source_bill_date=${alias}.source_bill_date
+        AND original.trace_quality='EXACT'
+        AND original.reversal_of_txn_id IS NULL
+    )` : `AND ${alias}.reversal_of_txn_id IS NULL`}
+  )`).join(" OR ") || "FALSE";
+}
+
+function chainInventoryOwnershipPredicate(alias = "txn") {
+  const sources = [
+    ...chainArtifacts.deliveryNotices.map((billNo) => [billNo, "delivery_notice"]),
+    ...chainArtifacts.salesOuts.map((billNo) => [billNo, "sales_out"]),
+    ...chainArtifacts.purchaseIns.map((billNo) => [billNo, "purchase_in"]),
+    ...chainArtifacts.purchaseReturns.map((billNo) => [billNo, "purchase_return"])
+  ];
+  return sources.map(([billNo, sourceTable]) => `(
+    ${alias}.source_bill_no=${sqlLiteral(billNo)}
+    OR ${alias}.source_bill_id=(SELECT id FROM public.${sqlIdentifier(sourceTable)} WHERE bill_no=${sqlLiteral(billNo)})
+  )`).join(" OR ") || "FALSE";
 }
 
 function normalizedStockTransactionSql(alias) {
@@ -1565,16 +1673,28 @@ function chainInventoryTransactions() {
     JOIN public.md_warehouse w ON w.id=txn.warehouse_id
     JOIN public.sys_account_set a ON a.id=txn.account_set_id
     WHERE p.code='CP-001' AND w.code='CK-001' AND a.code='BLD-TEST'
+      AND (${chainInventoryOwnershipPredicate("txn")})
+  `) ?? [];
+}
+
+function canonicalChainInventoryTransactions() {
+  return dbJson(`
+    SELECT COALESCE(jsonb_agg(${normalizedStockTransactionSql("txn")} ORDER BY txn.occurred_at, txn.id::text), '[]'::jsonb)::text
+    FROM public.inv_stock_txn txn
+    JOIN public.md_product p ON p.id=txn.product_id
+    JOIN public.md_warehouse w ON w.id=txn.warehouse_id
+    JOIN public.sys_account_set a ON a.id=txn.account_set_id
+    WHERE p.code='CP-001' AND w.code='CK-001' AND a.code='BLD-TEST'
       AND (${chainInventoryPredicate("txn")})
   `) ?? [];
 }
 
-async function recoveryRequest(cookie, label, pathname, method = "POST") {
+async function recoveryRequest(cookie, label, pathname, method = "POST", allowedStatuses = [200, 404]) {
   try {
     const response = await request(cookie, pathname, { method });
     const action = { label, method, pathname, status: response.status };
     evidence.cleanup.recovery.actions.push(action);
-    if (![200, 404].includes(response.status)) {
+    if (!allowedStatuses.includes(response.status)) {
       evidence.cleanup.recovery.errors.push({ ...action, body: response.text.slice(0, 500) });
     }
     return response;
@@ -1620,9 +1740,10 @@ async function recoverSettlements(schema, cookie) {
   }
 }
 
-async function recoverBusinessDocuments(table, collection, billNos) {
+async function recoverBusinessDocuments(table, collection, billNos, retainTracedDraft = false) {
   for (const billNo of [...billNos].reverse()) {
     let status = businessDocumentStatus(table, billNo);
+    let traceProtected = false;
     if (!status) continue;
     if (status === "AUDITED") {
       await recoveryRequest(
@@ -1633,15 +1754,28 @@ async function recoverBusinessDocuments(table, collection, billNos) {
       status = businessDocumentStatus(table, billNo);
     }
     if (status === "DRAFT") {
-      await recoveryRequest(
+      const response = await recoveryRequest(
         cookies.admin,
         `${collection} ${billNo} delete`,
         `/api/${collection}/${encodeURIComponent(billNo)}`,
-        "DELETE"
+        "DELETE",
+        retainTracedDraft ? [200, 404, 409] : [200, 404]
       );
+      traceProtected = Boolean(
+        retainTracedDraft
+        && response?.status === 409
+        && response.text.includes("库存过账历史")
+      );
+      if (retainTracedDraft && response?.status === 409 && !traceProtected) {
+        evidence.cleanup.recovery.errors.push({
+          label: `${collection} ${billNo} trace-protected delete reason`,
+          expected: "库存过账历史",
+          actual: response.text.slice(0, 500)
+        });
+      }
       status = businessDocumentStatus(table, billNo);
     }
-    if (status) {
+    if (status && !(traceProtected && status === "DRAFT")) {
       evidence.cleanup.recovery.errors.push({
         label: `${collection} ${billNo} removed after recovery`,
         expected: null,
@@ -1656,14 +1790,21 @@ function restoreChainStockBaseline() {
   const stockEvidence = evidence.cleanup.recovery.stock;
   const current = stockCleanupSnapshot();
   const currentTransactions = chainInventoryTransactions();
+  const canonicalTransactions = canonicalChainInventoryTransactions();
+  const expectedCurrentState = expectedChainStockState();
   stockEvidence.afterApiRecovery = current?.state ?? null;
-  if (!same(current?.state, chainStockBaseline.state)) {
-    throw new Error(`A141 API 恢复后库存三量未回基线，拒绝删除流水或覆盖 balance ${JSON.stringify({
-      expected: chainStockBaseline.state,
+  stockEvidence.expectedAfterApiRecovery = expectedCurrentState;
+  if (!same(current?.state, expectedCurrentState)) {
+    throw new Error(`A141 API 恢复后库存三量与本次精确追溯链不一致，拒绝删除流水或覆盖 balance ${JSON.stringify({
+      baseline: chainStockBaseline.state,
+      expectedCurrentState,
       actual: current?.state ?? null
     })}`);
   }
   if (!current?.balance) throw new Error("A141 库存精确恢复找不到当前 balance");
+  if (!same(currentTransactions, canonicalTransactions)) {
+    throw new Error(`A141 本次业务链存在非 canonical EXACT 库存事实，拒绝按被测字段掩盖异常 ${JSON.stringify({ currentTransactions, canonicalTransactions })}`);
+  }
 
   const before = chainStockBaseline.balance;
   dbScalar(`
@@ -1704,7 +1845,7 @@ function restoreChainStockBaseline() {
       WHERE account_set.code='BLD-TEST'
         AND product.code='CP-001'
         AND warehouse.code='CK-001'
-        AND (${chainInventoryPredicate("candidate")});
+        AND (${chainInventoryOwnershipPredicate("candidate")});
       IF locked_txns IS DISTINCT FROM expected_current_txns THEN
         RAISE EXCEPTION 'A141 inventory cleanup refused: owned transaction set changed before row lock';
       END IF;
@@ -1730,7 +1871,7 @@ function restoreChainStockBaseline() {
         AND account_set.code='BLD-TEST'
         AND product.code='CP-001'
         AND warehouse.code='CK-001'
-        AND (${chainInventoryPredicate("candidate")});
+        AND (${chainInventoryOwnershipPredicate("candidate")});
       GET DIAGNOSTICS deleted_count = ROW_COUNT;
       IF deleted_count IS DISTINCT FROM owned_posting_count THEN
         RAISE EXCEPTION 'A141 inventory cleanup refused: deleted owned transaction count mismatch';
@@ -1771,15 +1912,22 @@ function restoreChainStockBaseline() {
 async function recoverFailureSafeState() {
   evidence.cleanup.recovery.attempted = true;
   try {
+    if (cookies.admin) {
+      cookies.admin = await loginApi(apiBase, users.admin.username, users.admin.password, "BLD-TEST");
+    }
+    if (cookies.finance) {
+      cookies.finance = await loginApi(apiBase, users.finance.username, users.finance.password, "BLD-TEST");
+    }
+    if (cookies.replayFinance && replayTenant?.code) {
+      cookies.replayFinance = await loginApi(apiBase, users.replayFinance.username, users.replayFinance.password, replayTenant.code);
+    }
     if (cookies.finance) await recoverSettlements("public", cookies.finance);
     if (replayTenant?.schemaName && cookies.replayFinance) await recoverSettlements(replayTenant.schemaName, cookies.replayFinance);
 
     if (cookies.admin) {
-      await recoverBusinessDocuments("purchase_return", "purchase-returns", chainArtifacts.purchaseReturns);
-      await recoverBusinessDocuments("purchase_in", "purchase-ins", chainArtifacts.purchaseIns);
-      await recoverBusinessDocuments("sales_out", "sales-outs", chainArtifacts.salesOuts);
-      await recoverBusinessDocuments("delivery_notice", "delivery-notices", chainArtifacts.deliveryNotices);
-      await recoverBusinessDocuments("sales_order", "sales-orders", chainArtifacts.salesOrders);
+      await recoverBusinessDocuments("purchase_return", "purchase-returns", chainArtifacts.purchaseReturns, true);
+      await recoverBusinessDocuments("purchase_in", "purchase-ins", chainArtifacts.purchaseIns, true);
+      await recoverBusinessDocuments("sales_out", "sales-outs", chainArtifacts.salesOuts, true);
     }
   } catch (error) {
     evidence.cleanup.recovery.errors.push({
@@ -1876,7 +2024,7 @@ function cleanupFixtures() {
       `)) : 0,
       chainTransactions: schema === "public" ? Number(dbScalar(`
         SELECT count(*) FROM ${t("inv_stock_txn")} txn
-        WHERE ${chainInventoryPredicate("txn")}
+        WHERE ${chainInventoryOwnershipPredicate("txn")}
       `)) : 0,
       chainStockBalance: schema === "public" && chainStockBaseline
         ? (same(stockCleanupSnapshot(), chainStockBaseline) ? 0 : 1)
@@ -1903,6 +2051,7 @@ async function main() {
     "A141_FAULT_INJECTION 只允许两个受控故障点",
     faultInjection
   );
+  await requireControlledInventoryFixture();
   setupFixtures();
   await loginFixtures();
   await verifyPermissionsAndRetiredRoutes();
@@ -1931,16 +2080,20 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => null);
   const cleanupFailures = [];
-  try {
-    await recoverFailureSafeState();
-  } catch (recoveryError) {
-    cleanupFailures.push(recoveryError);
+  if (controlledInventoryCapability) {
+    try {
+      await recoverFailureSafeState();
+    } catch (recoveryError) {
+      cleanupFailures.push(recoveryError);
+    }
   }
   await logoutSessions().catch(() => null);
-  try {
-    cleanupFixtures();
-  } catch (cleanupError) {
-    cleanupFailures.push(cleanupError);
+  if (controlledInventoryCapability) {
+    try {
+      cleanupFixtures();
+    } catch (cleanupError) {
+      cleanupFailures.push(cleanupError);
+    }
   }
   if (cleanupFailures.length > 0) {
     evidence.cleanup.error = cleanupFailures.map((error) => error instanceof Error ? error.message : String(error)).join(" | ");
