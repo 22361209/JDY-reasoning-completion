@@ -38,21 +38,33 @@ const numberingRuleMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V105__numbering_rule_reliability.sql"
 );
+const inventoryTraceMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V106__inventory_source_trace.sql"
+);
+const inventoryTraceCorrectionPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V107__inventory_source_trace_reaudit_fix.sql"
+);
+const materialScrapMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V108__production_material_scrap.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 82,
-  managedTables: 82,
-  primaryKeys: 82,
-  uniqueConstraints: 76,
-  foreignKeys: 170,
-  checkConstraints: 80,
+  baseTables: 84,
+  managedTables: 84,
+  primaryKeys: 84,
+  uniqueConstraints: 79,
+  foreignKeys: 176,
+  checkConstraints: 97,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
-  referenceForeignKeyCount: 170,
+  referenceForeignKeyCount: 176,
   referenceForeignKeyMismatchCount: 0,
   retiredTaxColumns: 0,
   forbiddenAccountSetForeignKeys: 0
@@ -136,6 +148,9 @@ try {
   const salesReturnMigrationSource = await readFile(salesReturnMigrationPath, "utf8");
   const masterDataImportMigrationSource = await readFile(masterDataImportMigrationPath, "utf8");
   const numberingRuleMigrationSource = await readFile(numberingRuleMigrationPath, "utf8");
+  const inventoryTraceMigrationSource = await readFile(inventoryTraceMigrationPath, "utf8");
+  const inventoryTraceCorrectionSource = await readFile(inventoryTraceCorrectionPath, "utf8");
+  const materialScrapMigrationSource = await readFile(materialScrapMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -200,7 +215,16 @@ try {
       && numberingRuleMigrationSource.includes("ADD COLUMN version BIGINT NOT NULL DEFAULT 0")
       && numberingRuleMigrationSource.includes("expected=82/76/170/80")
       && numberingRuleMigrationSource.includes("expected=82/82/76/174/80/0")
-      && numberingRuleMigrationSource.includes("V105 formal numbering index is missing")
+      && numberingRuleMigrationSource.includes("V105 formal numbering index is missing"),
+    materialScrapManagedGuard:
+      materialScrapMigrationSource.includes("CREATE TABLE production_material_scrap")
+      && materialScrapMigrationSource.includes("CREATE TABLE production_material_scrap_line")
+      && materialScrapMigrationSource.includes("source_issue_line_id UUID NOT NULL")
+      && !/\bCONSTRAINT\s+\w+\s+FOREIGN KEY \(source_issue_line_id\)/.test(materialScrapMigrationSource)
+      && materialScrapMigrationSource.includes("expected=84/79/176/97")
+      && materialScrapMigrationSource.includes("expected=84/84/79/180/97/0/6")
+      && (materialScrapMigrationSource.match(/CONSTRAINT ck_/g) ?? []).length === 17
+      && !/\bvoided_by\s+(?:UUID|VARCHAR|TEXT|TIMESTAMPTZ|BOOLEAN|INTEGER|BIGINT|NUMERIC)\b/i.test(materialScrapMigrationSource)
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
@@ -229,6 +253,10 @@ try {
     result.migrationGuards.numberingRuleLatestGuard,
     "V105 must evolve only the latest numbering topology to 80 CHECKs and guard bill_no indexes"
   );
+  assert(
+    result.migrationGuards.materialScrapManagedGuard,
+    "V108 must register the exact 84-table material-scrap topology with a soft source-line reference"
+  );
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
@@ -237,6 +265,9 @@ try {
   const salesReturnSourceChecksum = flywayChecksum(salesReturnMigrationSource);
   const masterDataImportSourceChecksum = flywayChecksum(masterDataImportMigrationSource);
   const numberingRuleSourceChecksum = flywayChecksum(numberingRuleMigrationSource);
+  const inventoryTraceSourceChecksum = flywayChecksum(inventoryTraceMigrationSource);
+  const inventoryTraceCorrectionSourceChecksum = flywayChecksum(inventoryTraceCorrectionSource);
+  const materialScrapSourceChecksum = flywayChecksum(materialScrapMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -247,9 +278,9 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105')
+    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105', '106', '107', '108')
   `);
-  assert(migrationRows.length === 8, `expected installed V98 through V105 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 11, `expected installed V98 through V108 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
   const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
@@ -258,6 +289,9 @@ try {
   const salesReturnMigration = migrationRows.find((row) => row.version === "103");
   const masterDataImportMigration = migrationRows.find((row) => row.version === "104");
   const numberingRuleMigration = migrationRows.find((row) => row.version === "105");
+  const inventoryTraceMigration = migrationRows.find((row) => row.version === "106");
+  const inventoryTraceCorrection = migrationRows.find((row) => row.version === "107");
+  const materialScrapMigration = migrationRows.find((row) => row.version === "108");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(employeeAccountMigration, "installed V100 row is missing");
@@ -266,6 +300,9 @@ try {
   assert(salesReturnMigration, "installed V103 row is missing");
   assert(masterDataImportMigration, "installed V104 row is missing");
   assert(numberingRuleMigration, "installed V105 row is missing");
+  assert(inventoryTraceMigration, "installed V106 row is missing");
+  assert(inventoryTraceCorrection, "installed V107 row is missing");
+  assert(materialScrapMigration, "installed V108 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(employeeAccountMigration.success === true, "V100 is not marked successful");
@@ -274,6 +311,9 @@ try {
   assert(salesReturnMigration.success === true, "V103 is not marked successful");
   assert(masterDataImportMigration.success === true, "V104 is not marked successful");
   assert(numberingRuleMigration.success === true, "V105 is not marked successful");
+  assert(inventoryTraceMigration.success === true, "V106 is not marked successful");
+  assert(inventoryTraceCorrection.success === true, "V107 is not marked successful");
+  assert(materialScrapMigration.success === true, "V108 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
@@ -282,6 +322,9 @@ try {
   assert(Number.isInteger(salesReturnMigration.checksum), "V103 installed checksum is missing");
   assert(Number.isInteger(masterDataImportMigration.checksum), "V104 installed checksum is missing");
   assert(Number.isInteger(numberingRuleMigration.checksum), "V105 installed checksum is missing");
+  assert(Number.isInteger(inventoryTraceMigration.checksum), "V106 installed checksum is missing");
+  assert(Number.isInteger(inventoryTraceCorrection.checksum), "V107 installed checksum is missing");
+  assert(Number.isInteger(materialScrapMigration.checksum), "V108 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -354,6 +397,37 @@ try {
     sourceChecksum: numberingRuleSourceChecksum,
     sourceSha256: createHash("sha256").update(numberingRuleMigrationSource).digest("hex")
   };
+  assert(
+    inventoryTraceMigration.checksum === inventoryTraceSourceChecksum,
+    `V106 checksum drift: installed=${inventoryTraceMigration.checksum} source=${inventoryTraceSourceChecksum}`
+  );
+  assert(
+    createHash("sha256").update(inventoryTraceMigrationSource).digest("hex") === "63a6e0a208c9dd91af07ff46d82e26142dc6ee7f140d86b7f830c38da1535e53",
+    "published V106 source must remain byte-for-byte immutable"
+  );
+  result.inventoryTraceMigration = {
+    ...inventoryTraceMigration,
+    sourceChecksum: inventoryTraceSourceChecksum,
+    sourceSha256: createHash("sha256").update(inventoryTraceMigrationSource).digest("hex")
+  };
+  assert(
+    inventoryTraceCorrection.checksum === inventoryTraceCorrectionSourceChecksum,
+    `V107 checksum drift: installed=${inventoryTraceCorrection.checksum} source=${inventoryTraceCorrectionSourceChecksum}`
+  );
+  result.inventoryTraceCorrection = {
+    ...inventoryTraceCorrection,
+    sourceChecksum: inventoryTraceCorrectionSourceChecksum,
+    sourceSha256: createHash("sha256").update(inventoryTraceCorrectionSource).digest("hex")
+  };
+  assert(
+    materialScrapMigration.checksum === materialScrapSourceChecksum,
+    `V108 checksum drift: installed=${materialScrapMigration.checksum} source=${materialScrapSourceChecksum}`
+  );
+  result.materialScrapMigration = {
+    ...materialScrapMigration,
+    sourceChecksum: materialScrapSourceChecksum,
+    sourceSha256: createHash("sha256").update(materialScrapMigrationSource).digest("hex")
+  };
 
   const registeredSchemas = sqlJson(`
     SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)::text
@@ -377,7 +451,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 82, `${schema} first sync returned ${firstManagedCount}, expected 82`);
+    assert(firstManagedCount === 84, `${schema} first sync returned ${firstManagedCount}, expected 84`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -385,7 +459,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 82, `${schema} second sync returned ${secondManagedCount}, expected 82`);
+    assert(secondManagedCount === 84, `${schema} second sync returned ${secondManagedCount}, expected 84`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -679,7 +753,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 82 OR second_count <> 82 THEN
+      IF first_count <> 84 OR second_count <> 84 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;

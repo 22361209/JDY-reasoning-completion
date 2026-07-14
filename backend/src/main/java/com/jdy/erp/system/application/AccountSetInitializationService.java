@@ -120,6 +120,8 @@ public class AccountSetInitializationService {
                 production_plan,
                 production_task,
                 production_task_material_snapshot,
+                production_material_scrap_line,
+                production_material_scrap,
                 production_material_issue_line,
                 production_material_issue,
                 production_completion_line,

@@ -377,12 +377,20 @@ function backupShape(database, schema) {
   `);
 }
 
-function assertTopology(label, topology, expectedForeignKeys, expectedBaseTables = 82, expectedCheckConstraints = 76) {
+function assertTopology(
+  label,
+  topology,
+  expectedForeignKeys,
+  expectedBaseTables = 82,
+  expectedCheckConstraints = 76,
+  expectedManagedTables = 82,
+  expectedUniqueConstraints = 76
+) {
   const expected = {
     baseTables: expectedBaseTables,
-    managedTables: 82,
-    primaryKeys: 82,
-    uniqueConstraints: 76,
+    managedTables: expectedManagedTables,
+    primaryKeys: expectedManagedTables,
+    uniqueConstraints: expectedUniqueConstraints,
     foreignKeys: expectedForeignKeys,
     checkConstraints: expectedCheckConstraints,
     unvalidatedConstraints: 0,
@@ -808,19 +816,21 @@ try {
   const v105Rows = latestHistory.filter((row) => row.version === "105");
   const v106Rows = latestHistory.filter((row) => row.version === "106");
   const v107Rows = latestHistory.filter((row) => row.version === "107");
+  const v108Rows = latestHistory.filter((row) => row.version === "108");
   assert(v105Rows.length === 1 && v105Rows[0].success === true, "V105 history row missing or failed", v105Rows);
   assert(v106Rows.length === 1 && v106Rows[0].success === true, "V106 history row missing or failed", v106Rows);
   assert(Number(v106Rows[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106Rows[0]);
   assert(v107Rows.length === 1 && v107Rows[0].success === true, "V107 history row missing or failed", v107Rows);
-  assert(latestHistory.at(-1)?.version === "107", "repository latest upgrade must end at V107", latestHistory.at(-1));
+  assert(v108Rows.length === 1 && v108Rows[0].success === true, "V108 history row missing or failed", v108Rows);
+  assert(latestHistory.at(-1)?.version === "108", "repository latest upgrade must end at V108", latestHistory.at(-1));
   const latestTopologies = {
     public: schemaTopology(upgradeDatabase, "public"),
     tenant: schemaTopology(upgradeDatabase, tenantSchema),
     otherTenant: schemaTopology(upgradeDatabase, otherTenantSchema)
   };
-  assertTopology("latest public", latestTopologies.public, 174, 95, 80);
-  assertTopology("latest tenant", latestTopologies.tenant, 170, 82, 80);
-  assertTopology("latest other tenant", latestTopologies.otherTenant, 170, 82, 80);
+  assertTopology("latest public", latestTopologies.public, 180, 97, 97, 84, 79);
+  assertTopology("latest tenant", latestTopologies.tenant, 176, 84, 97, 84, 79);
+  assertTopology("latest other tenant", latestTopologies.otherTenant, 176, 84, 97, 84, 79);
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(
     Number(latestNumbering.versionCopies) === 4 && Number(latestNumbering.legacyRows) === 0,
@@ -828,8 +838,8 @@ try {
     latestNumbering
   );
   result.upgrade.latest = {
-    history: v107Rows[0],
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0] },
+    history: v108Rows[0],
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0] },
     topologies: latestTopologies,
     numbering: latestNumbering
   };
@@ -856,7 +866,7 @@ try {
     historicalBackup: backupShape(upgradeDatabase, historicalBackupSchema),
     numbering: numberingLatestMetrics(upgradeDatabase)
   };
-  assert(same(syncCounts, [82, 82, 82]), "repeat tenant sync must return 82 every time", syncCounts);
+  assert(same(syncCounts, [84, 84, 84]), "repeat tenant sync must return 84 every time", syncCounts);
   assert(same(repeatBefore, repeatAfter), "repeat Flyway/sync must be a no-op for exact repository-latest topology and history");
   result.repeat = {
     ...result.repeat,
@@ -889,15 +899,15 @@ try {
     assert(backupResponse.status === 200 && backupResponse.data?.ok === true, `formal backup API failed: ${backupResponse.text}`);
     const formalBackup = backupResponse.data?.backup;
     assert(formalBackup?.backupName && formalBackup?.backupSchemaName, "formal backup response incomplete", formalBackup);
-    assert(Number(formalBackup.tableCount) === 82, "formal backup must copy all 82 managed tables", formalBackup);
+    assert(Number(formalBackup.tableCount) === 84, "formal backup must copy all 84 managed tables", formalBackup);
     quoteIdentifier(String(formalBackup.backupSchemaName));
     const formalBackupShape = backupShape(upgradeDatabase, String(formalBackup.backupSchemaName));
     assert(
-      Number(formalBackupShape.baseTables) === 82
-        && Number(formalBackupShape.managedTables) === 82
+      Number(formalBackupShape.baseTables) === 84
+        && Number(formalBackupShape.managedTables) === 84
         && Number(formalBackupShape.constraints) === 0
         && Number(formalBackupShape.importRows) === 6,
-      "formal backup must be a complete data-only 82-table snapshot",
+      "formal backup must be a complete data-only 84-table snapshot",
       formalBackupShape
     );
     const batchesInBackup = batchSnapshot(String(formalBackup.backupSchemaName));
@@ -1007,15 +1017,17 @@ try {
   const freshV105Rows = freshHistory.filter((row) => row.version === "105");
   const freshV106Rows = freshHistory.filter((row) => row.version === "106");
   const freshV107Rows = freshHistory.filter((row) => row.version === "107");
+  const freshV108Rows = freshHistory.filter((row) => row.version === "108");
   assert(freshHistory.every((row) => row.success === true), "fresh migration history contains a failed row", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh migration history must equal source migration set");
   assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, "fresh V105 history row missing or failed", freshV105Rows);
   assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, "fresh V106 history row missing or failed", freshV106Rows);
   assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106Rows[0]);
   assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, "fresh V107 history row missing or failed", freshV107Rows);
-  assert(freshHistory.at(-1)?.version === "107", "fresh migration max version must be V107", freshHistory.at(-1));
+  assert(freshV108Rows.length === 1 && freshV108Rows[0].success === true, "fresh V108 history row missing or failed", freshV108Rows);
+  assert(freshHistory.at(-1)?.version === "108", "fresh migration max version must be V108", freshHistory.at(-1));
   const freshPublicTopology = schemaTopology(freshDatabase, "public");
-  assertTopology("fresh public", freshPublicTopology, 174, 95, 80);
+  assertTopology("fresh public", freshPublicTopology, 180, 97, 97, 84, 79);
   psql(freshDatabase, `
     INSERT INTO public.sys_account_set (
       id, code, name, environment, database_name, schema_name,
@@ -1037,9 +1049,9 @@ try {
     Number(psql(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(freshTenantSchema)}, TRUE)`)),
     Number(psql(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(freshTenantSchema)}, FALSE)`))
   ];
-  assert(same(freshSyncCounts, [82, 82]), "fresh tenant create/repeat sync must return 82/82", freshSyncCounts);
+  assert(same(freshSyncCounts, [84, 84]), "fresh tenant create/repeat sync must return 84/84", freshSyncCounts);
   const freshTenantTopology = schemaTopology(freshDatabase, freshTenantSchema);
-  assertTopology("fresh tenant", freshTenantTopology, 170, 82, 80);
+  assertTopology("fresh tenant", freshTenantTopology, 176, 84, 97, 84, 79);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,

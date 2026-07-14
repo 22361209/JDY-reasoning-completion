@@ -1007,18 +1007,20 @@ try {
   const v105 = latestHistory.filter((row) => row.version === "105");
   const v106 = latestHistory.filter((row) => row.version === "106");
   const v107 = latestHistory.filter((row) => row.version === "107");
+  const v108 = latestHistory.filter((row) => row.version === "108");
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(v105.length === 1 && v105[0].success === true, "V105 history row missing or failed", v105);
   assert(v106.length === 1 && v106[0].success === true, "V106 history row missing or failed", v106);
   assert(Number(v106[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106[0]);
   assert(v107.length === 1 && v107[0].success === true, "V107 history row missing or failed", v107);
-  assert(latestHistory.at(-1)?.version === "107", "repository latest upgrade must end at V107", latestHistory.at(-1));
+  assert(v108.length === 1 && v108[0].success === true, "V108 history row missing or failed", v108);
+  assert(latestHistory.at(-1)?.version === "108", "repository latest upgrade must end at V108", latestHistory.at(-1));
   assert(
-    Number(latestNumbering.publicChecks) === 80
-      && Number(latestNumbering.tenantChecks) === 80
+    Number(latestNumbering.publicChecks) === 97
+      && Number(latestNumbering.tenantChecks) === 97
       && Number(latestNumbering.versionCopies) === 3
       && Number(latestNumbering.legacyRows) === 0,
-    "V105 numbering topology mismatch",
+    "V108 managed topology / V105 numbering shape mismatch",
     latestNumbering
   );
   assert(same(after, {
@@ -1026,8 +1028,8 @@ try {
     tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
     backup: receivableSnapshot(backupSchema, fixtures.tenant, true)
   }), "V105 must preserve V103/V104 sales-return semantics");
-  result.upgrade.latestHistory = v107[0];
-  result.upgrade.latestMigrations = { v105: v105[0], v106: v106[0], v107: v107[0] };
+  result.upgrade.latestHistory = v108[0];
+  result.upgrade.latestMigrations = { v105: v105[0], v106: v106[0], v107: v107[0], v108: v108[0] };
   result.upgrade.latestNumbering = latestNumbering;
 
   const repeatHistoryBefore = latestHistory;
@@ -1057,7 +1059,7 @@ try {
     numbering: numberingLatestMetrics(upgradeDatabase)
   };
   assert(same(repeatHistoryBefore, repeatHistoryAfter), "repeat Flyway changed migration history");
-  assert(same(syncCounts, [82, 82]), "repeat tenant sync did not return 82/82", syncCounts);
+  assert(same(syncCounts, [84, 84]), "repeat tenant sync did not return 84/84", syncCounts);
   assert(same(repeatSnapshotBefore, repeatSnapshotAfter), "repeat Flyway/sync changed V103/V104 semantics");
   result.repeat = { ...result.repeat, syncCounts, historyDigest: digest(repeatHistoryAfter), semanticDigest: digest(repeatSnapshotAfter) };
 
@@ -1101,7 +1103,7 @@ try {
     assert(backupResponse.status === 200 && backupResponse.data?.ok === true, `formal backup API failed ${backupResponse.status}: ${backupResponse.text}`);
     const formalBackup = backupResponse.data?.backup;
     assert(formalBackup?.id && formalBackup?.backupName && formalBackup?.backupSchemaName, `formal backup response incomplete: ${backupResponse.text}`);
-    assert(Number(formalBackup.tableCount) === 82, "formal backup did not copy all 82 managed tables", formalBackup);
+    assert(Number(formalBackup.tableCount) === 84, "formal backup did not copy all 84 managed tables", formalBackup);
     assert(/^[0-9a-f-]{36}$/i.test(String(formalBackup.id)), "formal backup id is not a UUID", formalBackup);
     quoteIdentifier(String(formalBackup.backupSchemaName));
 
@@ -1224,12 +1226,14 @@ try {
   const freshV105 = freshHistory.filter((row) => row.version === "105");
   const freshV106 = freshHistory.filter((row) => row.version === "106");
   const freshV107 = freshHistory.filter((row) => row.version === "107");
+  const freshV108 = freshHistory.filter((row) => row.version === "108");
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh history differs from migration source set");
   assert(freshV105.length === 1 && freshV105[0].success === true, "fresh V105 history row missing or failed", freshV105);
   assert(freshV106.length === 1 && freshV106[0].success === true, "fresh V106 history row missing or failed", freshV106);
   assert(Number(freshV106[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106[0]);
   assert(freshV107.length === 1 && freshV107[0].success === true, "fresh V107 history row missing or failed", freshV107);
+  assert(freshV108.length === 1 && freshV108[0].success === true, "fresh V108 history row missing or failed", freshV108);
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1250,16 +1254,16 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "107", "fresh migration max version should be V107", freshHistory.at(-1));
+  assert(freshHistory.at(-1)?.version === "108", "fresh migration max version should be V108", freshHistory.at(-1));
   assert(
-    freshMetrics.managedTables === 82
+    freshMetrics.managedTables === 84
       && freshMetrics.returnTables === 3
       && freshMetrics.offsetColumn === 1
       && freshMetrics.importBatchTables === 1
       && freshMetrics.returnRows === 0
-      && freshMetrics.managedChecks === 80
+      && freshMetrics.managedChecks === 97
       && freshMetrics.numberingVersionType === "bigint",
-    "fresh V105 numbering metrics mismatch after V107",
+    "fresh topology/numbering metrics mismatch after V108",
     freshMetrics
   );
   result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, metrics: freshMetrics };

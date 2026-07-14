@@ -33,9 +33,9 @@ public class TenantSchemaProvisioner {
             schema,
             createMissing
         );
-        if (managedTableCount == null || managedTableCount != 82) {
+        if (managedTableCount == null || managedTableCount != 84) {
             throw new IllegalStateException(
-                "tenant schema 同步未返回完整的 82 张受管表：schema=" + schema + ", count=" + managedTableCount
+                "tenant schema 同步未返回完整的 84 张受管表：schema=" + schema + ", count=" + managedTableCount
             );
         }
         seedTenantDefaults(schema);

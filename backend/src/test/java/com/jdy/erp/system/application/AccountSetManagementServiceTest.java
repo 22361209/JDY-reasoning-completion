@@ -113,12 +113,14 @@ class AccountSetManagementServiceTest {
         assertThat(tableExists(schema, "sales_return_line")).isTrue();
         assertThat(tableExists(schema, "sales_return_finance_allocation")).isTrue();
         assertThat(tableExists(schema, "md_import_batch")).isTrue();
+        assertThat(tableExists(schema, "production_material_scrap")).isTrue();
+        assertThat(tableExists(schema, "production_material_scrap_line")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
-        assertThat(managedConstraintCount(schema, "p")).isEqualTo(82);
-        assertThat(managedConstraintCount(schema, "u")).isEqualTo(76);
-        assertThat(managedConstraintCount(schema, "f")).isEqualTo(170);
+        assertThat(managedConstraintCount(schema, "p")).isEqualTo(84);
+        assertThat(managedConstraintCount(schema, "u")).isEqualTo(79);
+        assertThat(managedConstraintCount(schema, "f")).isEqualTo(176);
         assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
-        assertThat(managedConstraintCount(schema, "c")).isEqualTo(80);
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(97);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
@@ -300,13 +302,14 @@ class AccountSetManagementServiceTest {
         var committedImportId = createImportBatchFixture(
             schema, code, "COMMITTED", "restore-committed"
         );
+        var materialScrapBillNo = createMaterialScrapRestoreFixture(schema, code);
 
         var backupResult = maintenanceService.backupCurrentAccountSet();
         @SuppressWarnings("unchecked")
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
         var backupSchema = String.valueOf(backup.get("backupSchemaName"));
         createdBackupSchemas.add(backupSchema);
-        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("82");
+        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("84");
         platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
         platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
         var backupLogId = platformJdbcTemplate.queryForObject("""
@@ -321,10 +324,19 @@ class AccountSetManagementServiceTest {
         platformJdbcTemplate.update("DELETE FROM %s.md_employee WHERE code = 'OPS-E'".formatted(quoteIdentifier(schema)));
         platformJdbcTemplate.update("DELETE FROM %s.md_financial_account WHERE code = 'OPS-USD'".formatted(quoteIdentifier(schema)));
         platformJdbcTemplate.update("DELETE FROM %s.md_import_batch".formatted(quoteIdentifier(schema)));
+        platformJdbcTemplate.update(
+            "DELETE FROM %s.production_material_scrap WHERE bill_no = ?".formatted(quoteIdentifier(schema)),
+            materialScrapBillNo
+        );
         assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isZero();
         assertThat(countRowsWhere(schema, "md_employee", "code = 'OPS-E'")).isZero();
         assertThat(countRowsWhere(schema, "md_financial_account", "code = 'OPS-USD'")).isZero();
         assertThat(countRows(schema, "md_import_batch")).isZero();
+        assertThat(countRowsWhere(
+            schema,
+            "production_material_scrap",
+            "bill_no = '" + materialScrapBillNo.replace("'", "''") + "'"
+        )).isZero();
 
         maintenanceService.restoreCurrentAccountSet(String.valueOf(backup.get("backupName")));
 
@@ -342,6 +354,23 @@ class AccountSetManagementServiceTest {
         }
         assertImportBatchState(schema, expiredImportId, "EXPIRED", 0L);
         assertImportBatchState(schema, committedImportId, "COMMITTED", 0L);
+        assertThat(platformJdbcTemplate.queryForMap("""
+            SELECT scrap.status,
+                   scrap.business_type AS "businessType",
+                   line.scrap_qty AS "scrapQty",
+                   line.reissue_qty AS "reissueQty",
+                   line.is_stock_in AS "isStockIn",
+                   line.stock_in_status AS "stockInStatus"
+            FROM %s.production_material_scrap scrap
+            JOIN %s.production_material_scrap_line line ON line.scrap_id = scrap.id
+            WHERE scrap.bill_no = ?
+            """.formatted(quoteIdentifier(schema), quoteIdentifier(schema)), materialScrapBillNo))
+            .containsEntry("status", "AUDITED")
+            .containsEntry("businessType", "PRODUCTION_SCRAP")
+            .containsEntry("scrapQty", new java.math.BigDecimal("2.0000"))
+            .containsEntry("reissueQty", new java.math.BigDecimal("1.0000"))
+            .containsEntry("isStockIn", false)
+            .containsEntry("stockInStatus", "NOT_REQUIRED");
         var logRows = platformJdbcTemplate.queryForList("""
             SELECT account_set_code AS "accountSetCode",
                    account_set_name AS "accountSetName"
@@ -478,6 +507,85 @@ class AccountSetManagementServiceTest {
             INSERT INTO %s.sales_order (bill_no, customer_id, bill_date)
             VALUES (?, ?::uuid, current_date)
             """.formatted(quoteIdentifier(schema)), code + "-SO", customerId);
+    }
+
+    private String createMaterialScrapRestoreFixture(String schema, String code) {
+        var quotedSchema = quoteIdentifier(schema);
+        var suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        var billNo = "CLBF-" + suffix;
+        platformJdbcTemplate.execute("""
+            WITH category AS (
+                SELECT id FROM %1$s.md_product_category WHERE code = 'RAW' LIMIT 1
+            ), unit_row AS (
+                SELECT id, code FROM %1$s.md_unit WHERE code = 'PCS' LIMIT 1
+            ), product AS (
+                INSERT INTO %1$s.md_product (
+                    code, name, unit, category, product_category_id, unit_id,
+                    enabled, audit_status
+                )
+                SELECT '%2$s-MAT', '材料报废恢复物料', unit_row.code, '原材料',
+                       category.id, unit_row.id, TRUE, 'AUDITED'
+                FROM category, unit_row
+                RETURNING id
+            ), warehouse AS (
+                SELECT id, code FROM %1$s.md_warehouse WHERE code = 'CK-001' LIMIT 1
+            ), workshop AS (
+                SELECT id, code, name FROM %1$s.md_production_department WHERE code = 'HJ' LIMIT 1
+            ), bom AS (
+                INSERT INTO %1$s.prod_bom (code, product_id, qty, enabled)
+                SELECT '%2$s-BOM', product.id, 1, TRUE FROM product
+                RETURNING id, product_id
+            ), task AS (
+                INSERT INTO %1$s.production_task (
+                    bill_no, bom_id, product_id, warehouse_id, qty, status, department_code
+                )
+                SELECT '%2$s-TASK', bom.id, bom.product_id, warehouse.id, 10, 'AUDITED', workshop.code
+                FROM bom, warehouse, workshop
+                RETURNING id
+            ), issue AS (
+                INSERT INTO %1$s.production_material_issue (bill_no, task_id, status)
+                SELECT '%2$s-ISSUE', task.id, 'AUDITED' FROM task
+                RETURNING id
+            ), issue_line AS (
+                INSERT INTO %1$s.production_material_issue_line (
+                    issue_id, line_no, product_id, product_code_snapshot,
+                    product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                    warehouse_id, qty, unit_price, amount
+                )
+                SELECT issue.id, 1, product.id, '%2$s-MAT', '材料报废恢复物料', NULL,
+                       'PCS', warehouse.id, 10, 1, 10
+                FROM issue, product, warehouse
+                RETURNING id, product_id, warehouse_id
+            ), scrap AS (
+                INSERT INTO %1$s.production_material_scrap (
+                    bill_no, bill_date, business_type, source_issue_id,
+                    workshop_id, workshop_code_snapshot, workshop_name_snapshot,
+                    status, audited_at
+                )
+                SELECT '%3$s', current_date, 'PRODUCTION_SCRAP', issue.id,
+                       workshop.id, workshop.code, workshop.name, 'AUDITED', now()
+                FROM issue, workshop
+                RETURNING id
+            )
+            INSERT INTO %1$s.production_material_scrap_line (
+                scrap_id, line_no, source_issue_line_id, product_id,
+                product_code_snapshot, product_name_snapshot, product_spec_snapshot,
+                product_unit_snapshot, source_warehouse_id,
+                source_warehouse_code_snapshot, issue_qty_snapshot,
+                available_scrap_qty_snapshot, scrap_qty, scrap_reason,
+                reissue_qty, is_stock_in, stock_in_status
+            )
+            SELECT scrap.id, 1, issue_line.id, issue_line.product_id,
+                   '%2$s-MAT', '材料报废恢复物料', NULL, 'PCS',
+                   issue_line.warehouse_id, warehouse.code, 10, 10, 2,
+                   '恢复语义测试', 1, FALSE, 'NOT_REQUIRED'
+            FROM scrap, issue_line, warehouse
+            """.formatted(
+                quotedSchema,
+                code.replace("'", "''") + "-" + suffix,
+                billNo.replace("'", "''")
+            ));
+        return billNo;
     }
 
     private String createImportBatchFixture(

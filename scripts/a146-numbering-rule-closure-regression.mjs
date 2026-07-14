@@ -13,6 +13,7 @@ const files = {
   migration: "backend/src/main/resources/db/migration/V105__numbering_rule_reliability.sql",
   inventoryTraceMigration: "backend/src/main/resources/db/migration/V106__inventory_source_trace.sql",
   inventoryTraceCorrection: "backend/src/main/resources/db/migration/V107__inventory_source_trace_reaudit_fix.sql",
+  materialScrapMigration: "backend/src/main/resources/db/migration/V108__production_material_scrap.sql",
   api: "frontend/src/services/numberingApi.ts",
   page: "frontend/src/modules/system/numbering/NumberingRuleSettingsPage.vue",
   app: "frontend/src/app/App.vue",
@@ -62,8 +63,8 @@ function methodBody(text, signature) {
 assert(count(source.catalog, /id:\s*["']numbering-rule-settings["']/g) === 1, "numbering-rule-settings must remain the only catalog owner");
 assert(!source.catalog.includes("id: \"numbering-rule-list\""), "retired unknown numbering list must not return");
 
-assert(count(source.service, /new NumberingRule\(/g) === 26, "backend registry must contain exactly 26 formal document types");
-assert(source.service.includes("registry.size() != 26"), "backend registry must fail closed on count drift");
+assert(count(source.service, /new NumberingRule\(/g) === 27, "backend registry must contain exactly 27 formal document types");
+assert(source.service.includes("registry.size() != 27"), "backend registry must fail closed on count drift");
 assert(!/synchronized\s+String\s+nextBillNo/.test(source.service), "single-JVM synchronized numbering guard must be removed");
 assert(count(source.service, /public Map<String, Object> saveRule\(/g) === 1, "NumberingService must expose only the versioned saveRule API");
 assert(source.tenantIsolationTest.includes('JSON.textNode("0")'), "tenant numbering isolation must call the versioned saveRule API");
@@ -116,6 +117,18 @@ for (const fragment of [
 ]) {
   assert(source.inventoryTraceCorrection.includes(fragment), `V107 must preserve forward-correction contract fragment: ${fragment}`);
 }
+for (const fragment of [
+  "CREATE TABLE production_material_scrap",
+  "CREATE TABLE production_material_scrap_line",
+  "source_issue_line_id UUID NOT NULL",
+  "expected=84/79/176/97",
+  "expected=84/84/79/180/97/0/6"
+]) {
+  assert(source.materialScrapMigration.includes(fragment), `V108 must preserve material-scrap topology fragment: ${fragment}`);
+}
+assert(count(source.materialScrapMigration, /CONSTRAINT ck_/g) === 17, "V108 must preserve exactly 17 material-scrap CHECK constraints");
+assert(!/\bCONSTRAINT\s+\w+\s+FOREIGN KEY \(source_issue_line_id\)/.test(source.materialScrapMigration), "V108 source issue line id must remain a soft reference");
+assert(!/\bvoided_by\s+(?:UUID|VARCHAR|TEXT|TIMESTAMPTZ|BOOLEAN|INTEGER|BIGINT|NUMERIC)\b/i.test(source.materialScrapMigration), "V108 must not declare voided_by");
 
 const saveApi = methodBody(source.api, "export async function saveNumberingRule");
 assert(saveApi.includes("version: rule.version"), "frontend PUT must send version");
@@ -183,7 +196,7 @@ for (const tier of [manifest.areas.system, manifest.full]) {
   assert(tier.includes("scripts/a146-numbering-rule-migration-regression.mjs"), "A146 migration gate must be registered in system and full");
 }
 assert(manifest.areas.security.includes("scripts/a146-numbering-rule-closure-regression.mjs"), "A146 permission/static gate must be registered in security");
-assert(source.a137.includes("checkConstraints: 80") && source.a137.includes("V105__numbering_rule_reliability.sql"), "A137 numbering guard must preserve the V105 and 80-CHECK semantics");
+assert(source.a137.includes("checkConstraints: 97") && source.a137.includes("V105__numbering_rule_reliability.sql") && source.a137.includes("V108__production_material_scrap.sql"), "A137 topology guard must preserve V105 numbering and V108 97-CHECK semantics");
 for (const [name, migrationSource, historicalTarget] of [
   ["A141", source.a141Migration, "flywayMigrate(upgradeDatabase, 104)"],
   ["A142", source.a142Migration, "flyway(upgradeDatabase, 104)"],
@@ -194,6 +207,7 @@ for (const [name, migrationSource, historicalTarget] of [
   assert(migrationSource.includes('version === "105"') && migrationSource.includes("V105") && migrationSource.includes("numbering"), `${name} migration gate must preserve V105 numbering semantics`);
   assert(migrationSource.includes('version === "106"') && migrationSource.includes("1207842815"), `${name} migration gate must enforce exactly one successful immutable V106`);
   assert(migrationSource.includes('version === "107"'), `${name} migration gate must enforce exactly one successful V107`);
+  assert(migrationSource.includes('version === "108"'), `${name} migration gate must enforce exactly one successful V108`);
   assert(migrationSource.includes("freshHistory") && migrationSource.includes("source"), `${name} migration gate must compare fresh history with migration sources`);
 }
 

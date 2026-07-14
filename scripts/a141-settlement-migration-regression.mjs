@@ -1012,18 +1012,20 @@ try {
   const v105Rows = latestHistory.filter((row) => row.version === "105");
   const v106Rows = latestHistory.filter((row) => row.version === "106");
   const v107Rows = latestHistory.filter((row) => row.version === "107");
+  const v108Rows = latestHistory.filter((row) => row.version === "108");
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(v105Rows.length === 1 && v105Rows[0].success === true, `V105 history mismatch: ${JSON.stringify(v105Rows)}`);
   assert(v106Rows.length === 1 && v106Rows[0].success === true, `V106 history mismatch: ${JSON.stringify(v106Rows)}`);
   assert(Number(v106Rows[0].checksum) === publishedV106Checksum, `published V106 checksum changed: ${JSON.stringify(v106Rows[0])}`);
   assert(v107Rows.length === 1 && v107Rows[0].success === true, `V107 history mismatch: ${JSON.stringify(v107Rows)}`);
-  assert(latestHistory.at(-1)?.version === "107", `repository latest must be V107: ${JSON.stringify(latestHistory.at(-1))}`);
+  assert(v108Rows.length === 1 && v108Rows[0].success === true, `V108 history mismatch: ${JSON.stringify(v108Rows)}`);
+  assert(latestHistory.at(-1)?.version === "108", `repository latest must be V108: ${JSON.stringify(latestHistory.at(-1))}`);
   assert(
-    Number(latestNumbering.publicChecks) === 80
-      && Number(latestNumbering.tenantChecks) === 80
+    Number(latestNumbering.publicChecks) === 97
+      && Number(latestNumbering.tenantChecks) === 97
       && Number(latestNumbering.versionCopies) === 3
       && Number(latestNumbering.legacyRows) === 0,
-    `V105 numbering topology mismatch: ${JSON.stringify(latestNumbering)}`
+    `V108 managed topology / V105 numbering shape mismatch: ${JSON.stringify(latestNumbering)}`
   );
   assert(same(migratedSnapshots, {
     public: migratedSnapshot("public", fixtures.public),
@@ -1032,8 +1034,8 @@ try {
   }), "V105 must not change V102-V104 settlement semantics");
   result.upgrade.latest = {
     ...result.upgrade.latest,
-    history: v107Rows[0],
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0] },
+    history: v108Rows[0],
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0] },
     numbering: latestNumbering
   };
 
@@ -1071,7 +1073,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
   const tenantAfterSync = migratedSnapshot(tenantSchema, fixtures.tenant);
-  assert(same(syncCounts, [82, 82]), `repeat tenant sync counts should be 82/82, got ${JSON.stringify(syncCounts)}`);
+  assert(same(syncCounts, [84, 84]), `repeat tenant sync counts should be 84/84, got ${JSON.stringify(syncCounts)}`);
   assert(same(tenantBeforeSync, tenantAfterSync), "repeat tenant sync changed migrated settlement data");
   result.upgrade.repeatTenantSync = {
     managedCounts: syncCounts,
@@ -1208,12 +1210,14 @@ try {
   const freshV105Rows = freshHistory.filter((row) => row.version === "105");
   const freshV106Rows = freshHistory.filter((row) => row.version === "106");
   const freshV107Rows = freshHistory.filter((row) => row.version === "107");
+  const freshV108Rows = freshHistory.filter((row) => row.version === "108");
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration");
   assert(same(historyScripts, sourceFiles), "fresh Flyway history does not exactly match the versioned migration source set");
   assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, `fresh V105 history mismatch: ${JSON.stringify(freshV105Rows)}`);
   assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, `fresh V106 history mismatch: ${JSON.stringify(freshV106Rows)}`);
   assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, `fresh V106 checksum changed: ${JSON.stringify(freshV106Rows[0])}`);
   assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, `fresh V107 history mismatch: ${JSON.stringify(freshV107Rows)}`);
+  assert(freshV108Rows.length === 1 && freshV108Rows[0].success === true, `fresh V108 history mismatch: ${JSON.stringify(freshV108Rows)}`);
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1257,15 +1261,15 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "107", `fresh migration max version should be V107: ${JSON.stringify(freshHistory.at(-1))}`);
-  assert(Number(freshMetrics.managedTables) === 82, `fresh managed table count should be 82: ${JSON.stringify(freshMetrics)}`);
+  assert(freshHistory.at(-1)?.version === "108", `fresh migration max version should be V108: ${JSON.stringify(freshHistory.at(-1))}`);
+  assert(Number(freshMetrics.managedTables) === 84, `fresh managed table count should be 84: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.importBatchTables) === 1, `fresh import batch table count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
-  assert(Number(freshMetrics.managedChecks) === 80 && freshMetrics.numberingVersionType === "bigint", `fresh V105 numbering metrics mismatch after V107: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedChecks) === 97 && freshMetrics.numberingVersionType === "bigint", `fresh topology/numbering metrics mismatch after V108: ${JSON.stringify(freshMetrics)}`);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,
