@@ -62,6 +62,7 @@ class ListQueryContractRegistryTest {
             "task-track-report",
             "material-issue-list",
             "material-issue-form-list",
+            "material-scrap-form-list",
             "product-in-list",
             "product-in-form-list",
             "outsourcing-surface-list",
@@ -81,6 +82,7 @@ class ListQueryContractRegistryTest {
             "purchase-order-source-selector",
             "purchase-in-source-selector",
             "production-task-source-selector",
+            "material-scrap-source-selector",
             "outsourcing-work-order-issue-source-selector",
             "outsourcing-work-order-receipt-source-selector",
             "outsourcing-receipt-return-source-selector",
@@ -92,6 +94,8 @@ class ListQueryContractRegistryTest {
             .doesNotThrowAnyException());
 
         assertThat(registry.contractFor("sales-order-form-list", "detail").adapterKey()).isEqualTo("salesOrder");
+        assertThat(registry.contractFor("material-scrap-form-list", "detail").adapterKey()).isEqualTo("materialScrap");
+        assertThat(registry.contractFor("material-scrap-source-selector", "header").adapterKey()).isEqualTo("materialScrap");
         assertThat(registry.contractFor("purchase-order-source-selector", "header").adapterKey()).isEqualTo("sourceSelector");
         assertThat(registry.contractFor("purchase-order-source-selector", "header").view()).isEqualTo("detail");
     }
