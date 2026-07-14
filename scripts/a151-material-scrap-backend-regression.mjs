@@ -160,6 +160,7 @@ for (const marker of [
   check(source.adapter.includes(marker), `material scrap list adapter must preserve: ${marker}`);
 }
 check(!/DefaultStubListQueryAdapter|StubListSeedRowsProvider/.test(source.adapter), "material scrap adapter must never fall back to seeded/default rows");
+check(source.adapter.includes('fields.put("status", "status")'), "visible material scrap status filters must compare the localized status value");
 check(source.registry.includes('"material-scrap-form-list"') && source.registry.includes('"material-scrap-source-selector"'), "list registry must explicitly register both material scrap contracts");
 check(source.stateGuard.includes('"material-scrap-form-list"') && source.stateGuard.includes('"material-scrap-source-selector"'), "list state guard must explicitly allow both material scrap contracts");
 
@@ -201,6 +202,7 @@ for (const marker of [
 ]) {
   check(source.listTest.includes(marker), `real list coverage must include: ${marker}`);
 }
+check(source.listTest.includes('\\"value\\":\\"已审核\\"'), "list integration coverage must exercise the visible Chinese status column filter");
 check(source.tenantTest.includes("sameBillNumberFactsListsInventoryAndLogsStayInsideEachRoutedTenant"), "tenant test must cover same-number routed isolation");
 check(source.tenantTest.includes("public.sys_operation_log"), "tenant test must prove material scrap logs never land in public");
 check(source.numberingTest.includes("hasSize(27)") && source.numberingTest.includes('"materialScrap"'), "numbering integration test must freeze the 27th rule");
