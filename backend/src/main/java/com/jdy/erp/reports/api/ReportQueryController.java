@@ -25,7 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/reports")
-public final class ReportQueryController {
+public class ReportQueryController {
     private static final MediaType CSV_UTF_8 = new MediaType("text", "csv", StandardCharsets.UTF_8);
 
     private final ReportQueryService reportQueryService;

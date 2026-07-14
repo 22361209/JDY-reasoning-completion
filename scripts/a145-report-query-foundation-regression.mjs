@@ -67,6 +67,11 @@ contains(controller, /@GetMapping\("\/\{reportKey\}"\)/, "A145 必须提供专�
 contains(controller, /@GetMapping\(value = "\/\{reportKey\}\/export\.csv"/, "A145 必须提供专用 CSV 端点");
 excludes(controller, /JdbcTemplate|SELECT\s|INSERT\s|UPDATE\s|DELETE\s/i, "ReportQueryController 不得包含 JDBC 或 SQL");
 excludes(controller, /scope|schema|accountSet|tenantId/, "ReportQueryController 不得接收客户端 scope/schema/tenant 参数");
+excludes(
+  controller,
+  /public\s+final\s+class\s+ReportQueryController/,
+  "ReportQueryController 必须可被 Spring Modulith observability 代理"
+);
 
 // Exact registry: A145 deliberately ships no business key and has no fallback branch.
 contains(registry, /Map<String, ReportQuerySpec> specs/, "Registry 必须只持有精确 report key 映射");
