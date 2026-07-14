@@ -121,10 +121,10 @@
           </template>
           <template #cell="{ row, column }">
             <button
-              v-if="column.key === 'sourceBillNo' && trustedSource(row)"
+              v-if="isSourceBillColumn(column.key) && trustedSource(row)"
               type="button"
               class="report-source-link"
-              :data-testid="`report-source-${String(row.id)}`"
+              :data-testid="`report-source-${reportRowIdentity(row)}`"
               @click="openSource(row)"
             >
               {{ displayText(row[column.key]) }}
@@ -133,7 +133,7 @@
               <span>{{ displayText(row.businessDate) }}</span>
               <small v-if="row.dateBasis === 'POSTING_FALLBACK'">历史记账日期（业务日期缺失）</small>
             </span>
-            <span v-else-if="column.key === 'sourceBillNo'" class="report-source-readonly">
+            <span v-else-if="isSourceBillColumn(column.key)" class="report-source-readonly">
               <span>{{ displayText(row[column.key]) }}</span>
               <small v-if="sourceTraceNote(row)">{{ sourceTraceNote(row) }}</small>
             </span>
@@ -184,6 +184,7 @@ import type {
   ReportDefinition,
   ReportRow,
   ReportScalar,
+  ReportSourceDrillDefinition,
   ReportSourceOpenRequest
 } from "../../modules/reports/reportTypes";
 
@@ -264,25 +265,6 @@ const errorTitles: Record<string, string> = {
   network: "网络连接失败",
   server: "报表服务异常"
 };
-const trustedSourceTargets = new Set<string>([
-  "salesQuote",
-  "salesOrder",
-  "deliveryNotice",
-  "salesOut",
-  "salesReturn",
-  "purchaseOrder",
-  "purchaseIn",
-  "purchaseReturn",
-  "materialIssue",
-  "productIn",
-  "otherStockIn",
-  "otherStockOut",
-  "stockTransfer",
-  "stockCount",
-  "stockCountGain",
-  "stockCountLoss"
-]);
-
 onMounted(loadInitial);
 watch(() => props.accountSetKey, (next, previous) => {
   if (previous !== undefined && next !== previous) void resetForAccountSet();
@@ -337,7 +319,12 @@ function sortIndicator(field: string) {
 }
 
 function reportRowKey(row: ReportRow, index: number) {
-  return String(row.id ?? index);
+  return String(row.id ?? row.rowKey ?? index);
+}
+
+function reportRowIdentity(row: ReportRow) {
+  const drill = props.definition.sourceDrill;
+  return String(row.id ?? row.rowKey ?? (drill ? row[drill.billNoField] : "unknown"));
 }
 
 function cellTitle(row: ReportRow, column: TableCoreColumn) {
@@ -374,29 +361,52 @@ function cellValueClass(key: string, value: ReportScalar | undefined) {
   };
 }
 
+function isSourceBillColumn(key: string) {
+  return props.definition.sourceDrill?.billNoField === key;
+}
+
+function sourceTarget(row: ReportRow, drill: ReportSourceDrillDefinition) {
+  const value = row[drill.targetField];
+  return typeof value === "string" && drill.targets.some((target) => target === value)
+    ? value as ReportSourceOpenRequest["type"]
+    : null;
+}
+
 function trustedSource(row: ReportRow) {
-  return row.traceQuality === "EXACT"
-    && typeof row.sourceTarget === "string"
-    && trustedSourceTargets.has(row.sourceTarget)
-    && typeof row.sourceBillNo === "string"
-    && row.sourceBillNo !== "";
+  const drill = props.definition.sourceDrill;
+  if (!drill || !sourceTarget(row, drill)) return false;
+  const billNo = row[drill.billNoField];
+  if (typeof billNo !== "string" || billNo === "") return false;
+  if (!drill.trust) return true;
+  const trustValue = row[drill.trust.field];
+  return typeof trustValue === "string" && drill.trust.acceptedValues.includes(trustValue);
 }
 
 function sourceTraceNote(row: ReportRow) {
   if (trustedSource(row)) return "";
-  if (row.traceQuality === "LEGACY") return "历史流水（源单不可定位）";
-  if (row.traceQuality === "HEADER_ONLY") return "仅源单头（不可精确定位到行）";
-  if (row.traceQuality === "CONTROLLED") return "受控来源（非业务单据）";
-  if (row.traceQuality === "EXACT") return "来源暂不支持钻取";
-  return "";
+  const drill = props.definition.sourceDrill;
+  if (!drill) return "";
+  if (drill.trust) {
+    const trustValue = row[drill.trust.field];
+    if (typeof trustValue === "string" && !drill.trust.acceptedValues.includes(trustValue)) {
+      return drill.trust.rejectedValueMessages[trustValue] ?? drill.trust.defaultRejectedMessage;
+    }
+  }
+  return drill.unsupportedTargetMessage;
 }
 
 function openSource(row: ReportRow) {
   if (!trustedSource(row)) return;
+  const drill = props.definition.sourceDrill;
+  if (!drill) return;
+  const target = sourceTarget(row, drill);
+  const billNo = row[drill.billNoField];
+  if (!target || typeof billNo !== "string") return;
+  const sourceLineNo = drill.lineNoField ? row[drill.lineNoField] : null;
   emit("openDocument", {
-    type: row.sourceTarget as ReportSourceOpenRequest["type"],
-    billNo: String(row.sourceBillNo),
-    sourceLineNo: typeof row.sourceLineNo === "number" ? row.sourceLineNo : null
+    type: target,
+    billNo,
+    sourceLineNo: typeof sourceLineNo === "number" ? sourceLineNo : null
   });
 }
 

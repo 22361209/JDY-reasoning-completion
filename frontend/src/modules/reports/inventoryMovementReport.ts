@@ -9,6 +9,35 @@ export const inventoryMovementReport: ReportDefinition = {
   description: "按业务日期查询正式库存流水；历史业务日期缺失时明确标注记账日期降级。",
   defaultSortField: "businessDate",
   defaultSortOrder: "desc",
+  sourceDrill: {
+    targetField: "sourceTarget",
+    billNoField: "sourceBillNo",
+    lineNoField: "sourceLineNo",
+    targets: [
+      "salesOut",
+      "salesReturn",
+      "purchaseIn",
+      "purchaseReturn",
+      "materialIssue",
+      "productIn",
+      "otherStockIn",
+      "otherStockOut",
+      "stockTransfer",
+      "stockCountGain",
+      "stockCountLoss"
+    ],
+    trust: {
+      field: "traceQuality",
+      acceptedValues: ["EXACT"],
+      rejectedValueMessages: {
+        LEGACY: "历史流水（源单不可定位）",
+        HEADER_ONLY: "仅源单头（不可精确定位到行）",
+        CONTROLLED: "受控来源（非业务单据）"
+      },
+      defaultRejectedMessage: "来源追溯信息不足"
+    },
+    unsupportedTargetMessage: "来源暂不支持钻取"
+  },
   filters: [
     { parameter: "sourceType", label: "来源类型", placeholder: "如 SALES_OUT" },
     { parameter: "sourceBillNo", label: "来源单号", placeholder: "输入完整或部分单号" },

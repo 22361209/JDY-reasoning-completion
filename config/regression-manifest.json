@@ -26,7 +26,8 @@
       "scripts/a126-sales-daily-usability-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
-      "scripts/a147-inventory-source-trace-regression.mjs"
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a149-sales-report-regression.mjs"
     ],
     "purchase": [
       "scripts/a92-sales-document-fields-regression.mjs",
@@ -175,7 +176,8 @@
     ],
     "reports": [
       "scripts/a145-report-query-foundation-regression.mjs",
-      "scripts/a148-inventory-movement-report-regression.mjs"
+      "scripts/a148-inventory-movement-report-regression.mjs",
+      "scripts/a149-sales-report-regression.mjs"
     ]
   },
   "full": [
@@ -307,7 +309,8 @@
     "scripts/a146-numbering-rule-migration-regression.mjs",
     "scripts/a147-inventory-source-trace-regression.mjs",
     "scripts/a147-inventory-source-trace-migration-regression.mjs",
-    "scripts/a148-inventory-movement-report-regression.mjs"
+    "scripts/a148-inventory-movement-report-regression.mjs",
+    "scripts/a149-sales-report-regression.mjs"
   ],
   "exemptions": [
     {

@@ -4,6 +4,8 @@ export type ReportRow = Record<string, ReportScalar>;
 export type ReportColumnFormat =
   | "text"
   | "quantity"
+  | "decimal"
+  | "integer"
   | "date"
   | "date-basis"
   | "posting-action"
@@ -49,6 +51,7 @@ export interface ReportDefinition {
   totals: ReportTotalDefinition;
   defaultSortField: string;
   defaultSortOrder: "asc" | "desc";
+  sourceDrill?: ReportSourceDrillDefinition;
 }
 
 export interface ReportQueryParameters {
@@ -109,6 +112,22 @@ export type ReportSourceTarget =
   | "stockCount"
   | "stockCountGain"
   | "stockCountLoss";
+
+export interface ReportSourceTrustDefinition {
+  field: "traceQuality";
+  acceptedValues: readonly string[];
+  rejectedValueMessages: Readonly<Record<string, string>>;
+  defaultRejectedMessage: string;
+}
+
+export interface ReportSourceDrillDefinition {
+  targetField: "sourceTarget";
+  billNoField: "sourceBillNo";
+  lineNoField?: "sourceLineNo" | "lineNo";
+  targets: readonly ReportSourceTarget[];
+  trust?: ReportSourceTrustDefinition;
+  unsupportedTargetMessage: string;
+}
 
 export interface ReportSourceOpenRequest {
   type: ReportSourceTarget;

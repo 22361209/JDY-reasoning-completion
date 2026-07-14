@@ -138,8 +138,10 @@ excludes(composable + page, /parseFloat\(|parseInt\(|Number\(\s*row|reduce\(\s*\
 contains(page, /<TableCore[\s\S]*?:rows="rows"[\s\S]*?<template #footer>[\s\S]*?totals/, "共享页必须用 TableCore 并渲染服务端 totals footer");
 contains(page, /历史结存不可精确还原/, "缺失历史结存必须明确降级提示");
 contains(page, /历史记账日期（业务日期缺失）/, "POSTING_FALLBACK 日期必须明确提示");
-contains(page, /历史流水（源单不可定位）/, "不可定位历史来源必须明确保持只读");
-contains(page, /row\.traceQuality === "EXACT"[\s\S]*?row\.sourceTarget/, "前端钻取必须再次要求 EXACT + trusted target");
+contains(domainConfig, /历史流水（源单不可定位）/, "不可定位历史来源必须由 typed trust contract 明确保持只读");
+contains(domainConfig, /sourceDrill:[\s\S]*?targets:[\s\S]*?trust:[\s\S]*?acceptedValues: \["EXACT"\]/, "库存领域配置必须通过共享 typed contract 要求 EXACT + trusted target");
+contains(page, /props\.definition\.sourceDrill[\s\S]*?drill\.targets\.some[\s\S]*?drill\.trust\.acceptedValues\.includes/, "共享页面必须执行 definition 声明的 target/trust contract");
+excludes(page, /trustedSourceTargets|row\.traceQuality === "EXACT"/, "共享页面不得硬编码库存 target 或 EXACT 规则");
 contains(page, /#header-cell="\{ column, startResize \}"[\s\S]*?table-core-column-resizer[\s\S]*?startResize\(column, \$event\)/, "自定义排序表头必须保留真实列宽拖拽热区");
 for (const marker of ["report-filter-form", "report-query-summary", "report-refresh", "report-export", "report-column-settings", "report-empty", "report-error", "report-pagination"]) {
   contains(page, new RegExp(marker), `共享页缺少 ${marker} 状态或动作`);
