@@ -5,6 +5,7 @@ import javax.sql.DataSource;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -15,7 +16,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 @Configuration
 public class TenantDataSourceConfig {
     @Bean(name = "platformDataSource", destroyMethod = "close")
-    public DataSource platformDataSource(DataSourceProperties properties) {
+    @ConfigurationProperties("spring.datasource.hikari")
+    public HikariDataSource platformDataSource(DataSourceProperties properties) {
         return properties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
     }
 

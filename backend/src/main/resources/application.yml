@@ -5,6 +5,10 @@ spring:
     url: ${JDY_DB_URL:jdbc:postgresql://localhost:5432/jdy_erp}
     username: ${JDY_DB_USERNAME:jdy}
     password: ${JDY_DB_PASSWORD:jdy_dev}
+    hikari:
+      minimum-idle: ${JDY_DB_POOL_MINIMUM_IDLE:0}
+      maximum-pool-size: ${JDY_DB_POOL_MAXIMUM_SIZE:10}
+      pool-name: platform
   flyway:
     enabled: true
     locations: classpath:db/migration
