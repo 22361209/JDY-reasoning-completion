@@ -113,16 +113,24 @@ CREATE TABLE production_material_scrap_line (
         ),
     CONSTRAINT ck_production_material_scrap_line_target_warehouse
         CHECK (
-            NOT is_stock_in
+            (
+                NOT is_stock_in
+                AND target_warehouse_id IS NULL
+                AND target_warehouse_code_snapshot IS NULL
+            )
             OR (
-                target_warehouse_id IS NOT NULL
+                is_stock_in
+                AND target_warehouse_id IS NOT NULL
                 AND NULLIF(BTRIM(target_warehouse_code_snapshot), '') IS NOT NULL
             )
         ),
     CONSTRAINT ck_production_material_scrap_line_stock_in_status
         CHECK (
-            stock_in_status IN ('NOT_REQUIRED', 'PENDING', 'STOCKED_IN', 'REVERSED')
-            AND (is_stock_in OR stock_in_status = 'NOT_REQUIRED')
+            (NOT is_stock_in AND stock_in_status = 'NOT_REQUIRED')
+            OR (
+                is_stock_in
+                AND stock_in_status IN ('PENDING', 'STOCKED_IN', 'REVERSED')
+            )
         )
 );
 

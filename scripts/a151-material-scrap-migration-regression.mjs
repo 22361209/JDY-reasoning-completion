@@ -251,6 +251,73 @@ function assertScrapShape(database, schema, backup = false) {
   }
 }
 
+function assertStockInMatrix(database, schema) {
+  psql(database, `
+    DO $matrix$
+    BEGIN
+      CREATE TEMP TABLE a151_stock_matrix
+        (LIKE ${identifier(schema)}.production_material_scrap_line INCLUDING DEFAULTS INCLUDING CONSTRAINTS)
+        ON COMMIT DROP;
+
+      INSERT INTO a151_stock_matrix (
+        scrap_id, line_no, source_issue_line_id, product_id,
+        product_code_snapshot, product_name_snapshot, product_unit_snapshot,
+        source_warehouse_id, source_warehouse_code_snapshot,
+        issue_qty_snapshot, available_scrap_qty_snapshot, scrap_qty, reissue_qty,
+        is_stock_in, target_warehouse_id, target_warehouse_code_snapshot, stock_in_status
+      )
+      SELECT gen_random_uuid(), fixture.line_no, gen_random_uuid(), gen_random_uuid(),
+             'A151-MATRIX', 'A151 matrix material', 'PCS', gen_random_uuid(), 'SOURCE-WH',
+             1, 1, 0, 0,
+             fixture.is_stock_in, fixture.target_warehouse_id,
+             fixture.target_warehouse_code, fixture.stock_in_status
+      FROM (VALUES
+        (1, FALSE, NULL::UUID, NULL::VARCHAR, 'NOT_REQUIRED'),
+        (2, TRUE, gen_random_uuid(), 'SCRAP-WH', 'PENDING'),
+        (3, TRUE, gen_random_uuid(), 'SCRAP-WH', 'STOCKED_IN'),
+        (4, TRUE, gen_random_uuid(), 'SCRAP-WH', 'REVERSED')
+      ) fixture(line_no, is_stock_in, target_warehouse_id, target_warehouse_code, stock_in_status);
+
+      BEGIN
+        UPDATE a151_stock_matrix
+        SET is_stock_in=TRUE, target_warehouse_id=gen_random_uuid(),
+            target_warehouse_code_snapshot='SCRAP-WH', stock_in_status='NOT_REQUIRED'
+        WHERE line_no=1;
+        RAISE EXCEPTION 'A151 matrix accepted is_stock_in=true with NOT_REQUIRED';
+      EXCEPTION WHEN check_violation THEN NULL;
+      END;
+
+      BEGIN
+        UPDATE a151_stock_matrix SET stock_in_status='PENDING' WHERE line_no=1;
+        RAISE EXCEPTION 'A151 matrix accepted is_stock_in=false with PENDING';
+      EXCEPTION WHEN check_violation THEN NULL;
+      END;
+
+      BEGIN
+        UPDATE a151_stock_matrix
+        SET target_warehouse_id=gen_random_uuid(), target_warehouse_code_snapshot='SCRAP-WH'
+        WHERE line_no=1;
+        RAISE EXCEPTION 'A151 matrix accepted target warehouse while is_stock_in=false';
+      EXCEPTION WHEN check_violation THEN NULL;
+      END;
+
+      BEGIN
+        UPDATE a151_stock_matrix
+        SET target_warehouse_id=NULL, target_warehouse_code_snapshot=NULL
+        WHERE line_no=2;
+        RAISE EXCEPTION 'A151 matrix accepted a missing target warehouse while is_stock_in=true';
+      EXCEPTION WHEN check_violation THEN NULL;
+      END;
+
+      BEGIN
+        UPDATE a151_stock_matrix SET target_warehouse_code_snapshot='   ' WHERE line_no=2;
+        RAISE EXCEPTION 'A151 matrix accepted a blank target warehouse code';
+      EXCEPTION WHEN check_violation THEN NULL;
+      END;
+    END $matrix$;
+  `);
+}
+
 function insertAccountSet(database, id, code, schema, createMissing) {
   psql(database, `
     INSERT INTO public.sys_account_set (
@@ -487,6 +554,8 @@ if (!primaryError) {
     assertTopology("upgrade tenant", tenantTopology, 176);
     assertScrapShape(upgradeDatabase, "public");
     assertScrapShape(upgradeDatabase, tenantSchema);
+    assertStockInMatrix(upgradeDatabase, "public");
+    assertStockInMatrix(upgradeDatabase, tenantSchema);
     assertScrapShape(upgradeDatabase, backupSchema, true);
     assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM ${identifier(backupSchema)}.production_material_scrap`), "0", "historical backup header shell must be empty");
     assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM ${identifier(backupSchema)}.production_material_scrap_line`), "0", "historical backup line shell must be empty");
@@ -499,6 +568,7 @@ if (!primaryError) {
     insertAccountSet(upgradeDatabase, newTenantId, `A151-NEW-${token.toUpperCase()}`, newTenantSchema, true);
     assertTopology("new tenant", topology(upgradeDatabase, newTenantSchema), 176);
     assertScrapShape(upgradeDatabase, newTenantSchema);
+    assertStockInMatrix(upgradeDatabase, newTenantSchema);
 
     result.upgrade = {
       history: upgradeHistory.at(-1),
@@ -563,6 +633,8 @@ if (!primaryError) {
     const freshTenantTopology = topology(freshDatabase, freshTenantSchema);
     assertTopology("fresh tenant", freshTenantTopology, 176);
     assertScrapShape(freshDatabase, freshTenantSchema);
+    assertStockInMatrix(freshDatabase, "public");
+    assertStockInMatrix(freshDatabase, freshTenantSchema);
     assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "84", "fresh tenant repeat sync must return 84");
     const freshHistoryBeforeRepeat = JSON.stringify(freshHistory);
     flyway(freshDatabase);
