@@ -183,6 +183,7 @@ public class MaterialIssueAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿生产领料单可以覆盖保存");
         }
         var issueId = String.valueOf(issueRows.get(0).get("id"));
+        assertNoNonVoidMaterialScrap(issueId, "覆盖保存");
         inventoryTraceLifecycleService.prepareForLineReplacement("PRODUCTION_MATERIAL_ISSUE", issueId);
         jdbcTemplate.update("DELETE FROM production_material_issue_line WHERE issue_id = ?::uuid", issueId);
         insertSnapshotIssueLines(issueId, taskRows.get(0).get("id"), materialWarehouseCode, request.lines());
@@ -574,7 +575,6 @@ public class MaterialIssueAppService {
 
 	    @Transactional
 	    public Map<String, Object> reverse(String billNo) {
-        redReverseGuardService.assertNoNonVoidRedBillForBillNo(BILL_TABLE, billNo, "生产领料单", "反审核");
         var issueRows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    task_id::text AS "taskId"
@@ -586,6 +586,8 @@ public class MaterialIssueAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在或不能反审核");
         }
         var issue = issueRows.get(0);
+        redReverseGuardService.assertNoNonVoidRedBillForBillNo(BILL_TABLE, billNo, "生产领料单", "反审核");
+        assertNoNonVoidMaterialScrap(issue.get("id"), "反审核");
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
@@ -613,11 +615,13 @@ public class MaterialIssueAppService {
             SELECT id::text AS id, task_id::text AS "taskId"
             FROM production_material_issue
             WHERE bill_no = ? AND status = ?
+            FOR UPDATE
             """, billNo, BillStatus.AUDITED.name());
         if (sourceRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有已审核生产领料单可以红冲");
         }
 	        redReverseGuardService.assertNoNonVoidRedBill(BILL_TABLE, sourceRows.get(0).get("id"), "生产领料单");
+	        assertNoNonVoidMaterialScrap(sourceRows.get(0).get("id"), "红冲");
 	        var redBillNo = numberingService.nextBillNo("materialIssue");
 	        var redRows = jdbcTemplate.queryForList("""
 	            INSERT INTO production_material_issue (bill_no, task_id, red_source_bill_id, status)
@@ -632,6 +636,21 @@ public class MaterialIssueAppService {
 	        ));
 	        return redRows.get(0);
 	    }
+
+    private void assertNoNonVoidMaterialScrap(Object issueId, String actionLabel) {
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM production_material_scrap
+            WHERE source_issue_id = ?::uuid
+              AND status <> 'VOID'
+            """, Long.class, issueId);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "生产领料单已有未作废材料报废单，不能" + actionLabel
+            );
+        }
+    }
 
     private void decrementTaskIssuedQty(Object issueId, Object taskId) {
         jdbcTemplate.update("""

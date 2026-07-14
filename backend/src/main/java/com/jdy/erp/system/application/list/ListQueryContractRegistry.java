@@ -101,6 +101,30 @@ public class ListQueryContractRegistry {
         if ("sales-order-form-list".equals(listKey)) {
             return salesOrderContract(normalizedView);
         }
+        if ("material-scrap-form-list".equals(listKey)) {
+            return new ListQueryContract(
+                listKey,
+                normalizedView,
+                List.of("billNo", "sourceIssueNo", "businessType", "workshopCode", "workshopName", "productCode", "productName", "spec", "scrapReason"),
+                "billDate",
+                "header".equals(normalizedView) ? "exists" : "join",
+                normalizedView,
+                "materialScrap",
+                true
+            );
+        }
+        if ("material-scrap-source-selector".equals(listKey)) {
+            return new ListQueryContract(
+                listKey,
+                "detail",
+                List.of("billNo", "workshopCode", "workshopName", "productCode", "productName", "spec", "unit", "sourceWarehouseCode"),
+                "billDate",
+                "row",
+                "detail",
+                "materialScrap",
+                true
+            );
+        }
         if (SOURCE_SELECTOR_KEYS.contains(listKey)) {
             return new ListQueryContract(
                 listKey,

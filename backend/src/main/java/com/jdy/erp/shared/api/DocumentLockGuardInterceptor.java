@@ -27,6 +27,7 @@ public class DocumentLockGuardInterceptor implements HandlerInterceptor {
         Map.entry("/api/stock-count-gains/", "stockCountGain"),
         Map.entry("/api/stock-count-losses/", "stockCountLoss"),
         Map.entry("/api/production/material-issues/", "materialIssue"),
+        Map.entry("/api/production/material-scraps/", "materialScrap"),
         Map.entry("/api/production/product-ins/", "productIn")
     );
     private static final Pattern DOCUMENT_LIFECYCLE =

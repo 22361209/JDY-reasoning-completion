@@ -21,6 +21,7 @@ public final class BillLifecyclePolicy {
         Map.entry("ar_receipt", new LifecycleCapabilities(false, false, false, false)),
         Map.entry("ap_payment", new LifecycleCapabilities(false, false, false, false)),
         Map.entry("production_material_issue", new LifecycleCapabilities(false, false, true, true)),
+        Map.entry("production_material_scrap", FACT_DOCUMENT),
         Map.entry("production_completion", new LifecycleCapabilities(false, false, true, true)),
         Map.entry("other_stock_in", FACT_DOCUMENT),
         Map.entry("other_stock_out", FACT_DOCUMENT),

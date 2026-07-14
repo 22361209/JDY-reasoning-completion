@@ -6,6 +6,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 
 import com.jdy.erp.shared.application.ConversionService.SourceExecutionSpec;
@@ -33,6 +34,7 @@ public class BillLifecycleService {
         "ap_payment",
         "production_task",
         "production_material_issue",
+        "production_material_scrap",
         "production_completion",
         "other_stock_in",
         "other_stock_out",
@@ -510,6 +512,9 @@ public class BillLifecycleService {
         }
         currentSessionService.verifyPassword(username, request == null ? null : request.password());
         var reason = requiredReason(request == null ? null : request.reason(), "作废原因");
+        if (isMaterialScrapTarget(target)) {
+            lockMaterialScrapForVoid(billNo);
+        }
         if (isSalesReturnTarget(target)) {
             lockSalesReturnHeader(billNo);
         }
@@ -651,6 +656,97 @@ public class BillLifecycleService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, guard.quantityExceededMessage());
             }
         }
+    }
+
+    /**
+     * Serializes UUID-based downstream quantity reservations.
+     *
+     * <p>The source header is always locked first, followed by source lines in
+     * stable UUID order. Callers may only lock their downstream header after
+     * this method returns, which keeps source edits, downstream audits and
+     * reverse actions on one deterministic lock graph.</p>
+     */
+    public Map<String, BigDecimal> guardSourceLineIdQuantities(
+        SourceLineIdQuantityGuard guard,
+        String sourceHeaderId,
+        List<SourceLineIdQuantityDemand> demands,
+        String currentDownstreamHeaderId
+    ) {
+        guardSourceLineIdQuantityGuard(guard);
+        var normalizedSourceHeaderId = requireUuid(sourceHeaderId, "来源单 ID");
+        var sourceRows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM %s
+            WHERE id = ?::uuid
+              AND status = 'AUDITED'
+              AND close_status = 'OPEN'
+              AND frozen_status = 'NORMAL'
+            FOR UPDATE
+            """.formatted(guard.sourceHeaderTable()), normalizedSourceHeaderId);
+        if (sourceRows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, guard.sourceNotExecutableMessage());
+        }
+
+        var grouped = new TreeMap<String, BigDecimal>();
+        if (demands != null) {
+            for (var demand : demands) {
+                if (demand == null) {
+                    continue;
+                }
+                var sourceLineId = requireUuid(demand.sourceLineId(), "来源单行 ID");
+                if (demand.qty() == null || demand.qty().compareTo(BigDecimal.ZERO) < 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "下推或执行数量不能小于 0");
+                }
+                grouped.merge(sourceLineId, demand.qty(), BigDecimal::add);
+            }
+        }
+        if (grouped.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "来源单行不能为空");
+        }
+
+        var lockedTotals = new TreeMap<String, BigDecimal>();
+        for (var entry : grouped.entrySet()) {
+            var rows = jdbcTemplate.queryForList("""
+                SELECT %s AS total_qty
+                FROM %s
+                WHERE %s = ?::uuid
+                  AND %s = ?::uuid
+                FOR UPDATE
+                """.formatted(
+                    guard.sourceTotalQtyColumn(),
+                    guard.sourceLineTable(),
+                    guard.sourceLineOwnerColumn(),
+                    guard.sourceLineIdColumn()
+                ), normalizedSourceHeaderId, entry.getKey());
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, guard.sourceNotExecutableMessage());
+            }
+            lockedTotals.put(entry.getKey(), (BigDecimal) rows.getFirst().get("total_qty"));
+        }
+
+        var remainingByLine = new TreeMap<String, BigDecimal>();
+        for (var entry : grouped.entrySet()) {
+            var used = jdbcTemplate.queryForObject("""
+                SELECT COALESCE(SUM(dl.%s), 0)
+                FROM %s dl
+                JOIN %s dh ON dh.id = dl.%s
+                WHERE dh.status = 'AUDITED'
+                  AND dl.%s = ?::uuid
+                  AND (?::text IS NULL OR dh.id <> ?::uuid)
+                """.formatted(
+                    guard.downstreamQtyColumn(),
+                    guard.downstreamLineTable(),
+                    guard.downstreamHeaderTable(),
+                    guard.downstreamLineOwnerColumn(),
+                    guard.downstreamSourceLineIdColumn()
+                ), BigDecimal.class, entry.getKey(), currentDownstreamHeaderId, currentDownstreamHeaderId);
+            var remaining = lockedTotals.get(entry.getKey()).subtract(used == null ? BigDecimal.ZERO : used);
+            if (remaining.compareTo(entry.getValue()) < 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, guard.quantityExceededMessage());
+            }
+            remainingByLine.put(entry.getKey(), remaining);
+        }
+        return Map.copyOf(remainingByLine);
     }
 
     private void logLifecycleSuccess(
@@ -857,6 +953,9 @@ public class BillLifecycleService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "单据不存在");
         }
         var id = String.valueOf(idRows.get(0).get("id"));
+        if (isMaterialScrapTarget(target)) {
+            return materialScrapDownstreamImpact(id);
+        }
         if (hasInventoryTxn(billNo, id)) {
             impacts.add("已动库存");
         }
@@ -910,6 +1009,14 @@ public class BillLifecycleService {
             """, id) > 0) {
             impacts.add("已下推");
         }
+        if ("production_material_issue".equals(target.headerTable()) && count("""
+            SELECT COUNT(*)
+            FROM production_material_scrap
+            WHERE source_issue_id = ?::uuid
+              AND status <> 'VOID'
+            """, id) > 0) {
+            impacts.add("已有未作废材料报废单");
+        }
         if ("production_task".equals(target.headerTable()) && count("""
             SELECT COUNT(*) FROM production_completion WHERE task_id = ?::uuid AND status <> 'VOID'
             """, id) > 0) {
@@ -953,6 +1060,38 @@ public class BillLifecycleService {
 
     private boolean isSalesReturnTarget(BillLifecycleTarget target) {
         return "sales_return".equals(target.headerTable());
+    }
+
+    private boolean isMaterialScrapTarget(BillLifecycleTarget target) {
+        return "production_material_scrap".equals(target.headerTable());
+    }
+
+    private void lockMaterialScrapForVoid(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id, status
+            FROM production_material_scrap
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "单据不存在");
+        }
+        if (!BillStatus.DRAFT.name().equals(rows.getFirst().get("status"))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿材料报废单可以作废");
+        }
+    }
+
+    private String materialScrapDownstreamImpact(String id) {
+        if (count("""
+            SELECT COUNT(*)
+            FROM production_material_scrap_line
+            WHERE scrap_id = ?::uuid
+              AND is_stock_in = TRUE
+              AND stock_in_status = 'STOCKED_IN'
+            """, id) > 0) {
+            return "存在未撤销的报废入库";
+        }
+        return "";
     }
 
     private void lockSalesReturnHeader(String billNo) {
@@ -1045,6 +1184,31 @@ public class BillLifecycleService {
         }
     }
 
+    private void guardSourceLineIdQuantityGuard(SourceLineIdQuantityGuard guard) {
+        guardTable(guard.sourceHeaderTable());
+        guardTable(guard.downstreamHeaderTable());
+        for (var identifier : List.of(
+            guard.sourceLineTable(),
+            guard.sourceLineOwnerColumn(),
+            guard.sourceLineIdColumn(),
+            guard.sourceTotalQtyColumn(),
+            guard.downstreamLineTable(),
+            guard.downstreamLineOwnerColumn(),
+            guard.downstreamSourceLineIdColumn(),
+            guard.downstreamQtyColumn()
+        )) {
+            guardSqlIdentifier(identifier);
+        }
+    }
+
+    private String requireUuid(String value, String label) {
+        try {
+            return UUID.fromString(value == null ? "" : value.trim()).toString();
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "格式不正确");
+        }
+    }
+
     private void guardSqlIdentifier(String identifier) {
         if (identifier == null || !identifier.matches("[A-Za-z_][A-Za-z0-9_]*")) {
             throw new IllegalArgumentException("Unsupported SQL identifier: " + identifier);
@@ -1092,5 +1256,24 @@ public class BillLifecycleService {
     }
 
     public record SourceLineQuantityDemand(String sourceBillNo, Object sourceLineNo, BigDecimal qty) {
+    }
+
+    public record SourceLineIdQuantityGuard(
+        String sourceHeaderTable,
+        String sourceLineTable,
+        String sourceLineOwnerColumn,
+        String sourceLineIdColumn,
+        String sourceTotalQtyColumn,
+        String downstreamHeaderTable,
+        String downstreamLineTable,
+        String downstreamLineOwnerColumn,
+        String downstreamSourceLineIdColumn,
+        String downstreamQtyColumn,
+        String sourceNotExecutableMessage,
+        String quantityExceededMessage
+    ) {
+    }
+
+    public record SourceLineIdQuantityDemand(String sourceLineId, BigDecimal qty) {
     }
 }

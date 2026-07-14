@@ -23,6 +23,7 @@ public class DocumentPermissionPolicy {
         Map.entry("payment", "finance.settle"),
         Map.entry("productionTask", "production.task.audit"),
         Map.entry("materialIssue", "production.document.audit"),
+        Map.entry("materialScrap", "production.document.audit"),
         Map.entry("productIn", "production.document.audit"),
         Map.entry("otherStockIn", "inventory.other_stock_in.audit"),
         Map.entry("otherStockOut", "inventory.other_stock_out.audit"),

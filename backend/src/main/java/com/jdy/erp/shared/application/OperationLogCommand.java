@@ -41,6 +41,7 @@ public record OperationLogCommand(
         CLOSE_STATUS("closeStatus"),
         CLOSE_MODE("closeMode"),
         FROZEN_STATUS("frozenStatus"),
+        STOCK_IN_STATUS("stockInStatus"),
         LINE_NO("lineNo"),
         LINE_CLOSE_STATUS("lineCloseStatus"),
         LINE_FROZEN_STATUS("lineFrozenStatus"),

@@ -22,7 +22,9 @@ public class ListStubStateGuard {
         Map.entry("stock-count-loss-list", "inventory.stock_count_loss.audit"),
         Map.entry("stock-count-loss-form-list", "inventory.stock_count_loss.audit"),
         Map.entry("sales-return-form-list", "sales.out.audit"),
-        Map.entry("sales-out-return-source-selector", "sales.out.audit")
+        Map.entry("sales-out-return-source-selector", "sales.out.audit"),
+        Map.entry("material-scrap-form-list", "production.document.audit"),
+        Map.entry("material-scrap-source-selector", "production.document.audit")
     );
     private static final Map<String, List<String>> READ_PERMISSION_ALTERNATIVES = Map.of(
         "employee-master-list", List.of("master.data.manage", "system.role_permission.manage"),
