@@ -186,6 +186,39 @@ function history(database) {
   `);
 }
 
+function numberingLatestMetrics(database) {
+  return sqlJson(database, `
+    SELECT jsonb_build_object(
+      'publicChecks', (
+        SELECT count(*) FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid=constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid=table_row.relnamespace
+        JOIN public.sys_tenant_managed_table managed ON managed.table_name=table_row.relname
+        WHERE schema_row.nspname='public' AND constraint_row.contype='c'
+      ),
+      'tenantChecks', (
+        SELECT count(*) FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid=constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid=table_row.relnamespace
+        JOIN public.sys_tenant_managed_table managed ON managed.table_name=table_row.relname
+        WHERE schema_row.nspname=${sqlLiteral(tenantSchema)} AND constraint_row.contype='c'
+      ),
+      'versionCopies', (
+        SELECT count(*) FROM information_schema.columns
+        WHERE table_schema IN ('public', ${sqlLiteral(tenantSchema)}, ${sqlLiteral(backupSchema)})
+          AND table_name='document_number_sequence'
+          AND column_name='version'
+          AND data_type='bigint'
+      ),
+      'legacyRows', (
+        (SELECT count(*) FROM public.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(tenantSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(backupSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+      )
+    )::text
+  `);
+}
+
 function createTenant() {
   psql(upgradeDatabase, `
     BEGIN;
@@ -905,12 +938,13 @@ try {
   };
   assert(same(before.tenant, before.backup), "V102 backup does not match tenant receivables");
 
-  result.upgrade.latest = flyway(upgradeDatabase);
+  result.upgrade.target104 = flyway(upgradeDatabase, 104);
   const migratedHistory = history(upgradeDatabase);
   const v103 = migratedHistory.filter((row) => row.version === "103");
   const v104 = migratedHistory.filter((row) => row.version === "104");
   assert(v103.length === 1 && v103[0].success === true, "V103 history row missing or failed", v103);
   assert(v104.length === 1 && v104[0].success === true, "V104 history row missing or failed", v104);
+  assert(migratedHistory.at(-1)?.version === "104", "historical upgrade phase must stop at V104", migratedHistory.at(-1));
   const after = {
     public: receivableSnapshot("public", fixtures.public, true),
     tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
@@ -967,8 +1001,30 @@ try {
     negativeAndZeroReceivablesPreserved: true
   };
 
-  const repeatHistoryBefore = history(upgradeDatabase);
-  const repeatSnapshotBefore = { rows: after, shapes, importShapes };
+  result.upgrade.latestFlywayOutput = flyway(upgradeDatabase);
+  const latestHistory = history(upgradeDatabase);
+  const v105 = latestHistory.filter((row) => row.version === "105");
+  const latestNumbering = numberingLatestMetrics(upgradeDatabase);
+  assert(v105.length === 1 && v105[0].success === true, "V105 history row missing or failed", v105);
+  assert(latestHistory.at(-1)?.version === "105", "repository latest upgrade must end at V105", latestHistory.at(-1));
+  assert(
+    Number(latestNumbering.publicChecks) === 80
+      && Number(latestNumbering.tenantChecks) === 80
+      && Number(latestNumbering.versionCopies) === 3
+      && Number(latestNumbering.legacyRows) === 0,
+    "V105 numbering topology mismatch",
+    latestNumbering
+  );
+  assert(same(after, {
+    public: receivableSnapshot("public", fixtures.public, true),
+    tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
+    backup: receivableSnapshot(backupSchema, fixtures.tenant, true)
+  }), "V105 must preserve V103/V104 sales-return semantics");
+  result.upgrade.latestHistory = v105[0];
+  result.upgrade.latestNumbering = latestNumbering;
+
+  const repeatHistoryBefore = latestHistory;
+  const repeatSnapshotBefore = { rows: after, shapes, importShapes, numbering: latestNumbering };
   result.repeat.flywayOutput = flyway(upgradeDatabase);
   const repeatHistoryAfter = history(upgradeDatabase);
   const syncCounts = [
@@ -990,7 +1046,8 @@ try {
       public: importBatchShape("public", true),
       tenant: importBatchShape(tenantSchema, true),
       backup: importBatchShape(backupSchema, false)
-    }
+    },
+    numbering: numberingLatestMetrics(upgradeDatabase)
   };
   assert(same(repeatHistoryBefore, repeatHistoryAfter), "repeat Flyway changed migration history");
   assert(same(syncCounts, [82, 82]), "repeat tenant sync did not return 82/82", syncCounts);
@@ -1164,17 +1221,30 @@ try {
       'returnTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('sales_return','sales_return_line','sales_return_finance_allocation')),
       'offsetColumn', (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='ar_receivable' AND column_name='return_offset_amount'),
       'importBatchTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='md_import_batch'),
-      'returnRows', (SELECT count(*) FROM public.sales_return)
+      'returnRows', (SELECT count(*) FROM public.sales_return),
+      'managedChecks', (
+        SELECT count(*) FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid=constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid=table_row.relnamespace
+        JOIN public.sys_tenant_managed_table managed ON managed.table_name=table_row.relname
+        WHERE schema_row.nspname='public' AND constraint_row.contype='c'
+      ),
+      'numberingVersionType', (
+        SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='document_number_sequence' AND column_name='version'
+      )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "104", "fresh migration max version should be V104", freshHistory.at(-1));
+  assert(freshHistory.at(-1)?.version === "105", "fresh migration max version should be V105", freshHistory.at(-1));
   assert(
     freshMetrics.managedTables === 82
       && freshMetrics.returnTables === 3
       && freshMetrics.offsetColumn === 1
       && freshMetrics.importBatchTables === 1
-      && freshMetrics.returnRows === 0,
-    "fresh V104 metrics mismatch",
+      && freshMetrics.returnRows === 0
+      && freshMetrics.managedChecks === 80
+      && freshMetrics.numberingVersionType === "bigint",
+    "fresh V105 metrics mismatch",
     freshMetrics
   );
   result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, metrics: freshMetrics };
@@ -1196,7 +1266,7 @@ if (result.cleanup.errors.length) throw new Error(result.cleanup.errors.join("; 
 console.log(JSON.stringify({
   ok: result.ok,
   result: path.relative(rootDir, resultPath),
-  upgrade: { version: result.upgrade.history?.version, managedCount: result.upgrade.managedCount },
+  upgrade: { historicalVersion: result.upgrade.history?.version, latestVersion: result.upgrade.latestHistory?.version, managedCount: result.upgrade.managedCount },
   repeat: result.repeat.syncCounts,
   restoreApi: {
     backupStatus: result.restoreApi.backupStatus,

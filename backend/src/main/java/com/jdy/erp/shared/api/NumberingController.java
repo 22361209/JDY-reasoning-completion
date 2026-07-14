@@ -2,6 +2,7 @@ package com.jdy.erp.shared.api;
 
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
@@ -36,9 +37,22 @@ public class NumberingController {
     @PutMapping("/rules/{documentType}")
     @RequirePermission("system.numbering_rule.manage")
     public Map<String, Object> saveRule(@PathVariable String documentType, @RequestBody NumberingRuleRequest request) {
-        return numberingService.saveRule(documentType, request.prefix(), request.width(), request.lastNumber(), request.enabled());
+        return numberingService.saveRule(
+            documentType,
+            request.prefix(),
+            request.width(),
+            request.lastNumber(),
+            request.enabled(),
+            request.version()
+        );
     }
 
-    public record NumberingRuleRequest(String prefix, Integer width, Integer lastNumber, Boolean enabled) {
+    public record NumberingRuleRequest(
+        String prefix,
+        Integer width,
+        JsonNode lastNumber,
+        Boolean enabled,
+        JsonNode version
+    ) {
     }
 }

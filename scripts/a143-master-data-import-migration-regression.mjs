@@ -376,14 +376,14 @@ function backupShape(database, schema) {
   `);
 }
 
-function assertTopology(label, topology, expectedForeignKeys, expectedBaseTables = 82) {
+function assertTopology(label, topology, expectedForeignKeys, expectedBaseTables = 82, expectedCheckConstraints = 76) {
   const expected = {
     baseTables: expectedBaseTables,
     managedTables: 82,
     primaryKeys: 82,
     uniqueConstraints: 76,
     foreignKeys: expectedForeignKeys,
-    checkConstraints: 76,
+    checkConstraints: expectedCheckConstraints,
     unvalidatedConstraints: 0,
     columnMismatchCount: 0,
     referenceConstraintMismatchCount: 0,
@@ -395,6 +395,28 @@ function assertTopology(label, topology, expectedForeignKeys, expectedBaseTables
   for (const [field, value] of Object.entries(expected)) {
     assert(Number(topology?.[field]) === value, `${label} ${field} expected ${value}`, topology);
   }
+}
+
+function numberingLatestMetrics(database) {
+  return sqlJson(database, `
+    SELECT jsonb_build_object(
+      'versionCopies', (
+        SELECT count(*) FROM information_schema.columns
+        WHERE table_schema IN (
+          'public', ${sqlLiteral(tenantSchema)}, ${sqlLiteral(otherTenantSchema)}, ${sqlLiteral(historicalBackupSchema)}
+        )
+          AND table_name='document_number_sequence'
+          AND column_name='version'
+          AND data_type='bigint'
+      ),
+      'legacyRows', (
+        (SELECT count(*) FROM public.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(tenantSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(otherTenantSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(historicalBackupSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+      )
+    )::text
+  `);
 }
 
 function importPayload(code, hasError = false) {
@@ -749,7 +771,7 @@ try {
     assert(!tableExists(upgradeDatabase, schema, "md_import_batch"), `V103 must not already contain ${schema}.md_import_batch`);
   }
 
-  result.upgrade.latest = flyway(upgradeDatabase);
+  result.upgrade.target104 = flyway(upgradeDatabase, 104);
   const migratedHistory = history(upgradeDatabase);
   const v104Rows = migratedHistory.filter((row) => row.version === "104");
   assert(v104Rows.length === 1 && v104Rows[0].success === true, "V104 history row missing or failed", v104Rows);
@@ -780,10 +802,36 @@ try {
     historicalBackup
   };
 
+  result.upgrade.latestFlywayOutput = flyway(upgradeDatabase);
+  const latestHistory = history(upgradeDatabase);
+  const v105Rows = latestHistory.filter((row) => row.version === "105");
+  assert(v105Rows.length === 1 && v105Rows[0].success === true, "V105 history row missing or failed", v105Rows);
+  assert(latestHistory.at(-1)?.version === "105", "repository latest upgrade must end at V105", latestHistory.at(-1));
+  const latestTopologies = {
+    public: schemaTopology(upgradeDatabase, "public"),
+    tenant: schemaTopology(upgradeDatabase, tenantSchema),
+    otherTenant: schemaTopology(upgradeDatabase, otherTenantSchema)
+  };
+  assertTopology("latest public", latestTopologies.public, 174, 95, 80);
+  assertTopology("latest tenant", latestTopologies.tenant, 170, 82, 80);
+  assertTopology("latest other tenant", latestTopologies.otherTenant, 170, 82, 80);
+  const latestNumbering = numberingLatestMetrics(upgradeDatabase);
+  assert(
+    Number(latestNumbering.versionCopies) === 4 && Number(latestNumbering.legacyRows) === 0,
+    "V105 must upgrade numbering state in public, tenants and historical backup without legacy rows",
+    latestNumbering
+  );
+  result.upgrade.latest = {
+    history: v105Rows[0],
+    topologies: latestTopologies,
+    numbering: latestNumbering
+  };
+
   const repeatBefore = {
-    history: migratedHistory,
-    topologies: upgradeTopologies,
-    historicalBackup
+    history: latestHistory,
+    topologies: latestTopologies,
+    historicalBackup: backupShape(upgradeDatabase, historicalBackupSchema),
+    numbering: latestNumbering
   };
   result.repeat.flywayOutput = flyway(upgradeDatabase);
   const syncCounts = [
@@ -798,10 +846,11 @@ try {
       tenant: schemaTopology(upgradeDatabase, tenantSchema),
       otherTenant: schemaTopology(upgradeDatabase, otherTenantSchema)
     },
-    historicalBackup: backupShape(upgradeDatabase, historicalBackupSchema)
+    historicalBackup: backupShape(upgradeDatabase, historicalBackupSchema),
+    numbering: numberingLatestMetrics(upgradeDatabase)
   };
   assert(same(syncCounts, [82, 82, 82]), "repeat tenant sync must return 82 every time", syncCounts);
-  assert(same(repeatBefore, repeatAfter), "repeat Flyway/sync must preserve exact V104 topology and history");
+  assert(same(repeatBefore, repeatAfter), "repeat Flyway/sync must preserve exact V105 topology and history");
   result.repeat = {
     ...result.repeat,
     syncCounts,
@@ -949,9 +998,9 @@ try {
     .filter((name) => /^V\d+__.+\.sql$/.test(name))
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh migration history must equal source migration set");
-  assert(freshHistory.at(-1)?.version === "104", "fresh migration max version must be V104", freshHistory.at(-1));
+  assert(freshHistory.at(-1)?.version === "105", "fresh migration max version must be V105", freshHistory.at(-1));
   const freshPublicTopology = schemaTopology(freshDatabase, "public");
-  assertTopology("fresh public", freshPublicTopology, 174, 95);
+  assertTopology("fresh public", freshPublicTopology, 174, 95, 80);
   psql(freshDatabase, `
     INSERT INTO public.sys_account_set (
       id, code, name, environment, database_name, schema_name,
@@ -975,7 +1024,7 @@ try {
   ];
   assert(same(freshSyncCounts, [82, 82]), "fresh tenant create/repeat sync must return 82/82", freshSyncCounts);
   const freshTenantTopology = schemaTopology(freshDatabase, freshTenantSchema);
-  assertTopology("fresh tenant", freshTenantTopology, 170);
+  assertTopology("fresh tenant", freshTenantTopology, 170, 82, 80);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,
@@ -1007,7 +1056,8 @@ process.stdout.write(`${JSON.stringify({
   result: path.relative(rootDir, resultPath),
   assertions: result.assertions.length,
   upgrade: {
-    version: result.upgrade.history?.version,
+    historicalVersion: result.upgrade.history?.version,
+    latestVersion: result.upgrade.latest?.history?.version,
     managedCount: result.upgrade.managedCount,
     topologyDigest: digest(result.upgrade.topologies)
   },

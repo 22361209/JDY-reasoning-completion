@@ -34,6 +34,10 @@ const masterDataImportMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V104__master_data_excel_import.sql"
 );
+const numberingRuleMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V105__numbering_rule_reliability.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
@@ -44,7 +48,7 @@ const expectedMetrics = {
   primaryKeys: 82,
   uniqueConstraints: 76,
   foreignKeys: 170,
-  checkConstraints: 76,
+  checkConstraints: 80,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
@@ -131,6 +135,7 @@ try {
   const formalSettlementMigrationSource = await readFile(formalSettlementMigrationPath, "utf8");
   const salesReturnMigrationSource = await readFile(salesReturnMigrationPath, "utf8");
   const masterDataImportMigrationSource = await readFile(masterDataImportMigrationPath, "utf8");
+  const numberingRuleMigrationSource = await readFile(numberingRuleMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -189,7 +194,13 @@ try {
       && masterDataImportMigrationSource.includes("file_size_bytes <= 10485760")
       && masterDataImportMigrationSource.includes("expected=82/76/170/76")
       && masterDataImportMigrationSource.includes("expected=82/82/76/174/76/0")
-      && !masterDataImportMigrationSource.includes("FOREIGN KEY (account_set_id)")
+      && !masterDataImportMigrationSource.includes("FOREIGN KEY (account_set_id)"),
+    numberingRuleLatestGuard:
+      numberingRuleMigrationSource.includes("ALTER COLUMN last_number TYPE BIGINT")
+      && numberingRuleMigrationSource.includes("ADD COLUMN version BIGINT NOT NULL DEFAULT 0")
+      && numberingRuleMigrationSource.includes("expected=82/76/170/80")
+      && numberingRuleMigrationSource.includes("expected=82/82/76/174/80/0")
+      && numberingRuleMigrationSource.includes("V105 formal numbering index is missing")
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
@@ -214,6 +225,10 @@ try {
     result.migrationGuards.masterDataImportManagedGuard,
     "V104 must register the bounded import batch without adding an account-set FK exemption"
   );
+  assert(
+    result.migrationGuards.numberingRuleLatestGuard,
+    "V105 must evolve only the latest numbering topology to 80 CHECKs and guard bill_no indexes"
+  );
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
@@ -221,6 +236,7 @@ try {
   const formalSettlementSourceChecksum = flywayChecksum(formalSettlementMigrationSource);
   const salesReturnSourceChecksum = flywayChecksum(salesReturnMigrationSource);
   const masterDataImportSourceChecksum = flywayChecksum(masterDataImportMigrationSource);
+  const numberingRuleSourceChecksum = flywayChecksum(numberingRuleMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -231,9 +247,9 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99', '100', '101', '102', '103', '104')
+    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105')
   `);
-  assert(migrationRows.length === 7, `expected installed V98 through V104 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 8, `expected installed V98 through V105 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
   const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
@@ -241,6 +257,7 @@ try {
   const formalSettlementMigration = migrationRows.find((row) => row.version === "102");
   const salesReturnMigration = migrationRows.find((row) => row.version === "103");
   const masterDataImportMigration = migrationRows.find((row) => row.version === "104");
+  const numberingRuleMigration = migrationRows.find((row) => row.version === "105");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(employeeAccountMigration, "installed V100 row is missing");
@@ -248,6 +265,7 @@ try {
   assert(formalSettlementMigration, "installed V102 row is missing");
   assert(salesReturnMigration, "installed V103 row is missing");
   assert(masterDataImportMigration, "installed V104 row is missing");
+  assert(numberingRuleMigration, "installed V105 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(employeeAccountMigration.success === true, "V100 is not marked successful");
@@ -255,6 +273,7 @@ try {
   assert(formalSettlementMigration.success === true, "V102 is not marked successful");
   assert(salesReturnMigration.success === true, "V103 is not marked successful");
   assert(masterDataImportMigration.success === true, "V104 is not marked successful");
+  assert(numberingRuleMigration.success === true, "V105 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
@@ -262,6 +281,7 @@ try {
   assert(Number.isInteger(formalSettlementMigration.checksum), "V102 installed checksum is missing");
   assert(Number.isInteger(salesReturnMigration.checksum), "V103 installed checksum is missing");
   assert(Number.isInteger(masterDataImportMigration.checksum), "V104 installed checksum is missing");
+  assert(Number.isInteger(numberingRuleMigration.checksum), "V105 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -324,6 +344,15 @@ try {
     ...masterDataImportMigration,
     sourceChecksum: masterDataImportSourceChecksum,
     sourceSha256: createHash("sha256").update(masterDataImportMigrationSource).digest("hex")
+  };
+  assert(
+    numberingRuleMigration.checksum === numberingRuleSourceChecksum,
+    `V105 checksum drift: installed=${numberingRuleMigration.checksum} source=${numberingRuleSourceChecksum}`
+  );
+  result.numberingRuleMigration = {
+    ...numberingRuleMigration,
+    sourceChecksum: numberingRuleSourceChecksum,
+    sourceSha256: createHash("sha256").update(numberingRuleMigrationSource).digest("hex")
   };
 
   const registeredSchemas = sqlJson(`

@@ -161,7 +161,13 @@
           @dirty-change="markMasterDataImportDirty"
           @open-list="openMasterDataImportTargetList"
         />
-        <template v-if="tabs.activeTab.value.id !== masterDataImportTabId">
+        <NumberingRuleSettingsPage
+          v-if="hasNumberingRuleSettingsTab"
+          v-show="tabs.activeTab.value.id === numberingRuleSettingsTabId"
+          :can-manage="canManageNumberingRules"
+          @dirty-change="markNumberingRuleSettingsDirty"
+        />
+        <template v-if="tabs.activeTab.value.id !== masterDataImportTabId && tabs.activeTab.value.id !== numberingRuleSettingsTabId">
         <div v-if="tabs.activeTab.value.kind === 'home'" class="home-board">
           <section class="home-head">
             <div>
@@ -208,10 +214,6 @@
         />
         <OpeningStockPage
           v-else-if="tabs.activeTab.value.id === 'opening-stock-settings'"
-        />
-        <NumberingRuleSettingsPage
-          v-else-if="tabs.activeTab.value.id === 'numbering-rule-settings'"
-          :can-manage="canManageNumberingRules"
         />
         <SecuritySettingsPage
           v-else-if="tabs.activeTab.value.id === 'security-settings'"
@@ -819,7 +821,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { featureScope } from "./featureScope";
 import {
   defaultPrintTemplateForm,
@@ -940,6 +942,7 @@ const stockCountTabId = "stock-count-form";
 const stockCountGainTabId = "stock-count-gain-form";
 const stockCountLossTabId = "stock-count-loss-form";
 const masterDataImportTabId = "master-data-import";
+const numberingRuleSettingsTabId = "numbering-rule-settings";
 const masterRecords = reactive<Record<string, MasterRecordState>>({});
 const activeMasterRecord = computed(() => masterRecords[tabs.activeTabId.value] ?? null);
 const activeMasterRecordDirty = computed(() => Boolean(tabs.activeTab.value?.dirty));
@@ -987,6 +990,15 @@ const masterDataImportCommitting = ref(false);
 const loginPageRef = ref<InstanceType<typeof LoginPage> | null>(null);
 const passwordChangeDialogRef = ref<InstanceType<typeof PasswordChangeDialog> | null>(null);
 const shellSession = useShellSession({ loginPageRef, passwordChangeDialogRef });
+function protectDirtyTabsOnRefresh(event: BeforeUnloadEvent) {
+  if (!tabs.tabs.value.some((tab) => Boolean(tab.dirty))) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = "";
+}
+onMounted(() => window.addEventListener("beforeunload", protectDirtyTabsOnRefresh));
+onBeforeUnmount(() => window.removeEventListener("beforeunload", protectDirtyTabsOnRefresh));
 const activePasswordPolicy = shellSession.activePasswordPolicy;
 const loginAccountSets = shellSession.loginAccountSets;
 const accountSets = shellSession.accountSets;
@@ -1014,6 +1026,7 @@ const typedExcludedModules = excludedModules as unknown as ShellModule[];
 const visibleModules = [...typedModuleCatalog, ...typedExcludedModules];
 const activeModule = computed(() => visibleModules.find((module) => module.name === activeModuleName.value) ?? typedModuleCatalog[0]);
 const hasMasterDataImportTab = computed(() => tabs.tabs.value.some((tab) => tab.id === masterDataImportTabId));
+const hasNumberingRuleSettingsTab = computed(() => tabs.tabs.value.some((tab) => tab.id === numberingRuleSettingsTabId));
 const activeEntryGroups = computed(() => activeModule.value.groups
   .map((group) => ({ ...group, entries: group.entries.filter((entry) => canOpenEntry(entry)) }))
   .filter((group) => group.entries.length > 0));
@@ -2680,6 +2693,12 @@ function markMasterDataImportDirty(dirty: boolean) {
   const importTab = tabs.tabs.value.find((tab) => tab.id === masterDataImportTabId);
   if (importTab) {
     importTab.dirty = dirty;
+  }
+}
+function markNumberingRuleSettingsDirty(dirty: boolean) {
+  const numberingTab = tabs.tabs.value.find((tab) => tab.id === numberingRuleSettingsTabId);
+  if (numberingTab) {
+    numberingTab.dirty = dirty;
   }
 }
 </script>

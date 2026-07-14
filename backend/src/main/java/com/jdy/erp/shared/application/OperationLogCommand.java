@@ -71,6 +71,9 @@ public record OperationLogCommand(
         ACCOUNT_COUNT("accountCount"),
         SETTLED_AMOUNT("settledAmount"),
         OUTSTANDING_AMOUNT("outstandingAmount"),
+        PREFIX("prefix"),
+        WIDTH("width"),
+        LAST_NUMBER("lastNumber"),
         BACKUP_NAME("backupName"),
         CLEARED_BUSINESS_DATA("clearedBusinessData");
 

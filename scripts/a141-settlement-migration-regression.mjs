@@ -56,6 +56,7 @@ const result = {
     migration102: {},
     migration103: {},
     migration104: {},
+    latest: {},
     repeatFlyway: {},
     repeatTenantSync: {},
     restoreApi: {}
@@ -201,6 +202,39 @@ function migrationHistory(database) {
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
     WHERE type = 'SQL'
+  `);
+}
+
+function numberingLatestMetrics(database) {
+  return sqlJson(database, `
+    SELECT jsonb_build_object(
+      'publicChecks', (
+        SELECT count(*) FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid=constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid=table_row.relnamespace
+        JOIN public.sys_tenant_managed_table managed ON managed.table_name=table_row.relname
+        WHERE schema_row.nspname='public' AND constraint_row.contype='c'
+      ),
+      'tenantChecks', (
+        SELECT count(*) FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid=constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid=table_row.relnamespace
+        JOIN public.sys_tenant_managed_table managed ON managed.table_name=table_row.relname
+        WHERE schema_row.nspname=${sqlLiteral(tenantSchema)} AND constraint_row.contype='c'
+      ),
+      'versionCopies', (
+        SELECT count(*) FROM information_schema.columns
+        WHERE table_schema IN ('public', ${sqlLiteral(tenantSchema)}, ${sqlLiteral(backupSchema)})
+          AND table_name='document_number_sequence'
+          AND column_name='version'
+          AND data_type='bigint'
+      ),
+      'legacyRows', (
+        (SELECT count(*) FROM public.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(tenantSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+        + (SELECT count(*) FROM ${quoteIdentifier(backupSchema)}.document_number_sequence WHERE document_type='outsourcingSurface')
+      )
+    )::text
   `);
 }
 
@@ -889,7 +923,7 @@ try {
     digestsBefore: Object.fromEntries(Object.entries(beforeSnapshots).map(([schema, value]) => [schema, digest(value)]))
   };
 
-  result.upgrade.migration102.flywayOutputTail = flywayMigrate(upgradeDatabase);
+  result.upgrade.migration102.flywayOutputTail = flywayMigrate(upgradeDatabase, 104);
   const migratedHistory = migrationHistory(upgradeDatabase);
   const v102Rows = migratedHistory.filter((row) => row.version === "102");
   const v103Rows = migratedHistory.filter((row) => row.version === "103");
@@ -972,6 +1006,30 @@ try {
   assert(result.upgrade.migration104.managedConstraints > 0 && result.upgrade.migration104.backupConstraints === 0, "V104 managed/backup constraint modes differ from contract");
   assert(result.upgrade.migration104.accountSetForeignKeys === 0, "V104 must not add an account-set FK exemption");
 
+  result.upgrade.latest.flywayOutputTail = flywayMigrate(upgradeDatabase);
+  const latestHistory = migrationHistory(upgradeDatabase);
+  const v105Rows = latestHistory.filter((row) => row.version === "105");
+  const latestNumbering = numberingLatestMetrics(upgradeDatabase);
+  assert(v105Rows.length === 1 && v105Rows[0].success === true, `V105 history mismatch: ${JSON.stringify(v105Rows)}`);
+  assert(latestHistory.at(-1)?.version === "105", `repository latest must be V105: ${JSON.stringify(latestHistory.at(-1))}`);
+  assert(
+    Number(latestNumbering.publicChecks) === 80
+      && Number(latestNumbering.tenantChecks) === 80
+      && Number(latestNumbering.versionCopies) === 3
+      && Number(latestNumbering.legacyRows) === 0,
+    `V105 numbering topology mismatch: ${JSON.stringify(latestNumbering)}`
+  );
+  assert(same(migratedSnapshots, {
+    public: migratedSnapshot("public", fixtures.public),
+    tenant: migratedSnapshot(tenantSchema, fixtures.tenant),
+    backup: migratedSnapshot(backupSchema, fixtures.tenant)
+  }), "V105 must not change V102-V104 settlement semantics");
+  result.upgrade.latest = {
+    ...result.upgrade.latest,
+    history: v105Rows[0],
+    numbering: latestNumbering
+  };
+
   const repeatFlywayOutput = flywayMigrate(upgradeDatabase);
   const repeatFlywayHistory = migrationHistory(upgradeDatabase);
   const repeatFlywaySnapshots = {
@@ -979,13 +1037,15 @@ try {
     tenant: migratedSnapshot(tenantSchema, fixtures.tenant),
     backup: migratedSnapshot(backupSchema, fixtures.tenant)
   };
-  assert(same(repeatFlywayHistory, migratedHistory), "repeat Flyway migrate changed migration history");
+  const repeatNumbering = numberingLatestMetrics(upgradeDatabase);
+  assert(same(repeatFlywayHistory, latestHistory), "repeat Flyway migrate changed migration history");
   assert(same(repeatFlywaySnapshots, migratedSnapshots), "repeat Flyway migrate changed migrated settlement semantics");
+  assert(same(repeatNumbering, latestNumbering), "repeat Flyway migrate changed V105 numbering topology");
   result.upgrade.repeatFlyway = {
     flywayOutputTail: repeatFlywayOutput,
-    historyCountBefore: migratedHistory.length,
+    historyCountBefore: latestHistory.length,
     historyCountAfter: repeatFlywayHistory.length,
-    historyDigestBefore: digest(migratedHistory),
+    historyDigestBefore: digest(latestHistory),
     historyDigestAfter: digest(repeatFlywayHistory),
     settlementDigestsBefore: Object.fromEntries(
       Object.entries(migratedSnapshots).map(([schema, value]) => [schema, digest(value)])
@@ -993,6 +1053,7 @@ try {
     settlementDigestsAfter: Object.fromEntries(
       Object.entries(repeatFlywaySnapshots).map(([schema, value]) => [schema, digest(value)])
     ),
+    numbering: repeatNumbering,
     historyUnchanged: true,
     settlementSemanticsUnchanged: true
   };
@@ -1168,10 +1229,21 @@ try {
       'nonPublicRegisteredTenants', (
         SELECT count(*) FROM public.sys_account_set
         WHERE nullif(btrim(schema_name), '') IS NOT NULL AND lower(btrim(schema_name)) <> 'public'
+      ),
+      'managedChecks', (
+        SELECT count(*) FROM pg_constraint constraint_row
+        JOIN pg_class table_row ON table_row.oid=constraint_row.conrelid
+        JOIN pg_namespace schema_row ON schema_row.oid=table_row.relnamespace
+        JOIN public.sys_tenant_managed_table managed ON managed.table_name=table_row.relname
+        WHERE schema_row.nspname='public' AND constraint_row.contype='c'
+      ),
+      'numberingVersionType', (
+        SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='document_number_sequence' AND column_name='version'
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "104", `fresh migration max version should be V104: ${JSON.stringify(freshHistory.at(-1))}`);
+  assert(freshHistory.at(-1)?.version === "105", `fresh migration max version should be V105: ${JSON.stringify(freshHistory.at(-1))}`);
   assert(Number(freshMetrics.managedTables) === 82, `fresh managed table count should be 82: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
@@ -1179,6 +1251,7 @@ try {
   assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedChecks) === 80 && freshMetrics.numberingVersionType === "bigint", `fresh V105 numbering metrics mismatch: ${JSON.stringify(freshMetrics)}`);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,
@@ -1215,7 +1288,7 @@ console.log(JSON.stringify({
   upgrade: {
     target: result.upgrade.target101.maxVersion,
     migrated: result.upgrade.migration102.history?.version,
-    latest: result.upgrade.migration104.history?.version,
+    latest: result.upgrade.latest.history?.version,
     tenantSync: result.upgrade.repeatTenantSync.managedCounts,
     restoreStatus: result.upgrade.restoreApi.status
   },

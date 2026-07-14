@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.jdy.erp.masterdata.api.MasterDataController;
 import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.shared.application.NumberingService;
@@ -26,6 +27,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 @SpringBootTest
 class TenantMasterDataBomNumberingIsolationTest {
+    private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
+
     @Autowired
     private AccountSetManagementService accountSetManagementService;
 
@@ -85,7 +88,7 @@ class TenantMasterDataBomNumberingIsolationTest {
         createAuditedMaterial("A119-M", "A119 账套A母件");
         createAuditedMaterial("A119-C", "A119 账套A子件");
         createAuditedBom();
-        numberingService.saveRule("salesOrder", "TA", 4, 0, true);
+        numberingService.saveRule("salesOrder", "TA", 4, JSON.textNode("0"), true, JSON.textNode("0"));
         assertThat(numberingService.nextBillNo("salesOrder")).isEqualTo("TA0001");
         assertThat(productName("A119-M")).isEqualTo("A119 账套A母件");
         assertThat(bomProductName()).isEqualTo("A119 账套A母件");
@@ -94,7 +97,7 @@ class TenantMasterDataBomNumberingIsolationTest {
         createAuditedMaterial("A119-M", "A119 账套B母件");
         createAuditedMaterial("A119-C", "A119 账套B子件");
         createAuditedBom();
-        numberingService.saveRule("salesOrder", "TB", 4, 9, true);
+        numberingService.saveRule("salesOrder", "TB", 4, JSON.textNode("9"), true, JSON.textNode("0"));
         assertThat(numberingService.nextBillNo("salesOrder")).isEqualTo("TB0010");
         assertThat(productName("A119-M")).isEqualTo("A119 账套B母件");
         assertThat(bomProductName()).isEqualTo("A119 账套B母件");
