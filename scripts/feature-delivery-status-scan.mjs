@@ -344,6 +344,7 @@ async function validateRemediationRoadmap({ roadmap, effectiveById, statusById, 
   return {
     itemCount: itemById.size,
     gateCount: gateById.size,
+    currentTaskKind: currentCoordinate.taskKind,
     currentItemIds: currentCoordinate.itemIds,
     currentGateId: currentCoordinate.gateId
   };
@@ -401,8 +402,15 @@ function parseCurrentRoadmapCoordinate(source, context) {
   assert(gateLine, `${context} must declare roadmapGateId`);
   const rawGateId = gateLine.slice("roadmapGateId:".length).trim();
   const gateId = rawGateId && rawGateId !== "null" ? normalizeYamlScalar(rawGateId) : null;
-  assert((itemIds.length > 0) !== Boolean(gateId), `${context} must reference one roadmap item or one roadmap gate, but not both`);
-  return { itemIds, gateId };
+  const taskKindLine = lines.find((line) => line.startsWith("taskKind:"));
+  const taskKind = taskKindLine ? normalizeYamlScalar(taskKindLine.slice("taskKind:".length).trim()) : "roadmap";
+  assert(["roadmap", "governance"].includes(taskKind), `${context} taskKind must be roadmap or governance`);
+  if (taskKind === "governance") {
+    assert(itemIds.length === 0 && !gateId, `${context} governance task must not claim a remediation roadmap coordinate`);
+  } else {
+    assert((itemIds.length > 0) !== Boolean(gateId), `${context} roadmap task must reference one roadmap item or one roadmap gate, but not both`);
+  }
+  return { itemIds, gateId, taskKind };
 }
 
 function normalizeYamlScalar(value) {
