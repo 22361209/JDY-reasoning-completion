@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assertReportImportGraph } from "./helpers/report-import-graph.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
-const contract = readIfPresent("docs/12-当前批次验收清单.md");
-const protocol = readIfPresent("docs/guides/report-query-protocol.md");
+const protocol = read("docs/guides/report-query-protocol.md");
 const spec = read("backend/src/main/java/com/jdy/erp/sales/application/SalesReportQuerySpec.java");
 const test = read("backend/src/test/java/com/jdy/erp/sales/application/SalesReportQueryIntegrationTest.java");
 const frontend = read("frontend/src/modules/reports/salesReports.ts");
@@ -19,11 +18,6 @@ const checks = [];
 
 function read(relativePath) {
   return readFileSync(path.join(rootDir, relativePath), "utf8");
-}
-
-function readIfPresent(relativePath) {
-  const filePath = path.join(rootDir, relativePath);
-  return existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
 }
 
 function assert(condition, message) {
@@ -39,15 +33,10 @@ function excludes(source, pattern, message) {
   assert(!pattern.test(source), message);
 }
 
-if (contract.includes("F029")) {
-  contains(contract, /F029[\s\S]*?销售明细、销售汇总和销售订单跟踪/, "A149 合同必须保持首版三张销售报表");
-}
-if (protocol) {
-  contains(protocol, /`sales-detail`[\s\S]*?`sales-summary`[\s\S]*?`sales-order-tracking`/, "协议必须精确登记三个 F029 key");
-  contains(protocol, /`sales_out\.status IN \('AUDITED','RED_REVERSED'\)`/, "协议必须保留有效销售出库状态");
-  contains(protocol, /`sales_return\.status='AUDITED'`[\s\S]*?统一转为负数/, "协议必须冻结退货单次负向语义");
-  contains(protocol, /executedQty=N\+D[\s\S]*?netDeliveredQty=O-R[\s\S]*?executedUnshippedQty=max/, "协议必须冻结 N/O/D/R 公式");
-}
+contains(protocol, /`sales-detail`[\s\S]*?`sales-summary`[\s\S]*?`sales-order-tracking`/, "稳定协议必须精确登记三个 F029 key");
+contains(protocol, /`sales_out\.status IN \('AUDITED','RED_REVERSED'\)`/, "稳定协议必须保留有效销售出库状态");
+contains(protocol, /`sales_return\.status='AUDITED'`[\s\S]*?统一转为负数/, "稳定协议必须冻结退货单次负向语义");
+contains(protocol, /executedQty=N\+D[\s\S]*?netDeliveredQty=O-R[\s\S]*?executedUnshippedQty=max/, "稳定协议必须冻结 N/O/D/R 公式");
 
 for (const key of ["sales-detail", "sales-summary", "sales-order-tracking"]) {
   contains(spec, new RegExp(`(?:ReportQuerySpec\\.builder|salesFactBuilder)\\(\\"${key}\\"`), `${key} 必须使用精确 registry definition`);
@@ -124,8 +113,16 @@ contains(test, /shippedQty", "10"[\s\S]*?returnedQty", "1"[\s\S]*?netDeliveredQt
 contains(test, /createDetailSchema\(schemaA[\s\S]*?createDetailSchema\(schemaB[\s\S]*?TENANT-B-DECOY/, "集成测试必须放置同号跨 schema decoy");
 contains(test, /executor\.export[\s\S]*?artifact\.rowCount\(\)[\s\S]*?artifact\.release/, "集成测试必须覆盖同条件 CSV 行数与受控清理");
 
-for (const key of ["sales-detail", "sales-summary", "sales-order-tracking"]) {
-  excludes(catalog, new RegExp(`id: ["']${key}["']`), `${key} 在 A153 双视口证据前不得发布 catalog`);
+for (const [key, label] of [
+  ["sales-detail", "销售明细"],
+  ["sales-summary", "销售汇总"],
+  ["sales-order-tracking", "销售订单跟踪"]
+]) {
+  contains(
+    catalog,
+    new RegExp(`id: ["']${key}["'], label: ["']${label}["'], module: ["']销售管理["'], mode: ["']report["'], queryable: true, permission: ["']sales\\.order\\.audit["']`),
+    `${key} 必须以 sales.order.audit 发布最终 catalog 入口`
+  );
 }
 
 console.log(`A149 sales report regression passed (${checks.length} assertions).`);

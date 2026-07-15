@@ -11,6 +11,11 @@ export const moduleCatalog = [
         { id: "delivery-notice-form", label: "发货通知单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-out-form", label: "销售出库单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" },
         { id: "sales-return-form", label: "销售退货单", module: "销售管理", mode: "form", queryable: true, dirty: true, permission: "sales.out.audit" }
+      ] },
+      { title: "报表查询", entries: [
+        { id: "sales-detail", label: "销售明细", module: "销售管理", mode: "report", queryable: true, permission: "sales.order.audit" },
+        { id: "sales-summary", label: "销售汇总", module: "销售管理", mode: "report", queryable: true, permission: "sales.order.audit" },
+        { id: "sales-order-tracking", label: "销售订单跟踪", module: "销售管理", mode: "report", queryable: true, permission: "sales.order.audit" }
       ] }
     ]
   },
@@ -43,6 +48,9 @@ export const moduleCatalog = [
         { id: "stock-count-loss-form", label: "盘亏单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.stock_count_loss.audit" },
         { id: "other-in-form", label: "其他入库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_in.audit" },
         { id: "other-out-form", label: "其他出库单", module: "库存管理", mode: "form", queryable: true, dirty: true, permission: "inventory.other_stock_out.audit" }
+      ] },
+      { title: "报表查询", entries: [
+        { id: "inventory-movement-detail", label: "商品收发明细", module: "库存管理", mode: "report", queryable: true, permission: "inventory.stock.view" }
       ] }
     ]
   },
@@ -51,10 +59,14 @@ export const moduleCatalog = [
     short: "款",
     groups: [
       { title: "往来单据", entries: [
-        { id: "receivable-list", label: "应收单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
-        { id: "payable-list", label: "应付单", module: "应收应付", mode: "list", queryable: true, permission: "finance.report.view" },
         { id: "ar-receipt-form", label: "收款单", module: "应收应付", mode: "form", queryable: true, dirty: true, permissions: ["finance.report.view", "finance.settle"] },
         { id: "ap-payment-form", label: "付款单", module: "应收应付", mode: "form", queryable: true, dirty: true, permissions: ["finance.report.view", "finance.settle"] }
+      ] },
+      { title: "报表查询", entries: [
+        { id: "receivable-detail", label: "应收明细", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" },
+        { id: "receivable-summary", label: "应收汇总", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" },
+        { id: "payable-detail", label: "应付明细", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" },
+        { id: "payable-summary", label: "应付汇总", module: "应收应付", mode: "report", queryable: true, permission: "finance.report.view" }
       ] }
     ]
   },
@@ -66,12 +78,14 @@ export const moduleCatalog = [
         { id: "production-plan-list", label: "生产计划", module: "生产管理", mode: "list", queryable: true, permission: "production.task.audit" },
         { id: "production-task-form", label: "生产任务单", module: "生产管理", mode: "form", queryable: true, permission: "production.task.audit" },
         { id: "material-issue-form", label: "生产领料单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" },
+        { id: "material-scrap-form", label: "材料报废单", module: "生产管理", mode: "form", queryable: true, dirty: true, permission: "production.document.audit" },
         { id: "product-in-form", label: "产品入库单", module: "生产管理", mode: "form", queryable: true, permission: "production.document.audit" }
       ] },
       { title: "BOM 与报表", entries: [
         { id: "bom-list", label: "BOM维护", module: "生产管理", mode: "list", queryable: true },
         { id: "kit-analysis-list", label: "齐套分析", module: "生产管理", mode: "list", queryable: true, permission: "production.task.audit" },
-        { id: "task-track-report", label: "生产任务跟踪表", module: "生产管理", mode: "report", queryable: true, permission: "production.task.audit" }
+        { id: "task-track-report", label: "生产任务跟踪表", module: "生产管理", mode: "report", queryable: true, permission: "production.task.audit" },
+        { id: "material-scrap-summary", label: "材料报废统计", module: "生产管理", mode: "report", queryable: true, permission: "production.document.audit" }
       ] }
     ]
   },

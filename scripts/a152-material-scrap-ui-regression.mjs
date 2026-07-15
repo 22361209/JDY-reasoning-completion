@@ -8,7 +8,6 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a152-material-scrap-ui-regression.json");
 const paths = {
-  contract: "docs/12-当前批次验收清单.md",
   lifecycleProtocol: "docs/guides/bill-lifecycle-unification-protocol.md",
   reportProtocol: "docs/guides/report-query-protocol.md",
   actionRules: "docs/guides/action-button-rules.md",
@@ -67,10 +66,6 @@ function sliceBetween(source, start, end, message) {
   return source.slice(startIndex, endIndex);
 }
 
-contains(sources.contract, /\| A152 \| F061 页面、前端生命周期 wiring 与材料报废统计 A3 \| A151 \|/, "A152 合同必须锁定 F061 页面、前端生命周期和统计范围");
-contains(sources.contract, /不提前恢复旧 `scrap-report` fallback/, "A152 合同必须禁止提前恢复旧 scrap-report fallback");
-contains(sources.contract, /MaterialScrapForm\.vue` 复用 `StandardDocument`\/`ActionBar`/, "F061 页面必须遵循 StandardDocument 与 ActionBar 合同");
-contains(sources.contract, /MaterialScrapEntryTable\.vue`；该组件内部复用共享 `TableCore`/, "F061 专用分录表必须内部复用 TableCore");
 contains(sources.lifecycleProtocol, /前端 `materialScrap`；后端 target\/header `production_material_scrap`/, "生命周期协议必须登记 materialScrap 精确 target");
 contains(sources.reportProtocol, /`material-scrap-summary` \| F061 材料报废统计 \| 已审核正式材料报废单/, "报表协议必须登记正式 F061 report key");
 contains(sources.reportProtocol, /F042\/F061 等纯数量报表不伪造 currency/, "报表协议必须冻结 F061 数量-only 边界");
@@ -258,8 +253,10 @@ contains(sources.registry, /definitions[\s\S]*materialScrapReport/, "共享 regi
 const importGraph = assertReportImportGraph(rootDir);
 assert(importGraph.domainConfigs.includes(paths.report), "共享 report import graph 必须覆盖 F061 definition");
 
-excludes(sources.catalog, /id: "material-scrap-form"/, "A152 不得在 A153 双视口证据前发布材料报废页面 catalog 入口");
-excludes(sources.catalog, /id: "material-scrap-summary"/, "A152 不得在 A153 双视口证据前发布材料报废统计 catalog 入口");
+assert(occurrences(sources.catalog, 'id: "material-scrap-form"') === 1, "catalog 必须精确发布一个材料报废单入口");
+contains(sources.catalog, /\{ id: "material-scrap-form", label: "材料报废单", module: "生产管理", mode: "form", queryable: true, dirty: true, permission: "production\.document\.audit" \}/, "材料报废单 catalog 必须使用真实 form、dirty 与精确生产权限");
+assert(occurrences(sources.catalog, 'id: "material-scrap-summary"') === 1, "catalog 必须精确发布一个材料报废统计入口");
+contains(sources.catalog, /\{ id: "material-scrap-summary", label: "材料报废统计", module: "生产管理", mode: "report", queryable: true, permission: "production\.document\.audit" \}/, "材料报废统计 catalog 必须使用真实 report 与精确生产权限");
 excludes(sources.catalog, /id: ["']scrap-report["']/, "A152 不得复活旧 scrap-report fallback");
 
 mkdirSync(verificationDir, { recursive: true });

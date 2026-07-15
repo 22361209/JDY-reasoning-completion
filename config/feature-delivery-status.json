@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-14",
+  "updatedAt": "2026-07-15",
   "source": {
     "effectiveScope": "config/effective-feature-scope.json"
   },
@@ -660,22 +660,28 @@
     },
     {
       "id": "F029",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
-      "evidence": [],
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "sales-detail",
+        "sales-summary",
+        "sales-order-tracking"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A144-6E报表与当前错误入口-20260714.md"
+      ],
       "knownGaps": [
-        "销售明细/利润报表尚无真实数据契约；A139 已隐藏入口，不以其他列表数据充位。"
+        "首版不包含销售排行、销售利润及无可信成本/毛利口径的分析。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "not_applicable"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -884,22 +890,27 @@
     },
     {
       "id": "F042",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
-      "evidence": [],
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "inventory-movement-detail"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-F-库存流水与余额闭环-20260623.md",
+        "docs/验收报告/验收报告-A144-6E报表与当前错误入口-20260714.md"
+      ],
       "knownGaps": [
-        "商品收发明细报表尚无真实列表定义和后端契约；A139 已隐藏入口。"
+        "首版不提供库存成本或金额口径；无法定位真实来源的 LEGACY 历史流水只读展示且不可钻取。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "not_applicable"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -1226,22 +1237,25 @@
     },
     {
       "id": "F061",
-      "state": "unverified",
-      "level": "A0",
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
-      "evidence": [],
-      "knownGaps": [
-        "材料报废统计不等于材料报废单；正式报废单和统计闭环均未完成，A139 已隐藏充位入口。"
+      "state": "verified",
+      "level": "A4",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "material-scrap-form",
+        "material-scrap-summary"
       ],
+      "evidence": [
+        "docs/验收报告/验收报告-A144-6E报表与当前错误入口-20260714.md"
+      ],
+      "knownGaps": [],
       "capabilityChecks": {
-        "entry": "not_applicable",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "not_applicable"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -1854,52 +1868,56 @@
     },
     {
       "id": "F091",
-      "state": "unverified",
-      "level": "A1",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
-        "receivable-list",
-        "payable-list"
+        "receivable-detail",
+        "receivable-summary",
+        "payable-detail",
+        "payable-summary"
       ],
       "evidence": [
         "docs/验收报告/验收报告-A85-财务过账接审核-20260625.md",
-        "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md"
+        "docs/验收报告/验收报告-A119-完整多账套架构迁移-20260630.md",
+        "docs/验收报告/验收报告-A144-6E报表与当前错误入口-20260714.md"
       ],
       "knownGaps": [
-        "应收/应付只读列表有部分证据；未交付的应收汇总入口已在 A139 移除，现有两个列表仍需按当前标准完成全契约复核。"
+        "首版不包含往来预警、实际退款单、预收/预付、其他应收/其他应付或汇率/折算能力。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
       "id": "F093",
-      "state": "unverified",
-      "level": "A2",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "numbering-rule-settings"
       ],
       "evidence": [
-        "docs/验收报告/验收报告-A90-单据编号-20260626.md"
+        "docs/验收报告/验收报告-A90-单据编号-20260626.md",
+        "docs/验收报告/验收报告-A144-6E报表与当前错误入口-20260714.md"
       ],
       "knownGaps": [
-        "单据编号规则页有历史证据；未交付的编码规则列表入口已在 A139 移除，现有设置页仍需按当前标准复核。"
+        "当前固定登记 27 种单据类型；首版不开放自定义单据类型或删除规则。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {

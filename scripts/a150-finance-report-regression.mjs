@@ -109,9 +109,19 @@ assert(importGraph.domainConfigs.includes(frontendPath), "共享 import graph �
 contains(frontend, /待退款金额/, "前端必须单独展示待退款金额");
 contains(frontend, /options: \[[\s\S]*\{ value: "CNY", label: "CNY" \}[\s\S]*\{ value: "USD", label: "USD" \}/, "前端必须提供 CNY/USD 分币种筛选");
 assert(occurrences(frontend, 'groupKeys: ["currency"]') === 4, "四个财务报表 footer 必须只按 currency 显示独立合计行");
-for (const key of exactKeys) {
-  excludes(catalog, new RegExp(`id:\\s*["']${key}["']`), `A150 不得在 A153 前发布 ${key} catalog 入口`);
+for (const [key, label] of [
+  ["receivable-detail", "应收明细"],
+  ["receivable-summary", "应收汇总"],
+  ["payable-detail", "应付明细"],
+  ["payable-summary", "应付汇总"]
+]) {
+  contains(
+    catalog,
+    new RegExp(`id:\\s*["']${key}["'], label:\\s*["']${label}["'], module:\\s*["']应收应付["'], mode:\\s*["']report["'], queryable:\\s*true, permission:\\s*["']finance\\.report\\.view["']`),
+    `${key} 必须以 finance.report.view 发布最终 catalog 入口`
+  );
 }
+excludes(catalog, /id:\s*["'](?:receivable-list|payable-list)["']/, "旧 receivable-list/payable-list 不得继续作为 catalog 入口");
 
 mkdirSync(verificationDir, { recursive: true });
 writeFileSync(

@@ -76,7 +76,7 @@
             </tbody>
           </table>
         </div>
-        <div v-if="$slots.footer" class="table-core-footer-wrapper">
+        <div v-if="$slots.footer" class="table-core-footer-wrapper" v-bind="footerWrapperAttrs">
           <table :style="tableStyle">
             <colgroup>
               <col v-for="column in columns" :key="column.key" :style="{ width: `${columnWidth(column)}px` }" />
@@ -131,6 +131,7 @@ const props = withDefaults(defineProps<{
   tableClass?: string;
   headerWrapperClass?: string;
   bodyWrapperClass?: string;
+  footerWrapperAttrs?: Record<string, unknown>;
   headerRowClass?: string;
   rowClass?: ClassValue | ((row: Row, rowIndex: number) => ClassValue);
   rowKey?: (row: Row, rowIndex: number) => string | number;

@@ -85,12 +85,13 @@
         <strong>当前条件下没有业务事实</strong>
         <p>可调整日期或筛选条件后重新查询；空结果不会回退到演示数据。</p>
       </div>
-      <div v-else-if="rows.length > 0" class="report-table-wrap">
+      <div v-else-if="rows.length > 0" ref="reportTableWrap" class="report-table-wrap">
         <TableCore
           kind="list"
           test-id="report-result-table"
           table-class="report-result-table"
           body-wrapper-class="report-result-table__body"
+          :footer-wrapper-attrs="totalFooterAttrs"
           :columns="tableColumns"
           :rows="rows"
           :row-key="reportRowKey"
@@ -140,13 +141,29 @@
             <span v-else :class="cellValueClass(column.key, row[column.key])">{{ formatCell(row, column.key) }}</span>
           </template>
           <template #footer>
-            <tr v-for="(totalRow, index) in totals" :key="totalRowKey(totalRow, index)" class="report-total-row">
-              <td v-for="(column, columnIndex) in tableColumns" :key="column.key" :class="`col--align-${column.align || 'left'}`">
+            <tr v-for="(totalRow, index) in visibleTotals" :key="totalRowKey(totalRow, totalsOffset + index)" class="report-total-row">
+              <td
+                v-for="(column, columnIndex) in tableColumns"
+                :key="column.key"
+                :class="`col--align-${column.align || 'left'}`"
+                :title="totalCell(totalRow, column.key, columnIndex)"
+              >
                 {{ totalCell(totalRow, column.key, columnIndex) }}
               </td>
             </tr>
           </template>
         </TableCore>
+        <div
+          v-if="totals.length > TOTALS_PAGE_SIZE"
+          class="report-total-pagination"
+          data-testid="report-total-pagination"
+          role="navigation"
+          aria-label="服务端合计分页"
+        >
+          <span aria-live="polite">服务端合计第 {{ totalsPage }} / {{ totalGroupPages }} 页，共 {{ totals.length }} 组</span>
+          <button type="button" :aria-controls="totalFooterId" :disabled="totalsPage <= 1" data-testid="report-total-prev" @click="goToTotalsPage(totalsPage - 1)">上一组</button>
+          <button type="button" :aria-controls="totalFooterId" :disabled="totalsPage >= totalGroupPages" data-testid="report-total-next" @click="goToTotalsPage(totalsPage + 1)">下一组</button>
+        </div>
       </div>
 
       <footer v-if="hasLoaded" class="report-pagination" data-testid="report-pagination">
@@ -175,7 +192,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import TableCore, { type TableCoreColumn } from "../table/TableCore.vue";
 import ColumnSettingsDialog, { type ColumnSettingItem } from "../table/ColumnSettingsDialog.vue";
 import { useReportQuery } from "./useReportQuery";
@@ -229,8 +246,13 @@ const {
 } = queryState;
 
 const pageSizes = [20, 50, 100, 200, 500];
+const TOTALS_PAGE_SIZE = 20;
+const TOTALS_SCROLL_ROWS = 3;
+const totalFooterId = `report-total-footer-${props.definition.entryId}`;
 const filtersExpanded = ref(true);
 const columnSettingsOpen = ref(false);
+const totalsPage = ref(1);
+const reportTableWrap = ref<HTMLElement | null>(null);
 const columns = ref(props.definition.columns.map(copyColumn));
 const columnSettingsDraft = ref<Array<ColumnSettingItem & { key: string }>>([]);
 const visibleColumns = computed(() => columns.value.filter((column) => column.visible !== false));
@@ -246,6 +268,21 @@ const tableColumns = computed<TableCoreColumn[]>(() => visibleColumns.value.map(
 })));
 const tableMinWidth = computed(() => Math.max(960, visibleColumns.value.reduce((sum, column) => sum + column.width, 0)));
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
+const totalGroupPages = computed(() => Math.max(1, Math.ceil(totals.value.length / TOTALS_PAGE_SIZE)));
+const totalsOffset = computed(() => (totalsPage.value - 1) * TOTALS_PAGE_SIZE);
+const visibleTotals = computed(() => totals.value.slice(totalsOffset.value, totalsOffset.value + TOTALS_PAGE_SIZE));
+const totalFooterAttrs = computed(() => {
+  if (totals.value.length === 0) return { "aria-hidden": "true" };
+  const currentPageScrollable = visibleTotals.value.length > TOTALS_SCROLL_ROWS;
+  return {
+    id: totalFooterId,
+    role: "region",
+    "aria-label": currentPageScrollable
+      ? `服务端合计，共 ${totals.value.length} 组，当前组页可滚动`
+      : `服务端合计，共 ${totals.value.length} 组`,
+    tabindex: currentPageScrollable ? 0 : -1
+  };
+});
 const summaryItems = computed(() => {
   const query = normalizedQuery.value;
   if (Object.keys(query).length === 0) return [];
@@ -266,6 +303,10 @@ const errorTitles: Record<string, string> = {
   server: "报表服务异常"
 };
 onMounted(loadInitial);
+watch(totals, () => {
+  totalsPage.value = 1;
+  void resetTotalsViewport();
+});
 watch(() => props.accountSetKey, (next, previous) => {
   if (previous !== undefined && next !== previous) void resetForAccountSet();
 });
@@ -418,6 +459,18 @@ function totalCell(row: ReportRow, key: string, columnIndex: number) {
   if (props.definition.totals.valueKeys.includes(key)) return displayText(row[key]);
   if (props.definition.totals.groupKeys.includes(key)) return displayText(row[key]);
   return columnIndex === 0 ? "服务端合计" : "";
+}
+
+async function goToTotalsPage(nextPage: number) {
+  if (nextPage < 1 || nextPage > totalGroupPages.value || nextPage === totalsPage.value) return;
+  totalsPage.value = nextPage;
+  await resetTotalsViewport();
+}
+
+async function resetTotalsViewport() {
+  await nextTick();
+  const footer = reportTableWrap.value?.querySelector<HTMLElement>(".table-core-footer-wrapper");
+  if (footer) footer.scrollTop = 0;
 }
 
 function formatTimestamp(value: string) {

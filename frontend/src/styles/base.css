@@ -5300,7 +5300,8 @@ th {
 
 .report-query-tools,
 .report-filter-actions,
-.report-pagination {
+.report-pagination,
+.report-total-pagination {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -5309,6 +5310,7 @@ th {
 .report-query-tools button,
 .report-filter-actions button,
 .report-pagination button,
+.report-total-pagination button,
 .report-column-dialog button,
 .report-state-card button {
   min-height: 28px;
@@ -5321,7 +5323,8 @@ th {
 
 .report-query-tools button:hover:not(:disabled),
 .report-filter-actions button:hover:not(:disabled),
-.report-pagination button:hover:not(:disabled) {
+.report-pagination button:hover:not(:disabled),
+.report-total-pagination button:hover:not(:disabled) {
   border-color: #83add2;
   background: #f0f7fd;
 }
@@ -5481,6 +5484,7 @@ th {
   min-width: 0;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -5493,6 +5497,46 @@ th {
 
 .report-result-table__body {
   overflow-y: auto;
+}
+
+.report-result-table__body td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-result-table__body td > span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-result-table__body .report-date-cell > span,
+.report-result-table__body .report-source-readonly > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-result-table .table-core-footer-wrapper {
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.report-total-pagination {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  border-top: 1px solid #eadcaa;
+  background: #fff9e8;
+  color: #6a5319;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 .report-sort-button {
@@ -5584,6 +5628,8 @@ th {
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .report-pagination {

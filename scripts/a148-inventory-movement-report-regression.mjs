@@ -135,7 +135,7 @@ contains(composable, /resetForAccountSet\(\)[\s\S]*?invalidateRequests\(\)[\s\S]
 contains(composable, /loadAppliedQuery\(\)[\s\S]*?invalidateExportForQueryChange\(\)[\s\S]*?exportSerial \+= 1[\s\S]*?exportController\?\.abort\(\)/, "任一查询变化必须中止旧条件引出并使其响应失效");
 contains(composable, /response\.value\?\.query \?\? appliedQuery\.value/, "引出必须复用服务端 normalized query");
 excludes(composable + page, /parseFloat\(|parseInt\(|Number\(\s*row|reduce\(\s*\([^)]*total/i, "前端不得把精确数量转浮点或重算 totals");
-contains(page, /<TableCore[\s\S]*?:rows="rows"[\s\S]*?<template #footer>[\s\S]*?totals/, "共享页必须用 TableCore 并渲染服务端 totals footer");
+contains(page, /^(?=[\s\S]*const TOTALS_PAGE_SIZE = 20)(?=[\s\S]*const TOTALS_SCROLL_ROWS = 3)(?=[\s\S]*visibleTotals = computed\(\(\) => totals\.value\.slice\(totalsOffset\.value, totalsOffset\.value \+ TOTALS_PAGE_SIZE\)\))(?=[\s\S]*ref="reportTableWrap")(?=[\s\S]*<TableCore[\s\S]*?:rows="rows")(?=[\s\S]*:footer-wrapper-attrs="totalFooterAttrs")(?=[\s\S]*<template #footer>[\s\S]*?visibleTotals[\s\S]*?:title="totalCell\(totalRow, column\.key, columnIndex\)")(?=[\s\S]*report-total-pagination[\s\S]*?role="navigation"[\s\S]*?aria-live="polite"[\s\S]*?report-total-prev[\s\S]*?report-total-next)(?=[\s\S]*totalFooterAttrs = computed[\s\S]*totals\.value\.length === 0[\s\S]*"aria-hidden": "true"[\s\S]*currentPageScrollable = visibleTotals\.value\.length > TOTALS_SCROLL_ROWS[\s\S]*role: "region"[\s\S]*tabindex: currentPageScrollable \? 0 : -1)(?=[\s\S]*async function resetTotalsViewport\(\)[\s\S]*await nextTick\(\)[\s\S]*querySelector<HTMLElement>\("\.table-core-footer-wrapper"\)[\s\S]*footer\.scrollTop = 0)/, "共享页必须只分页展示服务端 totals、禁止挂载无界合计 DOM，并保留 title、按真实滚动状态暴露的可访问组页导航与翻页回顶");
 contains(page, /历史结存不可精确还原/, "缺失历史结存必须明确降级提示");
 contains(page, /历史记账日期（业务日期缺失）/, "POSTING_FALLBACK 日期必须明确提示");
 contains(domainConfig, /历史流水（源单不可定位）/, "不可定位历史来源必须由 typed trust contract 明确保持只读");
@@ -146,12 +146,16 @@ contains(page, /#header-cell="\{ column, startResize \}"[\s\S]*?table-core-colum
 for (const marker of ["report-filter-form", "report-query-summary", "report-refresh", "report-export", "report-column-settings", "report-empty", "report-error", "report-pagination"]) {
   contains(page, new RegExp(marker), `共享页缺少 ${marker} 状态或动作`);
 }
-contains(css, /\.report-total-row td[\s\S]*?background: #fff5c9/, "服务端合计行必须使用黄色视觉语义");
+contains(css, /\.report-result-table__body td[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?\.report-result-table \.table-core-footer-wrapper[\s\S]*?max-height: 96px;[\s\S]*?overflow-y: auto;[\s\S]*?\.report-total-row td[\s\S]*?background: #fff5c9[\s\S]*?text-overflow: ellipsis;/, "报表明细必须范围化截断长文本，高基数组服务端合计必须保留黄色语义且独立限高滚动");
 contains(css, /\.report-table-wrap[\s\S]*?overflow: hidden[\s\S]*?\.report-table-wrap > \.table-core-frame/, "页面不得横向溢出，横滚只能留在 TableCore");
 contains(css, /@media \(max-width: 1366px\)[\s\S]*?\.report-filter-grid/, "共享页必须有 1366 宽度适配");
 
-// Shell routing remains exact; old list-like report entries keep their current owner.
-excludes(catalog, /id: "inventory-movement-detail"/, "A148 不得在 A153 双视口与验收报告证据前提前发布 F042 catalog 入口");
+// Shell routing remains exact; the verified report is now published through its frozen owner and permission.
+contains(
+  catalog,
+  /id: "inventory-movement-detail", label: "商品收发明细", module: "库存管理", mode: "report", queryable: true, permission: "inventory\.stock\.view"/,
+  "F042 必须以 inventory.stock.view 发布商品收发明细 catalog 入口"
+);
 contains(app, /v-else-if="activeReportDefinition"[\s\S]*?<DataListPage[\s\S]*?tabs\.activeTab\.value\.kind === 'report'/, "精确 registry 报表走 ReportQueryPage，既有 report 仍走 DataListPage");
 contains(app, /tabs\.activeTab\.value\.kind === "report"[\s\S]*?reportDefinitionForEntryId\(tabs\.activeTabId\.value\)[\s\S]*?: null/, "App 必须同时校验 tab kind 与精确 registry entry");
 contains(app, /:key="activeReportDefinition\.entryId"/, "不同 report key 切换必须销毁旧查询状态而非复用组件");
