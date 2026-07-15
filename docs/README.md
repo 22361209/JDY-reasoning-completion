@@ -14,6 +14,24 @@
 
 ## 现行产品与工程规则
 
+### 所有实现改动必读
+
+1. [`04-架构决策记录.md`](04-架构决策记录.md)：长期技术与产品决策。
+2. [`08-工程规范.md`](08-工程规范.md)：代码分层、生成物、测试与文档边界。
+3. [`07-模块契约与边界.md`](07-模块契约与边界.md)：跨模块、tenant、身份、权限和事实域边界。
+
+### 按改动类型追加阅读
+
+| 改动类型 | 必读现行规范 |
+| --- | --- |
+| 页面、列表、表格、选择器、单据外壳 | [`10-前端体验与视觉规范.md`](10-前端体验与视觉规范.md)、[`guides/bld-page-unification-protocol.md`](guides/bld-page-unification-protocol.md) |
+| 保存、审核、反审核、作废、关闭、冻结、红冲 | [`guides/bill-lifecycle-unification-protocol.md`](guides/bill-lifecycle-unification-protocol.md)、[`guides/action-button-rules.md`](guides/action-button-rules.md) |
+| 按钮可见、可用、权限或危险确认 | [`guides/action-button-rules.md`](guides/action-button-rules.md) |
+| 列表查询、筛选、分页、导出 | [`13-列表API契约.md`](13-列表API契约.md)、[`guides/list-query-unification-protocol.md`](guides/list-query-unification-protocol.md) |
+| 报表、合计、CSV、钻取 | [`guides/report-query-protocol.md`](guides/report-query-protocol.md) |
+| 基础资料导入 | [`guides/master-data-import-protocol.md`](guides/master-data-import-protocol.md) |
+| 跨模块业务口径 | [`guides/business-rules.md`](guides/business-rules.md) |
+
 | 主题 | 文档 |
 | --- | --- |
 | 架构决策、产品化优先级 | [`04-架构决策记录.md`](04-架构决策记录.md) |
