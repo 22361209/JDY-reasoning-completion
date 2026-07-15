@@ -7,8 +7,8 @@
 1. `CLAUDE.md`：铁律、生成链、禁止事项。
 2. `docs/09-交接清单.md`：当前批次、服务地址、最近测试和下一步。
 3. `docs/12-当前批次验收清单.md`：唯一当前任务包，包含 base commit、允许路径、明确不做事项、待决项和验收门禁。
-4. `config/remediation-roadmap.json` 中由当前任务声明的 item 或 gate；不要把整条长期队列加载进当前任务。
-5. 当前任务涉及的代码文件与对应 `复刻-local` 截图/规格。
+4. `config/remediation-roadmap.json` 中由当前任务声明的 item 或 gate；治理任务可没有路线坐标。不要把整条长期队列加载进当前任务。
+5. 当前任务涉及的代码文件；仅在任务明确声明 JDY 参考时，再读取对应截图/规格。
 
 不要每次重读全部文档；按任务读取相关文件。
 
@@ -18,10 +18,10 @@
 
 - 规则口径：`docs/guides/business-rules.md`、`docs/guides/action-button-rules.md`
 - BLD 页面统一协议、动作按钮注册表、表格/表体硬约束：`docs/guides/bld-page-unification-protocol.md`
-- 单据/主数据字段与动作元数据路线：`docs/guides/bill-metadata-roadmap.md`
+- 单据/主数据字段与动作元数据路线：`docs/guides/bill-metadata-roadmap.md`（历史计划，非默认路线）
 - 多账套/初始化边界：`docs/guides/account-set-architecture.md`
 - A119 完整多账套迁移计划、A119-0 清单、A119-2 路由、A119-3 初始化：`docs/guides/a119-multi-account-migration-plan.md`、`docs/guides/a119-0-architecture-inventory.md`、`docs/guides/a119-2-tenant-context-routing.md`、`docs/guides/a119-3-account-set-initialization.md`
-- 新项目孵化/迁移决策：`docs/guides/new-project-migration-blueprint.md`
+- 新项目孵化/迁移决策：`docs/guides/new-project-migration-blueprint.md`（历史决策，非默认路线）
 - 回归动作：`scripts/helpers/`
 - 前端产品范式：`frontend/src/components/`、对应 `frontend/src/modules/**/use*.ts`
 - 后端业务规则：对应模块的 `application/`、`domain/`
@@ -108,13 +108,13 @@
 | 业务规则 | `docs/guides/business-rules.md` |
 | 动作按钮规则 | `docs/guides/action-button-rules.md` |
 | BLD 页面统一协议 | `docs/guides/bld-page-unification-protocol.md` |
-| 单据/主数据元数据路线 | `docs/guides/bill-metadata-roadmap.md` |
+| 单据/主数据元数据路线（历史计划） | `docs/guides/bill-metadata-roadmap.md` |
 | 多账套与初始化 | `docs/guides/account-set-architecture.md` |
 | A119 多账套迁移计划 | `docs/guides/a119-multi-account-migration-plan.md` |
 | A119-0 架构清单 | `docs/guides/a119-0-architecture-inventory.md` |
 | A119-2 路由底座 | `docs/guides/a119-2-tenant-context-routing.md` |
 | A119-3 账套初始化 | `docs/guides/a119-3-account-set-initialization.md` |
-| 新项目迁移蓝图 | `docs/guides/new-project-migration-blueprint.md` |
+| 新项目迁移蓝图（历史决策） | `docs/guides/new-project-migration-blueprint.md` |
 | 阻断整改与 P0 收口路线 | `config/remediation-roadmap.json` |
 
 ## 常用命令
