@@ -137,7 +137,7 @@ assert(item6e.targetAcceptance === "A3", "6E 目标验收等级必须为 A3");
 assert(item6e.predecessorIds?.length === 1 && item6e.predecessorIds[0] === "6D", "6E predecessor 必须只有 6D");
 
 const allowedPaths = frontmatterList(currentTask, "allowedPaths");
-assert(allowedPaths.length === 161, "A144 allowedPaths 数量必须精确冻结为 161");
+assert(allowedPaths.length === 162, "A144 allowedPaths 数量必须精确冻结为 162");
 assert(new Set(allowedPaths).size === allowedPaths.length, "A144 allowedPaths 不得重复");
 assert(
   allowedPaths.every((allowedPath) => !allowedPath.startsWith("/") && !/[?*\[\]]/.test(allowedPath)),
@@ -145,7 +145,7 @@ assert(
 );
 const allowedPathsHash = createHash("sha256").update([...allowedPaths].sort().join("\n")).digest("hex");
 assert(
-  allowedPathsHash === "edbc2440e1990bcb1723e67ea328ccdd648415630a21a87f3f6139a459f9be87",
+  allowedPathsHash === "0954f7fa3372080c11d01a1b6d20c9009b9d5f6e516621c6a68ca50aea3128ef",
   "A144 allowedPaths 精确集合不得漂移"
 );
 const plannedScripts = [
@@ -183,6 +183,10 @@ assert(
 assert(
   allowedPaths.includes("scripts/a115-metadata-definition-regression.mjs"),
   "A153 catalog 发布必须允许同步更新 A115 metadata gate"
+);
+assert(
+  allowedPaths.includes("scripts/a85-finance-posting-regression.mjs"),
+  "A153 当前错误入口清理必须允许同步更新 A85 财务过账浏览器兼容回归"
 );
 if (draftMode) {
   assertActualChangesWithinAllowed(git(["rev-parse", "HEAD"]), allowedPaths);
