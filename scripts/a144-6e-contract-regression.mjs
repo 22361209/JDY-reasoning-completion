@@ -137,7 +137,7 @@ assert(item6e.targetAcceptance === "A3", "6E 目标验收等级必须为 A3");
 assert(item6e.predecessorIds?.length === 1 && item6e.predecessorIds[0] === "6D", "6E predecessor 必须只有 6D");
 
 const allowedPaths = frontmatterList(currentTask, "allowedPaths");
-assert(allowedPaths.length === 162, "A144 allowedPaths 数量必须精确冻结为 162");
+assert(allowedPaths.length === 163, "A144 allowedPaths 数量必须精确冻结为 163");
 assert(new Set(allowedPaths).size === allowedPaths.length, "A144 allowedPaths 不得重复");
 assert(
   allowedPaths.every((allowedPath) => !allowedPath.startsWith("/") && !/[?*\[\]]/.test(allowedPath)),
@@ -145,7 +145,7 @@ assert(
 );
 const allowedPathsHash = createHash("sha256").update([...allowedPaths].sort().join("\n")).digest("hex");
 assert(
-  allowedPathsHash === "0954f7fa3372080c11d01a1b6d20c9009b9d5f6e516621c6a68ca50aea3128ef",
+  allowedPathsHash === "b0c8e0b69dccec638a115528011b635d1964a9034ec33077fc2339c3173d1a41",
   "A144 allowedPaths 精确集合不得漂移"
 );
 const plannedScripts = [
@@ -187,6 +187,15 @@ assert(
 assert(
   allowedPaths.includes("scripts/a85-finance-posting-regression.mjs"),
   "A153 当前错误入口清理必须允许同步更新 A85 财务过账浏览器兼容回归"
+);
+assert(
+  allowedPaths.includes("scripts/a118-outsourcing-chain-regression.mjs"),
+  "A153 最终 production area 必须允许修复 A118 委外链 fixture 隔离与精确清理"
+);
+assertContains(
+  currentTask,
+  /A118 委外链历史夹具冲突[\s\S]*全部 run-unique[\s\S]*create-only[\s\S]*409 时必须 fail-closed[\s\S]*禁止 update\/upsert、覆盖、认领或删除既有记录[\s\S]*完整语义快照、事务锁与 CAS 复验[\s\S]*精确 UUID 删除[\s\S]*归属不明必须回滚[\s\S]*不得借回归修复修改委外业务后端/,
+  "A118 授权必须冻结 run-unique、create-only、CAS 与既有数据 fail-closed 边界"
 );
 if (draftMode) {
   assertActualChangesWithinAllowed(git(["rev-parse", "HEAD"]), allowedPaths);
