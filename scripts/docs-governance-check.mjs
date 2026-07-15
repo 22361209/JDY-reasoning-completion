@@ -121,14 +121,18 @@ async function checkTopLevelNumbering() {
 }
 
 async function checkHistoricalMarkers() {
-  for (const relativePath of [
-    "docs/guides/new-project-migration-blueprint.md",
-    "docs/guides/bill-metadata-roadmap.md",
+  for (const [relativePath, supersededBy] of [
+    ["docs/archive/2026-06-A119-0-architecture-inventory.md", "docs/guides/account-set-architecture.md"],
+    ["docs/archive/2026-06-A119-2-tenant-context-routing.md", "docs/guides/account-set-architecture.md"],
+    ["docs/archive/2026-06-A119-3-account-set-initialization.md", "docs/guides/account-set-architecture.md"],
+    ["docs/archive/2026-06-A119-multi-account-migration-plan.md", "docs/guides/account-set-architecture.md"],
+    ["docs/archive/2026-06-new-project-migration-blueprint.md", "ADR-015"],
+    ["docs/archive/2026-06-bill-metadata-roadmap.md", "ADR-015"],
   ]) {
     const source = await readFile(path.join(rootDir, relativePath), "utf8");
     const frontmatter = parseFrontmatter(source, relativePath);
     expect(frontmatter.status === "historical", `${relativePath} must be marked historical`);
-    expect(frontmatter.supersededBy === "ADR-015", `${relativePath} must name ADR-015 as superseding decision`);
+    expect(frontmatter.supersededBy === supersededBy, `${relativePath} must name ${supersededBy} as superseding decision`);
   }
 }
 

@@ -31,7 +31,7 @@
 - [`archive/`](archive/)：历史任务合同、历史队列与已替换文档。
 - [`15-核心流稳定化追踪.md`](15-核心流稳定化追踪.md)：仅作为历史入口，不维护当前队列。
 - `01-审批结果复刻范围.md`、`02-第一版模块边界.md`、`03-开发执行顺序.md`：范围生成物，禁止手改；其中保留的复刻/阶段措辞属于审批时期记录，不覆盖 ADR-015、当前交接快照或当前任务包。
-- `guides/new-project-migration-blueprint.md` 与 `guides/bill-metadata-roadmap.md`：历史方案，保留背景但不作为当前默认路线。
+- `archive/2026-06-A119-*`、`archive/2026-06-new-project-migration-blueprint.md` 与 `archive/2026-06-bill-metadata-roadmap.md`：历史迁移过程与路线方案，保留背景但不作为当前默认路线。
 
 JDY 调研资料只在具体任务需要术语、交互或视觉参考时读取；它不替代本目录的现行规则。
 

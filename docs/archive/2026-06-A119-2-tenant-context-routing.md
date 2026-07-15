@@ -1,4 +1,11 @@
-# A119-2 TenantContext 与数据路由说明
+---
+status: historical
+supersededBy: docs/guides/account-set-architecture.md
+---
+
+# A119-2 TenantContext 与数据路由说明（历史过程）
+
+> A119 已完成。本文件保留中间路由阶段的边界，不是现行多账套规范。
 
 本文件记录 A119-2 的实现边界。A119-2 只完成“统一上下文 + 路由底座”，不代表所有业务表已经物理迁入 `tenant_*` 数据库；业务模块迁移仍归 A119-4。
 

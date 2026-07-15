@@ -1,4 +1,11 @@
-# A119-3 账套创建与初始化说明
+---
+status: historical
+supersededBy: docs/guides/account-set-architecture.md
+---
+
+# A119-3 账套创建与初始化说明（历史过程）
+
+> A119 已完成。本文件保留中间初始化方案，不是现行多账套规范。
 
 本文记录 A119-3 的实现边界：新建账套、初始化 tenant 结构、清空当前账套业务数据，并证明不会影响其他账套。
 

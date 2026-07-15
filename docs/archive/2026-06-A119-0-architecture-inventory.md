@@ -1,4 +1,11 @@
-# A119-0 架构清单与迁移路线冻结
+---
+status: historical
+supersededBy: docs/guides/account-set-architecture.md
+---
+
+# A119-0 架构清单与迁移路线冻结（历史过程）
+
+> A119 已完成。本文件保留迁移开始时的盘点，不是现行多账套规范。
 
 本文是 A119-0 的交付物。它回答四个问题：
 
