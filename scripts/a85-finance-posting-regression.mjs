@@ -427,22 +427,26 @@ async function captureFinanceLists(data) {
   try {
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
     await loginAsAdmin(page);
-    await page.getByTestId("module-应收应付").hover();
-    await page.getByTestId("query-receivable-list").click();
-    await page.getByTestId("tab-receivable-list").waitFor({ state: "visible" });
-    await page.getByTestId("list-keyword").fill(`YS-${data.salesOutAudited}`);
-    await page.getByTestId("list-keyword").press("Enter");
-    await page.getByText(`YS-${data.salesOutAudited}`).waitFor({ state: "visible" });
+    await page.getByTestId("module-应收应付").click();
+    await page.getByTestId("entry-receivable-detail").click();
+    await page.getByTestId("tab-receivable-detail").waitFor({ state: "visible" });
+    await page.getByTestId("report-date-from").fill(billDate);
+    await page.getByTestId("report-date-to").fill(billDate);
+    await page.getByTestId("report-keyword").fill(`YS-${data.salesOutAudited}`);
+    await page.getByTestId("report-query").click();
+    await page.getByText(`YS-${data.salesOutAudited}`).first().waitFor({ state: "visible" });
     const receivableShot = `a85-receivable-list-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, receivableShot), fullPage: true });
     screenshots.push(`verification/playwright/${receivableShot}`);
 
-    await page.getByTestId("module-应收应付").hover();
-    await page.getByTestId("query-payable-list").click();
-    await page.getByTestId("tab-payable-list").waitFor({ state: "visible" });
-    await page.getByTestId("list-keyword").fill(`YF-${data.purchaseInAudited}`);
-    await page.getByTestId("list-keyword").press("Enter");
-    await page.getByText(`YF-${data.purchaseInAudited}`).waitFor({ state: "visible" });
+    await page.getByTestId("module-应收应付").click();
+    await page.getByTestId("entry-payable-detail").click();
+    await page.getByTestId("tab-payable-detail").waitFor({ state: "visible" });
+    await page.getByTestId("report-date-from").fill(billDate);
+    await page.getByTestId("report-date-to").fill(billDate);
+    await page.getByTestId("report-keyword").fill(`YF-${data.purchaseInAudited}`);
+    await page.getByTestId("report-query").click();
+    await page.getByText(`YF-${data.purchaseInAudited}`).first().waitFor({ state: "visible" });
     const payableShot = `a85-payable-list-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, payableShot), fullPage: true });
     screenshots.push(`verification/playwright/${payableShot}`);
