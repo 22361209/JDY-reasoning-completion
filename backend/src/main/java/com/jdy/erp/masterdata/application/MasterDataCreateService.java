@@ -514,7 +514,12 @@ public class MasterDataCreateService {
         return jdbcTemplate.queryForMap("""
             INSERT INTO md_unit (code, name, decimal_places, sort_no, remark, enabled)
             VALUES (?, ?, ?, ?, ?, ?)
-            RETURNING id::text AS id, code, name
+            RETURNING id::text AS id,
+                      code,
+                      name,
+                      version,
+                      CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                      CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             """,
             validated.code(),
             validated.name(),
@@ -530,7 +535,13 @@ public class MasterDataCreateService {
         return jdbcTemplate.queryForMap("""
             INSERT INTO md_production_department (code, name, manager, remark, enabled, audit_status)
             VALUES (?, ?, ?, ?, ?, 'DRAFT')
-            RETURNING id::text AS id, system_no::text AS "systemNo", code, name, CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus"
+            RETURNING id::text AS id,
+                      system_no::text AS "systemNo",
+                      code,
+                      name,
+                      version,
+                      CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                      CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             """,
             validated.code(),
             validated.name(),

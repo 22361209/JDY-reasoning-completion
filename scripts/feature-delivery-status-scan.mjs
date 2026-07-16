@@ -228,7 +228,7 @@ async function validateRemediationRoadmap({ roadmap, effectiveById, statusById, 
   assert(Array.isArray(roadmap.gates), "roadmap.gates must be an array");
   assert(Array.isArray(roadmap.items), "roadmap.items must be an array");
 
-  const expectedOrder = ["0", "1", "2", "3", "4", "5", "6", "6A", "6B", "6C", "6D", "6E"];
+  const approvedOrderPrefix = ["0", "1", "2", "3", "4", "5", "6", "6A", "6B", "6C", "6D", "6E"];
   const expectedTitles = new Map([
     ["0", "上下文与范围持续漂移"],
     ["1", "后端测试和 Flyway 不可复现"],
@@ -250,16 +250,24 @@ async function validateRemediationRoadmap({ roadmap, effectiveById, statusById, 
     ["6D", ["F008"]],
     ["6E", ["F029", "F042", "F061", "F091", "F093"]]
   ]);
-  const expectedKinds = new Map(expectedOrder.map((id) => [
+  const expectedKinds = new Map(approvedOrderPrefix.map((id) => [
     id,
     id === "0" ? "governance" : id.startsWith("6") && id.length > 1 ? "feature_delivery" : "cross_cutting"
   ]));
-  const expectedAcceptance = new Map(expectedOrder.map((id) => [
+  const expectedAcceptance = new Map(approvedOrderPrefix.map((id) => [
     id,
     id === "6A" || id === "6E" ? "A3" : "A4"
   ]));
-  assert.deepEqual(roadmap.order, expectedOrder, "remediation roadmap must preserve the approved 0-6 and 6A-6E order");
-  assert.deepEqual(roadmap.items.map((item) => item.id), expectedOrder, "roadmap.items must follow roadmap.order exactly");
+  assert(
+    roadmap.order.length >= approvedOrderPrefix.length,
+    "remediation roadmap cannot remove approved 0-6 and 6A-6E items"
+  );
+  assert.deepEqual(
+    roadmap.order.slice(0, approvedOrderPrefix.length),
+    approvedOrderPrefix,
+    "remediation roadmap must preserve the approved 0-6 and 6A-6E order as an immutable prefix"
+  );
+  assert.deepEqual(roadmap.items.map((item) => item.id), roadmap.order, "roadmap.items must follow roadmap.order exactly");
 
   const itemById = new Map();
   const allowedKinds = new Set(["governance", "cross_cutting", "feature_delivery"]);
@@ -270,16 +278,22 @@ async function validateRemediationRoadmap({ roadmap, effectiveById, statusById, 
     assert(!itemById.has(item.id), `duplicate roadmap item: ${item.id}`);
     assert.equal(typeof item.title, "string", `${item.id}: title must be a string`);
     assert(item.title.trim().length > 0, `${item.id}: title cannot be blank`);
-    assert.equal(item.title, expectedTitles.get(item.id), `${item.id}: title does not match the approved remediation route`);
+    if (expectedTitles.has(item.id)) {
+      assert.equal(item.title, expectedTitles.get(item.id), `${item.id}: title does not match the approved remediation route`);
+    }
     assert(allowedKinds.has(item.kind), `${item.id}: invalid kind ${item.kind}`);
-    assert.equal(item.kind, expectedKinds.get(item.id), `${item.id}: kind does not match the approved remediation route`);
+    if (expectedKinds.has(item.id)) {
+      assert.equal(item.kind, expectedKinds.get(item.id), `${item.id}: kind does not match the approved remediation route`);
+    }
     assert(levels.has(item.targetAcceptance), `${item.id}: invalid targetAcceptance ${item.targetAcceptance}`);
-    assert.equal(item.targetAcceptance, expectedAcceptance.get(item.id), `${item.id}: targetAcceptance does not match the approved remediation route`);
+    if (expectedAcceptance.has(item.id)) {
+      assert.equal(item.targetAcceptance, expectedAcceptance.get(item.id), `${item.id}: targetAcceptance does not match the approved remediation route`);
+    }
     assertStringArray(item.scopeIds, `${item.id}: scopeIds`, { allowEmpty: item.kind !== "feature_delivery" });
     assert.equal(new Set(item.scopeIds).size, item.scopeIds.length, `${item.id}: duplicate scope ID`);
     if (expectedFeatureScopeIds.has(item.id)) {
       assert.deepEqual([...item.scopeIds].sort(), [...expectedFeatureScopeIds.get(item.id)].sort(), `${item.id}: feature scope IDs do not match the approved route`);
-    } else {
+    } else if (expectedTitles.has(item.id)) {
       assert.equal(item.scopeIds.length, 0, `${item.id}: cross-cutting route item cannot claim feature scope IDs`);
     }
     for (const scopeId of item.scopeIds) {

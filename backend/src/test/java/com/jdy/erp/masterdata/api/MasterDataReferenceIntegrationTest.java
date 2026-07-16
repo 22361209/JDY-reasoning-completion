@@ -110,8 +110,8 @@ class MasterDataReferenceIntegrationTest {
     }
 
     @Test
-    void fourLegacyPutRoutesReturnMethodNotAllowedBeforeReadingLegacyFields() {
-        for (var type : new String[] {"product", "customer", "supplier", "warehouse"}) {
+    void sparsePatchMasterRoutesReturnMethodNotAllowedBeforeReadingLegacyFields() {
+        for (var type : new String[] {"product", "customer", "supplier", "warehouse", "unit", "productionDepartment"}) {
             assertThatThrownBy(() -> controller.update(type, "A138-NO-NAME", NullNode.getInstance()))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
@@ -190,6 +190,27 @@ class MasterDataReferenceIntegrationTest {
         assertThat(auditResult)
             .containsEntry("status", "禁用")
             .containsEntry("version", before + 2);
+        assertThatThrownBy(() -> controller.audit("customer", code))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT version FROM md_customer WHERE code = ?",
+            Long.class,
+            code
+        )).isEqualTo(before + 2);
+
+        var reverseResult = controller.reverseAudit("customer", code);
+        assertThat(reverseResult).containsEntry("version", before + 3);
+        assertThatThrownBy(() -> controller.reverseAudit("customer", code))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT version FROM md_customer WHERE code = ?",
+            Long.class,
+            code
+        )).isEqualTo(before + 3);
 
         for (var listKey : new String[] {
             "product-master-list",
@@ -205,7 +226,12 @@ class MasterDataReferenceIntegrationTest {
     @Test
     void realMvcEnforcesPermissionAndWritesSanitizedSuccessLog() throws Exception {
         var code = "KH-A138-HTTP-" + Long.toUnsignedString(System.nanoTime(), 36).toUpperCase();
-        controller.create("customer", Map.of("code", code, "name", "A138 HTTP 客户"));
+        var adminSession = login("admin", "admin123");
+        mockMvc.perform(post("/api/master-data/customer")
+                .session(adminSession)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"" + code + "\",\"name\":\"A138 HTTP 客户\"}"))
+            .andExpect(status().isCreated());
         var version = jdbcTemplate.queryForObject(
             "SELECT version FROM md_customer WHERE code = ?",
             Long.class,
@@ -224,7 +250,6 @@ class MasterDataReferenceIntegrationTest {
             code
         )).isNull();
 
-        var adminSession = login("admin", "admin123");
         mockMvc.perform(patch("/api/master-data/customer/{code}", code)
                 .session(adminSession)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -232,6 +257,16 @@ class MasterDataReferenceIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.version").value(version + 1))
             .andExpect(jsonPath("$.remark").value("有权写入"));
+
+        mockMvc.perform(patch("/api/master-data/customer/{code}/status", code)
+                .session(adminSession)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"禁用\"}"))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/master-data/customer/{code}/audit", code).session(adminSession))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/master-data/customer/{code}/reverse", code).session(adminSession))
+            .andExpect(status().isOk());
 
         var log = jdbcTemplate.queryForMap("""
             SELECT failure_reason AS reason, before_state::text AS before_state, after_state::text AS after_state
@@ -247,6 +282,32 @@ class MasterDataReferenceIntegrationTest {
             .doesNotContain("有权写入");
         assertThat(String.valueOf(log.get("before_state"))).contains("auditStatus", "enabled");
         assertThat(String.valueOf(log.get("after_state"))).contains("auditStatus", "enabled");
+
+        var lifecycleLogs = jdbcTemplate.queryForList("""
+            SELECT action_code, actor_username, account_set_code
+            FROM sys_operation_log
+            WHERE target_no = ?
+              AND action_code IN ('CREATE_MASTER_DATA', 'DISABLE_MASTER_DATA', 'AUDIT_MASTER_DATA', 'REVERSE_MASTER_DATA')
+            """, code);
+        assertThat(lifecycleLogs)
+            .extracting(row -> String.valueOf(row.get("action_code")))
+            .containsExactlyInAnyOrder(
+                "CREATE_MASTER_DATA",
+                "DISABLE_MASTER_DATA",
+                "AUDIT_MASTER_DATA",
+                "REVERSE_MASTER_DATA"
+            );
+        assertThat(lifecycleLogs).allSatisfy(row -> assertThat(row)
+            .containsEntry("actor_username", "admin")
+            .containsEntry("account_set_code", "BLD-TEST"));
+        var createAfterState = jdbcTemplate.queryForObject("""
+            SELECT after_state::text
+            FROM sys_operation_log
+            WHERE action_code = 'CREATE_MASTER_DATA' AND target_no = ?
+            ORDER BY operated_at DESC
+            LIMIT 1
+            """, String.class, code);
+        assertThat(createAfterState).contains("auditStatus", "DRAFT", "enabled", "true");
     }
 
     private MockHttpSession login(String username, String password) throws Exception {

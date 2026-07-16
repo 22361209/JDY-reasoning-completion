@@ -185,6 +185,54 @@ class MasterDataPatchServiceIntegrationTest {
     }
 
     @Test
+    void unitAndProductionDepartmentUseSparsePatchWithVersionAndLifecycleGuards() {
+        var suffix = suffix();
+        var unitCode = "UNIT-A160-" + suffix;
+        controller.create("unit", Map.ofEntries(
+            Map.entry("code", unitCode),
+            Map.entry("decimalPlaces", "2"),
+            Map.entry("sortNo", "7"),
+            Map.entry("remark", "单位原备注")
+        ));
+        var unitBefore = row("md_unit", unitCode);
+        var unitVersion = ((Number) unitBefore.get("version")).longValue();
+        service.patch("unit", unitCode, unitVersion, changes("decimalPlaces", 3));
+        var unitAfter = row("md_unit", unitCode);
+        assertThat(unitAfter.get("decimal_places")).isEqualTo(3);
+        assertThat(unitAfter.get("sort_no")).isEqualTo(unitBefore.get("sort_no"));
+        assertThat(unitAfter.get("remark")).isEqualTo(unitBefore.get("remark"));
+        assertThat(unitAfter.get("version")).isEqualTo(unitVersion + 1);
+        assertStatus(HttpStatus.CONFLICT, () -> service.patch("unit", unitCode, unitVersion, changes("sortNo", 8)));
+        assertThat(row("md_unit", unitCode)).isEqualTo(unitAfter);
+        assertStatus(HttpStatus.BAD_REQUEST, () -> service.patch(
+            "unit", unitCode, unitVersion + 1, changes("decimalPlaces", 1.5)
+        ));
+
+        var departmentCode = "DEPT-A160-" + suffix;
+        controller.create("productionDepartment", Map.ofEntries(
+            Map.entry("code", departmentCode),
+            Map.entry("name", "A160 生产部门"),
+            Map.entry("manager", "原负责人"),
+            Map.entry("remark", "部门原备注")
+        ));
+        var departmentBefore = row("md_production_department", departmentCode);
+        var departmentVersion = ((Number) departmentBefore.get("version")).longValue();
+        service.patch("productionDepartment", departmentCode, departmentVersion, changes("manager", "新负责人"));
+        var departmentAfter = row("md_production_department", departmentCode);
+        assertThat(departmentAfter.get("manager")).isEqualTo("新负责人");
+        assertThat(departmentAfter.get("name")).isEqualTo(departmentBefore.get("name"));
+        assertThat(departmentAfter.get("remark")).isEqualTo(departmentBefore.get("remark"));
+        assertThat(departmentAfter.get("version")).isEqualTo(departmentVersion + 1);
+
+        controller.audit("productionDepartment", departmentCode);
+        var auditedVersion = version("md_production_department", departmentCode);
+        assertStatus(HttpStatus.CONFLICT, () -> service.patch(
+            "productionDepartment", departmentCode, auditedVersion, changes("manager", "不应写入")
+        ));
+        assertThat(version("md_production_department", departmentCode)).isEqualTo(auditedVersion);
+    }
+
+    @Test
     void rejectsUnknownRequiredLifecycleAndWrongJsonTypesWithoutChangingRow() {
         var code = "KH-A138-BAD-" + suffix();
         controller.create("customer", Map.of(
@@ -495,7 +543,9 @@ class MasterDataPatchServiceIntegrationTest {
             "md_product", true,
             "md_customer", true,
             "md_supplier", true,
-            "md_warehouse", true
+            "md_warehouse", true,
+            "md_unit", true,
+            "md_production_department", true
         );
 
         private SetOfTables() {

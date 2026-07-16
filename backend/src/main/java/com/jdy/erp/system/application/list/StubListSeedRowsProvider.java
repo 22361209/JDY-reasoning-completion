@@ -805,6 +805,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    decimal_places AS "decimalPlaces",
                    sort_no AS "sortNo",
                    COALESCE(remark, '') AS remark,
+                   version,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
@@ -956,6 +957,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    name,
                    COALESCE(manager, '') AS manager,
                    COALESCE(remark, '') AS remark,
+                   version,
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"

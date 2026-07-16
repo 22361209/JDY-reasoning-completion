@@ -101,6 +101,17 @@ public class MasterDataPatchService {
             Map.entry("stockPolicy", stockPolicy("allow_negative_stock", "负库存策略")),
             Map.entry("remark", optionalText("remark", "备注", 0))
         )),
+        "unit", new MasterDefinition("md_unit", Map.ofEntries(
+            Map.entry("name", requiredText("name", "单位名称", 120)),
+            Map.entry("decimalPlaces", requiredInteger("decimal_places", "数量小数位")),
+            Map.entry("sortNo", requiredInteger("sort_no", "排序")),
+            Map.entry("remark", optionalText("remark", "备注", 0))
+        )),
+        "productionDepartment", new MasterDefinition("md_production_department", Map.ofEntries(
+            Map.entry("name", requiredText("name", "部门名称", 200)),
+            Map.entry("manager", optionalText("manager", "负责人", 120)),
+            Map.entry("remark", optionalText("remark", "备注", 0))
+        )),
         "employee", new MasterDefinition("md_employee", Map.ofEntries(
             Map.entry("name", requiredText("name", "员工姓名", 200)),
             Map.entry("position", optionalText("position", "岗位", 120)),
@@ -192,6 +203,9 @@ public class MasterDataPatchService {
         arguments.add(normalizedCode);
         arguments.add(expectedVersion);
 
+        var systemNoColumn = hasSystemNo(type)
+            ? "system_no::text AS \"systemNo\","
+            : "";
         var sql = """
             UPDATE %s
             SET %s
@@ -200,13 +214,13 @@ public class MasterDataPatchService {
               AND version = ?
               AND audit_status = 'DRAFT'
             RETURNING id::text AS id,
-                      system_no::text AS "systemNo",
+                      %s
                       code,
                       name,
                       version,
                       CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '草稿' END AS "auditStatus",
                       CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status
-            """.formatted(definition.table(), String.join(", ", clauses));
+            """.formatted(definition.table(), String.join(", ", clauses), systemNoColumn);
 
         final List<Map<String, Object>> updatedRows;
         try {
@@ -282,6 +296,13 @@ public class MasterDataPatchService {
             return null;
         }
         return (String) normalizedText(node, definition.fields().get(field), true);
+    }
+
+    private boolean hasSystemNo(String type) {
+        return switch (type) {
+            case "product", "customer", "supplier", "warehouse", "productionDepartment", "employee", "financialAccount" -> true;
+            default -> false;
+        };
     }
 
     private Map<String, Object> normalizedRow(String type, String code) {
@@ -398,6 +419,34 @@ public class MasterDataPatchService {
                 FROM md_warehouse
                 WHERE code = ?
                 """;
+            case "unit" -> """
+                SELECT id::text AS id,
+                       code,
+                       name,
+                       decimal_places AS "decimalPlaces",
+                       sort_no AS "sortNo",
+                       COALESCE(remark, '') AS remark,
+                       version,
+                       CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                       CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                       to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+                FROM md_unit
+                WHERE code = ?
+                """;
+            case "productionDepartment" -> """
+                SELECT id::text AS id,
+                       system_no::text AS "systemNo",
+                       code,
+                       name,
+                       COALESCE(manager, '') AS manager,
+                       COALESCE(remark, '') AS remark,
+                       version,
+                       CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                       CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                       to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+                FROM md_production_department
+                WHERE code = ?
+                """;
             case "employee" -> """
                 SELECT id::text AS id,
                        system_no::text AS "systemNo",
@@ -464,6 +513,7 @@ public class MasterDataPatchService {
             case TEXT -> normalizedText(node, spec, true);
             case RAW_TEXT -> normalizedText(node, spec, false);
             case DECIMAL -> decimalValue(node, spec.label());
+            case INTEGER -> integerValue(node, spec.label());
             case BOOLEAN -> {
                 if (!node.isBoolean()) {
                     throw badRequest(spec.label() + "必须为布尔值");
@@ -520,6 +570,17 @@ public class MasterDataPatchService {
         }
         var value = node.decimalValue();
         if (value.compareTo(BigDecimal.ZERO) < 0) {
+            throw badRequest(label + "不能小于 0");
+        }
+        return value;
+    }
+
+    private int integerValue(JsonNode node, String label) {
+        if (!node.isIntegralNumber() || !node.canConvertToInt()) {
+            throw badRequest(label + "必须为非负整数");
+        }
+        var value = node.intValue();
+        if (value < 0) {
             throw badRequest(label + "不能小于 0");
         }
         return value;
@@ -589,6 +650,10 @@ public class MasterDataPatchService {
 
     private static FieldSpec optionalDecimal(String column, String label) {
         return new FieldSpec(column, label, ValueType.DECIMAL, true, 0, null);
+    }
+
+    private static FieldSpec requiredInteger(String column, String label) {
+        return new FieldSpec(column, label, ValueType.INTEGER, false, 0, null);
     }
 
     private static FieldSpec requiredBoolean(String column, String label) {
@@ -672,6 +737,7 @@ public class MasterDataPatchService {
         TEXT,
         RAW_TEXT,
         DECIMAL,
+        INTEGER,
         BOOLEAN,
         STOCK_POLICY,
         ACCOUNT_TYPE,

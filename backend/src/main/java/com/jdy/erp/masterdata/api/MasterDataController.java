@@ -10,6 +10,7 @@ import com.jdy.erp.masterdata.application.MasterDataCreateService;
 import com.jdy.erp.masterdata.application.MasterDataPatchService;
 import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
+import com.jdy.erp.system.tenant.TenantContext;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.http.HttpStatus;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -32,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MasterDataController {
     private static final Set<String> A140_MASTER_TYPES = Set.of("employee", "financialAccount");
     private static final Set<String> SPARSE_PATCH_TYPES = Set.of(
-        "product", "customer", "supplier", "warehouse", "employee", "financialAccount"
+        "product", "customer", "supplier", "warehouse", "unit", "productionDepartment", "employee", "financialAccount"
     );
 
     private final JdbcTemplate jdbcTemplate;
@@ -58,17 +59,17 @@ public class MasterDataController {
     @Transactional
     public Map<String, Object> create(@PathVariable String type, @RequestBody Map<String, String> payload) {
         var result = masterDataCreateService.create(type, payload);
-        if (A140_MASTER_TYPES.contains(type)) {
-            var enabled = "启用".equals(String.valueOf(result.get("status")));
-            logMasterDataChange(
-                "CREATE_MASTER_DATA",
-                type,
-                result,
-                Map.of(),
-                masterState("DRAFT", enabled),
-                "fields=" + String.join(",", payload.keySet().stream().sorted().toList()) + "; version=0"
-            );
-        }
+        var enabled = result.containsKey("status")
+            ? "启用".equals(String.valueOf(result.get("status")))
+            : !"禁用".equals(payload.getOrDefault("status", "启用"));
+        logMasterDataChange(
+            "CREATE_MASTER_DATA",
+            type,
+            result,
+            Map.of(),
+            masterState("DRAFT", enabled),
+            "fields=" + String.join(",", payload.keySet().stream().sorted().toList()) + "; version=0"
+        );
         return result;
     }
 
@@ -261,66 +262,38 @@ public class MasterDataController {
     }
 
     private Map<String, Object> setEnabled(String type, String code, boolean enabled) {
-        if (A140_MASTER_TYPES.contains(type)) {
-            var current = lockA140Master(type, code);
-            var beforeEnabled = Boolean.TRUE.equals(current.get("enabled"));
-            var beforeAuditStatus = String.valueOf(current.get("audit_status"));
-            var result = updateAndReturn(
-                "UPDATE " + tableName(type)
-                    + " SET enabled = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING "
-                    + returningFor(type),
-                enabled,
-                code
-            );
-            logMasterDataChange(
-                enabled ? "ENABLE_MASTER_DATA" : "DISABLE_MASTER_DATA",
-                type,
-                result,
-                masterState(beforeAuditStatus, beforeEnabled),
-                masterState(beforeAuditStatus, enabled),
-                "version=" + current.get("version") + "->" + result.get("version")
-            );
-            return result;
-        }
+        var current = lockMasterData(type, code);
+        var beforeEnabled = Boolean.TRUE.equals(current.get("enabled"));
+        var beforeAuditStatus = String.valueOf(current.get("audit_status"));
         if (!enabled) {
             assertNotReferencedByProduct(type, code, "禁用");
         }
         var table = tableName(type);
-        return updateAndReturn("UPDATE " + table + " SET enabled = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING " + returningFor(type),
+        var result = updateAndReturn("UPDATE " + table + " SET enabled = ?, updated_at = now(), version = version + 1 WHERE code = ? AND enabled = ? RETURNING " + returningFor(type),
             enabled,
-            code
+            code,
+            beforeEnabled
         );
+        logMasterDataChange(
+            enabled ? "ENABLE_MASTER_DATA" : "DISABLE_MASTER_DATA",
+            type,
+            result,
+            masterState(beforeAuditStatus, beforeEnabled),
+            masterState(beforeAuditStatus, enabled),
+            "version=" + current.get("version") + "->" + result.get("version")
+        );
+        return result;
     }
 
     private Map<String, Object> setAuditStatus(String type, String code, String auditStatus) {
-        if (A140_MASTER_TYPES.contains(type)) {
-            var current = lockA140Master(type, code);
-            var beforeAuditStatus = String.valueOf(current.get("audit_status"));
-            var expectedBefore = "AUDITED".equals(auditStatus) ? "DRAFT" : "AUDITED";
-            if (!expectedBefore.equals(beforeAuditStatus)) {
-                throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "AUDITED".equals(auditStatus) ? "只有草稿资料可以审核" : "只有已审核资料可以反审核"
-                );
-            }
-            var enabled = Boolean.TRUE.equals(current.get("enabled"));
-            var result = updateAndReturn(
-                "UPDATE " + tableName(type)
-                    + " SET audit_status = ?, updated_at = now(), version = version + 1"
-                    + " WHERE code = ? AND audit_status = ? RETURNING " + returningFor(type),
-                auditStatus,
-                code,
-                expectedBefore
+        var current = lockMasterData(type, code);
+        var beforeAuditStatus = String.valueOf(current.get("audit_status"));
+        var expectedBefore = "AUDITED".equals(auditStatus) ? "DRAFT" : "AUDITED";
+        if (!expectedBefore.equals(beforeAuditStatus)) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "AUDITED".equals(auditStatus) ? "只有草稿资料可以审核" : "只有已审核资料可以反审核"
             );
-            logMasterDataChange(
-                "AUDITED".equals(auditStatus) ? "AUDIT_MASTER_DATA" : "REVERSE_MASTER_DATA",
-                type,
-                result,
-                masterState(beforeAuditStatus, enabled),
-                masterState(auditStatus, enabled),
-                "version=" + current.get("version") + "->" + result.get("version")
-            );
-            return result;
         }
         if ("product".equals(type) && "AUDITED".equals(auditStatus)) {
             validateProductReferencesBeforeAudit(code);
@@ -329,10 +302,21 @@ public class MasterDataController {
             assertNotReferencedByProduct(type, code, "反审核");
         }
         var table = tableName(type);
-        return updateAndReturn("UPDATE " + table + " SET audit_status = ?, updated_at = now(), version = version + 1 WHERE code = ? RETURNING " + returningFor(type),
+        var enabled = Boolean.TRUE.equals(current.get("enabled"));
+        var result = updateAndReturn("UPDATE " + table + " SET audit_status = ?, updated_at = now(), version = version + 1 WHERE code = ? AND audit_status = ? RETURNING " + returningFor(type),
             auditStatus,
-            code
+            code,
+            expectedBefore
         );
+        logMasterDataChange(
+            "AUDITED".equals(auditStatus) ? "AUDIT_MASTER_DATA" : "REVERSE_MASTER_DATA",
+            type,
+            result,
+            masterState(beforeAuditStatus, enabled),
+            masterState(auditStatus, enabled),
+            "version=" + current.get("version") + "->" + result.get("version")
+        );
+        return result;
     }
 
     private Map<String, Object> deleteProduct(String code) {
@@ -426,7 +410,7 @@ public class MasterDataController {
         };
     }
 
-    private Map<String, Object> lockA140Master(String type, String code) {
+    private Map<String, Object> lockMasterData(String type, String code) {
         var rows = jdbcTemplate.queryForList(
             "SELECT id::text AS id, code, audit_status, enabled, version FROM " + tableName(type) + " WHERE code = ? FOR UPDATE",
             code
@@ -452,6 +436,10 @@ public class MasterDataController {
         Map<OperationLogCommand.StateField, Object> afterState,
         String reason
     ) {
+        // Direct service/controller fixtures do not represent an HTTP operation and intentionally have no request scope.
+        if (TenantContext.current().isEmpty()) {
+            return;
+        }
         operationLogService.logCurrent(OperationLogCommand.success(
             "MASTER_DATA",
             action,

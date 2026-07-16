@@ -173,7 +173,8 @@ export const masterDataDefinitions: Record<string, MasterDataDefinition> = {
       { field: "code", title: "单位名称", width: 180, visible: true },
       { field: "decimalPlaces", title: "数量小数位", width: 120, align: "right", visible: true }
     ],
-    fields: unitMasterFields
+    fields: unitMasterFields,
+    sparsePatch: true
   },
   "customer-master-list": {
     listKey: "customer-master-list",
@@ -286,7 +287,8 @@ export const masterDataDefinitions: Record<string, MasterDataDefinition> = {
       { field: "name", title: "部门名称", width: 180, visible: true },
       { field: "manager", title: "负责人", width: 130, visible: true }
     ],
-    fields: productionDepartmentFields
+    fields: productionDepartmentFields,
+    sparsePatch: true
   },
   "employee-master-list": {
     ...employeeDefinition,

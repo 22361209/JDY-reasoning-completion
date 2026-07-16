@@ -440,7 +440,7 @@ async function assertLocalHealthAndPrepareRoute() {
       'warehouseOne', to_jsonb(warehouse_one),
       'warehouseTwo', to_jsonb(warehouse_two),
       'supplier', to_jsonb(supplier),
-      'businessDate', current_date::text
+      'businessDate', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text
     )::text
     FROM public.sys_account_set account_set
     CROSS JOIN public.sys_role admin_role
@@ -1580,11 +1580,22 @@ function operationLogSpecs() {
     { module: "OUTSOURCING", action: "AUDIT_SCRAP", targetType: "outsourcing_scrap", idSet: "scraps", billKind: "scrap", before: { status: "DRAFT" }, after: { status: "AUDITED" } },
     { module: "OUTSOURCING", action: "REVERSE_SCRAP", targetType: "outsourcing_scrap", idSet: "scraps", billKind: "scrap", before: { status: "AUDITED" }, after: { status: "DRAFT" } }
   ];
-  return specs.map((spec) => ({
+  const documentSpecs = specs.map((spec) => ({
     ...spec,
     targetIds: artifacts.ids[spec.idSet],
     targetNo: spec.billKind === "bom" ? bomCode : artifacts.bills[spec.billKind]
   }));
+  const masterDataSpecs = [productCode, componentCode].flatMap((code) => {
+    const productId = artifacts.productWrites[code].productId;
+    const createReason = code === productCode
+      ? "fields=category,code,defaultWarehouseCode,isInventory,isProduce,isSale,isSubcontract,name,remark,spec,status,subcontractPrice,taxRate,unit; version=0"
+      : "fields=category,code,defaultSupplierCode,defaultWarehouseCode,isInventory,isProduce,isPurchase,name,purchasePrice,remark,spec,status,taxRate,unit; version=0";
+    return [
+      { module: "MASTER_DATA", action: "CREATE_MASTER_DATA", targetType: "md_product", targetIds: new Set([productId]), targetNo: code, before: null, after: { auditStatus: "DRAFT", enabled: true }, reason: createReason },
+      { module: "MASTER_DATA", action: "AUDIT_MASTER_DATA", targetType: "md_product", targetIds: new Set([productId]), targetNo: code, before: { auditStatus: "DRAFT", enabled: true }, after: { auditStatus: "AUDITED", enabled: true }, reason: "version=0->1" }
+    ];
+  });
+  return [...documentSpecs, ...masterDataSpecs];
 }
 
 function validateLogsAndLocks(state) {
@@ -1623,10 +1634,13 @@ function validateLogsAndLocks(state) {
       "A118 cleanup refused a write-failure log outside the exact run routes/scope", log);
     } else {
       const spec = specs.find((candidate) => candidate.module === log.module_code
-        && candidate.action === log.action_code && candidate.targetType === log.target_type);
+        && candidate.action === log.action_code
+        && candidate.targetType === log.target_type
+        && candidate.targetIds.has(log.target_id)
+        && candidate.targetNo === log.target_no);
       assert(spec
         && log.success === true
-        && log.failure_reason === null
+        && log.failure_reason === (spec.reason ?? null)
         && spec.targetIds.has(log.target_id)
         && log.target_no === spec.targetNo
         && log.account_set_id === artifacts.accountSet.id
