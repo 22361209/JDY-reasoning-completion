@@ -645,7 +645,7 @@ function verifyBrowserEvidenceBundle(browserArtifacts, browserClaim, cleanupClai
         assertExactKeys(entry.initialResponse, ["status", "ruleCount"],
           `A153 numbering initial response schema ${viewportSpec.viewport}`);
         assert(entry.initialResponse?.status === 200 && entry.initialResponse?.ruleCount === 27,
-          `A153 numbering route 必须绑定 27 条规则: ${viewportSpec.viewport}`);
+          `A153 archived numbering route 必须保持其已发布时的 27 条规则证据: ${viewportSpec.viewport}`);
       } else {
         assert(entry.initialResponse === null, `A153 form route 不得伪造初始 API 响应: ${viewportSpec.viewport}`);
       }

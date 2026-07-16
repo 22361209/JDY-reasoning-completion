@@ -152,7 +152,7 @@ function topology(database, schema) {
 function assertTopology(label, actual, expectedFk) {
   assert.deepEqual(
     Object.fromEntries(Object.entries(actual).map(([key, value]) => [key, Number(value)])),
-    { tables: 84, pk: 84, uk: 79, fk: expectedFk, check: 97 },
+    { tables: 86, pk: 86, uk: 81, fk: expectedFk, check: 105 },
     `${label} topology mismatch`
   );
 }
@@ -539,9 +539,12 @@ if (!primaryError) {
     flyway(upgradeDatabase);
     const upgradeHistory = history(upgradeDatabase);
     const v108 = upgradeHistory.filter((row) => row.version === "108");
+    const v109 = upgradeHistory.filter((row) => row.version === "109");
     assert.equal(v108.length, 1, "upgrade must apply V108 exactly once");
     assert.equal(v108[0].success, true, "V108 must be successful");
-    assert.equal(upgradeHistory.at(-1)?.version, "108", "repository latest upgrade must end at V108");
+    assert.equal(v109.length, 1, "upgrade must apply V109 exactly once");
+    assert.equal(v109[0].success, true, "V109 must be successful");
+    assert.equal(upgradeHistory.at(-1)?.version, "109", "repository latest upgrade must end at V109");
     assert.equal(
       upgradeHistory.find((row) => row.version === "106")?.checksum,
       1207842815,
@@ -550,8 +553,8 @@ if (!primaryError) {
 
     const publicTopology = topology(upgradeDatabase, "public");
     const tenantTopology = topology(upgradeDatabase, tenantSchema);
-    assertTopology("upgrade public", publicTopology, 180);
-    assertTopology("upgrade tenant", tenantTopology, 176);
+    assertTopology("upgrade public", publicTopology, 184);
+    assertTopology("upgrade tenant", tenantTopology, 180);
     assertScrapShape(upgradeDatabase, "public");
     assertScrapShape(upgradeDatabase, tenantSchema);
     assertStockInMatrix(upgradeDatabase, "public");
@@ -564,9 +567,9 @@ if (!primaryError) {
       Number(scalar(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`)),
       Number(scalar(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`))
     ];
-    assert.deepEqual(syncCounts, [84, 84], "repeat existing-tenant sync must be stable");
+    assert.deepEqual(syncCounts, [86, 86], "repeat existing-tenant sync must be stable");
     insertAccountSet(upgradeDatabase, newTenantId, `A151-NEW-${token.toUpperCase()}`, newTenantSchema, true);
-    assertTopology("new tenant", topology(upgradeDatabase, newTenantSchema), 176);
+    assertTopology("new tenant", topology(upgradeDatabase, newTenantSchema), 180);
     assertScrapShape(upgradeDatabase, newTenantSchema);
     assertStockInMatrix(upgradeDatabase, newTenantSchema);
 
@@ -582,8 +585,8 @@ if (!primaryError) {
     flyway(upgradeDatabase);
     const historyAfterRepeat = JSON.stringify(history(upgradeDatabase));
     assert.equal(historyAfterRepeat, historyBeforeRepeat, "repeat Flyway migrate must be a no-op");
-    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='108'"), "1", "V108 history must remain singular");
-    result.repeat = { noOp: true, v108Rows: 1 };
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='109'"), "1", "V109 history must remain singular");
+    result.repeat = { noOp: true, v108Rows: 1, v109Rows: 1 };
 
     psql(upgradeDatabase, `DELETE FROM ${identifier(tenantSchema)}.md_customer WHERE code=${literal(customerCode)}`);
     assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM ${identifier(tenantSchema)}.md_customer WHERE code=${literal(customerCode)}`), "0", "tenant mutation must remove historical customer before restore");
@@ -609,7 +612,7 @@ if (!primaryError) {
         restoredCustomer: customerCode,
         scrapRows: 0,
         backupMetadataTableCount: 82,
-        targetManagedTables: 84
+        targetManagedTables: 86
       };
       await apiRequest(backend.baseUrl, cookie, "/api/system/logout", { method: "POST", timeoutMs: 10_000 });
       cookie = null;
@@ -626,16 +629,16 @@ if (!primaryError) {
     freshCreated = true;
     flyway(freshDatabase);
     const freshHistory = history(freshDatabase);
-    assert.equal(freshHistory.at(-1)?.version, "108", "fresh V1-to-latest migration must end at V108");
-    assertTopology("fresh public", topology(freshDatabase, "public"), 180);
+    assert.equal(freshHistory.at(-1)?.version, "109", "fresh V1-to-latest migration must end at V109");
+    assertTopology("fresh public", topology(freshDatabase, "public"), 184);
     assertScrapShape(freshDatabase, "public");
     insertAccountSet(freshDatabase, freshTenantId, `A151-FRESH-${token.toUpperCase()}`, freshTenantSchema, true);
     const freshTenantTopology = topology(freshDatabase, freshTenantSchema);
-    assertTopology("fresh tenant", freshTenantTopology, 176);
+    assertTopology("fresh tenant", freshTenantTopology, 180);
     assertScrapShape(freshDatabase, freshTenantSchema);
     assertStockInMatrix(freshDatabase, "public");
     assertStockInMatrix(freshDatabase, freshTenantSchema);
-    assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "84", "fresh tenant repeat sync must return 84");
+    assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "86", "fresh tenant repeat sync must return 86");
     const freshHistoryBeforeRepeat = JSON.stringify(freshHistory);
     flyway(freshDatabase);
     assert.equal(JSON.stringify(history(freshDatabase)), freshHistoryBeforeRepeat, "fresh repeat Flyway migrate must be a no-op");

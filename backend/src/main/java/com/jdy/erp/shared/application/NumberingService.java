@@ -30,6 +30,7 @@ public class NumberingService {
         new NumberingRule("purchaseRequisition", "CGSQ", "purchase_requisition", "采购申请单"),
         new NumberingRule("purchaseIn", "CGRK", "purchase_in", "采购入库单"),
         new NumberingRule("apPayment", "FKD", "ap_payment", "付款单"),
+        new NumberingRule("cashTransfer", "ZJZZ", "cash_transfer", "资金转账单"),
         new NumberingRule("purchaseReturn", "CGTH", "purchase_return", "采购退货单"),
         new NumberingRule("materialIssue", "SOUT", "production_material_issue", "生产领料单"),
         new NumberingRule("materialScrap", "CLBF", "production_material_scrap", "材料报废单"),
@@ -415,8 +416,8 @@ public class NumberingService {
                 throw new IllegalStateException("编号规则注册表存在重复类型：" + rule.documentType());
             }
         });
-        if (registry.size() != 27) {
-            throw new IllegalStateException("编号规则注册表必须精确包含 27 个正式单据类型");
+        if (registry.size() != 28) {
+            throw new IllegalStateException("编号规则注册表必须精确包含 28 个正式单据类型");
         }
         return Collections.unmodifiableMap(registry);
     }

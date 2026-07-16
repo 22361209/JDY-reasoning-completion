@@ -50,21 +50,25 @@ const materialScrapMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V108__production_material_scrap.sql"
 );
+const cashTransferMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V109__cash_transfer_document.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 84,
-  managedTables: 84,
-  primaryKeys: 84,
-  uniqueConstraints: 79,
-  foreignKeys: 176,
-  checkConstraints: 97,
+  baseTables: 86,
+  managedTables: 86,
+  primaryKeys: 86,
+  uniqueConstraints: 81,
+  foreignKeys: 180,
+  checkConstraints: 105,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
-  referenceForeignKeyCount: 176,
+  referenceForeignKeyCount: 180,
   referenceForeignKeyMismatchCount: 0,
   retiredTaxColumns: 0,
   forbiddenAccountSetForeignKeys: 0
@@ -151,6 +155,7 @@ try {
   const inventoryTraceMigrationSource = await readFile(inventoryTraceMigrationPath, "utf8");
   const inventoryTraceCorrectionSource = await readFile(inventoryTraceCorrectionPath, "utf8");
   const materialScrapMigrationSource = await readFile(materialScrapMigrationPath, "utf8");
+  const cashTransferMigrationSource = await readFile(cashTransferMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -224,7 +229,14 @@ try {
       && materialScrapMigrationSource.includes("expected=84/79/176/97")
       && materialScrapMigrationSource.includes("expected=84/84/79/180/97/0/6")
       && (materialScrapMigrationSource.match(/CONSTRAINT ck_/g) ?? []).length === 17
-      && !/\bvoided_by\s+(?:UUID|VARCHAR|TEXT|TIMESTAMPTZ|BOOLEAN|INTEGER|BIGINT|NUMERIC)\b/i.test(materialScrapMigrationSource)
+      && !/\bvoided_by\s+(?:UUID|VARCHAR|TEXT|TIMESTAMPTZ|BOOLEAN|INTEGER|BIGINT|NUMERIC)\b/i.test(materialScrapMigrationSource),
+    cashTransferManagedGuard:
+      cashTransferMigrationSource.includes("CREATE TABLE cash_transfer")
+      && cashTransferMigrationSource.includes("CREATE TABLE cash_transfer_fact")
+      && cashTransferMigrationSource.includes("('cash_transfer', 723)")
+      && cashTransferMigrationSource.includes("('cash_transfer_fact', 724)")
+      && cashTransferMigrationSource.includes("currency IN ('CNY', 'USD')")
+      && cashTransferMigrationSource.includes("expected=86/81/180/105")
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
@@ -257,6 +269,7 @@ try {
     result.migrationGuards.materialScrapManagedGuard,
     "V108 must register the exact 84-table material-scrap topology with a soft source-line reference"
   );
+  assert(result.migrationGuards.cashTransferManagedGuard, "V109 must register the exact 86-table cash-transfer topology");
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
@@ -268,6 +281,7 @@ try {
   const inventoryTraceSourceChecksum = flywayChecksum(inventoryTraceMigrationSource);
   const inventoryTraceCorrectionSourceChecksum = flywayChecksum(inventoryTraceCorrectionSource);
   const materialScrapSourceChecksum = flywayChecksum(materialScrapMigrationSource);
+  const cashTransferSourceChecksum = flywayChecksum(cashTransferMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -278,9 +292,9 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105', '106', '107', '108')
+    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105', '106', '107', '108', '109')
   `);
-  assert(migrationRows.length === 11, `expected installed V98 through V108 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 12, `expected installed V98 through V109 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
   const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
@@ -292,6 +306,7 @@ try {
   const inventoryTraceMigration = migrationRows.find((row) => row.version === "106");
   const inventoryTraceCorrection = migrationRows.find((row) => row.version === "107");
   const materialScrapMigration = migrationRows.find((row) => row.version === "108");
+  const cashTransferMigration = migrationRows.find((row) => row.version === "109");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(employeeAccountMigration, "installed V100 row is missing");
@@ -303,6 +318,7 @@ try {
   assert(inventoryTraceMigration, "installed V106 row is missing");
   assert(inventoryTraceCorrection, "installed V107 row is missing");
   assert(materialScrapMigration, "installed V108 row is missing");
+  assert(cashTransferMigration, "installed V109 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(employeeAccountMigration.success === true, "V100 is not marked successful");
@@ -314,6 +330,7 @@ try {
   assert(inventoryTraceMigration.success === true, "V106 is not marked successful");
   assert(inventoryTraceCorrection.success === true, "V107 is not marked successful");
   assert(materialScrapMigration.success === true, "V108 is not marked successful");
+  assert(cashTransferMigration.success === true, "V109 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
@@ -325,6 +342,7 @@ try {
   assert(Number.isInteger(inventoryTraceMigration.checksum), "V106 installed checksum is missing");
   assert(Number.isInteger(inventoryTraceCorrection.checksum), "V107 installed checksum is missing");
   assert(Number.isInteger(materialScrapMigration.checksum), "V108 installed checksum is missing");
+  assert(Number.isInteger(cashTransferMigration.checksum), "V109 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -428,6 +446,12 @@ try {
     sourceChecksum: materialScrapSourceChecksum,
     sourceSha256: createHash("sha256").update(materialScrapMigrationSource).digest("hex")
   };
+  assert(cashTransferMigration.checksum === cashTransferSourceChecksum, `V109 checksum drift: installed=${cashTransferMigration.checksum} source=${cashTransferSourceChecksum}`);
+  result.cashTransferMigration = {
+    ...cashTransferMigration,
+    sourceChecksum: cashTransferSourceChecksum,
+    sourceSha256: createHash("sha256").update(cashTransferMigrationSource).digest("hex")
+  };
 
   const registeredSchemas = sqlJson(`
     SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)::text
@@ -451,7 +475,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 84, `${schema} first sync returned ${firstManagedCount}, expected 84`);
+    assert(firstManagedCount === 86, `${schema} first sync returned ${firstManagedCount}, expected 86`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -459,7 +483,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 84, `${schema} second sync returned ${secondManagedCount}, expected 84`);
+    assert(secondManagedCount === 86, `${schema} second sync returned ${secondManagedCount}, expected 86`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -753,7 +777,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 84 OR second_count <> 84 THEN
+      IF first_count <> 86 OR second_count <> 86 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;

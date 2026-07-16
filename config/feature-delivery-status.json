@@ -1799,22 +1799,26 @@
     },
     {
       "id": "F087",
-      "state": "unverified",
-      "level": null,
-      "exposure": "hidden",
-      "surface": "none",
-      "catalogEntryIds": [],
-      "evidence": [],
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "cash-transfer-form"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A163-P1-3资金账户与同币种转账发布闭环-20260716.md"
+      ],
       "knownGaps": [
-        "账户主档尚未完成，资金转账也缺少正式单据与验收。"
+        "A3 仅覆盖 CNY/USD 同币种转账；余额初始化、汇率、跨币种转账、预收预付、退款、对账、银行直连和资金报表均未纳入。"
       ],
       "capabilityChecks": {
-        "entry": "not_applicable",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "not_applicable"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {

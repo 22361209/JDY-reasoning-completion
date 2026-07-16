@@ -32,6 +32,7 @@ public class BillLifecycleService {
         "purchase_return",
         "ar_receipt",
         "ap_payment",
+        "cash_transfer",
         "production_task",
         "production_material_issue",
         "production_material_scrap",

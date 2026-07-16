@@ -63,8 +63,8 @@ function methodBody(text, signature) {
 assert(count(source.catalog, /id:\s*["']numbering-rule-settings["']/g) === 1, "numbering-rule-settings must remain the only catalog owner");
 assert(!source.catalog.includes("id: \"numbering-rule-list\""), "retired unknown numbering list must not return");
 
-assert(count(source.service, /new NumberingRule\(/g) === 27, "backend registry must contain exactly 27 formal document types");
-assert(source.service.includes("registry.size() != 27"), "backend registry must fail closed on count drift");
+assert(count(source.service, /new NumberingRule\(/g) === 28, "backend registry must contain exactly 28 formal document types");
+assert(source.service.includes("registry.size() != 28"), "backend registry must fail closed on count drift");
 assert(!/synchronized\s+String\s+nextBillNo/.test(source.service), "single-JVM synchronized numbering guard must be removed");
 assert(count(source.service, /public Map<String, Object> saveRule\(/g) === 1, "NumberingService must expose only the versioned saveRule API");
 assert(source.tenantIsolationTest.includes('JSON.textNode("0")'), "tenant numbering isolation must call the versioned saveRule API");
@@ -196,7 +196,13 @@ for (const tier of [manifest.areas.system, manifest.full]) {
   assert(tier.includes("scripts/a146-numbering-rule-migration-regression.mjs"), "A146 migration gate must be registered in system and full");
 }
 assert(manifest.areas.security.includes("scripts/a146-numbering-rule-closure-regression.mjs"), "A146 permission/static gate must be registered in security");
-assert(source.a137.includes("checkConstraints: 97") && source.a137.includes("V105__numbering_rule_reliability.sql") && source.a137.includes("V108__production_material_scrap.sql"), "A137 topology guard must preserve V105 numbering and V108 97-CHECK semantics");
+assert(
+  source.a137.includes("checkConstraints: 105")
+    && source.a137.includes("V105__numbering_rule_reliability.sql")
+    && source.a137.includes("V108__production_material_scrap.sql")
+    && source.a137.includes("V109__cash_transfer_document.sql"),
+  "A137 topology guard must preserve V105/V108 history and the current V109 105-CHECK topology"
+);
 for (const [name, migrationSource, historicalTarget] of [
   ["A141", source.a141Migration, "flywayMigrate(upgradeDatabase, 104)"],
   ["A142", source.a142Migration, "flyway(upgradeDatabase, 104)"],

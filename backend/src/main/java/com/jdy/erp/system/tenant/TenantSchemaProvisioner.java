@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class TenantSchemaProvisioner {
+    private static final int EXPECTED_MANAGED_TABLE_COUNT = 86;
     private final JdbcTemplate platformJdbcTemplate;
 
     public TenantSchemaProvisioner(@Qualifier("platformJdbcTemplate") JdbcTemplate platformJdbcTemplate) {
@@ -33,9 +34,9 @@ public class TenantSchemaProvisioner {
             schema,
             createMissing
         );
-        if (managedTableCount == null || managedTableCount != 84) {
+        if (managedTableCount == null || managedTableCount != EXPECTED_MANAGED_TABLE_COUNT) {
             throw new IllegalStateException(
-                "tenant schema 同步未返回完整的 84 张受管表：schema=" + schema + ", count=" + managedTableCount
+                "tenant schema 同步未返回完整的 " + EXPECTED_MANAGED_TABLE_COUNT + " 张受管表：schema=" + schema + ", count=" + managedTableCount
             );
         }
         seedTenantDefaults(schema);

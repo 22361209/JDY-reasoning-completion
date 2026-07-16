@@ -37,7 +37,8 @@
       "scripts/a116b-production-source-chain-regression.mjs",
       "scripts/a129-purchase-requisition-order-lifecycle-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
-      "scripts/a147-inventory-source-trace-regression.mjs"
+      "scripts/a147-inventory-source-trace-regression.mjs",
+      "scripts/a162-purchase-publication-regression.mjs"
     ],
     "inventory": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -64,6 +65,7 @@
       "scripts/a140-employee-financial-account-regression.mjs",
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a141-settlement-migration-regression.mjs",
+      "scripts/a163-cash-transfer-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a142-sales-return-migration-regression.mjs",
       "scripts/a150-finance-report-regression.mjs"
@@ -317,6 +319,7 @@
     "scripts/a140-employee-financial-account-regression.mjs",
     "scripts/a141-formal-settlement-regression.mjs",
     "scripts/a141-settlement-migration-regression.mjs",
+    "scripts/a163-cash-transfer-regression.mjs",
     "scripts/a142-sales-return-regression.mjs",
     "scripts/a142-sales-return-migration-regression.mjs",
     "scripts/a143-master-data-import-regression.mjs",
@@ -332,7 +335,8 @@
     "scripts/a151-material-scrap-backend-regression.mjs",
     "scripts/a151-material-scrap-migration-regression.mjs",
     "scripts/a152-material-scrap-ui-regression.mjs",
-    "scripts/a153-6e-closure-regression.mjs"
+    "scripts/a153-6e-closure-regression.mjs",
+    "scripts/a162-purchase-publication-regression.mjs"
   ],
   "exemptions": [
     {

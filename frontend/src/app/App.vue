@@ -559,6 +559,17 @@
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
         />
+        <CashTransferForm
+          v-else-if="tabs.activeTab.value.id === cashTransferTabId"
+          ref="cashTransferFormRef"
+          :title="tabs.activeTab.value.title"
+          :subtitle="pageSubtitle"
+          :status-class="tabs.activeTab.value.kind"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          :has-permission="session.hasPermission"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+        />
         <PurchaseReturnForm
           v-else-if="tabs.activeTab.value.id === purchaseReturnTabId"
           ref="purchaseReturnFormRef"
@@ -884,6 +895,7 @@ import DeliveryNoticeForm from "../modules/sales/delivery-notice/DeliveryNoticeF
 import SalesOutForm from "../modules/sales/sales-out/SalesOutForm.vue";
 import SalesReturnForm from "../modules/sales/sales-return/SalesReturnForm.vue";
 import SettlementDocumentForm from "../modules/finance/SettlementDocumentForm.vue";
+import CashTransferForm from "../modules/finance/CashTransferForm.vue";
 import type { SettlementCurrency, SettlementKind } from "../services/financeApi";
 import MasterDataRecordPage from "../modules/master-data/MasterDataRecordPage.vue";
 import { masterDataDefinitions } from "../modules/master-data/registry";
@@ -990,6 +1002,7 @@ const purchaseOrderTabId = "purchase-order-form";
 const purchaseInTabId = "purchase-in-form";
 const receiptTabId = "ar-receipt-form";
 const paymentTabId = "ap-payment-form";
+const cashTransferTabId = "cash-transfer-form";
 const purchaseReturnTabId = "purchase-return-form";
 const materialIssueTabId = "material-issue-form";
 const materialScrapTabId = "material-scrap-form";
@@ -1044,6 +1057,7 @@ const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
 const receiptFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
 const paymentFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
+const cashTransferFormRef = ref<InstanceType<typeof CashTransferForm> | null>(null);
 const purchaseReturnFormRef = ref<InstanceType<typeof PurchaseReturnForm> | null>(null);
 const materialIssueFormRef = ref<InstanceType<typeof MaterialIssueForm> | null>(null);
 const materialScrapFormRef = ref<InstanceType<typeof MaterialScrapForm> | null>(null);
@@ -1573,6 +1587,8 @@ function startNewModuleDocument(entryId: string) {
     void receiptFormRef.value?.startNew();
   } else if (entryId === paymentTabId) {
     void paymentFormRef.value?.startNew();
+  } else if (entryId === cashTransferTabId) {
+    cashTransferFormRef.value?.startNew();
   } else if (entryId === purchaseReturnTabId) {
     purchaseReturnFormRef.value?.startNew();
   } else if (entryId === materialIssueTabId) {
