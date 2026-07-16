@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-15",
+  "updatedAt": "2026-07-16",
   "source": {
     "effectiveScope": "config/effective-feature-scope.json"
   },
@@ -265,8 +265,8 @@
     {
       "id": "F010",
       "state": "verified",
-      "level": "A1",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "product-master-list",
@@ -275,17 +275,18 @@
       "evidence": [
         "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
         "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md",
-        "docs/验收报告/验收报告-A82-主数据表单迁出-20260625.md"
+        "docs/验收报告/验收报告-A82-主数据表单迁出-20260625.md",
+        "docs/验收报告/验收报告-A161-P0-1基础资料发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "物料维护可操作，但主数据稀疏更新与并发版本保护未完成，不能按 P0 发布门槛计交付。"
+        "不含条码、多单位换算、附件、复杂分类或客户/供应商对账。"
       ],
       "capabilityChecks": {
         "entry": "verified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
@@ -317,98 +318,103 @@
     {
       "id": "F012",
       "state": "verified",
-      "level": "A1",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "customer-master-list"
       ],
       "evidence": [
         "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
-        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md"
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md",
+        "docs/验收报告/验收报告-A161-P0-1基础资料发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "客户新增/编辑/启停已有证据；稀疏更新会覆盖隐藏字段，必须修复后再提升。"
+        "不包含客户对账、信用控制或附件服务。"
       ],
       "capabilityChecks": {
         "entry": "verified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
     {
       "id": "F013",
       "state": "verified",
-      "level": "A1",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "supplier-master-list"
       ],
       "evidence": [
         "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
-        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md"
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md",
+        "docs/验收报告/验收报告-A161-P0-1基础资料发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "供应商新增/编辑/启停已有证据；稀疏更新会覆盖隐藏字段，必须修复后再提升。"
+        "不包含供应商对账、绩效或附件服务。"
       ],
       "capabilityChecks": {
         "entry": "verified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
     {
       "id": "F014",
       "state": "verified",
-      "level": "A1",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "warehouse-master-list"
       ],
       "evidence": [
         "docs/验收报告/验收报告-D-真实主数据第一批-20260623.md",
-        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md"
+        "docs/验收报告/验收报告-D2-主数据编辑启停策略-20260623.md",
+        "docs/验收报告/验收报告-A161-P0-1基础资料发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "仓库新增/编辑/启停已有证据；稀疏更新会覆盖电话和负库存策略，必须修复后再提升。"
+        "不包含库存期初、库位或成本核算。"
       ],
       "capabilityChecks": {
         "entry": "verified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
     {
       "id": "F015",
-      "state": "unverified",
-      "level": "A1",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "production-department-list"
       ],
-      "evidence": [],
+      "evidence": [
+        "docs/验收报告/验收报告-A161-P0-1基础资料发布闭环-20260716.md"
+      ],
       "knownGaps": [
-        "生产部门/车间入口和数据存在，但缺少按当前 A0-A4 标准完成的独立验收报告。"
+        "不扩展组织树、人员编制或工序管理。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {
@@ -463,24 +469,26 @@
     },
     {
       "id": "F018",
-      "state": "unverified",
-      "level": "A1",
-      "exposure": "hold",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "unit-master-list"
       ],
-      "evidence": [],
+      "evidence": [
+        "docs/验收报告/验收报告-A161-P0-1基础资料发布闭环-20260716.md"
+      ],
       "knownGaps": [
-        "计量单位入口和维护代码存在，但缺少按当前标准完成的独立浏览器及边界验收。"
+        "不扩展多单位换算、辅助单位或条码单位。"
       ],
       "capabilityChecks": {
-        "entry": "unverified",
-        "backend": "unverified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
-        "browser": "unverified"
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
       }
     },
     {

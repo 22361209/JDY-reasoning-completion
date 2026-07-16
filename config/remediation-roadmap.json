@@ -20,7 +20,9 @@
     "6C",
     "6D",
     "6E",
-    "P0-1"
+    "P0-1",
+    "P0-2",
+    "P1-3"
   ],
   "gates": [
     {
@@ -482,6 +484,68 @@
       ],
       "predecessorIds": [
         "6E"
+      ],
+      "historyRefs": [
+        "docs/验收报告/验收报告-A158-当前ERP产品完整性审计-20260716.md"
+      ]
+    },
+    {
+      "id": "P0-2",
+      "title": "采购订单—入库—退货 A3 收口",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F033",
+        "F034",
+        "F035"
+      ],
+      "targetAcceptance": "A3",
+      "boundaries": {
+        "inScope": [
+          "采购订单、采购入库、采购退货的保存、审核、选源、反审核与库存/应付事实",
+          "权限、tenant、操作日志、自动化、双视口浏览器与交付状态证据"
+        ],
+        "outOfScope": [
+          "采购预测、供应商绩效、成本核算、预付款、汇率和跨币种结算",
+          "采购申请 F031 的范围决策、报表扩展或无证据的数据迁移"
+        ]
+      },
+      "hardExitConditions": [
+        "草稿不产生库存或应付事实，审核后库存、应付和源单剩余量一致",
+        "退货与反审核不重复写库存或应付；无权限与跨 tenant 均零写入",
+        "采购 area、相关后端回归、双视口浏览器和必要时一次 full 通过",
+        "F033、F034、F035 均达到 verified/published/A3，或将未达项如实拆分",
+        "完成验收报告、独立 review、独立 commit，工作区干净"
+      ],
+      "predecessorIds": [
+        "P0-1"
+      ],
+      "historyRefs": [
+        "docs/验收报告/验收报告-A158-当前ERP产品完整性审计-20260716.md"
+      ]
+    },
+    {
+      "id": "P1-3",
+      "title": "资金账户与同币种转账最小闭环",
+      "kind": "feature_delivery",
+      "scopeIds": [
+        "F087"
+      ],
+      "targetAcceptance": "A3",
+      "boundaries": {
+        "inScope": [
+          "CNY/USD 资金账户主档、启停、权限、审计和同币种转账草稿—审核—反审核闭环"
+        ],
+        "outOfScope": [
+          "余额初始化、汇率、跨币种转账、预收预付、退款、自动对账和银行直连"
+        ]
+      },
+      "hardExitConditions": [
+        "账户只允许 CNY/USD；草稿不改资金事实，审核双边同币种一致，反审核完整回滚",
+        "权限、tenant、并发、审计、自动化和浏览器均有直接证据",
+        "F087 达到 verified/published/A3，完成验收报告、独立 review、独立 commit，工作区干净"
+      ],
+      "predecessorIds": [
+        "P0-2"
       ],
       "historyRefs": [
         "docs/验收报告/验收报告-A158-当前ERP产品完整性审计-20260716.md"
