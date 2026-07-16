@@ -695,75 +695,78 @@
     {
       "id": "F033",
       "state": "verified",
-      "level": "A2",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "purchase-order-form"
       ],
       "evidence": [
         "docs/验收报告/验收报告-A100-采购下推收尾-20260626.md",
-        "docs/验收报告/验收报告-A105-状态机-20260626.md"
+        "docs/验收报告/验收报告-A105-状态机-20260626.md",
+        "docs/验收报告/验收报告-A162-P0-2采购订单入库退货发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "采购订单保存、审核和下推已有历史证据；当前采购回归与元数据定义需重新复核到 A3。"
+        "本批只关闭订单保存、审核、选源和下推链；采购预测、供应商绩效、成本核算、预付款及跨币种结算仍不在范围内。"
       ],
       "capabilityChecks": {
         "entry": "verified",
         "backend": "verified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
     {
       "id": "F034",
       "state": "verified",
-      "level": "A2",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "purchase-in-form"
       ],
       "evidence": [
         "docs/验收报告/验收报告-A2-采购出入库业务闭环-20260624.md",
-        "docs/验收报告/验收报告-A85-财务过账接审核-20260625.md"
+        "docs/验收报告/验收报告-A85-财务过账接审核-20260625.md",
+        "docs/验收报告/验收报告-A162-P0-2采购订单入库退货发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "采购入库审核、库存和应付过账有证据；当前边界回归未按最新基线复核到 A3。"
+        "本批验证采购入库审核、源单数量、库存和应付事实；成本核算、预付款、汇率和跨币种结算不在范围内。"
       ],
       "capabilityChecks": {
         "entry": "verified",
         "backend": "verified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
     {
       "id": "F035",
       "state": "verified",
-      "level": "A2",
-      "exposure": "hold",
+      "level": "A3",
+      "exposure": "published",
       "surface": "catalog",
       "catalogEntryIds": [
         "purchase-return-form"
       ],
       "evidence": [
         "docs/验收报告/验收报告-A105-状态机-20260626.md",
-        "docs/验收报告/验收报告-A124-L-单据生命周期统一规则-20260630.md"
+        "docs/验收报告/验收报告-A124-L-单据生命周期统一规则-20260630.md",
+        "docs/验收报告/验收报告-A162-P0-2采购订单入库退货发布闭环-20260716.md"
       ],
       "knownGaps": [
-        "采购退货生命周期已有证据；库存、财务和反审核边界需按最新基线复核。"
+        "本批验证采购退货审核、反审核与库存/应付生命周期边界；采购报表、成本核算、汇率和跨币种结算不在范围内。"
       ],
       "capabilityChecks": {
         "entry": "verified",
         "backend": "verified",
-        "permission": "unverified",
-        "auditLog": "unverified",
-        "automation": "unverified",
+        "permission": "verified",
+        "auditLog": "verified",
+        "automation": "verified",
         "browser": "verified"
       }
     },
