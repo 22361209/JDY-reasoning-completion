@@ -97,7 +97,7 @@
         </div>
       </section>
 
-      <section class="master-record-section">
+      <section class="master-record-section bom-entry-section">
         <div class="section-title-row">
           <h3>子件明细</h3>
         </div>
@@ -569,6 +569,31 @@ defineExpose({ startNew, loadBom, copyFromBom });
 <style scoped>
 .bom-form {
   min-width: 1120px;
+}
+
+.bom-form .master-record-body {
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bom-form .master-record-section {
+  flex: 0 0 auto;
+}
+
+.bom-form .bom-entry-section {
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bom-entry-section :deep(.bom-entry-table) {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .bom-fields {

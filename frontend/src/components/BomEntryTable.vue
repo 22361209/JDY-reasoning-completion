@@ -144,12 +144,6 @@
   </div>
 </template>
 
-<style>
-.bom-entry-table {
-  max-height: clamp(224px, calc(100dvh - 412px), 360px);
-}
-</style>
-
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
