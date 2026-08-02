@@ -62,11 +62,19 @@
       <ProductionPlanEntryTable
         :lines="entryLines"
         :is-draft="isDraft"
+        :product-options="productLookupOptions"
+        :active-product-lookup-index="activeProductLookupIndex"
+        :product-lookup-cursor="productLookupCursor"
         @mark-dirty="markDirty"
         @append-line="appendLine"
         @insert-line-after="insertLineAfter"
         @remove-line="removeLine"
         @open-product-selector="openProductSelector"
+        @search-product-options="searchProductOptions"
+        @handle-product-input="handleProductInput"
+        @handle-product-keydown="handleProductKeydown"
+        @close-product-lookup-later="closeProductLookupLater"
+        @select-product-option="selectInlineProduct"
       />
     </div>
   </StandardDocument>
@@ -83,11 +91,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import type { MasterOption } from "../../../components/entry-table/types";
 import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import ProductionPlanEntryTable, { type ProductionPlanEntryLine } from "../../../components/ProductionPlanEntryTable.vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
+import { fetchListRows } from "../../../services/listApi";
 import {
   auditProductionPlan,
   createProductionPlan,
@@ -113,6 +122,11 @@ const status = ref("DRAFT");
 const productSelectorOpen = ref(false);
 const productSelectorLineIndex = ref<number | null>(null);
 const productSelectorKeyword = ref("");
+const productLookupOptions = ref<MasterOption[]>([]);
+const activeProductLookupIndex = ref<number | null>(null);
+const productLookupCursor = ref(0);
+let productLookupRequestSeq = 0;
+let productLookupCloseTimer: number | undefined;
 const form = reactive({
   billNo: "",
   warehouseCode: "",
@@ -124,7 +138,9 @@ const entryLines = ref<ProductionPlanEntryLine[]>([blankLine()]);
 const displayMessage = computed(() => message.value);
 const statusLabel = computed(() => backendStatusLabel(status.value));
 const isDraft = computed(() => status.value === "DRAFT");
-const hasValidLine = computed(() => entryLines.value.some((line) => line.productCode.trim() && Number(line.qty) > 0));
+const requestedLines = computed(() => entryLines.value.filter((line) => line.productCode.trim()));
+const hasValidLine = computed(() => requestedLines.value.length > 0
+  && requestedLines.value.every((line) => line.productId.trim() && Number(line.qty) > 0));
 const canSave = computed(() => isDraft.value && hasValidLine.value);
 const canAudit = computed(() => Boolean(form.billNo) && !props.dirty && isDraft.value);
 const canReverse = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "AUDITED");
@@ -157,6 +173,7 @@ function markDirty() {
 }
 
 function startNew() {
+  closeProductLookup();
   closeProductSelector();
   form.billNo = "";
   form.warehouseCode = "";
@@ -170,6 +187,7 @@ function startNew() {
 }
 
 async function loadPlan(billNo: string) {
+  closeProductLookup();
   closeProductSelector();
   const result = await fetchProductionPlanDetail(billNo);
   if (!result.ok || !result.data) {
@@ -205,6 +223,7 @@ function openProductSelector(index: number) {
   if (!isDraft.value) {
     return;
   }
+  closeProductLookup();
   productSelectorLineIndex.value = index;
   productSelectorKeyword.value = entryLines.value[index]?.productCode ?? "";
   productSelectorOpen.value = true;
@@ -216,39 +235,220 @@ function closeProductSelector() {
   productSelectorKeyword.value = "";
 }
 
-function selectProduct(option: MasterOption) {
+async function selectProduct(option: MasterOption) {
   const index = productSelectorLineIndex.value;
   if (index == null || !entryLines.value[index]) {
     closeProductSelector();
     return;
   }
+  if (await applyProductOption(option, index)) {
+    closeProductSelector();
+    focusWarehouseInput(index);
+  }
+}
+
+async function applyProductOption(option: MasterOption, index: number) {
   if (!isTruthy(option.isProduce)) {
     hasError.value = true;
     message.value = `物料 ${String(option.code ?? "")} 未启用“可自制”，不能作为生产计划母件`;
-    return;
+    return false;
   }
   if (String(option.auditStatus ?? "已审核") !== "已审核" || String(option.status ?? "启用") !== "启用") {
     hasError.value = true;
     message.value = `物料 ${String(option.code ?? "")} 未审核或已禁用，不能用于生产计划`;
-    return;
+    return false;
   }
   const line = entryLines.value[index];
-  line.productId = String(option.id ?? "");
-  line.productCode = String(option.code ?? "");
-  line.productName = String(option.name ?? "");
-  line.spec = String(option.spec ?? "");
-  line.unit = String(option.unit ?? "");
+  if (!line) {
+    return false;
+  }
+  const targetLocalId = line.localId;
+  closeProductLookup();
+  const bom = await resolveCurrentBom(String(option.code ?? ""));
+  const targetLine = entryLines.value[index];
+  if (!targetLine || targetLine.localId !== targetLocalId) {
+    return false;
+  }
+  if (!bom) {
+    targetLine.productId = "";
+    targetLine.productName = "";
+    targetLine.spec = "";
+    targetLine.unit = "";
+    targetLine.bomCode = "";
+    targetLine.bomVersionNo = "";
+    hasError.value = true;
+    message.value = `物料 ${String(option.code ?? "")} 没有已审核、启用的当前 BOM，不能用于生产计划`;
+    return false;
+  }
+  targetLine.productId = String(option.id ?? "");
+  targetLine.productCode = String(option.code ?? "");
+  targetLine.productName = String(option.name ?? "");
+  targetLine.spec = String(option.spec ?? "");
+  targetLine.unit = String(option.unit ?? "");
+  targetLine.bomCode = String(bom.code ?? "");
+  targetLine.bomVersionNo = String(bom.versionNo ?? "");
+  targetLine.warehouseCode = String(option.defaultWarehouseCode ?? targetLine.warehouseCode ?? "");
+  targetLine.departmentCode = String(option.defaultWorkshopCode ?? "");
+  markDirty();
+  return true;
+}
+
+async function resolveCurrentBom(productCode: string) {
+  const result = await fetchListRows("bom-list", {
+    keyword: productCode,
+    status: "启用",
+    page: 1,
+    pageSize: 20,
+    columnFilters: {
+      productCode: { operator: "等于", value: productCode },
+      auditStatus: { operator: "等于", value: "已审核" },
+      isCurrent: { operator: "等于", value: "是" }
+    }
+  });
+  if (!result.ok || !result.data) {
+    return null;
+  }
+  return result.data.rows.find((row) => String(row.productCode ?? "") === productCode
+    && String(row.auditStatus ?? "") === "已审核"
+    && String(row.isCurrent ?? "") === "是"
+    && String(row.status ?? "") === "启用") ?? null;
+}
+
+function handleProductInput(keyword: string, index: number) {
+  const line = entryLines.value[index];
+  if (!line || !isDraft.value) {
+    return;
+  }
+  line.productId = "";
+  line.productName = "";
+  line.spec = "";
+  line.unit = "";
   line.bomCode = "";
   line.bomVersionNo = "";
-  line.warehouseCode = String(option.defaultWarehouseCode ?? line.warehouseCode ?? "");
-  line.departmentCode = String(option.defaultWorkshopCode ?? "");
-  closeProductSelector();
+  line.warehouseCode = "";
+  line.departmentCode = "";
   markDirty();
+  void searchProductOptions(keyword, index);
+}
+
+async function searchProductOptions(keyword: string, index: number) {
+  if (!isDraft.value || !entryLines.value[index]) {
+    return;
+  }
+  if (productLookupCloseTimer != null) {
+    window.clearTimeout(productLookupCloseTimer);
+    productLookupCloseTimer = undefined;
+  }
+  activeProductLookupIndex.value = index;
+  productLookupOptions.value = [];
+  productLookupCursor.value = 0;
+  const requestSeq = productLookupRequestSeq + 1;
+  productLookupRequestSeq = requestSeq;
+  const result = await fetchListRows("product-master-list", {
+    keyword,
+    status: "启用",
+    page: 1,
+    pageSize: 20,
+    columnFilters: {
+      auditStatus: { operator: "等于", value: "已审核" },
+      isProduce: { operator: "等于", value: "是" }
+    }
+  });
+  if (requestSeq !== productLookupRequestSeq || activeProductLookupIndex.value !== index) {
+    return;
+  }
+  productLookupOptions.value = result.ok && result.data
+    ? result.data.rows.map(masterRowToProductOption).filter(isEligibleProductOption)
+    : [];
+  productLookupCursor.value = productLookupOptions.value.length ? 0 : -1;
+}
+
+function handleProductKeydown(event: KeyboardEvent, index: number) {
+  if (event.isComposing) {
+    return;
+  }
+  if (event.key === "Escape") {
+    closeProductLookup();
+    return;
+  }
+  if (activeProductLookupIndex.value !== index || !productLookupOptions.value.length) {
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    productLookupCursor.value = Math.min(productLookupCursor.value + 1, productLookupOptions.value.length - 1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    productLookupCursor.value = Math.max(productLookupCursor.value - 1, 0);
+    return;
+  }
+  if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
+    event.preventDefault();
+    const option = productLookupOptions.value[productLookupCursor.value] ?? productLookupOptions.value[0];
+    if (option) {
+      void selectInlineProduct(option, index);
+    }
+  }
+}
+
+async function selectInlineProduct(option: MasterOption, index: number) {
+  if (await applyProductOption(option, index)) {
+    focusWarehouseInput(index);
+  }
+}
+
+function closeProductLookupLater() {
+  if (productLookupCloseTimer != null) {
+    window.clearTimeout(productLookupCloseTimer);
+  }
+  productLookupCloseTimer = window.setTimeout(() => closeProductLookup(), 120);
+}
+
+function closeProductLookup() {
+  productLookupRequestSeq += 1;
+  activeProductLookupIndex.value = null;
+  productLookupOptions.value = [];
+  productLookupCursor.value = 0;
+  if (productLookupCloseTimer != null) {
+    window.clearTimeout(productLookupCloseTimer);
+    productLookupCloseTimer = undefined;
+  }
+}
+
+async function focusWarehouseInput(index: number) {
+  await nextTick();
+  document.querySelector<HTMLInputElement>(`[data-testid="production-plan-warehouse-code-${index + 1}"]`)?.focus();
+}
+
+function masterRowToProductOption(row: Record<string, unknown>): MasterOption {
+  const option: MasterOption = { code: "", name: "" };
+  Object.entries(row).forEach(([key, value]) => {
+    option[key] = value == null ? "" : String(value);
+  });
+  option.id = row.id == null ? undefined : String(row.id);
+  option.code = String(row.code ?? "");
+  option.name = String(row.name ?? "");
+  option.spec = String(row.spec ?? "");
+  option.unit = String(row.unit ?? "");
+  return option;
+}
+
+function isEligibleProductOption(option: MasterOption) {
+  return Boolean(option.id && option.code)
+    && isTruthy(option.isProduce)
+    && String(option.auditStatus ?? "") === "已审核"
+    && String(option.status ?? "") === "启用";
 }
 
 async function save() {
-  const lines = entryLines.value
-    .filter((line) => line.productCode.trim())
+  if (requestedLines.value.some((line) => !line.productId.trim())) {
+    hasError.value = true;
+    message.value = "请从输入联想或完整物料选择器中选择生产计划母件。";
+    return;
+  }
+  const lines = requestedLines.value
     .map((line) => ({
       productId: line.productId.trim(),
       productCode: line.productCode.trim(),

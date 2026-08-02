@@ -98,7 +98,8 @@
       "scripts/a143-master-data-import-regression.mjs",
       "scripts/a146-numbering-rule-closure-regression.mjs",
       "scripts/a148-inventory-movement-report-regression.mjs",
-      "scripts/a152-material-scrap-ui-regression.mjs"
+      "scripts/a152-material-scrap-ui-regression.mjs",
+      "scripts/a168-production-plan-entry-ux-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -173,7 +174,8 @@
       "scripts/a151-material-scrap-migration-regression.mjs",
       "scripts/a152-material-scrap-ui-regression.mjs",
       "scripts/a167-production-plan-multi-line-migration-regression.mjs",
-      "scripts/a167-production-multi-model-chain-regression.mjs"
+      "scripts/a167-production-multi-model-chain-regression.mjs",
+      "scripts/a168-production-plan-entry-ux-regression.mjs"
     ],
     "master-data": [
       "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
@@ -340,7 +342,8 @@
     "scripts/a153-6e-closure-regression.mjs",
     "scripts/a162-purchase-publication-regression.mjs",
     "scripts/a167-production-plan-multi-line-migration-regression.mjs",
-    "scripts/a167-production-multi-model-chain-regression.mjs"
+    "scripts/a167-production-multi-model-chain-regression.mjs",
+    "scripts/a168-production-plan-entry-ux-regression.mjs"
   ],
   "exemptions": [
     {

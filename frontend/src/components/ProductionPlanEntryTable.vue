@@ -20,6 +20,7 @@
     :rows="lines"
     :min-width="1460"
     :max-resize-width="420"
+    :row-key="planRowKey"
     :row-visible="rowMatchesFilters"
     :row-attrs="planRowAttrs"
     :cell-attrs="planCellAttrs"
@@ -33,7 +34,7 @@
         :test-id="`production-plan-column-drag-${column.key}`"
         :filter-test-id="`production-plan-column-filter-${column.key}`"
         :resize-test-id="`production-plan-column-resize-${column.key}`"
-        :filterable="column.key !== 'rowNo' && column.key !== 'actions'"
+        :filterable="column.key !== 'rowNo'"
         :filter-active="isFilterActive(column.key)"
         :resizable="column.resizable !== false"
         @filter="openPlanColumnFilter(column, $event)"
@@ -43,25 +44,64 @@
     <template #cell="{ row: line, column, rowIndex }">
       <span v-if="column.key === 'rowNo'" class="entry-row-no">
         <span class="entry-row-no__value">{{ rowIndex + 1 }}</span>
+        <span class="entry-row-no__quick-actions">
+          <button
+            type="button"
+            :disabled="!isDraft"
+            :data-testid="`production-plan-insert-line-${rowIndex + 1}`"
+            title="在下方新增型号"
+            @click.stop="emit('insertLineAfter', rowIndex)"
+          >+</button>
+          <button
+            type="button"
+            :disabled="!isDraft || lines.length <= 1"
+            :data-testid="`production-plan-remove-line-${rowIndex + 1}`"
+            title="删除本行"
+            @click.stop="emit('removeLine', rowIndex)"
+          >-</button>
+        </span>
       </span>
-      <div v-else-if="column.key === 'productCode'" class="plan-product-picker">
+      <span v-else-if="column.key === 'productCode'" class="master-selector in-cell">
         <input
-          :value="line.productCode"
-          readonly
+          v-model.trim="line.productCode"
           :disabled="!isDraft"
           :data-testid="`production-plan-product-code-${rowIndex + 1}`"
-          placeholder="选择已审核母件"
-          @click="isDraft && emit('openProductSelector', rowIndex)"
+          placeholder="输入编码或名称"
+          autocomplete="off"
+          @focus="emit('searchProductOptions', line.productCode, rowIndex)"
+          @input="emit('handleProductInput', line.productCode, rowIndex)"
+          @keydown="emit('handleProductKeydown', $event, rowIndex)"
+          @blur="emit('closeProductLookupLater')"
         />
         <button
-          v-if="isDraft"
+          class="master-selector__open"
           type="button"
+          :disabled="!isDraft"
           :data-testid="`production-plan-select-product-${rowIndex + 1}`"
+          title="整列表选择"
+          aria-label="整列表选择"
+          @mousedown.prevent
           @click="emit('openProductSelector', rowIndex)"
+        >...</button>
+        <span
+          v-if="activeProductLookupIndex === rowIndex"
+          class="master-selector__menu"
+          :data-testid="`production-plan-product-suggestions-${rowIndex + 1}`"
         >
-          选择
-        </button>
-      </div>
+          <button
+            v-for="(option, optionIndex) in productOptions"
+            :key="option.id || option.code"
+            type="button"
+            :class="{ selected: productLookupCursor === optionIndex }"
+            :data-testid="`production-plan-product-option-${rowIndex + 1}-${optionIndex + 1}`"
+            @mousedown.prevent="emit('selectProductOption', option, rowIndex)"
+          >
+            <strong>{{ option.code }}</strong>
+            <span>{{ option.name }}{{ option.spec ? ` / ${option.spec}` : '' }}</span>
+          </button>
+          <em v-if="productOptions.length === 0">没有匹配的可自制母件</em>
+        </span>
+      </span>
       <span v-else-if="column.key === 'productName'" class="entry-cell-value">{{ line.productName }}</span>
       <span v-else-if="column.key === 'spec'" class="entry-cell-value">{{ line.spec }}</span>
       <span v-else-if="column.key === 'bomCode'" class="entry-cell-value">{{ line.bomCode }}</span>
@@ -102,27 +142,6 @@
         @input="emit('markDirty')"
       />
       <span v-else-if="column.key === 'inProgressQty'" class="entry-cell-value number-text">{{ line.inProgressQty }}</span>
-      <span v-else-if="column.key === 'actions'" class="plan-line-actions">
-        <button
-          v-if="isDraft"
-          type="button"
-          :data-testid="`production-plan-insert-line-${rowIndex + 1}`"
-          title="在下一行插入型号"
-          @click="emit('insertLineAfter', rowIndex)"
-        >
-          ＋
-        </button>
-        <button
-          v-if="isDraft"
-          type="button"
-          :disabled="lines.length <= 1"
-          :data-testid="`production-plan-remove-line-${rowIndex + 1}`"
-          title="删除该型号"
-          @click="emit('removeLine', rowIndex)"
-        >
-          −
-        </button>
-      </span>
     </template>
   </TableCore>
 
@@ -153,6 +172,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import type { MasterOption } from "./entry-table/types";
 import ColumnFilterPopover from "./table/ColumnFilterPopover.vue";
 import ColumnSettingsDialog from "./table/ColumnSettingsDialog.vue";
 import TableCore, { type TableCoreColumn } from "./table/TableCore.vue";
@@ -187,6 +207,9 @@ interface ProductionPlanEntryColumn extends TableCoreColumn {
 const props = defineProps<{
   lines: ProductionPlanEntryLine[];
   isDraft: boolean;
+  productOptions: MasterOption[];
+  activeProductLookupIndex: number | null;
+  productLookupCursor: number;
 }>();
 
 const emit = defineEmits<{
@@ -195,6 +218,11 @@ const emit = defineEmits<{
   insertLineAfter: [index: number];
   removeLine: [index: number];
   openProductSelector: [index: number];
+  searchProductOptions: [keyword: string, index: number];
+  handleProductInput: [keyword: string, index: number];
+  handleProductKeydown: [event: KeyboardEvent, index: number];
+  closeProductLookupLater: [];
+  selectProductOption: [option: MasterOption, index: number];
 }>();
 
 const lines = computed(() => props.lines);
@@ -212,8 +240,7 @@ const defaultPlanEntryColumns: ProductionPlanEntryColumn[] = [
   { key: "departmentCode", title: "生产车间", width: 140, minWidth: 110, visible: true },
   { key: "qty", title: "数量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
   { key: "planDeliveryDate", title: "预计交期", width: 124, minWidth: 96, visible: true },
-  { key: "inProgressQty", title: "在制未完工", width: 120, minWidth: 96, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
-  { key: "actions", title: "行操作", width: 92, minWidth: 92, fixed: "right", align: "center", resizable: false, visible: true, configurable: false }
+  { key: "inProgressQty", title: "在制未完工", width: 120, minWidth: 96, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" }
 ];
 const planEntryColumns = ref<ProductionPlanEntryColumn[]>(defaultPlanEntryColumns.map((column) => ({ ...column })));
 const visiblePlanEntryColumns = computed(() => planEntryColumns.value.filter((column) => column.visible));
@@ -242,13 +269,20 @@ function resetPlanColumns() {
 
 function openPlanColumnFilter(column: TableCoreColumn, event: MouseEvent) {
   const targetColumn = planEntryColumns.value.find((item) => item.key === column.key);
-  if (targetColumn && !["rowNo", "actions"].includes(targetColumn.key)) {
+  if (targetColumn && targetColumn.key !== "rowNo") {
     openColumnFilter(targetColumn, event);
   }
 }
 
+function planRowKey(line: ProductionPlanEntryLine) {
+  return line.localId;
+}
+
 function planRowAttrs(_line: ProductionPlanEntryLine, index: number) {
-  return { "data-testid": `production-plan-entry-row-${index + 1}` };
+  return {
+    "data-testid": "production-plan-entry-row",
+    "data-line-no": index + 1
+  };
 }
 
 function planCellAttrs(_line: ProductionPlanEntryLine, column: TableCoreColumn) {
@@ -274,8 +308,7 @@ function planEntryColumnValue(row: unknown, rowIndex: number, key: string) {
     departmentCode: line.departmentCode,
     qty: String(line.qty ?? ""),
     planDeliveryDate: line.planDeliveryDate,
-    inProgressQty: line.inProgressQty,
-    actions: ""
+    inProgressQty: line.inProgressQty
   };
   return values[key] ?? "";
 }
@@ -287,21 +320,11 @@ function planEntryColumnValue(row: unknown, rowIndex: number, key: string) {
   gap: 8px;
 }
 
-.plan-product-picker,
-.plan-line-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.plan-product-picker input {
-  min-width: 0;
-  flex: 1;
-}
-
-.plan-product-picker button,
-.plan-line-actions button {
-  flex: 0 0 auto;
-  min-width: 30px;
+:deep(.production-plan-entry-table .master-selector__menu em) {
+  display: block;
+  padding: 7px;
+  color: #7b8da1;
+  font-size: 12px;
+  font-style: normal;
 }
 </style>
