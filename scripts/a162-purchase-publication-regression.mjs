@@ -4,7 +4,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
-import { installApiSession, installApiSessionInBrowser, loginApi } from "./helpers/regression-auth.mjs";
+import {
+  createIsolatedAdminSessionFixture,
+  loginApi,
+  logoutApiSession
+} from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -20,9 +24,12 @@ const documents = [
   { id: "purchase-return-form", listId: "purchase-return-form-list", api: "/api/purchase-returns", permission: "purchase.return.audit", controller: "backend/src/main/java/com/jdy/erp/purchase/api/PurchaseReturnController.java", actions: ["saveDraft", "audit", "reverse", "delete", "voidBill"] }
 ];
 
-await installApiSession(apiBase);
 await mkdir(verificationDir, { recursive: true });
 await mkdir(screenshotDir, { recursive: true });
+const identity = createIsolatedAdminSessionFixture(apiBase, { label: "a162" });
+let deniedRoleCookie = "";
+let evidence = null;
+let primaryError = null;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -75,7 +82,7 @@ async function ensureBrowserSession(page) {
   assert(
     session.status === 200
       && session.body?.authenticated === true
-      && session.body?.user?.username === "admin"
+      && session.body?.user?.username === identity.username
       && session.body?.user?.roleCode === "ADMIN"
       && session.body?.tenant?.code === "BLD-TEST"
       && session.body?.tenant?.schemaName === "public",
@@ -101,8 +108,10 @@ async function openDocumentList(page, document) {
   await page.getByTestId("list-keyword").waitFor({ state: "visible", timeout: 10000 });
 }
 
-const evidence = { batch, generatedAt: new Date().toISOString(), staticGuards: [], deniedWrites: [], businessChain: {}, browser: [] };
-const deniedRoleCookie = await loginApi(apiBase, "finance", "finance123", "BLD-TEST");
+try {
+await identity.installForApi("BLD-TEST");
+evidence = { batch, generatedAt: new Date().toISOString(), staticGuards: [], deniedWrites: [], businessChain: {}, browser: [] };
+deniedRoleCookie = await loginApi(apiBase, "finance", "finance123", "BLD-TEST");
 for (const document of documents) {
   const source = await readFile(path.join(rootDir, document.controller), "utf8");
   for (const action of document.actions) {
@@ -168,24 +177,92 @@ evidence.businessChain = {
 for (const viewport of [{ width: 1440, height: 900, name: "wide" }, { width: 390, height: 844, name: "narrow" }]) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  await installApiSessionInBrowser(context, apiBase, "admin", "admin123", "BLD-TEST");
+  let browserCookie = "";
+  let browserPrimaryError = null;
   try {
+    browserCookie = await identity.installInBrowser(context, "BLD-TEST");
     for (const document of documents) {
       const page = await context.newPage();
+      let pagePrimaryError = null;
       try {
         const session = await ensureBrowserSession(page);
         await openDocumentList(page, document);
         const screenshot = `a162-${viewport.name}-${document.id}-${batch}.png`;
         await page.screenshot({ path: path.join(screenshotDir, screenshot) });
         evidence.browser.push({ id: document.id, viewport: `${viewport.width}x${viewport.height}`, session, screenshot: `verification/playwright/${screenshot}` });
-      } finally {
-        await page.close();
+      } catch (error) {
+        pagePrimaryError = error;
       }
+      let pageCloseError = null;
+      try {
+        await page.close();
+      } catch (error) {
+        pageCloseError = error;
+      }
+      if (pagePrimaryError && pageCloseError) {
+        throw new AggregateError(
+          [pagePrimaryError, pageCloseError],
+          `A162 page regression failed: ${pagePrimaryError instanceof Error ? pagePrimaryError.message : String(pagePrimaryError)}; close failed: ${pageCloseError instanceof Error ? pageCloseError.message : String(pageCloseError)}`
+        );
+      }
+      if (pagePrimaryError) throw pagePrimaryError;
+      if (pageCloseError) throw pageCloseError;
     }
-  } finally {
-    await browser.close();
+  } catch (error) {
+    browserPrimaryError = error;
   }
+  const browserCleanupErrors = [];
+  if (browserCookie) {
+    try {
+      await identity.logout(browserCookie);
+    } catch (error) {
+      browserCleanupErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  try {
+    await browser.close();
+  } catch (error) {
+    browserCleanupErrors.push(error instanceof Error ? error.message : String(error));
+  }
+  if (browserPrimaryError) {
+    if (browserCleanupErrors.length > 0) {
+      throw new AggregateError(
+        [browserPrimaryError, ...browserCleanupErrors.map((message) => new Error(message))],
+        `A162 browser regression failed: ${browserPrimaryError instanceof Error ? browserPrimaryError.message : String(browserPrimaryError)}; cleanup failed: ${browserCleanupErrors.join("; ")}`
+      );
+    }
+    throw browserPrimaryError;
+  }
+  if (browserCleanupErrors.length > 0) throw new Error(`A162 browser session cleanup failed: ${browserCleanupErrors.join("; ")}`);
 }
 
+} catch (error) {
+  primaryError = error;
+}
+
+const cleanupErrors = [];
+if (deniedRoleCookie) {
+  try {
+    await logoutApiSession(apiBase, deniedRoleCookie);
+  } catch (error) {
+    cleanupErrors.push(error instanceof Error ? error.message : String(error));
+  }
+}
+try {
+  await identity.cleanup();
+} catch (error) {
+  cleanupErrors.push(error instanceof Error ? error.message : String(error));
+}
+if (primaryError) {
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [primaryError, ...cleanupErrors.map((message) => new Error(message))],
+      `A162 regression failed: ${primaryError instanceof Error ? primaryError.message : String(primaryError)}; cleanup failed: ${cleanupErrors.join("; ")}`
+    );
+  }
+  throw primaryError;
+}
+if (cleanupErrors.length > 0) throw new Error(`A162 session cleanup failed: ${cleanupErrors.join("; ")}`);
+assert(evidence, "A162 regression completed without result evidence");
 await writeFile(resultPath, JSON.stringify(evidence, null, 2));
 console.log(JSON.stringify(evidence, null, 2));

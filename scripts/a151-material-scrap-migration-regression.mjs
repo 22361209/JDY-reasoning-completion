@@ -7,7 +7,10 @@ import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { currentMigrationHead } from "./helpers/current-migration-head.mjs";
+import {
+  assertPublishedMigrationHistory,
+  currentMigrationHead
+} from "./helpers/current-migration-head.mjs";
 import { loginApi } from "./helpers/regression-auth.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -540,35 +543,12 @@ if (!primaryError) {
 
     flyway(upgradeDatabase);
     const upgradeHistory = history(upgradeDatabase);
-    const v108 = upgradeHistory.filter((row) => row.version === "108");
-    const v109 = upgradeHistory.filter((row) => row.version === "109");
-    const v110 = upgradeHistory.filter((row) => row.version === "110");
-    const v111 = upgradeHistory.filter((row) => row.version === "111");
-    const v112 = upgradeHistory.filter((row) => row.version === "112");
-    const v113 = upgradeHistory.filter((row) => row.version === "113");
+    assertPublishedMigrationHistory(upgradeHistory, "A151 upgrade history");
     const currentHeadRows = upgradeHistory.filter((row) => row.version === migrationHead.version);
-    assert.equal(v108.length, 1, "upgrade must apply V108 exactly once");
-    assert.equal(v108[0].success, true, "V108 must be successful");
-    assert.equal(v109.length, 1, "upgrade must apply V109 exactly once");
-    assert.equal(v109[0].success, true, "V109 must be successful");
-    assert.equal(v110.length, 1, "upgrade must apply V110 exactly once");
-    assert.equal(v110[0].success, true, "V110 must be successful");
-    assert.equal(v111.length, 1, "upgrade must apply V111 exactly once");
-    assert.equal(v111[0].success, true, "V111 must be successful");
-    assert.equal(v112.length, 1, "upgrade must apply V112 exactly once");
-    assert.equal(v112[0].success, true, "V112 must be successful");
-    assert.equal(v113.length, 1, "upgrade must apply V113 exactly once");
-    assert.equal(v113[0].success, true, "V113 must be successful");
     assert.equal(currentHeadRows.length, 1, "upgrade must apply the repository current head exactly once");
     assert.equal(currentHeadRows[0].success, true, "repository current head must be successful");
     assert.equal(currentHeadRows[0].script, migrationHead.script, "repository current head script must match migration sources");
     assert.equal(upgradeHistory.at(-1)?.version, migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`);
-    assert.equal(
-      upgradeHistory.find((row) => row.version === "106")?.checksum,
-      1207842815,
-      "published V106 checksum must remain immutable"
-    );
-
     const publicTopology = topology(upgradeDatabase, "public");
     const tenantTopology = topology(upgradeDatabase, tenantSchema);
     assertTopology("upgrade public", publicTopology, 203);
@@ -653,16 +633,11 @@ if (!primaryError) {
     freshCreated = true;
     flyway(freshDatabase);
     const freshHistory = history(freshDatabase);
-    const freshV112 = freshHistory.filter((row) => row.version === "112");
-    const freshV113 = freshHistory.filter((row) => row.version === "113");
+    assertPublishedMigrationHistory(freshHistory, "A151 fresh history");
     const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
     assert.equal(freshCurrentHeadRows.length, 1, "fresh migration must apply the repository current head exactly once");
     assert.equal(freshCurrentHeadRows[0].success, true, "fresh repository current head must be successful");
     assert.equal(freshCurrentHeadRows[0].script, migrationHead.script, "fresh repository current head script must match migration sources");
-    assert.equal(freshV112.length, 1, "fresh migration must apply V112 exactly once");
-    assert.equal(freshV112[0].success, true, "fresh V112 must be successful");
-    assert.equal(freshV113.length, 1, "fresh migration must apply V113 exactly once");
-    assert.equal(freshV113[0].success, true, "fresh V113 must be successful");
     assert.equal(freshHistory.at(-1)?.version, migrationHead.version, `fresh V1-to-latest migration must end at V${migrationHead.version}`);
     assertTopology("fresh public", topology(freshDatabase, "public"), 203);
     assertScrapShape(freshDatabase, "public");

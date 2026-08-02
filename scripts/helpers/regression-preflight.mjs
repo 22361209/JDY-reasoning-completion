@@ -4,14 +4,45 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { createIsolatedAdminSessionFixture } from "./regression-auth.mjs";
 
 const execFileAsync = promisify(execFile);
 const apiBase = "http://127.0.0.1:8080";
 const frontendBase = "http://127.0.0.1:5173";
 const accountSetCode = "BLD-TEST";
 const accountSetSchema = "public";
-const username = "admin";
-const password = process.env.JDY_REGRESSION_ADMIN_PASSWORD || "admin123";
+const declaredDirectSqlRoleMutators = new Set([
+  "scripts/a140-employee-financial-account-regression.mjs",
+  "scripts/a141-formal-settlement-regression.mjs",
+  "scripts/a142-sales-return-regression.mjs"
+]);
+const directSqlRoleMutationPattern = /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:public\.)?sys_(?:role|permission)\b/i;
+
+export function classifySharedStateMutationScripts(sources) {
+  const apiRoleMutationScripts = sources
+    .filter(({ source }) => source.includes("/api/system/roles/") && source.includes("/permissions"))
+    .map(({ script }) => script);
+  const directSqlRoleMutationScripts = sources
+    .filter(({ source }) => directSqlRoleMutationPattern.test(source))
+    .map(({ script }) => script);
+  const missingDeclarations = sources
+    .filter(({ script, source }) => declaredDirectSqlRoleMutators.has(script) && !directSqlRoleMutationPattern.test(source))
+    .map(({ script }) => script);
+  if (missingDeclarations.length > 0) {
+    throw new Error(`Declared direct SQL role mutators no longer match the fail-closed detector: ${missingDeclarations.join(", ")}`);
+  }
+  const roleMutationScripts = [...new Set([...apiRoleMutationScripts, ...directSqlRoleMutationScripts])].sort();
+  const securityMutationScripts = sources
+    .filter(({ source }) => source.includes("/api/system/security-settings"))
+    .map(({ script }) => script)
+    .sort();
+  return {
+    roleMutationScripts,
+    directSqlRoleMutationScripts: [...new Set(directSqlRoleMutationScripts)].sort(),
+    securityMutationScripts,
+    sharedStateMutationScripts: [...new Set([...roleMutationScripts, ...securityMutationScripts])].sort()
+  };
+}
 
 export async function runRegressionPreflight({ rootDir, tier, scripts }) {
   let cleanWorktree = null;
@@ -25,13 +56,12 @@ export async function runRegressionPreflight({ rootDir, tier, scripts }) {
     source: await readFile(path.join(rootDir, script), "utf8")
   })));
   const frontendRequired = sources.some(({ source }) => source.includes("playwright") || source.includes("127.0.0.1:5173"));
-  const roleMutationScripts = sources
-    .filter(({ source }) => source.includes("/api/system/roles/") && source.includes("/permissions"))
-    .map(({ script }) => script);
-  const securityMutationScripts = sources
-    .filter(({ source }) => source.includes("/api/system/security-settings"))
-    .map(({ script }) => script);
-  const sharedStateMutationScripts = [...new Set([...roleMutationScripts, ...securityMutationScripts])].sort();
+  const {
+    roleMutationScripts,
+    directSqlRoleMutationScripts,
+    securityMutationScripts,
+    sharedStateMutationScripts
+  } = classifySharedStateMutationScripts(sources);
 
   const directHealth = await requireJson(`${apiBase}/api/system/health`, {}, "direct backend health");
   if (directHealth.testInventoryAdjustmentApi !== true) {
@@ -86,7 +116,8 @@ export async function runRegressionPreflight({ rootDir, tier, scripts }) {
     frontendBuildFingerprint: frontendHealth ? normalizedFingerprint(frontendHealth.devBuildFingerprint) : null,
     inventoryFixtureCapability: true,
     tenant: sharedBaseline.tenant,
-    user: sharedBaseline.user,
+    user: { mode: "run-unique-admin", roleCode: sharedBaseline.user.roleCode },
+    sessionIsolation: sharedBaseline.sessionIsolation,
     requiredAdminPermissions: sharedBaseline.permissionCatalogCodes,
     permissionCatalogCodes: sharedBaseline.permissionCatalogCodes,
     adminPermissionCodes: sharedBaseline.adminPermissionCodes,
@@ -94,6 +125,7 @@ export async function runRegressionPreflight({ rootDir, tier, scripts }) {
     rolePermissionMatrix: sharedBaseline.rolePermissionMatrix,
     securitySettings: sharedBaseline.securitySettings,
     roleMutationScripts,
+    directSqlRoleMutationScripts,
     securityMutationScripts,
     sharedStateMutationScripts,
     cleanWorktree
@@ -153,58 +185,67 @@ export async function assertRegressionPostflight(preflight, label = "suite postf
 }
 
 async function readSharedRegressionBaseline() {
-  const loginResponse = await fetch(`${apiBase}/api/system/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, accountSetCode }),
-    signal: AbortSignal.timeout(5000)
-  });
-  if (!loginResponse.ok) {
-    throw new Error(`Regression preflight login failed ${loginResponse.status}: ${await loginResponse.text()}`);
+  const fixture = createIsolatedAdminSessionFixture(apiBase, { label: "preflight" });
+  let baseline = null;
+  let primaryError = null;
+  try {
+    const cookie = await fixture.login(accountSetCode);
+    const headers = { Cookie: cookie };
+    const session = await requireJson(`${apiBase}/api/system/session`, { headers }, "regression session");
+    if (session.authenticated !== true
+      || session.tenant?.code !== accountSetCode
+      || session.tenant?.schemaName !== accountSetSchema
+      || session.user?.username !== fixture.username
+      || session.user?.roleCode !== "ADMIN") {
+      throw new Error(`Regression session is outside the exact isolated BLD-TEST/public ADMIN boundary: ${JSON.stringify({
+        authenticated: session.authenticated,
+        tenantCode: session.tenant?.code,
+        schemaName: session.tenant?.schemaName,
+        roleCode: session.user?.roleCode
+      })}`);
+    }
+    const matrix = await requireJson(`${apiBase}/api/system/role-permissions`, { headers }, "role permission matrix");
+    const admin = matrix.roles?.find((role) => role.code === "ADMIN");
+    if (!admin || admin.enabled !== true || !Array.isArray(admin.permissionCodes) || !Array.isArray(matrix.permissions)) {
+      throw new Error("Regression preflight could not resolve the ADMIN permission matrix");
+    }
+    const securitySettings = normalizeSecuritySettings(
+      await requireJson(`${apiBase}/api/system/security-settings`, { headers }, "security settings")
+    );
+    baseline = {
+      tenant: { code: session.tenant.code, schemaName: session.tenant.schemaName },
+      user: { roleCode: session.user.roleCode },
+      permissionCatalogCodes: sortedUnique(matrix.permissions.map((permission) => permission.permissionCode)),
+      adminPermissionCodes: sortedUnique(admin.permissionCodes),
+      sessionPermissionCodes: sortedUnique(session.user.permissionCodes || []),
+      rolePermissionMatrix: Object.fromEntries(
+        [...matrix.roles]
+          .sort((left, right) => String(left.code).localeCompare(String(right.code)))
+          .map((role) => [String(role.code), {
+            enabled: role.enabled === true,
+            permissionCodes: sortedUnique(role.permissionCodes || [])
+          }])
+      ),
+      securitySettings
+    };
+  } catch (error) {
+    primaryError = error;
   }
-  const cookie = (loginResponse.headers.get("set-cookie") || "").split(";")[0];
-  if (!cookie) {
-    throw new Error("Regression preflight login did not return a session cookie");
+  let cleanupError = null;
+  try {
+    await fixture.cleanup();
+  } catch (error) {
+    cleanupError = error;
   }
-  const headers = { Cookie: cookie };
-  const session = await requireJson(`${apiBase}/api/system/session`, { headers }, "regression session");
-  if (session.authenticated !== true
-    || session.tenant?.code !== accountSetCode
-    || session.tenant?.schemaName !== accountSetSchema
-    || session.user?.username !== username
-    || session.user?.roleCode !== "ADMIN") {
-    throw new Error(`Regression session is outside the exact BLD-TEST/public ADMIN boundary: ${JSON.stringify({
-      authenticated: session.authenticated,
-      tenantCode: session.tenant?.code,
-      schemaName: session.tenant?.schemaName,
-      username: session.user?.username,
-      roleCode: session.user?.roleCode
-    })}`);
+  if (primaryError && cleanupError) {
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      `Regression preflight baseline failed: ${primaryError instanceof Error ? primaryError.message : String(primaryError)}; cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`
+    );
   }
-  const matrix = await requireJson(`${apiBase}/api/system/role-permissions`, { headers }, "role permission matrix");
-  const admin = matrix.roles?.find((role) => role.code === "ADMIN");
-  if (!admin || admin.enabled !== true || !Array.isArray(admin.permissionCodes) || !Array.isArray(matrix.permissions)) {
-    throw new Error("Regression preflight could not resolve the ADMIN permission matrix");
-  }
-  const securitySettings = normalizeSecuritySettings(
-    await requireJson(`${apiBase}/api/system/security-settings`, { headers }, "security settings")
-  );
-  return {
-    tenant: { code: session.tenant.code, schemaName: session.tenant.schemaName },
-    user: { username: session.user.username, roleCode: session.user.roleCode },
-    permissionCatalogCodes: sortedUnique(matrix.permissions.map((permission) => permission.permissionCode)),
-    adminPermissionCodes: sortedUnique(admin.permissionCodes),
-    sessionPermissionCodes: sortedUnique(session.user.permissionCodes || []),
-    rolePermissionMatrix: Object.fromEntries(
-      [...matrix.roles]
-        .sort((left, right) => String(left.code).localeCompare(String(right.code)))
-        .map((role) => [String(role.code), {
-          enabled: role.enabled === true,
-          permissionCodes: sortedUnique(role.permissionCodes || [])
-        }])
-    ),
-    securitySettings
-  };
+  if (primaryError) throw primaryError;
+  if (cleanupError) throw cleanupError;
+  return { ...baseline, sessionIsolation: { mode: "run-unique-admin", cleanupVerified: true } };
 }
 
 async function requireJson(url, options, label) {
