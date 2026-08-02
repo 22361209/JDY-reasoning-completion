@@ -14,6 +14,8 @@ const kingdeeListReference = "/Users/linzhenyue/Projects/JDY-复刻-local/01_金
 const kingdeeEntryReference = "/Users/linzhenyue/Projects/JDY-复刻-local/01_金蝶调研/截图/采购管理/采购H3/1434_采购申请_新增单据首屏态.png";
 const denseTableRowMinHeight = 20;
 const denseTableRowMaxHeight = 22.5;
+const businessListRowMinHeight = 30;
+const businessListRowMaxHeight = 33;
 const documentEntryRowMinHeight = 30;
 const documentEntryRowMaxHeight = 33;
 
@@ -174,8 +176,8 @@ try {
   const moreVisible = await page.getByTestId("list-more-actions").isVisible();
   assert(listRowHeights.length >= 1, "list should render at least one row");
   assert(
-    Math.max(...listRowHeights) <= denseTableRowMaxHeight && Math.min(...listRowHeights) >= denseTableRowMinHeight,
-    `list rows should keep 20-22px high-density contract, got ${listRowHeights.join(",")}`
+    Math.max(...listRowHeights) <= businessListRowMaxHeight && Math.min(...listRowHeights) >= businessListRowMinHeight,
+    `business list rows should match the shared 32px document-entry contract, got ${listRowHeights.join(",")}`
   );
   assert(listHeaderHeight <= 29, `list header should match shared table header density around 28px, got ${listHeaderHeight}`);
   assert(listToolbarHeight <= 34, `list toolbar should be compact, got ${listToolbarHeight}`);

@@ -2112,6 +2112,12 @@ input:disabled {
   overflow-y: auto;
 }
 
+/* Standard business lists use the same body-row density as document entries. */
+.data-list-page .data-list-native-table .vxe-table--body-wrapper {
+  --table-core-row-height: 32px;
+  font-size: 13px;
+}
+
 .data-list-native-table .vxe-header--column {
   height: 28px;
   background: #f3f6f9;
