@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { installApiSession, loginApi } from "./helpers/regression-auth.mjs";
+import { installApiSession, installApiSessionInBrowser, loginApi } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -95,22 +95,42 @@ assert(tenantScalar(tenantSchema, `SELECT count(*) FROM cash_transfer_fact f JOI
 assert(scalar(`SELECT count(*) FROM public.cash_transfer WHERE id='${String(tenantTransfer.id)}'::uuid`) === "0", "tenant transfer must not leak into public schema");
 await requireOk(tenantCookie, `/api/cash-transfers/${encodeURIComponent(tenantBillNo)}/reverse`, { method: "POST" });
 
-const adminCookie = await loginApi(apiBase, "admin", "admin123", "BLD-TEST");
-const [cookieName, cookieValue] = adminCookie.split("=", 2);
 const browserEvidence = [];
 for (const viewport of [{ width: 1440, height: 900, name: "wide" }, { width: 390, height: 844, name: "narrow" }]) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  await context.addCookies([{ name: cookieName, value: cookieValue, url: apiBase }]);
+  await installApiSessionInBrowser(context, apiBase, "admin", "admin123", "BLD-TEST");
   const page = await context.newPage();
   try {
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
+    const browserSession = await page.evaluate(async () => {
+      const response = await fetch("/api/system/session");
+      return { status: response.status, body: await response.json() };
+    });
+    assert(
+      browserSession.status === 200
+        && browserSession.body?.authenticated === true
+        && browserSession.body?.user?.username === "admin"
+        && browserSession.body?.user?.roleCode === "ADMIN"
+        && browserSession.body?.tenant?.code === "BLD-TEST"
+        && browserSession.body?.tenant?.schemaName === "public",
+      `cash-transfer browser session mismatch: ${JSON.stringify(browserSession)}`
+    );
     await page.getByTestId("module-应收应付").hover().catch(() => page.getByTestId("module-应收应付").click());
     await page.getByTestId("entry-cash-transfer-form").click();
     await page.getByTestId("cash-transfer-form").waitFor({ state: "visible" });
     const screenshot = `a163-${viewport.name}-cash-transfer-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, screenshot) });
-    browserEvidence.push({ viewport: `${viewport.width}x${viewport.height}`, screenshot: `verification/playwright/${screenshot}` });
+    browserEvidence.push({
+      viewport: `${viewport.width}x${viewport.height}`,
+      session: {
+        username: browserSession.body.user.username,
+        roleCode: browserSession.body.user.roleCode,
+        accountSetCode: browserSession.body.tenant.code,
+        schemaName: browserSession.body.tenant.schemaName
+      },
+      screenshot: `verification/playwright/${screenshot}`
+    });
   } finally { await browser.close(); }
 }
 

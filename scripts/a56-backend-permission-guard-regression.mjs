@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginApi } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -8,8 +8,9 @@ const resultPath = path.join(verificationDir, "a56-backend-permission-guard-regr
 const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const roleCode = "ADMIN";
-const removedPermissions = [
+const deniedRoleCode = "WAREHOUSE";
+const deniedUsername = "warehouse";
+const deniedPermissions = [
   "sales.order.audit",
   "system.print_template.manage",
   "master.data.manage"
@@ -24,9 +25,11 @@ function assert(condition, message) {
 }
 
 async function request(pathname, options = {}) {
+  const headers = new Headers(options.body ? { "Content-Type": "application/json" } : undefined);
+  if (options.cookie) headers.set("Cookie", options.cookie);
   return fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "GET",
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
 }
@@ -40,8 +43,8 @@ async function requireJson(pathname, options = {}) {
   return text ? JSON.parse(text) : {};
 }
 
-async function requireForbidden(pathname, expectedReason, options = {}) {
-  const response = await request(pathname, options);
+async function requireForbidden(cookie, pathname, expectedReason, options = {}) {
+  const response = await request(pathname, { ...options, cookie });
   const text = await response.text();
   assert(response.status === 403, `${options.method ?? "GET"} ${pathname} should be forbidden, got ${response.status}: ${text}`);
   assert(text.includes(expectedReason), `${options.method ?? "GET"} ${pathname} should report ${expectedReason}: ${text}`);
@@ -64,13 +67,6 @@ function detailStatus(payload) {
   return payload.order?.status ?? payload.document?.status;
 }
 
-async function saveRolePermissions(code, permissionCodes) {
-  return requireJson(`/api/system/roles/${encodeURIComponent(code)}/permissions`, {
-    method: "PUT",
-    body: { permissionCodes }
-  });
-}
-
 function samePermissionSet(left, right) {
   return JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort());
 }
@@ -78,124 +74,98 @@ function samePermissionSet(left, right) {
 let billNo = "";
 const masterCode = `A56-P-${batch}`;
 const originalMatrix = await requireJson("/api/system/role-permissions");
-const originalPermissions = [...findRole(originalMatrix, roleCode).permissionCodes];
-for (const permissionCode of removedPermissions) {
-  assert(originalPermissions.includes(permissionCode), `original ADMIN permissions should include ${permissionCode}`);
+const originalAdminPermissions = [...findRole(originalMatrix, "ADMIN").permissionCodes];
+const deniedRolePermissions = [...findRole(originalMatrix, deniedRoleCode).permissionCodes];
+for (const permissionCode of deniedPermissions) {
+  assert(originalAdminPermissions.includes(permissionCode), `original ADMIN permissions should include ${permissionCode}`);
+  assert(!deniedRolePermissions.includes(permissionCode), `${deniedRoleCode} should not include ${permissionCode}`);
 }
-assert(originalPermissions.includes("system.role_permission.manage"), "regression restore path requires system.role_permission.manage");
-
-const reducedPermissions = originalPermissions.filter((permissionCode) => !removedPermissions.includes(permissionCode));
 const assertions = [];
-let primaryError;
-
-async function restoreAdminPermissions() {
-  let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      await saveRolePermissions(roleCode, originalPermissions);
-      const restoredMatrix = await requireJson("/api/system/role-permissions");
-      const restoredPermissions = findRole(restoredMatrix, roleCode).permissionCodes;
-      assert(samePermissionSet(restoredPermissions, originalPermissions), `ADMIN permission restore attempt ${attempt} did not reproduce the complete original set`);
-      return;
-    } catch (error) {
-      lastError = error;
-    }
+const deniedRoleCookie = await loginApi(apiBase, deniedUsername, "warehouse123", "BLD-TEST");
+const savedOrder = await requireJson("/api/sales-orders/draft", {
+  method: "POST",
+  body: {
+    billNo: null,
+    customerCode: "KH-001",
+    billDate: "2026-06-24",
+    department: "销售部",
+    ownerName: "A56 后端权限回归",
+    lines: [
+      { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10, lineRemark: "后端权限草稿" }
+    ]
   }
-  throw lastError;
+});
+billNo = generatedSalesOrderNo(savedOrder, "A56 sales order");
+
+const deniedSessionResponse = await request("/api/system/session", { cookie: deniedRoleCookie });
+const deniedSession = await deniedSessionResponse.json();
+assert(deniedSessionResponse.ok && deniedSession?.authenticated === true, `${deniedRoleCode} session should be authenticated`);
+assert(deniedSession?.user?.username === deniedUsername && deniedSession?.user?.roleCode === deniedRoleCode, `${deniedRoleCode} session identity mismatch`);
+assert(deniedSession?.tenant?.code === "BLD-TEST" && deniedSession?.tenant?.schemaName === "public", `${deniedRoleCode} session must stay in BLD-TEST/public`);
+for (const permissionCode of deniedPermissions) {
+  assert(!deniedSession.user.permissionCodes.includes(permissionCode), `${deniedRoleCode} session should not include ${permissionCode}`);
 }
 
-try {
-  const savedOrder = await requireJson("/api/sales-orders/draft", {
+assertions.push({
+  name: "sales order audit blocked without sales.order.audit",
+  ...(await requireForbidden(deniedRoleCookie, `/api/sales-orders/${encodeURIComponent(billNo)}/audit`, "当前角色无权执行该操作：sales.order.audit", { method: "POST" }))
+});
+const draftAfterBlockedAudit = await requireJson(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+assert(detailStatus(draftAfterBlockedAudit) === "DRAFT", "blocked audit should not change sales order status");
+
+assertions.push({
+  name: "print template save blocked without system.print_template.manage",
+  ...(await requireForbidden(deniedRoleCookie, "/api/documents/sales-order/print-template", "当前角色无权执行该操作：system.print_template.manage", {
+    method: "PUT",
+    body: {
+      templateCode: "STANDARD",
+      templateName: "标准套打模板",
+      companyName: "博莱德机械测试账套",
+      headerNote: "",
+      footerNote: "本单据由系统生成",
+      showSignature: true,
+      showSeal: true,
+      isDefault: true
+    }
+  }))
+});
+
+assertions.push({
+  name: "master data create blocked without master.data.manage",
+  ...(await requireForbidden(deniedRoleCookie, "/api/master-data/product", "当前角色无权执行该操作：master.data.manage", {
     method: "POST",
     body: {
-      billNo: null,
-      customerCode: "KH-001",
-      billDate: "2026-06-24",
-      department: "销售部",
-      ownerName: "A56 后端权限回归",
-      lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10, lineRemark: "后端权限草稿" }
-      ]
+      code: masterCode,
+      name: "A56 权限回归商品",
+      spec: "不可落库",
+      category: "测试",
+      unit: "只"
     }
-  });
-  billNo = generatedSalesOrderNo(savedOrder, "A56 sales order");
-
-  await saveRolePermissions(roleCode, reducedPermissions);
-  const session = await requireJson("/api/system/session");
-  for (const permissionCode of removedPermissions) {
-    assert(!session.user.permissionCodes.includes(permissionCode), `session should not include ${permissionCode}`);
-  }
-
-  assertions.push({
-    name: "sales order audit blocked without sales.order.audit",
-    ...(await requireForbidden(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, "当前角色无权执行该操作：sales.order.audit", { method: "POST" }))
-  });
-  const draftAfterBlockedAudit = await requireJson(`/api/sales-orders/${encodeURIComponent(billNo)}`);
-  assert(detailStatus(draftAfterBlockedAudit) === "DRAFT", "blocked audit should not change sales order status");
-
-  assertions.push({
-    name: "print template save blocked without system.print_template.manage",
-    ...(await requireForbidden("/api/documents/sales-order/print-template", "当前角色无权执行该操作：system.print_template.manage", {
-      method: "PUT",
-      body: {
-        templateCode: "STANDARD",
-        templateName: "标准套打模板",
-        companyName: "博莱德机械测试账套",
-        headerNote: "",
-        footerNote: "本单据由系统生成",
-        showSignature: true,
-        showSeal: true,
-        isDefault: true
-      }
-    }))
-  });
-
-  assertions.push({
-    name: "master data create blocked without master.data.manage",
-    ...(await requireForbidden("/api/master-data/product", "当前角色无权执行该操作：master.data.manage", {
-      method: "POST",
-      body: {
-        code: masterCode,
-        name: "A56 权限回归商品",
-        spec: "不可落库",
-        category: "测试",
-        unit: "只"
-      }
-    }))
-  });
-} catch (error) {
-  primaryError = error;
-  throw error;
-} finally {
-  try {
-    await restoreAdminPermissions();
-  } catch (cleanupError) {
-    if (primaryError) {
-      console.error(`A56 permission restore failed after primary error: ${cleanupError instanceof Error ? cleanupError.stack ?? cleanupError.message : String(cleanupError)}`);
-    } else {
-      throw cleanupError;
-    }
-  }
-}
-
-const restoredSession = await requireJson("/api/system/session");
-assert(samePermissionSet(restoredSession.user.permissionCodes, originalPermissions), "restored ADMIN session should match the complete original permission set");
-for (const permissionCode of removedPermissions) {
-  assert(restoredSession.user.permissionCodes.includes(permissionCode), `restored session should include ${permissionCode}`);
-}
+  }))
+});
 
 const auditedOrder = await requireJson(`/api/sales-orders/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
 assert(auditedOrder.status === "AUDITED", "restored sales.order.audit should allow audit");
 
+const logoutResponse = await request("/api/system/logout", { method: "POST", cookie: deniedRoleCookie });
+assert(logoutResponse.ok, `${deniedRoleCode} regression session logout should succeed`);
+const finalMatrix = await requireJson("/api/system/role-permissions");
+const finalAdminPermissions = findRole(finalMatrix, "ADMIN").permissionCodes;
+const finalDeniedRolePermissions = findRole(finalMatrix, deniedRoleCode).permissionCodes;
+assert(samePermissionSet(finalAdminPermissions, originalAdminPermissions), "A56 must not change shared ADMIN permissions");
+assert(samePermissionSet(finalDeniedRolePermissions, deniedRolePermissions), `A56 must not change shared ${deniedRoleCode} permissions`);
+
 const result = {
   batch,
   generatedAt: new Date().toISOString(),
-  roleCode,
-  removedPermissions,
-  originalPermissionCount: originalPermissions.length,
-  reducedPermissionCount: reducedPermissions.length,
+  deniedRoleCode,
+  deniedUsername,
+  deniedPermissions,
+  adminPermissionCount: originalAdminPermissions.length,
+  deniedRolePermissionCount: deniedRolePermissions.length,
+  sharedPermissionMatrixUnchanged: true,
   assertions,
-  restoredAudit: {
+  adminAudit: {
     billNo,
     status: auditedOrder.status
   }

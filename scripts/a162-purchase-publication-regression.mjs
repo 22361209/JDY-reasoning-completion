@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
-import { installApiSession, loginApi } from "./helpers/regression-auth.mjs";
+import { installApiSession, installApiSessionInBrowser, loginApi } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -67,15 +67,30 @@ async function assertLifecycleLog(document, targetType, targetNo, actions) {
 }
 
 async function ensureBrowserSession(page) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await page.goto(frontendUrl, { waitUntil: "networkidle" });
-    if (await page.getByTestId("content-area").isVisible({ timeout: 10000 }).catch(() => false)) return;
-  }
+  await page.goto(frontendUrl, { waitUntil: "networkidle" });
   const session = await page.evaluate(async () => {
     const response = await fetch("/api/system/session");
-    return { status: response.status, body: await response.text() };
+    return { status: response.status, body: await response.json() };
   }).catch((error) => ({ error: String(error) }));
-  throw new Error(`purchase browser session did not render workspace: ${JSON.stringify(session)}`);
+  assert(
+    session.status === 200
+      && session.body?.authenticated === true
+      && session.body?.user?.username === "admin"
+      && session.body?.user?.roleCode === "ADMIN"
+      && session.body?.tenant?.code === "BLD-TEST"
+      && session.body?.tenant?.schemaName === "public",
+    `purchase browser session mismatch: ${JSON.stringify(session)}`
+  );
+  assert(
+    await page.getByTestId("content-area").isVisible({ timeout: 10000 }).catch(() => false),
+    `purchase browser session did not render workspace: ${JSON.stringify(session)}`
+  );
+  return {
+    username: session.body.user.username,
+    roleCode: session.body.user.roleCode,
+    accountSetCode: session.body.tenant.code,
+    schemaName: session.body.tenant.schemaName
+  };
 }
 
 async function openDocumentList(page, document) {
@@ -150,24 +165,19 @@ evidence.businessChain = {
   }
 };
 
-// installApiSession may renew its own admin session during the API chain; take the browser
-// session only after all API assertions so the browser receives the active session cookie.
-const browserAdminCookie = await loginApi(apiBase, "admin", "admin123", "BLD-TEST");
-const [adminCookieName, adminCookieValue] = browserAdminCookie.split("=", 2);
-
 for (const viewport of [{ width: 1440, height: 900, name: "wide" }, { width: 390, height: 844, name: "narrow" }]) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  await context.addCookies([{ name: adminCookieName, value: adminCookieValue, url: apiBase }]);
+  await installApiSessionInBrowser(context, apiBase, "admin", "admin123", "BLD-TEST");
   try {
     for (const document of documents) {
       const page = await context.newPage();
       try {
-        await ensureBrowserSession(page);
+        const session = await ensureBrowserSession(page);
         await openDocumentList(page, document);
         const screenshot = `a162-${viewport.name}-${document.id}-${batch}.png`;
         await page.screenshot({ path: path.join(screenshotDir, screenshot) });
-        evidence.browser.push({ id: document.id, viewport: `${viewport.width}x${viewport.height}`, screenshot: `verification/playwright/${screenshot}` });
+        evidence.browser.push({ id: document.id, viewport: `${viewport.width}x${viewport.height}`, session, screenshot: `verification/playwright/${screenshot}` });
       } finally {
         await page.close();
       }

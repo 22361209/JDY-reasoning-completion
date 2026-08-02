@@ -1,16 +1,18 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
 import { loginApi } from "./helpers/regression-auth.mjs";
+import { currentMigrationHead } from "./helpers/current-migration-head.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const isolationDir = path.join(verificationDir, "a141-settlement-migration-isolation");
 const resultPath = path.join(verificationDir, "a141-settlement-migration-regression.json");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
@@ -1016,6 +1018,9 @@ try {
   const v109Rows = latestHistory.filter((row) => row.version === "109");
   const v110Rows = latestHistory.filter((row) => row.version === "110");
   const v111Rows = latestHistory.filter((row) => row.version === "111");
+  const v112Rows = latestHistory.filter((row) => row.version === "112");
+  const v113Rows = latestHistory.filter((row) => row.version === "113");
+  const currentHeadRows = latestHistory.filter((row) => row.version === migrationHead.version);
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(v105Rows.length === 1 && v105Rows[0].success === true, `V105 history mismatch: ${JSON.stringify(v105Rows)}`);
   assert(v106Rows.length === 1 && v106Rows[0].success === true, `V106 history mismatch: ${JSON.stringify(v106Rows)}`);
@@ -1025,7 +1030,10 @@ try {
   assert(v109Rows.length === 1 && v109Rows[0].success === true, `V109 history mismatch: ${JSON.stringify(v109Rows)}`);
   assert(v110Rows.length === 1 && v110Rows[0].success === true, `V110 history mismatch: ${JSON.stringify(v110Rows)}`);
   assert(v111Rows.length === 1 && v111Rows[0].success === true, `V111 history mismatch: ${JSON.stringify(v111Rows)}`);
-  assert(latestHistory.at(-1)?.version === "111", `repository latest must be V111: ${JSON.stringify(latestHistory.at(-1))}`);
+  assert(v112Rows.length === 1 && v112Rows[0].success === true, `V112 history mismatch: ${JSON.stringify(v112Rows)}`);
+  assert(v113Rows.length === 1 && v113Rows[0].success === true, `V113 history mismatch: ${JSON.stringify(v113Rows)}`);
+  assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, `repository current head mismatch: ${JSON.stringify({ expected: migrationHead, actual: currentHeadRows })}`);
+  assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest must be V${migrationHead.version}: ${JSON.stringify(latestHistory.at(-1))}`);
   assert(
     Number(latestNumbering.publicChecks) === 117
       && Number(latestNumbering.tenantChecks) === 117
@@ -1040,8 +1048,9 @@ try {
   }), "V105 must not change V102-V104 settlement semantics");
   result.upgrade.latest = {
     ...result.upgrade.latest,
-    history: v111Rows[0],
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0], v110: v110Rows[0], v111: v111Rows[0] },
+    history: currentHeadRows[0],
+    currentMigrationHead: migrationHead,
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0], v110: v110Rows[0], v111: v111Rows[0], v112: v112Rows[0], v113: v113Rows[0] },
     numbering: latestNumbering
   };
 
@@ -1209,9 +1218,7 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flywayOutputTail = flywayMigrate(freshDatabase);
   const freshHistory = migrationHistory(freshDatabase);
-  const sourceFiles = (await readdir(migrationDir))
-    .filter((name) => /^V\d+__.+\.sql$/.test(name))
-    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const sourceFiles = migrationHead.sourceScripts;
   const historyScripts = freshHistory.map((row) => row.script);
   const freshV105Rows = freshHistory.filter((row) => row.version === "105");
   const freshV106Rows = freshHistory.filter((row) => row.version === "106");
@@ -1220,6 +1227,9 @@ try {
   const freshV109Rows = freshHistory.filter((row) => row.version === "109");
   const freshV110Rows = freshHistory.filter((row) => row.version === "110");
   const freshV111Rows = freshHistory.filter((row) => row.version === "111");
+  const freshV112Rows = freshHistory.filter((row) => row.version === "112");
+  const freshV113Rows = freshHistory.filter((row) => row.version === "113");
+  const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration");
   assert(same(historyScripts, sourceFiles), "fresh Flyway history does not exactly match the versioned migration source set");
   assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, `fresh V105 history mismatch: ${JSON.stringify(freshV105Rows)}`);
@@ -1230,6 +1240,9 @@ try {
   assert(freshV109Rows.length === 1 && freshV109Rows[0].success === true, `fresh V109 history mismatch: ${JSON.stringify(freshV109Rows)}`);
   assert(freshV110Rows.length === 1 && freshV110Rows[0].success === true, `fresh V110 history mismatch: ${JSON.stringify(freshV110Rows)}`);
   assert(freshV111Rows.length === 1 && freshV111Rows[0].success === true, `fresh V111 history mismatch: ${JSON.stringify(freshV111Rows)}`);
+  assert(freshV112Rows.length === 1 && freshV112Rows[0].success === true, `fresh V112 history mismatch: ${JSON.stringify(freshV112Rows)}`);
+  assert(freshV113Rows.length === 1 && freshV113Rows[0].success === true, `fresh V113 history mismatch: ${JSON.stringify(freshV113Rows)}`);
+  assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, `fresh current head mismatch: ${JSON.stringify({ expected: migrationHead, actual: freshCurrentHeadRows })}`);
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1273,7 +1286,7 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "111", `fresh migration max version should be V111: ${JSON.stringify(freshHistory.at(-1))}`);
+  assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version should be V${migrationHead.version}: ${JSON.stringify(freshHistory.at(-1))}`);
   assert(Number(freshMetrics.managedTables) === 89, `fresh managed table count should be 89: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
@@ -1286,6 +1299,7 @@ try {
     ...result.fresh,
     historyCount: freshHistory.length,
     sourceMigrationCount: sourceFiles.length,
+    currentMigrationHead: migrationHead,
     minVersion: freshHistory[0]?.version,
     maxVersion: freshHistory.at(-1)?.version,
     exactSourceHistory: true,

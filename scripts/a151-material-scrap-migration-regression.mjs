@@ -7,10 +7,12 @@ import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { currentMigrationHead } from "./helpers/current-migration-head.mjs";
 import { loginApi } from "./helpers/regression-auth.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(root, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const migrationPath = path.join(migrationDir, "V108__production_material_scrap.sql");
 const resultPath = path.join(root, "verification/a151-material-scrap-migration-regression.json");
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
@@ -542,6 +544,9 @@ if (!primaryError) {
     const v109 = upgradeHistory.filter((row) => row.version === "109");
     const v110 = upgradeHistory.filter((row) => row.version === "110");
     const v111 = upgradeHistory.filter((row) => row.version === "111");
+    const v112 = upgradeHistory.filter((row) => row.version === "112");
+    const v113 = upgradeHistory.filter((row) => row.version === "113");
+    const currentHeadRows = upgradeHistory.filter((row) => row.version === migrationHead.version);
     assert.equal(v108.length, 1, "upgrade must apply V108 exactly once");
     assert.equal(v108[0].success, true, "V108 must be successful");
     assert.equal(v109.length, 1, "upgrade must apply V109 exactly once");
@@ -550,7 +555,14 @@ if (!primaryError) {
     assert.equal(v110[0].success, true, "V110 must be successful");
     assert.equal(v111.length, 1, "upgrade must apply V111 exactly once");
     assert.equal(v111[0].success, true, "V111 must be successful");
-    assert.equal(upgradeHistory.at(-1)?.version, "111", "repository latest upgrade must end at V111");
+    assert.equal(v112.length, 1, "upgrade must apply V112 exactly once");
+    assert.equal(v112[0].success, true, "V112 must be successful");
+    assert.equal(v113.length, 1, "upgrade must apply V113 exactly once");
+    assert.equal(v113[0].success, true, "V113 must be successful");
+    assert.equal(currentHeadRows.length, 1, "upgrade must apply the repository current head exactly once");
+    assert.equal(currentHeadRows[0].success, true, "repository current head must be successful");
+    assert.equal(currentHeadRows[0].script, migrationHead.script, "repository current head script must match migration sources");
+    assert.equal(upgradeHistory.at(-1)?.version, migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`);
     assert.equal(
       upgradeHistory.find((row) => row.version === "106")?.checksum,
       1207842815,
@@ -581,6 +593,7 @@ if (!primaryError) {
 
     result.upgrade = {
       history: upgradeHistory.at(-1),
+      currentMigrationHead: migrationHead,
       publicTopology,
       tenantTopology,
       syncCounts,
@@ -594,7 +607,10 @@ if (!primaryError) {
     assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='109'"), "1", "V109 history must remain singular");
     assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='110'"), "1", "V110 history must remain singular");
     assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='111'"), "1", "V111 history must remain singular");
-    result.repeat = { noOp: true, v108Rows: 1, v109Rows: 1, v110Rows: 1, v111Rows: 1 };
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='112'"), "1", "V112 history must remain singular");
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='113'"), "1", "V113 history must remain singular");
+    assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM public.flyway_schema_history WHERE version=${literal(migrationHead.version)}`), "1", "repository current head history must remain singular");
+    result.repeat = { noOp: true, v108Rows: 1, v109Rows: 1, v110Rows: 1, v111Rows: 1, v112Rows: 1, v113Rows: 1, currentHeadRows: 1 };
 
     psql(upgradeDatabase, `DELETE FROM ${identifier(tenantSchema)}.md_customer WHERE code=${literal(customerCode)}`);
     assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM ${identifier(tenantSchema)}.md_customer WHERE code=${literal(customerCode)}`), "0", "tenant mutation must remove historical customer before restore");
@@ -637,7 +653,17 @@ if (!primaryError) {
     freshCreated = true;
     flyway(freshDatabase);
     const freshHistory = history(freshDatabase);
-    assert.equal(freshHistory.at(-1)?.version, "111", "fresh V1-to-latest migration must end at V111");
+    const freshV112 = freshHistory.filter((row) => row.version === "112");
+    const freshV113 = freshHistory.filter((row) => row.version === "113");
+    const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
+    assert.equal(freshCurrentHeadRows.length, 1, "fresh migration must apply the repository current head exactly once");
+    assert.equal(freshCurrentHeadRows[0].success, true, "fresh repository current head must be successful");
+    assert.equal(freshCurrentHeadRows[0].script, migrationHead.script, "fresh repository current head script must match migration sources");
+    assert.equal(freshV112.length, 1, "fresh migration must apply V112 exactly once");
+    assert.equal(freshV112[0].success, true, "fresh V112 must be successful");
+    assert.equal(freshV113.length, 1, "fresh migration must apply V113 exactly once");
+    assert.equal(freshV113[0].success, true, "fresh V113 must be successful");
+    assert.equal(freshHistory.at(-1)?.version, migrationHead.version, `fresh V1-to-latest migration must end at V${migrationHead.version}`);
     assertTopology("fresh public", topology(freshDatabase, "public"), 203);
     assertScrapShape(freshDatabase, "public");
     insertAccountSet(freshDatabase, freshTenantId, `A151-FRESH-${token.toUpperCase()}`, freshTenantSchema, true);
@@ -652,6 +678,7 @@ if (!primaryError) {
     assert.equal(JSON.stringify(history(freshDatabase)), freshHistoryBeforeRepeat, "fresh repeat Flyway migrate must be a no-op");
     result.fresh = {
       history: freshHistory.at(-1),
+      currentMigrationHead: migrationHead,
       publicTopology: topology(freshDatabase, "public"),
       tenantTopology: freshTenantTopology
     };

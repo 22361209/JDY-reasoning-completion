@@ -7,6 +7,7 @@ import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
 import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -329,14 +330,16 @@ class TenantSalesChainIsolationTest {
     }
 
     private String saveAndAuditQuote(String remark) {
+        var quoteDate = jdbcTemplate.queryForObject("SELECT CURRENT_DATE", LocalDate.class);
+        assertThat(quoteDate).as("数据库当前日期").isNotNull();
         var saved = salesQuoteAppService.saveDraft(new SalesQuoteAppService.SalesQuoteDraftRequest(
             null,
             CUSTOMER_CODE,
-            "2026-06-30",
+            quoteDate.toString(),
             "销售部",
             "admin",
             remark,
-            "2026-07-30",
+            quoteDate.plusDays(30).toString(),
             List.of(new SalesQuoteAppService.SalesQuoteLineRequest(
                 null,
                 PRODUCT_CODE,
@@ -347,7 +350,7 @@ class TenantSalesChainIsolationTest {
                 "CM-A119",
                 "CO-A119",
                 "A119 quote line",
-                "2026-07-05"
+                quoteDate.plusDays(5).toString()
             ))
         ));
         var billNo = generatedBillNo(saved, "销售报价单");

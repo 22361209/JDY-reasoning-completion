@@ -2,14 +2,16 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
 import { loginApi } from "./helpers/regression-auth.mjs";
+import { currentMigrationHead } from "./helpers/current-migration-head.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const verificationDir = path.join(rootDir, "verification");
 const isolationDir = path.join(verificationDir, "a143-master-data-import-migration-isolation");
 const resultPath = path.join(verificationDir, "a143-master-data-import-migration-regression.json");
@@ -820,6 +822,9 @@ try {
   const v109Rows = latestHistory.filter((row) => row.version === "109");
   const v110Rows = latestHistory.filter((row) => row.version === "110");
   const v111Rows = latestHistory.filter((row) => row.version === "111");
+  const v112Rows = latestHistory.filter((row) => row.version === "112");
+  const v113Rows = latestHistory.filter((row) => row.version === "113");
+  const currentHeadRows = latestHistory.filter((row) => row.version === migrationHead.version);
   assert(v105Rows.length === 1 && v105Rows[0].success === true, "V105 history row missing or failed", v105Rows);
   assert(v106Rows.length === 1 && v106Rows[0].success === true, "V106 history row missing or failed", v106Rows);
   assert(Number(v106Rows[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106Rows[0]);
@@ -828,7 +833,10 @@ try {
   assert(v109Rows.length === 1 && v109Rows[0].success === true, "V109 history row missing or failed", v109Rows);
   assert(v110Rows.length === 1 && v110Rows[0].success === true, "V110 history row missing or failed", v110Rows);
   assert(v111Rows.length === 1 && v111Rows[0].success === true, "V111 history row missing or failed", v111Rows);
-  assert(latestHistory.at(-1)?.version === "111", "repository latest upgrade must end at V111", latestHistory.at(-1));
+  assert(v112Rows.length === 1 && v112Rows[0].success === true, "V112 history row missing or failed", v112Rows);
+  assert(v113Rows.length === 1 && v113Rows[0].success === true, "V113 history row missing or failed", v113Rows);
+  assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, "repository current head row missing or failed", { expected: migrationHead, actual: currentHeadRows });
+  assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`, latestHistory.at(-1));
   const latestTopologies = {
     public: schemaTopology(upgradeDatabase, "public"),
     tenant: schemaTopology(upgradeDatabase, tenantSchema),
@@ -844,8 +852,9 @@ try {
     latestNumbering
   );
   result.upgrade.latest = {
-    history: v111Rows[0],
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0], v110: v110Rows[0], v111: v111Rows[0] },
+    history: currentHeadRows[0],
+    currentMigrationHead: migrationHead,
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0], v110: v110Rows[0], v111: v111Rows[0], v112: v112Rows[0], v113: v113Rows[0] },
     topologies: latestTopologies,
     numbering: latestNumbering
   };
@@ -1017,9 +1026,7 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flywayOutput = flyway(freshDatabase);
   const freshHistory = history(freshDatabase);
-  const sourceScripts = (await readdir(migrationDir))
-    .filter((name) => /^V\d+__.+\.sql$/.test(name))
-    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const sourceScripts = migrationHead.sourceScripts;
   const freshV105Rows = freshHistory.filter((row) => row.version === "105");
   const freshV106Rows = freshHistory.filter((row) => row.version === "106");
   const freshV107Rows = freshHistory.filter((row) => row.version === "107");
@@ -1027,6 +1034,9 @@ try {
   const freshV109Rows = freshHistory.filter((row) => row.version === "109");
   const freshV110Rows = freshHistory.filter((row) => row.version === "110");
   const freshV111Rows = freshHistory.filter((row) => row.version === "111");
+  const freshV112Rows = freshHistory.filter((row) => row.version === "112");
+  const freshV113Rows = freshHistory.filter((row) => row.version === "113");
+  const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
   assert(freshHistory.every((row) => row.success === true), "fresh migration history contains a failed row", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh migration history must equal source migration set");
   assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, "fresh V105 history row missing or failed", freshV105Rows);
@@ -1037,7 +1047,10 @@ try {
   assert(freshV109Rows.length === 1 && freshV109Rows[0].success === true, "fresh V109 history row missing or failed", freshV109Rows);
   assert(freshV110Rows.length === 1 && freshV110Rows[0].success === true, "fresh V110 history row missing or failed", freshV110Rows);
   assert(freshV111Rows.length === 1 && freshV111Rows[0].success === true, "fresh V111 history row missing or failed", freshV111Rows);
-  assert(freshHistory.at(-1)?.version === "111", "fresh migration max version must be V111", freshHistory.at(-1));
+  assert(freshV112Rows.length === 1 && freshV112Rows[0].success === true, "fresh V112 history row missing or failed", freshV112Rows);
+  assert(freshV113Rows.length === 1 && freshV113Rows[0].success === true, "fresh V113 history row missing or failed", freshV113Rows);
+  assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, "fresh current head row missing or failed", { expected: migrationHead, actual: freshCurrentHeadRows });
+  assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version must be V${migrationHead.version}`, freshHistory.at(-1));
   const freshPublicTopology = schemaTopology(freshDatabase, "public");
   assertTopology("fresh public", freshPublicTopology, 203, 102, 117, 89, 85);
   psql(freshDatabase, `
@@ -1068,6 +1081,7 @@ try {
     ...result.fresh,
     historyCount: freshHistory.length,
     maxVersion: freshHistory.at(-1)?.version,
+    currentMigrationHead: migrationHead,
     publicTopology: freshPublicTopology,
     tenantTopology: freshTenantTopology,
     syncCounts: freshSyncCounts

@@ -9,6 +9,7 @@ const resultPath = path.join(verificationDir, "a64-production-red-source-ui-regr
 const frontendUrl = "http://127.0.0.1:5173/";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const bomIssueMethod = `A64-${batch}`;
+const productionMotherProductCode = "CP-001";
 
 await mkdir(screenshotDir, { recursive: true });
 
@@ -89,7 +90,7 @@ async function createProductionPairs(page) {
     method: "POST",
     body: {
       code: bomCode,
-      productCode: "CP-001",
+      productCode: productionMotherProductCode,
       qty: 1,
       lines: [
         { materialCode: "CP-001", qty: 1, issueWarehouseCode: "CK-002" },
@@ -127,9 +128,9 @@ async function createProductionPairs(page) {
     method: "POST",
     body: {
       lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
-        { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
+        { productCode: productionMotherProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
+        { productCode: productionMotherProductCode, warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
+        { productCode: productionMotherProductCode, warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
       ]
     }
   }), "产品入库红冲 UI 来源");

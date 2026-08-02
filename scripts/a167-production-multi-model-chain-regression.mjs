@@ -282,22 +282,34 @@ const taskBSource = productInSelectorRows.find((row) => row.billNo === taskB.bil
 assert(taskBSource, "fully issued task B must appear in product-in task selector", productInSelectorRows);
 assert(taskBSource.productId === parentBRow.id && numberOf(taskBSource.completableQty) === 2, "product-in selector must expose parent B and completable qty 2", taskBSource);
 
-const mismatchedProduct = await request("/api/production/product-ins/draft", {
+const mixedMotherProduct = await request("/api/production/product-ins/draft", {
   method: "POST",
   body: {
     sourceOrderNo: taskB.billNo,
     lines: [
       {
+        productId: parentBRow.id,
+        productCode: parentB,
+        warehouseCode: "CK-003",
+        qty: 1,
+        unitPrice: 1
+      },
+      {
         productId: parentARow.id,
         productCode: parentA,
         warehouseCode: "CK-003",
-        qty: 2,
+        qty: 1,
         unitPrice: 1
       }
     ]
   }
 });
-assert(mismatchedProduct.response.status === 409, "product-in must reject a mother product that differs from its source task", mismatchedProduct.data);
+assert(
+  mixedMotherProduct.response.status === 409
+    && mixedMotherProduct.text.includes("产品入库分录必须与来源生产任务母件一致"),
+  "product-in must reject a mixed payload containing another task's mother product",
+  mixedMotherProduct.data
+);
 
 const completionA = await requireJson("/api/production/material-issues/" + encodeURIComponent(issueA.billNo) + "/push-product-in", { method: "POST" });
 const completionB = await requireJson("/api/production/product-ins/draft", {
@@ -363,7 +375,7 @@ const result = {
     materialIssueQty: [numberOf(issueADetail.lines[0].qty), numberOf(issueBDetail.lines[0].qty)],
     issuedSets: [numberOf(taskARow.issuedQty), numberOf(taskBRow.issuedQty)],
     completedQty: [numberOf(taskARow.completedQty), numberOf(taskBRow.completedQty)],
-    mismatchBlocked: true,
+    mixedMotherProductBlocked: true,
     issueReverseBlockedAfterReceipt: true,
     productInSelectorCompletableQty: numberOf(taskBSource.completableQty)
   }

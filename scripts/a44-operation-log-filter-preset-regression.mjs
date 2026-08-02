@@ -81,10 +81,14 @@ const evidence = {
     attempted: false,
     presetRemaining: null,
     localStorageCleared: false,
+    capturedSessionAuthenticatedAfterRelease: null,
     sessionAuthenticatedAfterLogout: null,
     redisCapturedKeys: 0,
     redisCapturedMembers: 0,
     redisRemaining: null,
+    cleanupRedisCapturedKeys: 0,
+    cleanupRedisCapturedMembers: 0,
+    cleanupRedisRemaining: null,
     unexpectedScreenshotRemaining: null,
     browserClosed: false,
     errors: []
@@ -97,6 +101,9 @@ let page = null;
 let sessionCookie = null;
 let sessionCookieHeader = "";
 let redisAtLogin = { keys: [], members: [] };
+let cleanupSessionCookie = null;
+let cleanupSessionCookieHeader = "";
+let cleanupRedisAtLogin = { keys: [], members: [] };
 let presetId = "";
 let saveDispatched = false;
 let saveResponseObserved = false;
@@ -267,10 +274,10 @@ async function captureSessionCookie() {
   evidence.cleanup.redisCapturedMembers = redisAtLogin.members.length;
 }
 
-async function authenticatedRequest(pathname, options = {}) {
+async function cookieRequest(cookieHeader, pathname, options = {}) {
   recordApiRequest(options.method ?? "GET", pathname);
   const headers = new Headers(options.headers);
-  headers.set("Cookie", sessionCookieHeader);
+  headers.set("Cookie", cookieHeader);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
   const response = await fetch(`${apiBase}${pathname}`, {
     method: options.method ?? "GET",
@@ -288,6 +295,48 @@ async function authenticatedRequest(pathname, options = {}) {
   return { status: response.status, ok: response.ok, data };
 }
 
+async function capturedSessionRequest(pathname, options = {}) {
+  return cookieRequest(sessionCookieHeader, pathname, options);
+}
+
+async function cleanupSessionRequest(pathname, options = {}) {
+  return cookieRequest(cleanupSessionCookieHeader, pathname, options);
+}
+
+async function openCleanupSession() {
+  if (cleanupSessionCookieHeader) return;
+  recordApiRequest("POST", "/api/system/login");
+  const response = await fetch(`${apiBase}/api/system/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin123", accountSetCode: "BLD-TEST" }),
+    signal: AbortSignal.timeout(10_000)
+  });
+  const text = await response.text();
+  assert(response.ok, `A44 cleanup login must succeed status=${response.status}: ${text}`);
+  const setCookie = response.headers.get("set-cookie") ?? "";
+  cleanupSessionCookieHeader = setCookie.split(";")[0];
+  const separator = cleanupSessionCookieHeader.indexOf("=");
+  assert(separator > 0, "A44 cleanup login must return one valid session cookie");
+  cleanupSessionCookie = {
+    name: cleanupSessionCookieHeader.slice(0, separator),
+    value: cleanupSessionCookieHeader.slice(separator + 1)
+  };
+  cleanupRedisAtLogin = redisSessionSnapshot(cleanupSessionCookie);
+  evidence.cleanup.cleanupRedisCapturedKeys = cleanupRedisAtLogin.keys.length;
+  evidence.cleanup.cleanupRedisCapturedMembers = cleanupRedisAtLogin.members.length;
+  const session = await cleanupSessionRequest("/api/system/session");
+  assert(
+    session.status === 200
+      && session.data?.authenticated === true
+      && session.data?.user?.username === "admin"
+      && session.data?.user?.roleCode === "ADMIN"
+      && session.data?.tenant?.code === "BLD-TEST"
+      && session.data?.tenant?.schemaName === "public",
+    `A44 cleanup session must bind ADMIN in BLD-TEST/public: ${JSON.stringify(session)}`
+  );
+}
+
 function assertPresetPayload(preset, label) {
   assert(preset?.name === presetName, `${label} must bind the exact preset name`);
   assert(preset?.roleCode === "ADMIN" && preset?.userName === "admin", `${label} must bind the exact current-user scope`);
@@ -298,12 +347,13 @@ function assertPresetPayload(preset, label) {
 }
 
 async function reconcileAndDeletePreset() {
-  if (!sessionCookieHeader || !saveDispatched) {
+  if (!saveDispatched) {
     evidence.cleanup.presetRemaining = 0;
     return;
   }
-  const before = await authenticatedRequest(`/api/list-presets/${listKey}`);
-  assert(before.ok && Array.isArray(before.data), "A44 cleanup must read visible presets with the captured session");
+  await openCleanupSession();
+  const before = await cleanupSessionRequest(`/api/list-presets/${listKey}`);
+  assert(before.ok && Array.isArray(before.data), `A44 cleanup must read visible presets with a fresh session: ${JSON.stringify(before)}`);
   const matches = before.data.filter((preset) => preset.name === presetName);
   if (matches.length === 0) {
     assert(!saveResponseObserved, "A44 observed a successful save response but could not find its exact preset during cleanup");
@@ -316,29 +366,48 @@ async function reconcileAndDeletePreset() {
   if (presetId) assert(match.id === presetId, "A44 cleanup preset UUID must match the captured save response");
   presetId = String(match.id ?? "");
   assert(uuidPattern.test(presetId), "A44 cleanup requires one exact preset UUID");
-  const deleted = await authenticatedRequest(`/api/list-presets/${listKey}/${encodeURIComponent(presetId)}`, { method: "DELETE" });
+  const deleted = await cleanupSessionRequest(`/api/list-presets/${listKey}/${encodeURIComponent(presetId)}`, { method: "DELETE" });
   assert(deleted.ok && deleted.data?.deleted === 1, "A44 cleanup must delete exactly one captured preset row");
-  const after = await authenticatedRequest(`/api/list-presets/${listKey}`);
+  const after = await cleanupSessionRequest(`/api/list-presets/${listKey}`);
   assert(after.ok && Array.isArray(after.data), "A44 cleanup must verify the final preset list");
   evidence.cleanup.presetRemaining = after.data.filter((preset) => preset.name === presetName || preset.id === presetId).length;
   assert(evidence.cleanup.presetRemaining === 0, "A44 preset residue must be zero");
 }
 
-async function logoutCapturedSession() {
+async function releaseCapturedSession() {
   if (!sessionCookieHeader) {
-    evidence.cleanup.sessionAuthenticatedAfterLogout = false;
+    evidence.cleanup.capturedSessionAuthenticatedAfterRelease = false;
     evidence.cleanup.redisRemaining = 0;
     return;
   }
-  const logout = await authenticatedRequest("/api/system/logout", { method: "POST" });
-  assert(logout.ok, "A44 captured browser session logout must succeed");
-  const session = await authenticatedRequest("/api/system/session");
+  if (!cleanupSessionCookieHeader) {
+    const logout = await capturedSessionRequest("/api/system/logout", { method: "POST" });
+    assert(logout.ok, "A44 captured browser session logout must succeed when no cleanup replacement exists");
+  }
+  const session = await capturedSessionRequest("/api/system/session");
   assert(session.status === 200, "A44 old session probe must return the public session envelope");
-  evidence.cleanup.sessionAuthenticatedAfterLogout = Boolean(session.data?.authenticated);
-  assert(evidence.cleanup.sessionAuthenticatedAfterLogout === false, "A44 old session cookie must be unauthenticated after logout");
+  evidence.cleanup.capturedSessionAuthenticatedAfterRelease = Boolean(session.data?.authenticated);
+  assert(evidence.cleanup.capturedSessionAuthenticatedAfterRelease === false, "A44 captured browser session must be unauthenticated after release or replacement");
   const redisAfter = verifyRedisReleased(redisAtLogin);
   evidence.cleanup.redisRemaining = redisAfter.total;
   assert(redisAfter.total === 0, "A44 captured Redis session keys and expiration members must be released");
+}
+
+async function logoutCleanupSession() {
+  if (!cleanupSessionCookieHeader) {
+    evidence.cleanup.sessionAuthenticatedAfterLogout = false;
+    evidence.cleanup.cleanupRedisRemaining = 0;
+    return;
+  }
+  const logout = await cleanupSessionRequest("/api/system/logout", { method: "POST" });
+  assert(logout.ok, "A44 fresh cleanup session logout must succeed");
+  const session = await cleanupSessionRequest("/api/system/session");
+  assert(session.status === 200, "A44 cleanup session probe must return the public session envelope");
+  evidence.cleanup.sessionAuthenticatedAfterLogout = Boolean(session.data?.authenticated);
+  assert(evidence.cleanup.sessionAuthenticatedAfterLogout === false, "A44 cleanup session must be unauthenticated after logout");
+  const redisAfter = verifyRedisReleased(cleanupRedisAtLogin);
+  evidence.cleanup.cleanupRedisRemaining = redisAfter.total;
+  assert(redisAfter.total === 0, "A44 cleanup Redis session keys and expiration members must be released");
 }
 
 async function clearLocalStorage() {
@@ -491,9 +560,14 @@ try {
     evidence.cleanup.errors.push({ label: "localStorage", error: error instanceof Error ? error.message : String(error) });
   }
   try {
-    await logoutCapturedSession();
+    await releaseCapturedSession();
   } catch (error) {
-    evidence.cleanup.errors.push({ label: "session/redis", error: error instanceof Error ? error.message : String(error) });
+    evidence.cleanup.errors.push({ label: "captured session/redis", error: error instanceof Error ? error.message : String(error) });
+  }
+  try {
+    await logoutCleanupSession();
+  } catch (error) {
+    evidence.cleanup.errors.push({ label: "cleanup session/redis", error: error instanceof Error ? error.message : String(error) });
   }
   try {
     if (browser) await browser.close();
@@ -515,14 +589,16 @@ try {
 const cleanupPassed = evidence.cleanup.errors.length === 0
   && evidence.cleanup.presetRemaining === 0
   && evidence.cleanup.localStorageCleared === true
+  && evidence.cleanup.capturedSessionAuthenticatedAfterRelease === false
   && evidence.cleanup.sessionAuthenticatedAfterLogout === false
   && evidence.cleanup.redisRemaining === 0
+  && evidence.cleanup.cleanupRedisRemaining === 0
   && evidence.cleanup.unexpectedScreenshotRemaining === 0
   && evidence.cleanup.browserClosed === true;
 const expectedFault = failurePoint === "after-preset-save"
   && primaryError?.code === "A44_EXPECTED_AFTER_PRESET_SAVE"
   && saveResponseObserved
-  && evidence.fixture.allowedMutationRequests === 4
+  && evidence.fixture.allowedMutationRequests === 5
   && evidence.fixture.businessWrites === 0
   && evidence.fixture.inventoryAdjustmentRequests === 0
   && cleanupPassed;
@@ -530,7 +606,7 @@ const normalPassed = !primaryError
   && failurePoint === ""
   && evidence.preset.persisted
   && evidence.preset.applied
-  && evidence.fixture.allowedMutationRequests === 4
+  && evidence.fixture.allowedMutationRequests === 5
   && evidence.fixture.businessWrites === 0
   && evidence.fixture.inventoryAdjustmentRequests === 0
   && cleanupPassed;

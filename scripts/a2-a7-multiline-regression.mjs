@@ -13,6 +13,7 @@ await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const bomVariantQty = 2 + (Number(batch.slice(-2)) || 1) / 100;
+const productionMotherProductCode = "CP-001";
 
 const lines = [
   { productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 },
@@ -25,9 +26,9 @@ const purchaseLines = [
   { productCode: "PJ-014", warehouseCode: "CK-002", qty: 7, unitPrice: 8 }
 ];
 const completeLines = [
-  { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 120 },
-  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 2, unitPrice: 130 },
-  { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 140 }
+  { productCode: productionMotherProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: 120 },
+  { productCode: productionMotherProductCode, warehouseCode: "CK-002", qty: 2, unitPrice: 130 },
+  { productCode: productionMotherProductCode, warehouseCode: "CK-003", qty: 3, unitPrice: 140 }
 ];
 
 const screenshots = [];
@@ -162,7 +163,7 @@ async function createBusinessData() {
   const bomCode = `BOM-A2A7-${batch}`;
   await post("/api/production/boms", {
     code: bomCode,
-    productCode: "CP-001",
+    productCode: productionMotherProductCode,
     qty: 1,
     lines: [
       { materialCode: "CP-001", qty: 1 },

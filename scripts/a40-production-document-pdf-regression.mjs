@@ -12,6 +12,7 @@ const apiBase = "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const bomIssueMethod = `A40-${batch}`;
+const productionMotherProductCode = "CP-001";
 
 const materialIssueTotal = "18.00";
 const productInTotal = "80.00";
@@ -101,7 +102,7 @@ async function createDocuments() {
     method: "POST",
     body: {
       code: bomCode,
-      productCode: "CP-001",
+      productCode: productionMotherProductCode,
       qty: 1,
       lines: [
         { materialCode: "CP-001", qty: 1, issueWarehouseCode: "CK-002" },
@@ -135,9 +136,9 @@ async function createDocuments() {
     method: "POST",
     body: {
       lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
-        { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
+        { productCode: productionMotherProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
+        { productCode: productionMotherProductCode, warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
+        { productCode: productionMotherProductCode, warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
       ]
     }
   }), "产品入库样本");

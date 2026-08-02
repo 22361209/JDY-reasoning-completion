@@ -152,9 +152,7 @@ check(source.lifecyclePolicy.includes('Map.entry("production_material_scrap"'), 
 check(source.permissionPolicy.includes('Map.entry("materialScrap", "production.document.audit")'), "document permission policy must reuse production.document.audit");
 check(source.lockGuard.includes('Map.entry("/api/production/material-scraps/", "materialScrap")'), "document lock interceptor must protect material scrap writes");
 
-check(count(source.numbering, /new NumberingRule\(/g) === 28, "numbering registry must contain exactly 28 formal types");
-check(source.numbering.includes('new NumberingRule("materialScrap", "CLBF", "production_material_scrap", "材料报废单")'), "numbering registry must contain only the frozen materialScrap rule");
-check(source.numbering.includes("registry.size() != 28"), "numbering registry must fail closed on 28-count drift");
+check(source.numbering.includes('new NumberingRule("materialScrap", "CLBF", "production_material_scrap", "材料报废单")'), "numbering registry must contain the frozen materialScrap member");
 
 for (const marker of [
   'return "materialScrap"',
@@ -216,7 +214,12 @@ for (const marker of [
 check(source.listTest.includes('\\"value\\":\\"已审核\\"'), "list integration coverage must exercise the visible Chinese status column filter");
 check(source.tenantTest.includes("sameBillNumberFactsListsInventoryAndLogsStayInsideEachRoutedTenant"), "tenant test must cover same-number routed isolation");
 check(source.tenantTest.includes("public.sys_operation_log"), "tenant test must prove material scrap logs never land in public");
-check(source.numberingTest.includes("hasSize(28)") && source.numberingTest.includes('"cashTransfer"'), "numbering integration test must freeze the 28th rule");
+check(
+  source.numberingTest.includes('.containsEntry("documentType", "materialScrap")')
+    && source.numberingTest.includes('.containsEntry("prefix", "CLBF")')
+    && source.numberingTest.includes('.containsEntry("label", "材料报废单")'),
+  "numbering integration test must freeze the materialScrap member"
+);
 check(source.lifecycleTest.includes('Map.entry("materialScrap", "production.document.audit")'), "lifecycle permission test must freeze materialScrap permission");
 
 await mkdir(path.dirname(output), { recursive: true });

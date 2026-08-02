@@ -2,16 +2,25 @@ export async function loginAs(page, username = "admin", password = "admin123", e
   let loginPage = page.getByTestId("login-page");
   let visible = await loginPage.isVisible({ timeout: 1500 }).catch(() => false);
   if (!visible) {
-    const active = await page.evaluate(async (expectedAccountSetCode) => {
+    const active = await page.evaluate(async ({ expectedUsername, expectedRoleName, expectedAccountSetCode }) => {
       try {
         const response = await fetch("/api/system/session");
         if (!response.ok) return false;
         const session = await response.json();
-        return Boolean(session?.authenticated && (!expectedAccountSetCode || session?.tenant?.code === expectedAccountSetCode));
+        return Boolean(
+          session?.authenticated
+          && session?.user?.username === expectedUsername
+          && (!expectedRoleName || session?.user?.role === expectedRoleName)
+          && (!expectedAccountSetCode || session?.tenant?.code === expectedAccountSetCode)
+        );
       } catch {
         return false;
       }
-    }, accountSetCode).catch(() => false);
+    }, {
+      expectedUsername: username,
+      expectedRoleName: expectedRole,
+      expectedAccountSetCode: accountSetCode
+    }).catch(() => false);
     if (active) {
       return;
     }
@@ -40,6 +49,23 @@ export async function loginAs(page, username = "admin", password = "admin123", e
   await page.getByTestId("content-area").waitFor({ state: "visible", timeout: 10000 });
   if (expectedRole) {
     await page.getByTestId("session-user-role").filter({ hasText: expectedRole }).waitFor({ state: "visible", timeout: 10000 });
+  }
+  const session = await page.evaluate(async () => {
+    const response = await fetch("/api/system/session");
+    return { status: response.status, body: await response.json() };
+  });
+  if (session.status !== 200
+    || session.body?.authenticated !== true
+    || session.body?.user?.username !== username
+    || (expectedRole && session.body?.user?.role !== expectedRole)
+    || (accountSetCode && session.body?.tenant?.code !== accountSetCode)) {
+    throw new Error(`formal login session mismatch: ${JSON.stringify({
+      status: session.status,
+      authenticated: session.body?.authenticated,
+      username: session.body?.user?.username,
+      role: session.body?.user?.role,
+      accountSetCode: session.body?.tenant?.code
+    })}`);
   }
 }
 
@@ -96,6 +122,20 @@ export async function loginApi(apiBase, username = "admin", password = "admin123
   if (!sessionCookie) {
     throw new Error("api login did not return a session cookie");
   }
+  return sessionCookie;
+}
+
+export async function installApiSessionInBrowser(context, apiBase, username = "admin", password = "admin123", accountSetCode = "BLD-TEST") {
+  const sessionCookie = await loginApi(apiBase, username, password, accountSetCode);
+  const separator = sessionCookie.indexOf("=");
+  if (separator <= 0) {
+    throw new Error("api login returned an invalid session cookie");
+  }
+  await context.addCookies([{
+    name: sessionCookie.slice(0, separator),
+    value: sessionCookie.slice(separator + 1),
+    url: "http://127.0.0.1/"
+  }]);
   return sessionCookie;
 }
 

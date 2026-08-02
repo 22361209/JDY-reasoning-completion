@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadRegressionManifest } from "./validate-regression-manifest.mjs";
+import {
+  assertRegressionPostflight,
+  assertSharedRegressionBaseline,
+  runRegressionPreflight
+} from "./helpers/regression-preflight.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -44,52 +49,100 @@ if (listOnly) {
   }, null, 2));
   process.exit(0);
 }
-if (await requiresTestInventoryAdjustmentApi(scripts)) {
-  await requireTestInventoryAdjustmentCapability(tier);
-}
 const safeTier = resultTier.replace(/[^a-zA-Z0-9_-]/g, "-");
 const resultPath = path.join(verificationDir, `regression-tier-${safeTier}-latest.json`);
 const results = [];
 
 await mkdir(path.dirname(resultPath), { recursive: true });
 
+let preflight;
+try {
+  preflight = await runRegressionPreflight({ rootDir, tier, scripts });
+  console.log(JSON.stringify({ tier, preflight: "regression-environment", ok: true, ...preflight }));
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const summary = {
+    generatedAt: new Date().toISOString(),
+    tier,
+    resultTier,
+    continueOnFailure: shouldContinue,
+    ok: false,
+    total: 0,
+    expectedTotal: scripts.length,
+    badCount: 1,
+    skipped: scripts.length,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    resultPath: path.relative(rootDir, resultPath),
+    manifest: manifestSummary.manifest,
+    availableAreas: Object.keys(areaScripts).sort(),
+    preflight: { ok: false, error: message },
+    results: []
+  };
+  await writeFile(resultPath, JSON.stringify(summary, null, 2));
+  console.error(`Regression preflight failed: ${message}`);
+  process.exit(1);
+}
+
 for (const script of scripts) {
   const started = Date.now();
   const result = await runScript(script);
+  let sharedStateInvariantError = "";
+  if (preflight.sharedStateMutationScripts.includes(script)) {
+    try {
+      await assertSharedRegressionBaseline(preflight, script);
+    } catch (error) {
+      sharedStateInvariantError = error instanceof Error ? error.message : String(error);
+    }
+  }
   const finished = Date.now();
   const entry = {
     script,
-    ok: result.status === 0,
-    status: result.status,
+    ok: result.status === 0 && !sharedStateInvariantError,
+    status: sharedStateInvariantError ? 1 : result.status,
     durationMs: finished - started,
     startedAt: new Date(started).toISOString(),
     finishedAt: new Date(finished).toISOString(),
     stdoutTail: tail(result.stdout),
-    stderrTail: tail(result.stderr)
+    stderrTail: tail([result.stderr, sharedStateInvariantError].filter(Boolean).join("\n")),
+    sharedStateInvariantError: sharedStateInvariantError || null
   };
   results.push(entry);
   console.log(JSON.stringify({ tier, script, ok: entry.ok, status: entry.status, durationMs: entry.durationMs, continueOnFailure: shouldContinue }));
+  if (sharedStateInvariantError) {
+    console.error(`Regression stopped after shared regression-state drift: ${sharedStateInvariantError}`);
+    break;
+  }
   if (!entry.ok && !shouldContinue) {
     break;
   }
 }
 
+let postflight;
+try {
+  postflight = { ok: true, ...(await assertRegressionPostflight(preflight, "suite postflight")) };
+} catch (error) {
+  postflight = { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
 const bad = results.filter((result) => !result.ok);
 const summary = {
   generatedAt: new Date().toISOString(),
   tier,
   resultTier,
   continueOnFailure: shouldContinue,
-  ok: bad.length === 0 && results.length === scripts.length,
+  ok: bad.length === 0 && results.length === scripts.length && postflight.ok,
   total: results.length,
   expectedTotal: scripts.length,
-  badCount: bad.length,
+  badCount: bad.length + (postflight.ok ? 0 : 1),
+  scriptBadCount: bad.length,
   skipped: scripts.length - results.length,
   startedAt,
   finishedAt: new Date().toISOString(),
   resultPath: path.relative(rootDir, resultPath),
   manifest: manifestSummary.manifest,
   availableAreas: Object.keys(areaScripts).sort(),
+  preflight: { ok: true, ...preflight },
+  postflight,
   results
 };
 
@@ -142,39 +195,6 @@ function runScript(script) {
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
     child.on("close", (status) => resolve({ status, stdout, stderr }));
   });
-}
-
-async function requiresTestInventoryAdjustmentApi(scripts) {
-  for (const script of scripts) {
-    const source = await readFile(path.join(rootDir, script), "utf8");
-    if (source.includes("/api/inventory/adjustments")) {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function requireTestInventoryAdjustmentCapability(selectedTier) {
-  const healthUrl = "http://127.0.0.1:8080/api/system/health";
-  let response;
-  try {
-    response = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) });
-  } catch (error) {
-    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API, but backend health is unavailable at ${healthUrl}: ${error}`);
-  }
-  if (!response.ok) {
-    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API, but ${healthUrl} returned ${response.status}`);
-  }
-  let health;
-  try {
-    health = await response.json();
-  } catch (error) {
-    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API, but backend health was not JSON: ${error}`);
-  }
-  if (health?.testInventoryAdjustmentApi !== true) {
-    throw new Error(`Regression tier ${selectedTier} requires the controlled BLD-TEST inventory fixture API. Restart with ./scripts/dev-down.sh && ./scripts/dev-up.sh before running the tier.`);
-  }
-  console.log(JSON.stringify({ tier: selectedTier, preflight: "controlled-bld-test-inventory-fixture", ok: true }));
 }
 
 function unique(values) {

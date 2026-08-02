@@ -1,6 +1,8 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ import com.jdy.erp.sales.application.SalesOrderAppService;
 import com.jdy.erp.sales.application.SalesOutAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
+import com.jdy.erp.system.security.CurrentPermissionService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +31,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -46,6 +50,9 @@ class TenantReportingIsolationTest {
 
     @Autowired
     private CurrentSessionService currentSessionService;
+
+    @MockitoBean
+    private CurrentPermissionService currentPermissionService;
 
     @Autowired
     private MasterDataController masterDataController;
@@ -92,6 +99,10 @@ class TenantReportingIsolationTest {
 
     @BeforeEach
     void bindRequest() {
+        // Tenant/report isolation is the contract under test. Permission enforcement has
+        // dedicated tests, so this fixture must not inherit mutable shared ADMIN grants.
+        when(currentPermissionService.currentRoleCode()).thenReturn("ADMIN");
+        when(currentPermissionService.hasPermission(anyString())).thenReturn(true);
         useTenant("BLD-TEST");
     }
 

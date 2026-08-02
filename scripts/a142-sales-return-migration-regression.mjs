@@ -2,17 +2,19 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
 import { loginApi } from "./helpers/regression-auth.mjs";
+import { currentMigrationHead } from "./helpers/current-migration-head.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const isolationDir = path.join(verificationDir, "a142-sales-return-migration-isolation");
 const resultPath = path.join(verificationDir, "a142-sales-return-migration-regression.json");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
@@ -1011,6 +1013,9 @@ try {
   const v109 = latestHistory.filter((row) => row.version === "109");
   const v110 = latestHistory.filter((row) => row.version === "110");
   const v111 = latestHistory.filter((row) => row.version === "111");
+  const v112 = latestHistory.filter((row) => row.version === "112");
+  const v113 = latestHistory.filter((row) => row.version === "113");
+  const currentHeadRows = latestHistory.filter((row) => row.version === migrationHead.version);
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(v105.length === 1 && v105[0].success === true, "V105 history row missing or failed", v105);
   assert(v106.length === 1 && v106[0].success === true, "V106 history row missing or failed", v106);
@@ -1020,7 +1025,10 @@ try {
   assert(v109.length === 1 && v109[0].success === true, "V109 history row missing or failed", v109);
   assert(v110.length === 1 && v110[0].success === true, "V110 history row missing or failed", v110);
   assert(v111.length === 1 && v111[0].success === true, "V111 history row missing or failed", v111);
-  assert(latestHistory.at(-1)?.version === "111", "repository latest upgrade must end at V111", latestHistory.at(-1));
+  assert(v112.length === 1 && v112[0].success === true, "V112 history row missing or failed", v112);
+  assert(v113.length === 1 && v113[0].success === true, "V113 history row missing or failed", v113);
+  assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, "repository current head row missing or failed", { expected: migrationHead, actual: currentHeadRows });
+  assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`, latestHistory.at(-1));
   assert(
     Number(latestNumbering.publicChecks) === 117
       && Number(latestNumbering.tenantChecks) === 117
@@ -1034,8 +1042,9 @@ try {
     tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
     backup: receivableSnapshot(backupSchema, fixtures.tenant, true)
   }), "V105 must preserve V103/V104 sales-return semantics");
-  result.upgrade.latestHistory = v110[0];
-  result.upgrade.latestMigrations = { v105: v105[0], v106: v106[0], v107: v107[0], v108: v108[0], v109: v109[0], v110: v110[0], v111: v111[0] };
+  result.upgrade.latestHistory = currentHeadRows[0];
+  result.upgrade.currentMigrationHead = migrationHead;
+  result.upgrade.latestMigrations = { v105: v105[0], v106: v106[0], v107: v107[0], v108: v108[0], v109: v109[0], v110: v110[0], v111: v111[0], v112: v112[0], v113: v113[0] };
   result.upgrade.latestNumbering = latestNumbering;
 
   const repeatHistoryBefore = latestHistory;
@@ -1226,9 +1235,7 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flywayOutput = flyway(freshDatabase);
   const freshHistory = history(freshDatabase);
-  const sourceScripts = (await readdir(migrationDir))
-    .filter((name) => /^V\d+__.+\.sql$/.test(name))
-    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const sourceScripts = migrationHead.sourceScripts;
   const freshV105 = freshHistory.filter((row) => row.version === "105");
   const freshV106 = freshHistory.filter((row) => row.version === "106");
   const freshV107 = freshHistory.filter((row) => row.version === "107");
@@ -1236,6 +1243,9 @@ try {
   const freshV109 = freshHistory.filter((row) => row.version === "109");
   const freshV110 = freshHistory.filter((row) => row.version === "110");
   const freshV111 = freshHistory.filter((row) => row.version === "111");
+  const freshV112 = freshHistory.filter((row) => row.version === "112");
+  const freshV113 = freshHistory.filter((row) => row.version === "113");
+  const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh history differs from migration source set");
   assert(freshV105.length === 1 && freshV105[0].success === true, "fresh V105 history row missing or failed", freshV105);
@@ -1246,6 +1256,9 @@ try {
   assert(freshV109.length === 1 && freshV109[0].success === true, "fresh V109 history row missing or failed", freshV109);
   assert(freshV110.length === 1 && freshV110[0].success === true, "fresh V110 history row missing or failed", freshV110);
   assert(freshV111.length === 1 && freshV111[0].success === true, "fresh V111 history row missing or failed", freshV111);
+  assert(freshV112.length === 1 && freshV112[0].success === true, "fresh V112 history row missing or failed", freshV112);
+  assert(freshV113.length === 1 && freshV113[0].success === true, "fresh V113 history row missing or failed", freshV113);
+  assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, "fresh current head row missing or failed", { expected: migrationHead, actual: freshCurrentHeadRows });
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1266,7 +1279,7 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "111", "fresh migration max version should be V111", freshHistory.at(-1));
+  assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version should be V${migrationHead.version}`, freshHistory.at(-1));
   assert(
     freshMetrics.managedTables === 89
       && freshMetrics.returnTables === 3
@@ -1278,7 +1291,7 @@ try {
     "fresh topology/numbering metrics mismatch after V111",
     freshMetrics
   );
-  result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, metrics: freshMetrics };
+  result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, currentMigrationHead: migrationHead, metrics: freshMetrics };
 } catch (error) {
   primaryError = error;
   result.failure = errorText(error);
