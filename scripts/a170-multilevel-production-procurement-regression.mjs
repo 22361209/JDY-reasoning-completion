@@ -20,21 +20,25 @@ const midProduct = `A170-SA-MID-${batch}`;
 const purchaseOnlyRoot = `A170-FG-PUR-${batch}`;
 const taskOnlyRoot = `A170-FG-TASK-${batch}`;
 const warehouseRoot = `A170-FG-WH-${batch}`;
+const inactiveWarehouseRoot = `A170-FG-IWH-${batch}`;
 const staleRoot = `A170-FG-STALE-${batch}`;
 const staleMid = `A170-SA-STALE-${batch}`;
 const materialA = `A170-RM-A-${batch}`;
 const materialB = `A170-RM-B-${batch}`;
 const materialC = `A170-RM-C-${batch}`;
 const warehouseMaterial = `A170-RM-WH-${batch}`;
+const inactiveWarehouseMaterial = `A170-RM-IWH-${batch}`;
 const staleMaterial = `A170-RM-STALE-${batch}`;
 const rootBom = `BOM-A170-ROOT-${batch}`;
 const midBom = `BOM-A170-MID-${batch}`;
 const purchaseOnlyBom = `BOM-A170-PUR-${batch}`;
 const taskOnlyBom = `BOM-A170-TASK-${batch}`;
 const warehouseBom = `BOM-A170-WH-${batch}`;
+const inactiveWarehouseBom = `BOM-A170-IWH-${batch}`;
 const staleRootBom = `BOM-A170-STALE-ROOT-${batch}`;
 const staleMidBomV1 = `BOM-A170-STALE-MID-V1-${batch}`;
 const staleMidBomV2 = `BOM-A170-STALE-MID-V2-${batch}`;
+const inactiveWarehouseCode = `A170-IWH-${batch}`;
 
 function assert(condition, message, details = undefined) {
   if (!condition) {
@@ -139,6 +143,11 @@ const warehouseRootRow = await upsertProduct(warehouseRoot, {
   name: "A170仓库覆盖总成",
   spec: "A170 / 仓库覆盖"
 });
+const inactiveWarehouseRootRow = await upsertProduct(inactiveWarehouseRoot, {
+  ...commonFinishedProduct,
+  name: "A170失效发料仓总成",
+  spec: "A170 / 失效发料仓"
+});
 const staleRootRow = await upsertProduct(staleRoot, {
   ...commonFinishedProduct,
   name: "A170失效子BOM总成",
@@ -208,6 +217,20 @@ await upsertProduct(warehouseMaterial, {
   taxRate: "13",
   status: "启用"
 });
+await upsertProduct(inactiveWarehouseMaterial, {
+  name: "A170失效发料仓零件",
+  category: "零配件",
+  unit: "件",
+  spec: "A170 / 失效发料仓",
+  defaultWarehouseCode: "CK-001",
+  defaultSupplierCode: "GYS-001",
+  isPurchase: "true",
+  isInventory: "true",
+  isProduce: "false",
+  purchasePrice: "5.80",
+  taxRate: "13",
+  status: "启用"
+});
 await upsertProduct(staleMaterial, {
   name: "A170失效子BOM零件",
   category: "零配件",
@@ -221,6 +244,20 @@ await upsertProduct(staleMaterial, {
   purchasePrice: "6.50",
   taxRate: "13",
   status: "启用"
+});
+
+await upsertMasterDataFixture({
+  apiBase,
+  type: "warehouse",
+  payload: {
+    code: inactiveWarehouseCode,
+    name: `A170失效发料仓${batch}`,
+    warehouseType: "普通仓",
+    stockPolicy: "不允许负库存",
+    status: "启用",
+    remark: "A170发料仓有效性回归"
+  },
+  audit: true
 });
 
 await saveAndAuditBom(midBom, midProduct, [
@@ -238,6 +275,9 @@ await saveAndAuditBom(taskOnlyBom, taskOnlyRoot, [
 ]);
 await saveAndAuditBom(warehouseBom, warehouseRoot, [
   { materialCode: warehouseMaterial, qty: 1, issueWarehouseCode: "CK-004" }
+]);
+await saveAndAuditBom(inactiveWarehouseBom, inactiveWarehouseRoot, [
+  { materialCode: inactiveWarehouseMaterial, qty: 1, issueWarehouseCode: inactiveWarehouseCode }
 ]);
 await saveAndAuditBom(staleMidBomV1, staleMid, [
   { materialCode: staleMaterial, qty: 1, issueWarehouseCode: "CK-001" }
@@ -373,11 +413,26 @@ const selectableDraftSupplierTwo = await requireJson(`/api/purchase-orders/selec
 assert((selectableDraftSupplierOne.lines || []).some((line) => line.billNo === requisitionNo && numberOf(line.remainingQty) === 15), "draft plan must not occupy supplier-one requisition quantity", selectableDraftSupplierOne.lines);
 assert((selectableDraftSupplierTwo.lines || []).some((line) => line.billNo === requisitionNo && numberOf(line.remainingQty) === 24), "draft plan must not occupy supplier-two requisition quantity", selectableDraftSupplierTwo.lines);
 
-const draftPlanNo = supplierOnePlan.document.billNo;
+const deletedDraftPlanNo = supplierOnePlan.document.billNo;
+await requireJson(`/api/purchase-plans/${encodeURIComponent(deletedDraftPlanNo)}`, { method: "DELETE" });
+const partiallyRegenerated = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/push-down`, { method: "POST" });
+assert(partiallyRegenerated.purchasePlans?.length === 1
+  && partiallyRegenerated.purchasePlans[0].supplierCode === "GYS-001"
+  && numberOf(partiallyRegenerated.purchasePlans[0].totalQty) === 15,
+"deleting one supplier draft must regenerate only its uncovered source line", partiallyRegenerated.purchasePlans);
+const preservedSupplierTwoPlan = await requireJson(`/api/purchase-plans/${encodeURIComponent(supplierTwoPlan.document.billNo)}`);
+assert(preservedSupplierTwoPlan.document.status === "DRAFT" && numberOf(preservedSupplierTwoPlan.document.totalQty) === 24,
+  "regenerating one supplier plan must preserve the other supplier draft", preservedSupplierTwoPlan.document);
+const regeneratedDraftPlanNo = partiallyRegenerated.purchasePlans[0].billNo;
 const reversedDraftRequisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/reverse`, { method: "POST" });
 assert(reversedDraftRequisition.document.status === "DRAFT", "draft purchase plans must not block requisition reverse", reversedDraftRequisition.document);
-const removedDraftPlan = await request(`/api/purchase-plans/${encodeURIComponent(draftPlanNo)}`);
-assert(removedDraftPlan.response.status === 404, "reversing a requisition must discard its linked draft plans", removedDraftPlan.data);
+const removedRegeneratedDraftPlan = await request(`/api/purchase-plans/${encodeURIComponent(regeneratedDraftPlanNo)}`);
+const removedPreservedDraftPlan = await request(`/api/purchase-plans/${encodeURIComponent(supplierTwoPlan.document.billNo)}`);
+assert(removedRegeneratedDraftPlan.response.status === 404 && removedPreservedDraftPlan.response.status === 404,
+  "reversing a requisition must discard all remaining linked draft plans", {
+    removedRegeneratedDraftPlan: removedRegeneratedDraftPlan.data,
+    removedPreservedDraftPlan: removedPreservedDraftPlan.data
+  });
 await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/audit`, { method: "POST" });
 planned = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/push-down`, { method: "POST" });
 assert(planned.purchasePlans?.length === 2, "re-audited requisition must regenerate supplier-grouped draft plans", planned.purchasePlans);
@@ -436,6 +491,40 @@ const warehouseOverrideRequisition = await requireJson(`/api/purchase-requisitio
 const warehouseOverrideLine = warehouseOverrideRequisition.lines.find((line) => line.productCode === warehouseMaterial);
 assert(warehouseOverrideLine?.warehouseCode === "CK-004", "purchase demand must inherit the BOM issue warehouse instead of the material default warehouse", warehouseOverrideLine);
 
+const inactiveWarehousePlan = await requireJson("/api/production/plans", {
+  method: "POST",
+  body: {
+    sourceType: "SELF",
+    lines: [{
+      productId: inactiveWarehouseRootRow.id,
+      productCode: inactiveWarehouseRoot,
+      bomCode: inactiveWarehouseBom,
+      warehouseCode: "CK-002",
+      departmentCode: "HJ",
+      qty: 1,
+      planDeliveryDate: billDate,
+      expandMultilevelTasks: false,
+      generatePurchaseRequisition: true
+    }]
+  }
+});
+await requireJson(`/api/production/plans/${encodeURIComponent(inactiveWarehousePlan.billNo)}/audit`, { method: "POST" });
+await requireJson(`/api/master-data/warehouse/${encodeURIComponent(inactiveWarehouseCode)}/status`, {
+  method: "PATCH",
+  body: { status: "禁用" }
+});
+const inactiveWarehousePush = await request(`/api/production/plans/${encodeURIComponent(inactiveWarehousePlan.billNo)}/push-down`, { method: "POST" });
+assert(inactiveWarehousePush.response.status === 409, "disabled BOM issue warehouse must block production-plan pushdown", inactiveWarehousePush.data);
+const inactiveWarehouseMessage = String(inactiveWarehousePush.data.reason || inactiveWarehousePush.data.message || inactiveWarehousePush.text);
+assert(inactiveWarehouseMessage.includes(inactiveWarehouseMaterial) && inactiveWarehouseMessage.includes("发料仓"),
+  "disabled issue-warehouse failure must identify the affected material", inactiveWarehouseMessage);
+const inactiveWarehouseTasks = await listRows("production-task-list", inactiveWarehousePlan.billNo);
+const inactiveWarehouseRequisitions = await listRows("purchase-requisition-list", inactiveWarehousePlan.billNo);
+assert(!inactiveWarehouseTasks.some((row) => row.planNo === inactiveWarehousePlan.billNo),
+  "failed warehouse validation must not persist production tasks", inactiveWarehouseTasks);
+assert(!inactiveWarehouseRequisitions.some((row) => row.sourcePlanNo === inactiveWarehousePlan.billNo),
+  "failed warehouse validation must not persist purchase requisitions", inactiveWarehouseRequisitions);
+
 const staleChildPlan = await requireJson("/api/production/plans", {
   method: "POST",
   body: {
@@ -481,8 +570,10 @@ const result = {
     missingSupplierBlocked: true,
     supplierGroupedPlans: true,
     draftPlanDoesNotOccupy: true,
+    singleSupplierDraftCanBeDeletedAndRegenerated: true,
     auditedPlanOccupiesAndReverseReleases: true,
     bomIssueWarehousePreserved: true,
+    disabledIssueWarehouseRejectedAtomically: true,
     staleChildBomRejected: true,
     purchasePermissionFailClosed: true
   }

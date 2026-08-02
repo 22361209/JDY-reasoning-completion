@@ -1642,6 +1642,7 @@ public class ProductionTaskAppService {
             if (!isPurchase) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "非自制子件 " + materialCode + " 未启用可采购，无法形成采购申请");
             }
+            var issueWarehouseId = lockUsableExplosionIssueWarehouse(node, line);
             demands.add(new PurchaseDemand(
                 String.valueOf(node.source.get("planId")),
                 String.valueOf(node.source.get("planLineId")),
@@ -1660,7 +1661,7 @@ public class ProductionTaskAppService {
                 String.valueOf(line.get("unit")),
                 (BigDecimal) line.get("netWeight"),
                 (BigDecimal) line.get("grossWeight"),
-                nullableText(line.get("issueWarehouseId")),
+                issueWarehouseId,
                 nullableText(line.get("supplierId")),
                 nullableText(line.get("supplierCode")),
                 nullableText(line.get("supplierName")),
@@ -1669,6 +1670,30 @@ public class ProductionTaskAppService {
                 nullableText(node.source.get("departmentCode"))
             ));
         }
+    }
+
+    private String lockUsableExplosionIssueWarehouse(ExplosionTaskNode node, Map<String, Object> line) {
+        var issueWarehouseId = nullableText(line.get("issueWarehouseId"));
+        if (issueWarehouseId == null) {
+            return null;
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM md_warehouse
+            WHERE id = ?::uuid
+              AND audit_status = 'AUDITED'
+              AND enabled = TRUE
+            FOR SHARE
+            """, issueWarehouseId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "BOM " + node.source.get("bomCode")
+                    + " 第 " + line.get("lineNo") + " 行采购子件 " + line.get("productCode")
+                    + " 的发料仓不存在、未审核或已禁用"
+            );
+        }
+        return issueWarehouseId;
     }
 
     private List<Map<String, Object>> explosionBomLines(String bomId) {

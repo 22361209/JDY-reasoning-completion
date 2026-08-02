@@ -2,7 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -23,6 +23,10 @@ const unitId = randomUUID();
 const warehouseId = randomUUID();
 const productId = randomUUID();
 const bomId = randomUUID();
+const draftRequisitionLineId = randomUUID();
+const auditedRequisitionLineId = randomUUID();
+const draftPurchasePlanId = randomUUID();
+const auditedPurchasePlanId = randomUUID();
 const legacyPlanNo = `SCJH-A167-${token.toUpperCase()}`;
 const result = {
   ok: false,
@@ -62,6 +66,15 @@ function psql(database, statement) {
     "docker",
     ["exec", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", databaseUser, "-d", safeDatabase(database), "-tAq", "-c", statement],
     { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 }
+  ).trim();
+}
+
+async function psqlFile(database, file) {
+  const statement = await readFile(file, "utf8");
+  return execFileSync(
+    "docker",
+    ["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", databaseUser, "-d", safeDatabase(database), "-tAq"],
+    { encoding: "utf8", input: statement, maxBuffer: 30 * 1024 * 1024 }
   ).trim();
 }
 
@@ -212,12 +225,58 @@ try {
     END $fixture$;
   `);
 
+  result.upgrade.flywayV111 = flyway(upgradeDatabase, 111);
+  assert(psql(upgradeDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "111", "staged upgrade must reach V111");
+  psql(upgradeDatabase, `
+    INSERT INTO ${identifier(backupSchema)}.purchase_requisition_line (id, qty, planned_qty, updated_at)
+    VALUES
+      (${literal(draftRequisitionLineId)}::uuid, 10, 10, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
+      (${literal(auditedRequisitionLineId)}::uuid, 7, 0, TIMESTAMPTZ '2026-01-01 00:00:00+00');
+    INSERT INTO ${identifier(backupSchema)}.purchase_plan (id, status)
+    VALUES
+      (${literal(draftPurchasePlanId)}::uuid, 'DRAFT'),
+      (${literal(auditedPurchasePlanId)}::uuid, 'AUDITED');
+    INSERT INTO ${identifier(backupSchema)}.purchase_plan_line (id, plan_id, source_requisition_line_id, qty)
+    VALUES
+      (gen_random_uuid(), ${literal(draftPurchasePlanId)}::uuid, ${literal(draftRequisitionLineId)}::uuid, 10),
+      (gen_random_uuid(), ${literal(auditedPurchasePlanId)}::uuid, ${literal(auditedRequisitionLineId)}::uuid, 7);
+  `);
+  const staleReservations = json(upgradeDatabase, `
+    SELECT jsonb_build_object(
+      'draftQty', (SELECT planned_qty FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(draftRequisitionLineId)}::uuid),
+      'auditedQty', (SELECT planned_qty FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(auditedRequisitionLineId)}::uuid)
+    )::text
+  `);
+  assert(Number(staleReservations.draftQty) === 10 && Number(staleReservations.auditedQty) === 0, "V111 backup fixture must contain stale draft/audited reservations", staleReservations);
+
   result.upgrade.flywayLatest = flyway(upgradeDatabase);
   const latestVersion = psql(upgradeDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success");
-  assert(latestVersion === "111", "upgrade must end at V111", latestVersion);
+  assert(latestVersion === "113", "upgrade must end at V113", latestVersion);
   assertTopology("upgrade public", topology(upgradeDatabase, "public"), 203);
   assertTopology("upgrade tenant", topology(upgradeDatabase, tenantSchema), 199);
   assert(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`) === "89", "repeat tenant sync must return 89");
+
+  const reservationReconciliation = json(upgradeDatabase, `
+    SELECT jsonb_build_object(
+      'draftQty', (SELECT planned_qty FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(draftRequisitionLineId)}::uuid),
+      'auditedQty', (SELECT planned_qty FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(auditedRequisitionLineId)}::uuid),
+      'draftUpdatedAt', (SELECT updated_at FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(draftRequisitionLineId)}::uuid),
+      'auditedUpdatedAt', (SELECT updated_at FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(auditedRequisitionLineId)}::uuid)
+    )::text
+  `);
+  assert(Number(reservationReconciliation.draftQty) === 0, "V113 must remove draft purchase-plan reservations from historical backups", reservationReconciliation);
+  assert(Number(reservationReconciliation.auditedQty) === 7, "V113 must rebuild historical backup reservations from audited purchase plans", reservationReconciliation);
+  psql(upgradeDatabase, "SELECT pg_sleep(0.02)");
+  await psqlFile(upgradeDatabase, path.join(migrationDir, "V113__recalculate_backup_purchase_plan_reservations.sql"));
+  const reservationReconciliationAfterRepeat = json(upgradeDatabase, `
+    SELECT jsonb_build_object(
+      'draftQty', (SELECT planned_qty FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(draftRequisitionLineId)}::uuid),
+      'auditedQty', (SELECT planned_qty FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(auditedRequisitionLineId)}::uuid),
+      'draftUpdatedAt', (SELECT updated_at FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(draftRequisitionLineId)}::uuid),
+      'auditedUpdatedAt', (SELECT updated_at FROM ${identifier(backupSchema)}.purchase_requisition_line WHERE id=${literal(auditedRequisitionLineId)}::uuid)
+    )::text
+  `);
+  assert(JSON.stringify(reservationReconciliationAfterRepeat) === JSON.stringify(reservationReconciliation), "V113 backup reservation reconciliation must be idempotent", { reservationReconciliation, reservationReconciliationAfterRepeat });
 
   const backfill = json(upgradeDatabase, `
     SELECT jsonb_build_object(
@@ -252,7 +311,7 @@ try {
   assert(Number(backfill.publicPlanningFlags) === 2 && Number(backfill.tenantPlanningFlags) === 2 && Number(backfill.backupPlanningFlags) === 2, "A170 production plan switches must exist in public, tenant and backup shapes", backfill);
   assert(Number(backfill.publicPurchasePlanTables) === 2 && Number(backfill.tenantPurchasePlanTables) === 2 && Number(backfill.backupPurchasePlanTables) === 2, "A170 purchase plan tables must exist in public, tenant and backup shapes", backfill);
   assert(Number(backfill.planBillNoUniqueBtree) === 1, "production_plan must retain exactly one single-column unique bill_no btree", backfill);
-  result.upgrade = { ...result.upgrade, latestVersion, publicTopology: topology(upgradeDatabase, "public"), tenantTopology: topology(upgradeDatabase, tenantSchema), backfill };
+  result.upgrade = { ...result.upgrade, latestVersion, publicTopology: topology(upgradeDatabase, "public"), tenantTopology: topology(upgradeDatabase, tenantSchema), backfill, reservationReconciliation, reservationReconciliationAfterRepeat };
 
   createDatabase(freshDatabase);
   result.fresh.flyway = flyway(freshDatabase);
@@ -261,9 +320,9 @@ try {
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
   const historyScripts = json(freshDatabase, "SELECT COALESCE(jsonb_agg(script ORDER BY installed_rank), '[]'::jsonb)::text FROM public.flyway_schema_history WHERE type='SQL'");
   assert(JSON.stringify(historyScripts) === JSON.stringify(sourceScripts), "fresh Flyway history must equal the migration source set");
-  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "111", "fresh migration must end at V111");
+  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "113", "fresh migration must end at V113");
   assertTopology("fresh public", topology(freshDatabase, "public"), 203);
-  result.fresh = { ...result.fresh, latestVersion: 111, topology: topology(freshDatabase, "public") };
+  result.fresh = { ...result.fresh, latestVersion: 113, topology: topology(freshDatabase, "public") };
   result.ok = true;
 } catch (error) {
   primaryError = error;

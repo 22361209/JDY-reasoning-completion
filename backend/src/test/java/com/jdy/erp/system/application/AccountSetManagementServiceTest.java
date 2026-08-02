@@ -307,6 +307,7 @@ class AccountSetManagementServiceTest {
             schema, code, "COMMITTED", "restore-committed"
         );
         var materialScrapBillNo = createMaterialScrapRestoreFixture(schema, code);
+        var purchasePlanReservationFixture = createPurchasePlanReservationRestoreFixture(schema, code);
 
         var backupResult = maintenanceService.backupCurrentAccountSet();
         @SuppressWarnings("unchecked")
@@ -316,6 +317,12 @@ class AccountSetManagementServiceTest {
         assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("89");
         platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
         platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
+        assertPurchasePlanReservations(
+            backupSchema,
+            purchasePlanReservationFixture,
+            new java.math.BigDecimal("10.0000"),
+            new java.math.BigDecimal("0.0000")
+        );
         var backupLogId = platformJdbcTemplate.queryForObject("""
             SELECT id::text
             FROM %s.sys_operation_log
@@ -331,6 +338,14 @@ class AccountSetManagementServiceTest {
         platformJdbcTemplate.update(
             "DELETE FROM %s.production_material_scrap WHERE bill_no = ?".formatted(quoteIdentifier(schema)),
             materialScrapBillNo
+        );
+        platformJdbcTemplate.update("""
+            UPDATE %s.purchase_requisition_line
+            SET planned_qty = 5
+            WHERE id IN (?::uuid, ?::uuid)
+            """.formatted(quoteIdentifier(schema)),
+            purchasePlanReservationFixture.get("draftLineId"),
+            purchasePlanReservationFixture.get("auditedLineId")
         );
         assertThat(countRowsWhere(schema, "md_product_category", "code = 'OPS'")).isZero();
         assertThat(countRowsWhere(schema, "md_employee", "code = 'OPS-E'")).isZero();
@@ -375,6 +390,12 @@ class AccountSetManagementServiceTest {
             .containsEntry("reissueQty", new java.math.BigDecimal("1.0000"))
             .containsEntry("isStockIn", false)
             .containsEntry("stockInStatus", "NOT_REQUIRED");
+        assertPurchasePlanReservations(
+            schema,
+            purchasePlanReservationFixture,
+            new java.math.BigDecimal("0.0000"),
+            new java.math.BigDecimal("7.0000")
+        );
         var logRows = platformJdbcTemplate.queryForList("""
             SELECT account_set_code AS "accountSetCode",
                    account_set_name AS "accountSetName"
@@ -590,6 +611,137 @@ class AccountSetManagementServiceTest {
                 billNo.replace("'", "''")
             ));
         return billNo;
+    }
+
+    private Map<String, String> createPurchasePlanReservationRestoreFixture(String schema, String code) {
+        var quotedSchema = quoteIdentifier(schema);
+        var suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        return platformJdbcTemplate.queryForMap("""
+            WITH supplier AS (
+                INSERT INTO %1$s.md_supplier (code, name, enabled, audit_status)
+                VALUES ('%2$s-SUP', '采购计划恢复供应商', TRUE, 'AUDITED')
+                RETURNING id, code, name
+            ), product AS (
+                SELECT id, code, name, spec, unit
+                FROM %1$s.md_product
+                ORDER BY created_at DESC, id
+                LIMIT 1
+            ), warehouse AS (
+                SELECT id FROM %1$s.md_warehouse ORDER BY code LIMIT 1
+            ), draft_requisition AS (
+                INSERT INTO %1$s.purchase_requisition (
+                    bill_no, supplier_id, supplier_code_snapshot, supplier_name_snapshot,
+                    bill_date, department, status, owner_name
+                )
+                SELECT '%2$s-REQ-D', supplier.id, supplier.code, supplier.name,
+                       current_date, '采购部', 'AUDITED', 'A172恢复回归'
+                FROM supplier
+                RETURNING id
+            ), audited_requisition AS (
+                INSERT INTO %1$s.purchase_requisition (
+                    bill_no, supplier_id, supplier_code_snapshot, supplier_name_snapshot,
+                    bill_date, department, status, owner_name
+                )
+                SELECT '%2$s-REQ-A', supplier.id, supplier.code, supplier.name,
+                       current_date, '采购部', 'AUDITED', 'A172恢复回归'
+                FROM supplier
+                RETURNING id
+            ), draft_line AS (
+                INSERT INTO %1$s.purchase_requisition_line (
+                    requisition_id, line_no, product_id, product_code_snapshot,
+                    product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                    warehouse_id, supplier_id, supplier_code_snapshot,
+                    supplier_name_snapshot, qty, ordered_qty, planned_qty
+                )
+                SELECT draft_requisition.id, 1, product.id, product.code,
+                       product.name, product.spec, product.unit, warehouse.id,
+                       supplier.id, supplier.code, supplier.name, 10, 0, 10
+                FROM draft_requisition, product, warehouse, supplier
+                RETURNING id, requisition_id, product_id, product_code_snapshot,
+                          product_name_snapshot, product_spec_snapshot,
+                          product_unit_snapshot, warehouse_id
+            ), audited_line AS (
+                INSERT INTO %1$s.purchase_requisition_line (
+                    requisition_id, line_no, product_id, product_code_snapshot,
+                    product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
+                    warehouse_id, supplier_id, supplier_code_snapshot,
+                    supplier_name_snapshot, qty, ordered_qty, planned_qty
+                )
+                SELECT audited_requisition.id, 1, product.id, product.code,
+                       product.name, product.spec, product.unit, warehouse.id,
+                       supplier.id, supplier.code, supplier.name, 7, 0, 0
+                FROM audited_requisition, product, warehouse, supplier
+                RETURNING id, requisition_id, product_id, product_code_snapshot,
+                          product_name_snapshot, product_spec_snapshot,
+                          product_unit_snapshot, warehouse_id
+            ), draft_plan AS (
+                INSERT INTO %1$s.purchase_plan (
+                    bill_no, source_requisition_id, source_requisition_no,
+                    supplier_id, supplier_code_snapshot, supplier_name_snapshot,
+                    bill_date, department, status, owner_name
+                )
+                SELECT '%2$s-PLAN-D', draft_line.requisition_id, '%2$s-REQ-D',
+                       supplier.id, supplier.code, supplier.name, current_date,
+                       '采购部', 'DRAFT', 'A172恢复回归'
+                FROM draft_line, supplier
+                RETURNING id
+            ), audited_plan AS (
+                INSERT INTO %1$s.purchase_plan (
+                    bill_no, source_requisition_id, source_requisition_no,
+                    supplier_id, supplier_code_snapshot, supplier_name_snapshot,
+                    bill_date, department, status, owner_name
+                )
+                SELECT '%2$s-PLAN-A', audited_line.requisition_id, '%2$s-REQ-A',
+                       supplier.id, supplier.code, supplier.name, current_date,
+                       '采购部', 'AUDITED', 'A172恢复回归'
+                FROM audited_line, supplier
+                RETURNING id
+            ), draft_plan_line AS (
+                INSERT INTO %1$s.purchase_plan_line (
+                    plan_id, line_no, source_requisition_line_id,
+                    source_requisition_no, source_requisition_line_no,
+                    product_id, product_code_snapshot, product_name_snapshot,
+                    product_spec_snapshot, product_unit_snapshot, warehouse_id, qty
+                )
+                SELECT draft_plan.id, 1, draft_line.id, '%2$s-REQ-D', 1,
+                       draft_line.product_id, draft_line.product_code_snapshot,
+                       draft_line.product_name_snapshot, draft_line.product_spec_snapshot,
+                       draft_line.product_unit_snapshot, draft_line.warehouse_id, 10
+                FROM draft_plan, draft_line
+            ), audited_plan_line AS (
+                INSERT INTO %1$s.purchase_plan_line (
+                    plan_id, line_no, source_requisition_line_id,
+                    source_requisition_no, source_requisition_line_no,
+                    product_id, product_code_snapshot, product_name_snapshot,
+                    product_spec_snapshot, product_unit_snapshot, warehouse_id, qty
+                )
+                SELECT audited_plan.id, 1, audited_line.id, '%2$s-REQ-A', 1,
+                       audited_line.product_id, audited_line.product_code_snapshot,
+                       audited_line.product_name_snapshot, audited_line.product_spec_snapshot,
+                       audited_line.product_unit_snapshot, audited_line.warehouse_id, 7
+                FROM audited_plan, audited_line
+            )
+            SELECT draft_line.id::text AS "draftLineId",
+                   audited_line.id::text AS "auditedLineId"
+            FROM draft_line, audited_line
+            """.formatted(quotedSchema, (code + "-" + suffix).replace("'", "''")))
+            .entrySet().stream()
+            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> String.valueOf(entry.getValue())));
+    }
+
+    private void assertPurchasePlanReservations(
+        String schema,
+        Map<String, String> fixture,
+        java.math.BigDecimal expectedDraftQty,
+        java.math.BigDecimal expectedAuditedQty
+    ) {
+        assertThat(platformJdbcTemplate.queryForMap("""
+            SELECT
+                (SELECT planned_qty FROM %1$s.purchase_requisition_line WHERE id = ?::uuid) AS "draftQty",
+                (SELECT planned_qty FROM %1$s.purchase_requisition_line WHERE id = ?::uuid) AS "auditedQty"
+            """.formatted(quoteIdentifier(schema)), fixture.get("draftLineId"), fixture.get("auditedLineId")))
+            .containsEntry("draftQty", expectedDraftQty)
+            .containsEntry("auditedQty", expectedAuditedQty);
     }
 
     private String createImportBatchFixture(

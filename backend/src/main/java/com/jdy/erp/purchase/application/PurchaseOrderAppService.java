@@ -2,10 +2,13 @@ package com.jdy.erp.purchase.application;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import com.jdy.erp.shared.application.BillLifecycleService;
@@ -255,7 +258,7 @@ public class PurchaseOrderAppService {
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var currency = normalizeCurrency(request.currency());
-        var order = jdbcTemplate.queryForMap("""
+        var orders = jdbcTemplate.queryForList("""
             INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, currency, owner_name)
             VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
@@ -277,6 +280,7 @@ public class PurchaseOrderAppService {
                 owner_name = EXCLUDED.owner_name,
                 updated_at = now(),
                 version = purchase_order.version + 1
+            WHERE purchase_order.status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", total_amount AS "totalAmount", currency
             """,
             billNo,
@@ -288,6 +292,10 @@ public class PurchaseOrderAppService {
             currency,
             request.ownerName()
         );
+        if (orders.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿采购订单可以保存");
+        }
+        var order = orders.get(0);
         var orderId = order.get("id");
         jdbcTemplate.update("DELETE FROM purchase_order_line WHERE order_id = ?::uuid", orderId);
         var lineNo = 1;
@@ -325,10 +333,15 @@ public class PurchaseOrderAppService {
 
     @Transactional
     public Map<String, Object> audit(String billNo) {
-        lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, billNo, "采购订单数量必须大于 0");
+        var normalizedBillNo = validationService.required(billNo, "采购订单单号");
+        lockPurchaseOrderForAudit(normalizedBillNo);
+        lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, normalizedBillNo, "采购订单数量必须大于 0");
+        var demands = purchaseRequisitionDemands(normalizedBillNo);
+        var lockedSources = lockPurchaseRequisitionSources(demands);
+        refreshAndGuardPurchaseRequisitionQuantities(lockedSources, normalizedBillNo);
         var row = lifecycleService.transition(
             BILL_TABLE,
-            billNo,
+            normalizedBillNo,
             BillStatus.DRAFT,
             BillStatus.AUDITED,
             "id::text AS id, bill_no AS \"billNo\", status",
@@ -337,9 +350,7 @@ public class PurchaseOrderAppService {
             "purchase_order",
             "采购订单不存在或已审核"
         );
-        var demands = purchaseRequisitionDemands(billNo);
-        guardPurchaseRequisitionQuantities(demands, billNo);
-        markPurchaseRequisitionOrdered(demands);
+        markPurchaseRequisitionOrdered(lockedSources);
         return row;
     }
 
@@ -419,73 +430,193 @@ public class PurchaseOrderAppService {
             if (sourceBillNo == null || sourceLineNo == null) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源单行不能为空");
             }
+            if (!(sourceLineNo instanceof Number lineNumber) || lineNumber.intValue() <= 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源单行不正确");
+            }
             var qty = validationService.positive((BigDecimal) line.get("qty"), "采购订单数量");
-            var key = sourceBillNo + "\u0000" + sourceLineNo;
+            var normalizedSourceLineNo = lineNumber.intValue();
+            var key = sourceKey(sourceBillNo, normalizedSourceLineNo);
             var existing = grouped.get(key);
             grouped.put(
                 key,
                 existing == null
-                    ? new PurchaseRequisitionDemand(sourceBillNo, sourceLineNo, qty)
-                    : new PurchaseRequisitionDemand(sourceBillNo, sourceLineNo, existing.qty().add(qty))
+                    ? new PurchaseRequisitionDemand(sourceBillNo, normalizedSourceLineNo, qty)
+                    : new PurchaseRequisitionDemand(sourceBillNo, normalizedSourceLineNo, existing.qty().add(qty))
             );
         }
-        return grouped.values().stream().toList();
+        return grouped.values().stream()
+            .sorted(Comparator.comparing(PurchaseRequisitionDemand::sourceBillNo)
+                .thenComparingInt(PurchaseRequisitionDemand::sourceLineNo))
+            .toList();
     }
 
-    private void guardPurchaseRequisitionQuantities(List<PurchaseRequisitionDemand> demands, String currentBillNo) {
+    private void lockPurchaseOrderForAudit(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT status
+            FROM purchase_order
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+        if (rows.isEmpty() || !BillStatus.DRAFT.name().equals(String.valueOf(rows.get(0).get("status")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单不存在或已审核");
+        }
+    }
+
+    private List<LockedPurchaseRequisitionLine> lockPurchaseRequisitionSources(
+        List<PurchaseRequisitionDemand> demands
+    ) {
+        if (demands.isEmpty()) {
+            return List.of();
+        }
+
+        var referencesByBillNo = new LinkedHashMap<String, PurchaseRequisitionReference>();
         for (var demand : demands) {
-            refreshPurchaseRequisitionOrderedQty(demand, currentBillNo);
+            if (referencesByBillNo.containsKey(demand.sourceBillNo())) {
+                continue;
+            }
             var rows = jdbcTemplate.queryForList("""
-                SELECT line.qty - COALESCE(line.ordered_qty, 0) - COALESCE(line.planned_qty, 0) AS remaining_qty
-                FROM purchase_requisition req
-                JOIN purchase_requisition_line line ON line.requisition_id = req.id
-                WHERE req.bill_no = ?
-                  AND req.status = 'AUDITED'
-                  AND line.line_no = ?
-                  AND line.line_close_status = 'OPEN'
-                  AND line.line_frozen_status = 'NORMAL'
-                FOR UPDATE OF line
-                """, demand.sourceBillNo(), demand.sourceLineNo());
+                SELECT id::text AS id,
+                       bill_no AS "billNo"
+                FROM purchase_requisition
+                WHERE bill_no = ?
+                """, demand.sourceBillNo());
             if (rows.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源明细不存在或未审核");
             }
-            var remaining = (BigDecimal) rows.get(0).get("remaining_qty");
-            if (remaining == null || remaining.compareTo(demand.qty()) < 0) {
+            var row = rows.get(0);
+            referencesByBillNo.put(
+                demand.sourceBillNo(),
+                new PurchaseRequisitionReference(
+                    UUID.fromString(String.valueOf(row.get("id"))),
+                    demand.sourceBillNo()
+                )
+            );
+        }
+        var requisitions = referencesByBillNo.values().stream()
+            .sorted((left, right) -> compareUuid(left.id(), right.id()))
+            .toList();
+        for (var requisition : requisitions) {
+            var rows = jdbcTemplate.queryForList("""
+                SELECT id::text AS id,
+                       bill_no AS "billNo",
+                       status
+                FROM purchase_requisition
+                WHERE id = ?::uuid
+                FOR UPDATE
+                """, requisition.id().toString());
+            if (rows.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源明细不存在或未审核");
+            }
+            var locked = rows.get(0);
+            if (!requisition.id().toString().equals(String.valueOf(locked.get("id")))
+                || !requisition.billNo().equals(String.valueOf(locked.get("billNo")))
+                || !BillStatus.AUDITED.name().equals(String.valueOf(locked.get("status")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源明细不存在或未审核");
+            }
+        }
+
+        var demandsBySource = new HashMap<String, PurchaseRequisitionDemand>();
+        for (var demand : demands) {
+            demandsBySource.put(sourceKey(demand.sourceBillNo(), demand.sourceLineNo()), demand);
+        }
+        var lockedBySource = new HashMap<String, LockedPurchaseRequisitionLine>();
+        for (var requisition : requisitions) {
+            var rows = jdbcTemplate.queryForList("""
+                SELECT id::text AS id,
+                       line_no AS "lineNo",
+                       qty,
+                       COALESCE(planned_qty, 0) AS "plannedQty",
+                       line_close_status AS "lineCloseStatus",
+                       line_frozen_status AS "lineFrozenStatus"
+                FROM purchase_requisition_line
+                WHERE requisition_id = ?::uuid
+                ORDER BY id
+                FOR UPDATE
+                """, requisition.id().toString());
+            for (var row : rows) {
+                var lineNo = ((Number) row.get("lineNo")).intValue();
+                var key = sourceKey(requisition.billNo(), lineNo);
+                var demand = demandsBySource.get(key);
+                if (demand == null) {
+                    continue;
+                }
+                lockedBySource.put(key, new LockedPurchaseRequisitionLine(
+                    demand,
+                    String.valueOf(row.get("id")),
+                    (BigDecimal) row.get("qty"),
+                    (BigDecimal) row.get("plannedQty"),
+                    String.valueOf(row.get("lineCloseStatus")),
+                    String.valueOf(row.get("lineFrozenStatus"))
+                ));
+            }
+        }
+
+        return demands.stream().map(demand -> {
+            var locked = lockedBySource.get(sourceKey(demand.sourceBillNo(), demand.sourceLineNo()));
+            if (locked == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源明细不存在或未审核");
+            }
+            return locked;
+        }).toList();
+    }
+
+    private void refreshAndGuardPurchaseRequisitionQuantities(
+        List<LockedPurchaseRequisitionLine> sources,
+        String currentBillNo
+    ) {
+        for (var source : sources) {
+            var demand = source.demand();
+            var authoritativeOrderedQty = jdbcTemplate.queryForObject("""
+                SELECT COALESCE(SUM(po_line.qty), 0)
+                FROM purchase_order_line po_line
+                JOIN purchase_order po ON po.id = po_line.order_id
+                WHERE po.status = 'AUDITED'
+                  AND po.bill_no <> ?
+                  AND po_line.source_requisition_no = ?
+                  AND po_line.source_requisition_line_no = ?
+                """, BigDecimal.class, currentBillNo, demand.sourceBillNo(), demand.sourceLineNo());
+            var orderedQty = authoritativeOrderedQty == null ? BigDecimal.ZERO : authoritativeOrderedQty;
+            var refreshed = jdbcTemplate.update("""
+                UPDATE purchase_requisition_line
+                SET ordered_qty = ?,
+                    updated_at = now()
+                WHERE id = ?::uuid
+                """, orderedQty, source.id());
+            if (refreshed != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源占用已变化，本次审核已回滚");
+            }
+            var remaining = source.qty().subtract(orderedQty).subtract(source.plannedQty());
+            if (!"OPEN".equals(source.lineCloseStatus())
+                || !"NORMAL".equals(source.lineFrozenStatus())
+                || remaining.compareTo(demand.qty()) < 0) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单数量不能超过采购申请剩余可订数量");
             }
         }
     }
 
-    private void refreshPurchaseRequisitionOrderedQty(PurchaseRequisitionDemand demand, String currentBillNo) {
-        jdbcTemplate.update("""
-            UPDATE purchase_requisition_line line
-            SET ordered_qty = COALESCE((
-                SELECT SUM(po_line.qty)
-                FROM purchase_order_line po_line
-                JOIN purchase_order po ON po.id = po_line.order_id
-                WHERE po.status = 'AUDITED'
-                  AND po.bill_no <> ?
-                  AND po_line.source_requisition_no = req.bill_no
-                  AND po_line.source_requisition_line_no = line.line_no
-            ), 0)
-            FROM purchase_requisition req
-            WHERE req.id = line.requisition_id
-              AND req.bill_no = ?
-              AND line.line_no = ?
-            """, currentBillNo, demand.sourceBillNo(), demand.sourceLineNo());
+    private void markPurchaseRequisitionOrdered(List<LockedPurchaseRequisitionLine> sources) {
+        for (var source : sources) {
+            var updated = jdbcTemplate.update("""
+                UPDATE purchase_requisition_line
+                SET ordered_qty = COALESCE(ordered_qty, 0) + ?,
+                    updated_at = now()
+                WHERE id = ?::uuid
+                """, source.demand().qty(), source.id());
+            if (updated != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源占用已变化，本次审核已回滚");
+            }
+        }
     }
 
-    private void markPurchaseRequisitionOrdered(List<PurchaseRequisitionDemand> demands) {
-        for (var demand : demands) {
-            jdbcTemplate.update("""
-                UPDATE purchase_requisition_line line
-                SET ordered_qty = COALESCE(line.ordered_qty, 0) + ?
-                FROM purchase_requisition req
-                WHERE req.id = line.requisition_id
-                  AND req.bill_no = ?
-                  AND line.line_no = ?
-                """, demand.qty(), demand.sourceBillNo(), demand.sourceLineNo());
-        }
+    private String sourceKey(String sourceBillNo, int sourceLineNo) {
+        return sourceBillNo + "\u0000" + sourceLineNo;
+    }
+
+    private int compareUuid(UUID left, UUID right) {
+        var mostSignificant = Long.compareUnsigned(left.getMostSignificantBits(), right.getMostSignificantBits());
+        return mostSignificant != 0
+            ? mostSignificant
+            : Long.compareUnsigned(left.getLeastSignificantBits(), right.getLeastSignificantBits());
     }
 
     private LocalDate parseOptionalDate(String value) {
@@ -498,6 +629,19 @@ public class PurchaseOrderAppService {
         return text == null ? "" : text;
     }
 
-    private record PurchaseRequisitionDemand(String sourceBillNo, Object sourceLineNo, BigDecimal qty) {
+    private record PurchaseRequisitionDemand(String sourceBillNo, int sourceLineNo, BigDecimal qty) {
+    }
+
+    private record PurchaseRequisitionReference(UUID id, String billNo) {
+    }
+
+    private record LockedPurchaseRequisitionLine(
+        PurchaseRequisitionDemand demand,
+        String id,
+        BigDecimal qty,
+        BigDecimal plannedQty,
+        String lineCloseStatus,
+        String lineFrozenStatus
+    ) {
     }
 }

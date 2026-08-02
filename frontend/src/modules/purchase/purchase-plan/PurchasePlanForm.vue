@@ -12,7 +12,7 @@
     :can-audit="canAudit"
     :can-reverse="canReverse"
     :can-void="false"
-    :can-delete="false"
+    :can-delete="canDelete"
     :can-output="false"
     :show-create="false"
     :show-save="false"
@@ -24,13 +24,14 @@
     :show-unclose="false"
     :show-freeze="false"
     :show-unfreeze="false"
-    :show-delete="false"
+    :show-delete="true"
     :show-export="false"
     :show-print="false"
     :show-push-down="false"
     data-testid="purchase-plan-form"
     @audit="audit"
     @reverse="reverse"
+    @delete-document="remove"
   >
     <div class="form-layout purchase-plan-form">
       <section class="form-head-fields purchase-plan-fields">
@@ -85,6 +86,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import StandardDocument from "../../../components/StandardDocument.vue";
 import {
   auditPurchasePlan,
+  deletePurchasePlanDraft,
   fetchPurchasePlanDetail,
   reversePurchasePlan,
   type PurchasePlanDetail,
@@ -120,6 +122,7 @@ const entryLines = ref<PurchasePlanningEntryLine[]>([]);
 const statusLabel = computed(() => backendStatusLabel(status.value));
 const canAudit = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "DRAFT");
 const canReverse = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "AUDITED");
+const canDelete = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "DRAFT");
 
 function startNew() {
   message.value = "采购计划由已审核采购申请按供应商下推生成，不支持手工新增。";
@@ -158,6 +161,23 @@ async function reverse() {
   applyLifecycleResult(result, "采购计划已反审核，状态回到草稿");
 }
 
+async function remove() {
+  if (!canDelete.value) {
+    return;
+  }
+  const deletedBillNo = form.billNo;
+  if (!window.confirm(`确定删除草稿采购计划 ${deletedBillNo} 吗？此操作不可恢复，原计划编号不复用；删除后可按采购申请剩余数量重新下推。`)) {
+    return;
+  }
+  const result = await deletePurchasePlanDraft(deletedBillNo);
+  if (!result.ok) {
+    message.value = result.message || "采购计划删除失败。";
+    return;
+  }
+  clearDocument();
+  message.value = `采购计划草稿 ${deletedBillNo} 已永久删除，原编号不复用；可从采购申请重新下推。`;
+}
+
 function applyLifecycleResult(
   result: { ok: boolean; message: string; data?: PurchasePlanDetail },
   successMessage: string
@@ -183,6 +203,20 @@ function applyDetail(detail: PurchasePlanDetail) {
   status.value = text(document.status) || "DRAFT";
   const lines = Array.isArray(detail.lines) ? detail.lines.map(lineFromData) : [];
   entryLines.value.splice(0, entryLines.value.length, ...lines);
+}
+
+function clearDocument() {
+  detailRequestSeq += 1;
+  form.billNo = "";
+  form.sourceRequisitionNo = "";
+  form.supplierCode = "";
+  form.supplierName = "";
+  form.billDate = "";
+  form.department = "";
+  form.version = "";
+  status.value = "DRAFT";
+  entryLines.value.splice(0, entryLines.value.length);
+  emit("clearDirty");
 }
 
 function lineFromData(line: PurchasePlanLine): PurchasePlanningEntryLine {

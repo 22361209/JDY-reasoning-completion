@@ -185,7 +185,14 @@ export function reversePurchasePlan(billNo: string) {
   );
 }
 
-async function requestJson<T>(path: string, method: "GET" | "POST", payload?: object): Promise<PurchasePlanningResult<T>> {
+export function deletePurchasePlanDraft(billNo: string) {
+  return requestJson<{ billNo: string; status: string }>(
+    `/api/purchase-plans/${encodeURIComponent(billNo)}`,
+    "DELETE"
+  );
+}
+
+async function requestJson<T>(path: string, method: "GET" | "POST" | "DELETE", payload?: object): Promise<PurchasePlanningResult<T>> {
   try {
     const response = await fetch(path, {
       method,

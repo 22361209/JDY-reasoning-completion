@@ -5,7 +5,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 
+import com.jdy.erp.shared.application.OperationLogCommand;
+import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
 import org.springframework.http.HttpStatus;
@@ -18,10 +21,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class PurchasePlanAppService {
     private final JdbcTemplate jdbcTemplate;
     private final ValidationService validationService;
+    private final OperationLogService operationLogService;
 
-    public PurchasePlanAppService(JdbcTemplate jdbcTemplate, ValidationService validationService) {
+    public PurchasePlanAppService(
+        JdbcTemplate jdbcTemplate,
+        ValidationService validationService,
+        OperationLogService operationLogService
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.validationService = validationService;
+        this.operationLogService = operationLogService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -91,6 +100,7 @@ public class PurchasePlanAppService {
         var planReference = findPlanReference(normalizedBillNo);
         var sourceRequisitionId = String.valueOf(planReference.get("sourceRequisitionId"));
         lockSourceRequisition(sourceRequisitionId, true);
+        lockSourceRequisitionLines(sourceRequisitionId);
         var lines = sourceLineDemands(String.valueOf(planReference.get("id")));
         var plan = lockPlan(normalizedBillNo);
         requireSameSourceRequisition(plan, sourceRequisitionId);
@@ -106,6 +116,7 @@ public class PurchasePlanAppService {
         var planReference = findPlanReference(normalizedBillNo);
         var sourceRequisitionId = String.valueOf(planReference.get("sourceRequisitionId"));
         lockSourceRequisition(sourceRequisitionId, false);
+        lockSourceRequisitionLines(sourceRequisitionId);
         var lines = sourceLineDemands(String.valueOf(planReference.get("id")));
         var plan = lockPlan(normalizedBillNo);
         requireSameSourceRequisition(plan, sourceRequisitionId);
@@ -113,6 +124,47 @@ public class PurchasePlanAppService {
         releaseSourceRequisitionLines(sourceRequisitionId, lines);
         transitionLocked(plan, BillStatus.AUDITED, BillStatus.DRAFT, "采购计划状态已变化，本次反审核已回滚");
         return detail(normalizedBillNo);
+    }
+
+    @Transactional
+    public Map<String, Object> deleteDraft(String billNo) {
+        var normalizedBillNo = validationService.required(billNo, "采购计划单号");
+        var planReference = findPlanReference(normalizedBillNo);
+        var sourceRequisitionId = String.valueOf(planReference.get("sourceRequisitionId"));
+        lockSourceRequisition(sourceRequisitionId, false);
+        lockSourceRequisitionLines(sourceRequisitionId);
+        var plan = lockPlan(normalizedBillNo);
+        requireSameSourceRequisition(plan, sourceRequisitionId);
+        requireStatus(plan, BillStatus.DRAFT, "只有草稿采购计划可以删除");
+        var version = plan.get("version");
+        if (!(version instanceof Number number)) {
+            throw new IllegalStateException("purchase_plan.version 不是数值");
+        }
+        var deleted = jdbcTemplate.update("""
+            DELETE FROM purchase_plan
+            WHERE id = ?::uuid
+              AND status = 'DRAFT'
+              AND version = ?
+            """, plan.get("id"), number.longValue());
+        if (deleted != 1) {
+            throw conflict("采购计划状态已变化，本次删除已回滚");
+        }
+        operationLogService.logCurrent(OperationLogCommand.success(
+            "PURCHASE",
+            "DELETE_PURCHASE_PLAN_DRAFT",
+            "purchase_plan",
+            UUID.fromString(String.valueOf(plan.get("id"))),
+            normalizedBillNo,
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, BillStatus.DRAFT.name(),
+                OperationLogCommand.StateField.VERSION, number.longValue()
+            ),
+            OperationLogCommand.state(
+                OperationLogCommand.StateField.STATUS, "DELETED",
+                OperationLogCommand.StateField.VERSION, number.longValue()
+            )
+        ));
+        return Map.of("billNo", normalizedBillNo, "status", "DELETED");
     }
 
     private Map<String, Object> findPlanReference(String billNo) {
@@ -141,6 +193,16 @@ public class PurchasePlanAppService {
         if (requireAudited && !BillStatus.AUDITED.name().equals(String.valueOf(rows.get(0).get("status")))) {
             throw conflict("采购计划来源采购申请未审核，不能审核采购计划");
         }
+    }
+
+    private void lockSourceRequisitionLines(String sourceRequisitionId) {
+        jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM purchase_requisition_line
+            WHERE requisition_id = ?::uuid
+            ORDER BY id
+            FOR UPDATE
+            """, sourceRequisitionId);
     }
 
     private List<Map<String, Object>> sourceLineDemands(String planId) {

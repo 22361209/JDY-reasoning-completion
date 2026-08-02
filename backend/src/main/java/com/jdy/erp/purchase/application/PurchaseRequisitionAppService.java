@@ -263,16 +263,7 @@ public class PurchaseRequisitionAppService {
             throw conflict("采购申请已被其他操作修改，请刷新后重试");
         }
 
-        var currentLines = jdbcTemplate.queryForList("""
-            SELECT id::text AS id,
-                   line_no AS "lineNo",
-                   COALESCE(ordered_qty, 0) AS "orderedQty",
-                   COALESCE(planned_qty, 0) AS "plannedQty"
-            FROM purchase_requisition_line
-            WHERE requisition_id = ?::uuid
-            ORDER BY line_no
-            FOR UPDATE
-            """, header.get("id"));
+        var currentLines = lockRequisitionLines(header.get("id"));
         var currentById = new LinkedHashMap<String, Map<String, Object>>();
         for (var line : currentLines) {
             currentById.put(String.valueOf(line.get("id")), line);
@@ -370,13 +361,7 @@ public class PurchaseRequisitionAppService {
         var normalizedBillNo = validationService.required(billNo, "采购申请单号");
         var header = lockRequisition(normalizedBillNo);
         requireStatus(header, BillStatus.DRAFT, "只有草稿采购申请可以审核");
-        var lines = jdbcTemplate.queryForList("""
-            SELECT line_no AS "lineNo", qty
-            FROM purchase_requisition_line
-            WHERE requisition_id = ?::uuid
-            ORDER BY line_no
-            FOR UPDATE
-            """, header.get("id"));
+        var lines = lockRequisitionLines(header.get("id"));
         if (lines.isEmpty()) {
             throw badRequest("采购申请至少需要一条分录");
         }
@@ -392,6 +377,7 @@ public class PurchaseRequisitionAppService {
         var normalizedBillNo = validationService.required(billNo, "采购申请单号");
         var header = lockRequisition(normalizedBillNo);
         requireStatus(header, BillStatus.AUDITED, "只有已审核且未下推的采购申请可以反审核");
+        lockRequisitionLines(header.get("id"));
         var downstream = jdbcTemplate.queryForObject("""
             SELECT
                 (SELECT COUNT(*)
@@ -399,10 +385,12 @@ public class PurchaseRequisitionAppService {
                  WHERE source_requisition_id = ?::uuid
                    AND status = 'AUDITED')
                 +
-                (SELECT COUNT(*) FROM purchase_requisition_line
-                 WHERE requisition_id = ?::uuid
-                   AND COALESCE(ordered_qty, 0) > 0)
-            """, Integer.class, header.get("id"), header.get("id"));
+                (SELECT COUNT(*)
+                 FROM purchase_order_line order_line
+                 JOIN purchase_order po ON po.id = order_line.order_id
+                 WHERE po.status = 'AUDITED'
+                   AND order_line.source_requisition_no = ?)
+            """, Integer.class, header.get("id"), normalizedBillNo);
         if (downstream != null && downstream > 0) {
             throw conflict("采购申请已有采购计划或采购订单占用，不能反审核");
         }
@@ -413,10 +401,11 @@ public class PurchaseRequisitionAppService {
             """, header.get("id"));
         jdbcTemplate.update("""
             UPDATE purchase_requisition_line
-            SET planned_qty = 0,
+            SET ordered_qty = 0,
+                planned_qty = 0,
                 updated_at = now()
             WHERE requisition_id = ?::uuid
-              AND COALESCE(planned_qty, 0) <> 0
+              AND (COALESCE(ordered_qty, 0) <> 0 OR COALESCE(planned_qty, 0) <> 0)
             """, header.get("id"));
         transitionLocked(header, BillStatus.AUDITED, BillStatus.DRAFT, "采购申请状态已变化，本次反审核已回滚");
         return detail(normalizedBillNo);
@@ -427,15 +416,7 @@ public class PurchaseRequisitionAppService {
         var normalizedBillNo = validationService.required(billNo, "采购申请单号");
         var header = lockRequisition(normalizedBillNo);
         requireStatus(header, BillStatus.AUDITED, "只有已审核采购申请可以下推采购计划");
-
-        var existingPlans = jdbcTemplate.queryForObject("""
-            SELECT COUNT(*)
-            FROM purchase_plan
-            WHERE source_requisition_id = ?::uuid
-            """, Integer.class, header.get("id"));
-        if (existingPlans != null && existingPlans > 0) {
-            throw conflict("采购申请已下推采购计划，不能重复下推");
-        }
+        lockRequisitionLines(header.get("id"));
 
         var rows = jdbcTemplate.queryForList("""
             SELECT line.id::text AS id,
@@ -461,11 +442,15 @@ public class PurchaseRequisitionAppService {
             JOIN md_product product ON product.id = line.product_id
             LEFT JOIN md_supplier supplier ON supplier.id = line.supplier_id
             WHERE line.requisition_id = ?::uuid
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM purchase_plan_line existing_plan_line
+                  WHERE existing_plan_line.source_requisition_line_id = line.id
+              )
             ORDER BY line.line_no
-            FOR UPDATE OF line
             """, header.get("id"));
         if (rows.isEmpty()) {
-            throw conflict("采购申请没有可下推分录");
+            throw conflict("采购申请没有未生成计划的剩余可下推数量");
         }
 
         var positiveLines = new ArrayList<PushDownLine>();
@@ -490,7 +475,7 @@ public class PurchaseRequisitionAppService {
             throw conflict(String.join("、", missingSuppliers) + " 缺少已审核启用的供应商，不能下推");
         }
         if (positiveLines.isEmpty()) {
-            throw conflict("采购申请没有剩余可下推数量");
+            throw conflict("采购申请没有未生成计划的剩余可下推数量");
         }
 
         var grouped = new LinkedHashMap<String, List<PushDownLine>>();
@@ -648,13 +633,16 @@ public class PurchaseRequisitionAppService {
 
         var warehouseId = optionalUuid(line.warehouseId(), "第 " + lineNo + " 行仓库主键");
         if (warehouseId != null) {
-            var warehouse = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM md_warehouse WHERE id = ?::uuid",
-                Integer.class,
-                warehouseId
-            );
-            if (warehouse == null || warehouse != 1) {
-                throw badRequest("第 " + lineNo + " 行仓库不存在");
+            var warehouses = jdbcTemplate.queryForList("""
+                SELECT id::text AS id
+                FROM md_warehouse
+                WHERE id = ?::uuid
+                  AND audit_status = 'AUDITED'
+                  AND enabled = TRUE
+                FOR SHARE
+                """, warehouseId);
+            if (warehouses.isEmpty()) {
+                throw conflict("第 " + lineNo + " 行发料仓不存在、未审核或已禁用");
             }
         }
 
@@ -753,6 +741,20 @@ public class PurchaseRequisitionAppService {
             throw notFound("采购申请不存在");
         }
         return rows.get(0);
+    }
+
+    private List<Map<String, Object>> lockRequisitionLines(Object requisitionId) {
+        return jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   line_no AS "lineNo",
+                   qty,
+                   COALESCE(ordered_qty, 0) AS "orderedQty",
+                   COALESCE(planned_qty, 0) AS "plannedQty"
+            FROM purchase_requisition_line
+            WHERE requisition_id = ?::uuid
+            ORDER BY id
+            FOR UPDATE
+            """, requisitionId);
     }
 
     private void transitionLocked(

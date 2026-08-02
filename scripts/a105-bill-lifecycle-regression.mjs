@@ -60,11 +60,13 @@ async function verifyLifecycleCodeContracts() {
   const purchaseInService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseInAppService.java"), "utf8");
   const purchaseReturnService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseReturnAppService.java"), "utf8");
   const purchaseOrderService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java"), "utf8");
+  const purchasePlanService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchasePlanAppService.java"), "utf8");
   const salesOrderService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/SalesOrderAppService.java"), "utf8");
   const salesQuoteService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/SalesQuoteAppService.java"), "utf8");
   const validationService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/ValidationService.java"), "utf8");
   const outsourcingService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/outsourcing/application/OutsourcingDocumentAppService.java"), "utf8");
   const salesOrderForm = await readFile(path.join(rootDir, "frontend/src/modules/sales/sales-order/SalesOrderForm.vue"), "utf8");
+  const purchasePlanForm = await readFile(path.join(rootDir, "frontend/src/modules/purchase/purchase-plan/PurchasePlanForm.vue"), "utf8");
   const appVue = await readFile(path.join(rootDir, "frontend/src/app/App.vue"), "utf8");
   const salesOrderPushDownStart = appVue.indexOf("async function openDeliveryNoticeFromSalesOrder");
   const salesOrderPushDownEnd = appVue.indexOf("async function openOutboundFromDeliveryNotice");
@@ -102,7 +104,12 @@ async function verifyLifecycleCodeContracts() {
   assert(!purchaseOrderService.includes("transitionAny("), "purchase order audit must not transition from any status");
   assert(!purchaseOrderService.includes("markPurchaseRequisitionOrdered(line.sourceOrderNo()"), "purchase order draft save must not occupy purchase requisition lines");
   assert(purchaseOrderService.includes("guardPositiveLineQuantities(LIFECYCLE_TARGET"), "purchase order audit must reject non-positive persisted line quantities");
-  assert(purchaseOrderService.includes("guardPurchaseRequisitionQuantities"), "purchase order audit must guard purchase requisition quantities");
+  assert(purchaseOrderService.includes("lockPurchaseRequisitionSources(demands)"), "purchase order audit must lock purchase requisition sources before validating quantities");
+  assert(purchaseOrderService.includes("refreshAndGuardPurchaseRequisitionQuantities(lockedSources"), "purchase order audit must recompute and guard purchase requisition quantities after locking sources");
+  assert(purchaseOrderService.includes("WHERE purchase_order.status = 'DRAFT'"), "purchase order draft save must not revert an audited order to draft");
+  assert(purchasePlanService.includes('"DELETE_PURCHASE_PLAN_DRAFT"'), "purchase plan draft deletion must write an operation log");
+  assert(purchasePlanForm.includes("此操作不可恢复，原计划编号不复用"), "purchase plan deletion confirmation must warn that physical deletion is irreversible and the bill number is not reused");
+  assert(purchasePlanForm.includes("clearDocument();"), "purchase plan deletion success must clear the deleted document from the form");
   assert(/@Transactional\s+public Map<String, Object> audit\(String billNo\)/.test(salesOrderService), "sales order audit validation and lifecycle transition must be transactional");
   assert(/@Transactional\s+public Map<String, Object> audit\(String billNo\)/.test(salesQuoteService), "sales quote audit validation and lifecycle transition must be transactional");
   assert(!deliveryNoticeService.includes("guardSourceOrderNoticeQuantity"), "delivery notice must not keep private aggregate quantity guard");

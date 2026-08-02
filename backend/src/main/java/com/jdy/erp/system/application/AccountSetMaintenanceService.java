@@ -180,6 +180,7 @@ public class AccountSetMaintenanceService {
                     quoteIdentifier(restorePlan.tableName())
                 ));
         }
+        recalculatePurchasePlanReservations(schema);
         expireRestoredImportBatches(schema);
         platformJdbcTemplate.update("""
             UPDATE sys_account_set_backup
@@ -208,6 +209,33 @@ public class AccountSetMaintenanceService {
                 version = version + 1
             WHERE status IN ('VALIDATED', 'INVALID', 'STALE', 'FAILED')
             """.formatted(quoteIdentifier(schema)));
+    }
+
+    private void recalculatePurchasePlanReservations(String schema) {
+        if (!tableExists(schema, "purchase_requisition_line")
+            || !tableExists(schema, "purchase_plan")
+            || !tableExists(schema, "purchase_plan_line")) {
+            return;
+        }
+        var quotedSchema = quoteIdentifier(schema);
+        platformJdbcTemplate.update("""
+            UPDATE %1$s.purchase_requisition_line source_line
+            SET planned_qty = COALESCE((
+                    SELECT SUM(plan_line.qty)
+                    FROM %1$s.purchase_plan_line plan_line
+                    JOIN %1$s.purchase_plan plan ON plan.id = plan_line.plan_id
+                    WHERE plan.status = 'AUDITED'
+                      AND plan_line.source_requisition_line_id = source_line.id
+                ), 0),
+                updated_at = now()
+            WHERE source_line.planned_qty IS DISTINCT FROM COALESCE((
+                    SELECT SUM(plan_line.qty)
+                    FROM %1$s.purchase_plan_line plan_line
+                    JOIN %1$s.purchase_plan plan ON plan.id = plan_line.plan_id
+                    WHERE plan.status = 'AUDITED'
+                      AND plan_line.source_requisition_line_id = source_line.id
+                ), 0)
+            """.formatted(quotedSchema));
     }
 
     private Map<String, Object> backupByName(String accountSetId, String backupName) {

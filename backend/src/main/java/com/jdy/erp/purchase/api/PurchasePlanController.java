@@ -4,6 +4,7 @@ import java.util.Map;
 
 import com.jdy.erp.purchase.application.PurchasePlanAppService;
 import com.jdy.erp.system.security.RequirePermission;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,5 +36,11 @@ public class PurchasePlanController {
     @RequirePermission("purchase.order.audit")
     public Map<String, Object> reverse(@PathVariable String billNo) {
         return appService.reverse(billNo);
+    }
+
+    @DeleteMapping("/{billNo}")
+    @RequirePermission("purchase.order.audit")
+    public Map<String, Object> deleteDraft(@PathVariable String billNo) {
+        return appService.deleteDraft(billNo);
     }
 }
