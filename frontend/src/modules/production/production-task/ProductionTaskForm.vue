@@ -247,6 +247,7 @@ interface TaskHeadInfo {
   billNo?: string;
   sourceOrderNo?: string;
   planNo?: string;
+  planLineNo?: number | string;
   billDate?: string;
   department?: string;
   status?: string;
@@ -266,6 +267,7 @@ const voidPassword = ref("");
 const form = reactive({
   billNo: "",
   planNo: "",
+  planLineNo: undefined as number | undefined,
   bomCode: "",
   warehouseCode: "CK-001",
   materialWarehouseCode: "CK-001",
@@ -318,6 +320,7 @@ function markDirty() {
 function startNew() {
   form.billNo = "";
   form.planNo = "";
+  form.planLineNo = undefined;
   form.bomCode = "";
   form.warehouseCode = "CK-001";
   form.materialWarehouseCode = "CK-001";
@@ -335,6 +338,7 @@ async function save() {
   const result = await createProductionTask({
     billNo: form.billNo.trim(),
     planNo: form.planNo.trim(),
+    planLineNo: form.planLineNo,
     bomCode: form.bomCode.trim(),
     warehouseCode: form.warehouseCode.trim(),
     qty: Number(form.qty) || 0
@@ -389,6 +393,7 @@ function applyPreview(preview: MaterialIssuePreview | undefined) {
   Object.assign(productInfo, preview?.productInfo ?? {});
   form.billNo = String(taskHead.billNo ?? taskHead.sourceOrderNo ?? form.billNo);
   form.planNo = String(taskHead.planNo ?? form.planNo);
+  form.planLineNo = normalizedOptionalInt(taskHead.planLineNo) ?? form.planLineNo;
   applyLifecycleResult(preview?.document as Record<string, unknown> | undefined);
   form.bomCode = String(productInfo.bomCode ?? form.bomCode);
   form.warehouseCode = String(productInfo.warehouseCode ?? form.warehouseCode);
@@ -497,6 +502,7 @@ function clearPreview() {
     billNo: "",
     sourceOrderNo: "",
     planNo: "",
+    planLineNo: "",
     billDate: "",
     department: "",
     status: "",
@@ -572,6 +578,11 @@ function backendStatusLabel(status: string | undefined, closeStatus = "OPEN", fr
 function normalizeStatus(value: unknown) {
   const status = String(value ?? "DRAFT");
   return status === "VOIDED" ? "VOID" : status;
+}
+
+function normalizedOptionalInt(value: unknown) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function zeroReasonTestId(lineNo: number) {

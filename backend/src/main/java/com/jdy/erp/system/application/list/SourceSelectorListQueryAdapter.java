@@ -76,6 +76,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
             case "ar-receivable-settlement-source-selector" -> receivableSettlementSpec();
             case "ap-payable-settlement-source-selector" -> payableSettlementSpec();
             case "production-task-source-selector" -> productionTaskSpec();
+            case "product-in-task-source-selector" -> productInTaskSpec();
             case "outsourcing-work-order-issue-source-selector" -> outsourcingWorkOrderIssueSpec();
             case "outsourcing-work-order-receipt-source-selector" -> outsourcingWorkOrderReceiptSpec();
             case "outsourcing-receipt-return-source-selector" -> outsourcingReceiptSpec("return");
@@ -711,6 +712,58 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                 "billNo", "planNo", "billDate", "department", "productCode", "productName", "spec", "unit",
                 "warehouseCode", "bomCode", "bomVersionNo", "taskQty", "completedQty", "remainingProductQty",
                 "requiredQty", "issuedQty", "remainingQty"
+            ));
+    }
+
+    private SourceQuerySpec productInTaskSpec() {
+        return new SourceQuerySpec("""
+            SELECT t.bill_no AS "billNo",
+                   COALESCE(plan.bill_no, '') AS "planNo",
+                   to_char(t.created_at, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(t.department_code, '') AS department,
+                   t.product_id::text AS "productId",
+                   COALESCE(t.product_code_snapshot, product.code) AS "productCode",
+                   COALESCE(t.product_name_snapshot, product.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, product.spec, '') AS spec,
+                   COALESCE(t.product_unit_snapshot, product.unit, '') AS unit,
+                   warehouse.code AS "warehouseCode",
+                   t.bom_code_snapshot AS "bomCode",
+                   t.bom_version_no AS "bomVersionNo",
+                   t.qty AS "taskQty",
+                   t.completed_qty AS "completedQty",
+                   COALESCE(progress.issued_sets, 0) AS "issuedSets",
+                   GREATEST(t.qty - t.completed_qty, 0) AS "remainingProductQty",
+                   GREATEST(LEAST(t.qty, COALESCE(progress.issued_sets, 0)) - t.completed_qty, 0) AS "completableQty",
+                   COALESCE(progress.required_qty, 0) AS "requiredQty",
+                   COALESCE(progress.issued_qty, 0) AS "issuedQty"
+            FROM production_task t
+            LEFT JOIN production_plan plan ON plan.id = t.plan_id
+            JOIN md_product product ON product.id = t.product_id
+            JOIN md_warehouse warehouse ON warehouse.id = t.warehouse_id
+            LEFT JOIN LATERAL (
+                SELECT LEAST(
+                           t.qty,
+                           COALESCE(MIN(
+                               CASE
+                                   WHEN snapshot.required_qty > 0
+                                   THEN snapshot.issued_qty * t.qty / snapshot.required_qty
+                                   ELSE t.qty
+                               END
+                           ), 0)
+                       ) AS issued_sets,
+                       SUM(snapshot.required_qty) AS required_qty,
+                       SUM(snapshot.issued_qty) AS issued_qty
+                FROM production_task_material_snapshot snapshot
+                WHERE snapshot.task_id = t.id
+            ) progress ON TRUE
+            WHERE t.status = 'AUDITED'
+              AND t.close_status = 'OPEN'
+              AND t.frozen_status = 'NORMAL'
+              AND GREATEST(LEAST(t.qty, COALESCE(progress.issued_sets, 0)) - t.completed_qty, 0) > 0
+            """, List.of(), sourceFields(
+                "billNo", "planNo", "billDate", "department", "productId", "productCode", "productName",
+                "spec", "unit", "warehouseCode", "bomCode", "bomVersionNo", "taskQty", "completedQty",
+                "issuedSets", "remainingProductQty", "completableQty", "requiredQty", "issuedQty"
             ));
     }
 

@@ -420,6 +420,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
     statuses: ["草稿", "已审核"],
     columns: [
       { field: "billNo", title: "计划单号", width: 160, fixed: "left", visible: true },
+      { field: "lineCount", title: "型号数", width: 86, align: "right", visible: true },
       { field: "bomCode", title: "BOM", width: 120, visible: true },
       { field: "bomVersionNo", title: "BOM版本", width: 90, visible: true },
       { field: "productCode", title: "物料编码", width: 140, visible: true },
@@ -429,7 +430,7 @@ const rawDefinitions: Record<string, RawListDefinition> = {
       { field: "grossWeight", title: "毛重", width: 90, align: "right", visible: false },
       { field: "warehouse", title: "完工仓库", width: 130, visible: true },
       { field: "departmentCode", title: "生产部门", width: 120, visible: true },
-      { field: "qty", title: "计划数", width: 100, align: "right", visible: true },
+      { field: "qty", title: "计划总数", width: 110, align: "right", visible: true },
       { field: "planDeliveryDate", title: "交期", width: 120, visible: true },
       { field: "inProgressQty", title: "在制未完工", width: 120, align: "right", visible: true },
       { field: "assignedQty", title: "已分解数", width: 110, align: "right", visible: true },

@@ -36,6 +36,7 @@ public class ListQueryContractRegistry {
         "ar-receivable-settlement-source-selector",
         "ap-payable-settlement-source-selector",
         "production-task-source-selector",
+        "product-in-task-source-selector",
         "outsourcing-work-order-issue-source-selector",
         "outsourcing-work-order-receipt-source-selector",
         "outsourcing-receipt-return-source-selector",

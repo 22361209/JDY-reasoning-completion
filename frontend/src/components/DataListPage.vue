@@ -1896,6 +1896,7 @@ function canCreateListRecord(listKey: string) {
 
 function canOpenListRecord(listKey: string) {
   return [
+    "production-plan-list",
     "production-task-form-list",
     "outsourcing-work-order-list",
     "outsourcing-issue-list",

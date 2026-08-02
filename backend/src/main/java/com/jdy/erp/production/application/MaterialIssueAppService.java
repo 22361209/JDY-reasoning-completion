@@ -158,6 +158,7 @@ public class MaterialIssueAppService {
     @Transactional
     public Map<String, Object> saveDraft(IssueDraftRequest request) {
         var issueBillNo = numberingService.assignBillNo("materialIssue", request.billNo());
+        lockExistingDraft(issueBillNo);
         redReverseGuardService.assertNotRedDraftForBillNo(BILL_TABLE, issueBillNo, "生产领料单");
         var taskRows = jdbcTemplate.queryForList("""
             SELECT id::text AS id
@@ -166,6 +167,7 @@ public class MaterialIssueAppService {
               AND status = 'AUDITED'
               AND close_status = 'OPEN'
               AND frozen_status = 'NORMAL'
+            FOR UPDATE
             """, validationService.required(request.sourceOrderNo(), "生产任务单号"));
         if (taskRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务不存在或不能领料");
@@ -195,6 +197,15 @@ public class MaterialIssueAppService {
             OperationLogCommand.state(OperationLogCommand.StateField.STATUS, String.valueOf(issueRows.get(0).get("status")))
         ));
         return issueRows.get(0);
+    }
+
+    private void lockExistingDraft(String billNo) {
+        jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM production_material_issue
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
     }
 
     public Map<String, Object> previewFromTask(String taskBillNo) {
@@ -554,16 +565,7 @@ public class MaterialIssueAppService {
 	            WHERE s.task_id = ?::uuid
 	              AND s.line_no = issued.line_no
 	            """, issueId, taskId);
-	        jdbcTemplate.update("""
-	            UPDATE production_task
-	            SET issued_qty = LEAST(qty, (
-	                    SELECT COALESCE(SUM(issued_qty), 0)
-	                    FROM production_task_material_snapshot
-	                    WHERE task_id = ?::uuid
-	                )),
-	                updated_at = now()
-	            WHERE id = ?::uuid
-	            """, taskId, taskId);
+	        refreshTaskIssuedSets(taskId);
 	    }
 
 	    private List<Map<String, Object>> markAudited(Object issueId) {
@@ -578,11 +580,12 @@ public class MaterialIssueAppService {
 	    @Transactional
 	    public Map<String, Object> reverse(String billNo) {
         var issueRows = jdbcTemplate.queryForList("""
-            SELECT id::text AS id,
-                   task_id::text AS "taskId"
-            FROM production_material_issue
-            WHERE bill_no = ? AND status = ?
-	        FOR UPDATE
+            SELECT issue.id::text AS id,
+                   issue.task_id::text AS "taskId"
+            FROM production_material_issue issue
+            JOIN production_task task ON task.id = issue.task_id
+            WHERE issue.bill_no = ? AND issue.status = ?
+	        FOR UPDATE OF issue, task
             """, billNo, BillStatus.AUDITED.name());
         if (issueRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在或不能反审核");
@@ -590,6 +593,8 @@ public class MaterialIssueAppService {
         var issue = issueRows.get(0);
         redReverseGuardService.assertNoNonVoidRedBillForBillNo(BILL_TABLE, billNo, "生产领料单", "反审核");
         assertNoNonVoidMaterialScrap(issue.get("id"), "反审核");
+        assertNoNonVoidProductIn(issue.get("id"));
+        validateIssueReverseWithinTask(issue.get("id"), issue.get("taskId"));
         var row = lifecycleService.transition(
             BILL_TABLE,
             billNo,
@@ -654,6 +659,64 @@ public class MaterialIssueAppService {
         }
     }
 
+    private void assertNoNonVoidProductIn(Object issueId) {
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM production_completion
+            WHERE source_issue_id = ?::uuid
+              AND status <> 'VOID'
+            """, Long.class, issueId);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单已生成产品入库单，不能反审核");
+        }
+    }
+
+    private void validateIssueReverseWithinTask(Object issueId, Object taskId) {
+        var negativeLines = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM production_task_material_snapshot snapshot
+            JOIN (
+                SELECT line_no, SUM(qty) AS qty
+                FROM production_material_issue_line
+                WHERE issue_id = ?::uuid
+                GROUP BY line_no
+            ) reversed ON reversed.line_no = snapshot.line_no
+            WHERE snapshot.task_id = ?::uuid
+              AND snapshot.issued_qty - reversed.qty < 0
+            """, Long.class, issueId, taskId);
+        if (negativeLines != null && negativeLines > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料数量状态不一致，不能反审核");
+        }
+        var completionViolations = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM production_task task
+            WHERE task.id = ?::uuid
+              AND task.completed_qty > COALESCE((
+                  SELECT LEAST(
+                      task.qty,
+                      MIN(
+                          CASE
+                              WHEN snapshot.required_qty > 0
+                              THEN (snapshot.issued_qty - COALESCE(reversed.qty, 0)) * task.qty / snapshot.required_qty
+                              ELSE task.qty
+                          END
+                      )
+                  )
+                  FROM production_task_material_snapshot snapshot
+                  LEFT JOIN (
+                      SELECT line_no, SUM(qty) AS qty
+                      FROM production_material_issue_line
+                      WHERE issue_id = ?::uuid
+                      GROUP BY line_no
+                  ) reversed ON reversed.line_no = snapshot.line_no
+                  WHERE snapshot.task_id = task.id
+              ), 0)
+            """, Long.class, taskId, issueId);
+        if (completionViolations != null && completionViolations > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "反审核后完工套数会超过已领套数，请先处理下游产品入库单");
+        }
+    }
+
     private void decrementTaskIssuedQty(Object issueId, Object taskId) {
         jdbcTemplate.update("""
             UPDATE production_task_material_snapshot s
@@ -667,16 +730,29 @@ public class MaterialIssueAppService {
             WHERE s.task_id = ?::uuid
               AND s.line_no = issued.line_no
             """, issueId, taskId);
+        refreshTaskIssuedSets(taskId);
+    }
+
+    private void refreshTaskIssuedSets(Object taskId) {
         jdbcTemplate.update("""
-            UPDATE production_task
-            SET issued_qty = (
-                    SELECT COALESCE(SUM(issued_qty), 0)
-                    FROM production_task_material_snapshot
-                    WHERE task_id = ?::uuid
-                ),
+            UPDATE production_task task
+            SET issued_qty = COALESCE((
+                    SELECT LEAST(
+                        task.qty,
+                        MIN(
+                            CASE
+                                WHEN snapshot.required_qty > 0
+                                THEN snapshot.issued_qty * task.qty / snapshot.required_qty
+                                ELSE task.qty
+                            END
+                        )
+                    )
+                    FROM production_task_material_snapshot snapshot
+                    WHERE snapshot.task_id = task.id
+                ), 0),
                 updated_at = now()
-            WHERE id = ?::uuid
-            """, taskId, taskId);
+            WHERE task.id = ?::uuid
+            """, taskId);
     }
 
     private void insertIssueLine(String issueId, Object lineNo, Object productId, Object productCode, Object productName, Object spec, Object warehouseId, BigDecimal qty, BigDecimal unitPrice) {

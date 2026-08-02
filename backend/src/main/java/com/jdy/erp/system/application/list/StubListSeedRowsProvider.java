@@ -751,6 +751,11 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    CASE WHEN is_subcontract THEN '是' ELSE '否' END AS "isSubcontract",
                    COALESCE(default_warehouse_code, '') AS "defaultWarehouseCode",
                    COALESCE(default_workshop, '') AS "defaultWorkshop",
+                   COALESCE((
+                       SELECT department.code
+                       FROM md_production_department department
+                       WHERE department.id = md_product.default_workshop_id
+                   ), '') AS "defaultWorkshopCode",
                    COALESCE(sale_unit, unit) AS "saleUnit",
                    COALESCE(purchase_unit, unit) AS "purchaseUnit",
                    COALESCE(bom_unit, unit) AS "bomUnit",
@@ -1612,8 +1617,8 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             SELECT t.id::text AS id,
                    t.bill_no AS "billNo",
                    COALESCE(pl.bill_no, '') AS "planNo",
-                   COALESCE(pl.bom_code_snapshot, b.code) AS "bomCode",
-                   COALESCE(pl.bom_version_no, b.version_no) AS "bomVersionNo",
+                   COALESCE(t.bom_code_snapshot, b.code) AS "bomCode",
+                   COALESCE(t.bom_version_no, b.version_no) AS "bomVersionNo",
                    COALESCE(t.product_code_snapshot, p.code) AS "productCode",
                    COALESCE(t.product_name_snapshot, p.name) AS "productName",
                    COALESCE(t.product_unit_snapshot, p.unit, '') AS unit,
@@ -1664,19 +1669,21 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT pl.id::text AS id,
                    pl.bill_no AS "billNo",
-                   b.code AS "bomCode",
-                   COALESCE(pl.product_code_snapshot, p.code) AS "productCode",
-                   COALESCE(pl.product_name_snapshot, p.name) AS "productName",
-                   COALESCE(pl.product_unit_snapshot, p.unit, '') AS unit,
-                   trim(to_char(COALESCE(pl.net_weight_snapshot, p.net_weight), 'FM9999999990.00')) AS "netWeight",
-                   trim(to_char(COALESCE(pl.gross_weight_snapshot, p.gross_weight), 'FM9999999990.00')) AS "grossWeight",
-                   COALESCE(pl.department_code, '') AS "departmentCode",
-                   w.name AS warehouse,
-                   trim(to_char(pl.planned_qty, 'FM9999999990.####')) AS qty,
-                   COALESCE(to_char(pl.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
-                   trim(to_char(COALESCE(pl.in_progress_qty, 0), 'FM9999999990.####')) AS "inProgressQty",
-                   trim(to_char(COALESCE(task_qty.assigned_qty, 0), 'FM9999999990.####')) AS "assignedQty",
-                   trim(to_char(GREATEST(pl.planned_qty - COALESCE(task_qty.assigned_qty, 0), 0), 'FM9999999990.####')) AS "remainingQty",
+                   COUNT(plan_line.id) AS "lineCount",
+                   string_agg(DISTINCT b.code, '、' ORDER BY b.code) AS "bomCode",
+                   string_agg(DISTINCT b.version_no::text, '、' ORDER BY b.version_no::text) AS "bomVersionNo",
+                   string_agg(DISTINCT COALESCE(plan_line.product_code_snapshot, p.code), '、' ORDER BY COALESCE(plan_line.product_code_snapshot, p.code)) AS "productCode",
+                   string_agg(DISTINCT COALESCE(plan_line.product_name_snapshot, p.name), '、' ORDER BY COALESCE(plan_line.product_name_snapshot, p.name)) AS "productName",
+                   string_agg(DISTINCT COALESCE(plan_line.product_unit_snapshot, p.unit, ''), '、' ORDER BY COALESCE(plan_line.product_unit_snapshot, p.unit, '')) AS unit,
+                   CASE WHEN COUNT(plan_line.id) = 1 THEN trim(to_char(MAX(COALESCE(plan_line.net_weight_snapshot, p.net_weight)), 'FM9999999990.00')) ELSE '' END AS "netWeight",
+                   CASE WHEN COUNT(plan_line.id) = 1 THEN trim(to_char(MAX(COALESCE(plan_line.gross_weight_snapshot, p.gross_weight)), 'FM9999999990.00')) ELSE '' END AS "grossWeight",
+                   string_agg(DISTINCT COALESCE(plan_line.department_code, ''), '、' ORDER BY COALESCE(plan_line.department_code, '')) AS "departmentCode",
+                   string_agg(DISTINCT w.name, '、' ORDER BY w.name) AS warehouse,
+                   trim(to_char(SUM(plan_line.planned_qty), 'FM9999999990.####')) AS qty,
+                   string_agg(DISTINCT COALESCE(to_char(plan_line.plan_delivery_date, 'YYYY-MM-DD'), ''), '、' ORDER BY COALESCE(to_char(plan_line.plan_delivery_date, 'YYYY-MM-DD'), '')) AS "planDeliveryDate",
+                   trim(to_char(SUM(COALESCE(plan_line.in_progress_qty, 0)), 'FM9999999990.####')) AS "inProgressQty",
+                   trim(to_char(SUM(COALESCE(task_qty.assigned_qty, 0)), 'FM9999999990.####')) AS "assignedQty",
+                   trim(to_char(SUM(GREATEST(plan_line.planned_qty - COALESCE(task_qty.assigned_qty, 0), 0)), 'FM9999999990.####')) AS "remainingQty",
                    CASE
                        WHEN pl.source_type = 'SELF' THEN '自发计划'
                        ELSE pl.source_type
@@ -1686,37 +1693,41 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                        ELSE '草稿'
                    END AS status
             FROM production_plan pl
-            JOIN prod_bom b ON b.id = pl.bom_id
-            JOIN md_product p ON p.id = pl.product_id
-            JOIN md_warehouse w ON w.id = pl.warehouse_id
+            JOIN production_plan_line plan_line ON plan_line.plan_id = pl.id
+            JOIN prod_bom b ON b.id = plan_line.bom_id
+            JOIN md_product p ON p.id = plan_line.product_id
+            JOIN md_warehouse w ON w.id = plan_line.warehouse_id
             LEFT JOIN (
-                SELECT plan_id, SUM(qty) AS assigned_qty
+                SELECT plan_line_id, SUM(qty) AS assigned_qty
                 FROM production_task
-                WHERE plan_id IS NOT NULL
+                WHERE plan_line_id IS NOT NULL
                   AND status <> 'VOID'
-                GROUP BY plan_id
-            ) task_qty ON task_qty.plan_id = pl.id
+                GROUP BY plan_line_id
+            ) task_qty ON task_qty.plan_line_id = plan_line.id
+            GROUP BY pl.id, pl.bill_no, pl.source_type, pl.status, pl.updated_at
             ORDER BY pl.updated_at DESC
             """));
     }
 
     private List<Map<String, ?>> kitAnalysisRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
-            SELECT (pl.id::text || '-' || s.line_no::text) AS id,
+            SELECT (plan_line.id::text || '-' || s.line_no::text) AS id,
                    pl.bill_no AS "planNo",
+                   plan_line.line_no AS "planLineNo",
                    b.code AS "bomCode",
-                   COALESCE(pl.product_code_snapshot, finished.code) AS "productCode",
-                   COALESCE(pl.product_name_snapshot, finished.name) AS "productName",
+                   COALESCE(plan_line.product_code_snapshot, finished.code) AS "productCode",
+                   COALESCE(plan_line.product_name_snapshot, finished.name) AS "productName",
                    material.code AS "materialCode",
                    material.name AS "materialName",
                    COALESCE(material.unit, '') AS unit,
-                   trim(to_char(s.qty * pl.planned_qty, 'FM9999999990.####')) AS "requiredQty",
+                   trim(to_char((COALESCE(s.unit_qty, s.qty) * plan_line.planned_qty) + COALESCE(s.fixed_loss_qty, 0) + ((COALESCE(s.unit_qty, s.qty) * plan_line.planned_qty) * COALESCE(s.loss_rate, 0) / 100), 'FM9999999990.####')) AS "requiredQty",
                    trim(to_char(COALESCE(stock.qty_available, 0), 'FM9999999990.####')) AS "availableQty",
-                   trim(to_char(GREATEST(s.qty * pl.planned_qty - COALESCE(stock.qty_available, 0), 0), 'FM9999999990.####')) AS "shortageQty",
-                   CASE WHEN COALESCE(stock.qty_available, 0) >= s.qty * pl.planned_qty THEN '齐套' ELSE '缺料' END AS status
+                   trim(to_char(GREATEST((COALESCE(s.unit_qty, s.qty) * plan_line.planned_qty) + COALESCE(s.fixed_loss_qty, 0) + ((COALESCE(s.unit_qty, s.qty) * plan_line.planned_qty) * COALESCE(s.loss_rate, 0) / 100) - COALESCE(stock.qty_available, 0), 0), 'FM9999999990.####')) AS "shortageQty",
+                   CASE WHEN COALESCE(stock.qty_available, 0) >= (COALESCE(s.unit_qty, s.qty) * plan_line.planned_qty) + COALESCE(s.fixed_loss_qty, 0) + ((COALESCE(s.unit_qty, s.qty) * plan_line.planned_qty) * COALESCE(s.loss_rate, 0) / 100) THEN '齐套' ELSE '缺料' END AS status
             FROM production_plan pl
-            JOIN prod_bom b ON b.id = pl.bom_id
-            JOIN md_product finished ON finished.id = pl.product_id
+            JOIN production_plan_line plan_line ON plan_line.plan_id = pl.id
+            JOIN prod_bom b ON b.id = plan_line.bom_id
+            JOIN md_product finished ON finished.id = plan_line.product_id
             JOIN prod_bom_line s ON s.bom_id = b.id
             JOIN md_product material ON material.id = s.material_id
             LEFT JOIN (
@@ -1726,7 +1737,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 GROUP BY product_id
             ) stock ON stock.product_id = s.material_id
             WHERE pl.status = 'AUDITED'
-            ORDER BY pl.updated_at DESC, s.line_no
+            ORDER BY pl.updated_at DESC, plan_line.line_no, s.line_no
             """, inventoryScopeId()));
     }
 

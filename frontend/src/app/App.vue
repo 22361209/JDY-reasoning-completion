@@ -1717,7 +1717,14 @@ function createListRecordTarget(listKey: string) {
       tabId: productionPlanTabId,
       title: "生产计划",
       module: "生产管理",
-      open: () => productionPlanFormRef.value?.startNew()
+      open: (row?: Record<string, unknown>) => {
+        const billNo = row?.billNo == null ? "" : String(row.billNo);
+        if (billNo) {
+          void productionPlanFormRef.value?.loadPlan(billNo);
+          return;
+        }
+        productionPlanFormRef.value?.startNew();
+      }
     };
   }
   if (listKey === "production-task-form-list") {

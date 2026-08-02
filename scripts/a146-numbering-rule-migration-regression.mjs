@@ -324,13 +324,15 @@ try {
   const v107Rows = upgradeHistory.filter((row) => row.version === "107");
   const v108Rows = upgradeHistory.filter((row) => row.version === "108");
   const v109Rows = upgradeHistory.filter((row) => row.version === "109");
+  const v110Rows = upgradeHistory.filter((row) => row.version === "110");
   assert(v105Rows.length === 1 && v105Rows[0].success === true, "upgrade must apply successful V105 exactly once", v105Rows);
   assert(v106Rows.length === 1 && v106Rows[0].success === true, "upgrade must apply successful V106 exactly once", v106Rows);
   assert(Number(v106Rows[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106Rows[0]);
   assert(v107Rows.length === 1 && v107Rows[0].success === true, "upgrade must apply successful V107 exactly once", v107Rows);
   assert(v108Rows.length === 1 && v108Rows[0].success === true, "upgrade must apply successful V108 exactly once", v108Rows);
   assert(v109Rows.length === 1 && v109Rows[0].success === true, "upgrade must apply successful V109 exactly once", v109Rows);
-  assert(upgradeHistory.at(-1)?.version === "109", "repository latest upgrade must end at V109", upgradeHistory.at(-1));
+  assert(v110Rows.length === 1 && v110Rows[0].success === true, "upgrade must apply successful V110 exactly once", v110Rows);
+  assert(upgradeHistory.at(-1)?.version === "110", "repository latest upgrade must end at V110", upgradeHistory.at(-1));
   const shapes = {
     public: numberingShape(upgradeDatabase, "public"),
     tenant: numberingShape(upgradeDatabase, tenantSchema),
@@ -349,27 +351,27 @@ try {
   };
   assert(indexCoverage.public === 28 && indexCoverage.tenant === 28, "all 28 formal bill_no columns need a unique btree for indexed reverse high-water lookup", indexCoverage);
   assert(
-    Number(topologies.public.tables) === 86
-      && Number(topologies.public.pk) === 86
-      && Number(topologies.public.uk) === 81
-      && Number(topologies.public.fk) === 184
-      && Number(topologies.public.check) === 105,
-    "public V109 topology mismatch",
+    Number(topologies.public.tables) === 87
+      && Number(topologies.public.pk) === 87
+      && Number(topologies.public.uk) === 82
+      && Number(topologies.public.fk) === 191
+      && Number(topologies.public.check) === 108,
+    "public V110 topology mismatch",
     topologies.public
   );
   assert(
-    Number(topologies.tenant.tables) === 86
-      && Number(topologies.tenant.pk) === 86
-      && Number(topologies.tenant.uk) === 81
-      && Number(topologies.tenant.fk) === 180
-      && Number(topologies.tenant.check) === 105,
-    "tenant V109 topology mismatch",
+    Number(topologies.tenant.tables) === 87
+      && Number(topologies.tenant.pk) === 87
+      && Number(topologies.tenant.uk) === 82
+      && Number(topologies.tenant.fk) === 187
+      && Number(topologies.tenant.check) === 108,
+    "tenant V110 topology mismatch",
     topologies.tenant
   );
   result.upgrade = {
     ...result.upgrade,
     history: upgradeHistory.at(-1),
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0] },
+    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0], v110: v110Rows[0] },
     shapes,
     topologies,
     indexCoverage
@@ -381,7 +383,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`)),
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
-  assert(syncCounts.every((count) => count === 86), "repeat tenant sync must return 86", syncCounts);
+  assert(syncCounts.every((count) => count === 87), "repeat tenant sync must return 87", syncCounts);
   const afterRepeat = JSON.stringify({
     history: history(upgradeDatabase),
     shapes: {
@@ -420,6 +422,7 @@ try {
   const freshV107Rows = freshHistory.filter((row) => row.version === "107");
   const freshV108Rows = freshHistory.filter((row) => row.version === "108");
   const freshV109Rows = freshHistory.filter((row) => row.version === "109");
+  const freshV110Rows = freshHistory.filter((row) => row.version === "110");
   const freshShape = numberingShape(freshDatabase, "public");
   assert(freshHistory.every((row) => row.success === true), "fresh history must contain only successful migrations", freshHistory);
   assert(JSON.stringify(freshHistory.map((row) => row.script)) === JSON.stringify(sourceScripts), "fresh history must exactly equal the migration source set");
@@ -429,14 +432,15 @@ try {
   assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, "fresh migration must apply successful V107 exactly once", freshV107Rows);
   assert(freshV108Rows.length === 1 && freshV108Rows[0].success === true, "fresh migration must apply successful V108 exactly once", freshV108Rows);
   assert(freshV109Rows.length === 1 && freshV109Rows[0].success === true, "fresh migration must apply successful V109 exactly once", freshV109Rows);
-  assert(freshHistory.at(-1)?.version === "109", "fresh migration must end at V109", freshHistory.at(-1));
+  assert(freshV110Rows.length === 1 && freshV110Rows[0].success === true, "fresh migration must apply successful V110 exactly once", freshV110Rows);
+  assert(freshHistory.at(-1)?.version === "110", "fresh migration must end at V110", freshHistory.at(-1));
   assertShape("fresh public", freshShape, 4, null);
   const freshIndexCoverage = billNoIndexCoverage(freshDatabase, "public");
   assert(freshIndexCoverage === 28, "fresh public must retain unique btree coverage for all 28 formal bill_no columns", freshIndexCoverage);
   result.fresh = {
     ...result.fresh,
     history: freshHistory.at(-1),
-    migrations: { v105: freshV105Rows[0], v106: freshV106Rows[0], v107: freshV107Rows[0], v108: freshV108Rows[0], v109: freshV109Rows[0] },
+    migrations: { v105: freshV105Rows[0], v106: freshV106Rows[0], v107: freshV107Rows[0], v108: freshV108Rows[0], v109: freshV109Rows[0], v110: freshV110Rows[0] },
     exactSourceHistory: true,
     shape: freshShape,
     indexCoverage: freshIndexCoverage
