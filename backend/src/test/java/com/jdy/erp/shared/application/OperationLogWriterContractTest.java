@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 import com.jdy.erp.production.application.ProductionTaskAppService;
+import com.jdy.erp.purchase.application.PurchaseRequisitionAppService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.junit.jupiter.api.Test;
@@ -160,7 +161,8 @@ class OperationLogWriterContractTest {
             operationLogService,
             mock(NumberingService.class),
             mock(TenantDataScopeService.class),
-            currentSessionService
+            currentSessionService,
+            mock(PurchaseRequisitionAppService.class)
         );
 
         service.setBomEnabled("BOM-001", true);

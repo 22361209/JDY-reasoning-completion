@@ -615,6 +615,7 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
   "sales-out-form-list": "sales.out.audit",
   "sales-return-form-list": "sales.out.audit",
   "purchase-requisition-list": "purchase.order.audit",
+  "purchase-plan-list": "purchase.order.audit",
   "purchase-order-form-list": "purchase.order.audit",
   "purchase-in-list": "purchase.in.audit",
   "purchase-in-form-list": "purchase.in.audit",
@@ -1896,6 +1897,8 @@ function canCreateListRecord(listKey: string) {
 
 function canOpenListRecord(listKey: string) {
   return [
+    "purchase-requisition-list",
+    "purchase-plan-list",
     "production-plan-list",
     "production-task-form-list",
     "outsourcing-work-order-list",

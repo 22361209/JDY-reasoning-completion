@@ -48,7 +48,7 @@ class NumberingControllerPermissionIntegrationTest {
 
         mockMvc.perform(get("/api/numbering/rules").session(admin))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.rules.length()").value(28))
+            .andExpect(jsonPath("$.rules.length()").value(29))
             .andExpect(jsonPath("$.rules[?(@.documentType == 'materialScrap')].prefix")
                 .value(org.hamcrest.Matchers.contains("CLBF")))
             .andExpect(jsonPath("$.rules[0].version").isString());

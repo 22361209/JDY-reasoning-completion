@@ -535,6 +535,24 @@
           @request-open-document="openDocumentFromModule"
           @request-settlement="openSettlementFromSource('payment', $event)"
         />
+        <PurchaseRequisitionForm
+          v-else-if="tabs.activeTab.value.id === purchaseRequisitionTabId"
+          ref="purchaseRequisitionFormRef"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = 'purchase-requisition-list'"
+        />
+        <PurchasePlanForm
+          v-else-if="tabs.activeTab.value.id === purchasePlanTabId"
+          ref="purchasePlanFormRef"
+          :title="tabs.activeTab.value.title"
+          :dirty="Boolean(tabs.activeTab.value.dirty)"
+          @mark-dirty="markActiveDirty"
+          @clear-dirty="clearActiveDirty"
+          @show-existing="tabs.activeTabId.value = 'purchase-plan-list'"
+        />
         <SettlementDocumentForm
           v-else-if="tabs.activeTab.value.id === receiptTabId"
           ref="receiptFormRef"
@@ -888,6 +906,8 @@ import ProductInForm from "../modules/production/product-in/ProductInForm.vue";
 import OutsourcingDocumentForm from "../modules/outsourcing/OutsourcingDocumentForm.vue";
 import PurchaseInForm from "../modules/purchase/purchase-in/PurchaseInForm.vue";
 import PurchaseOrderForm from "../modules/purchase/purchase-order/PurchaseOrderForm.vue";
+import PurchasePlanForm from "../modules/purchase/purchase-plan/PurchasePlanForm.vue";
+import PurchaseRequisitionForm from "../modules/purchase/purchase-requisition/PurchaseRequisitionForm.vue";
 import PurchaseReturnForm from "../modules/purchase/purchase-return/PurchaseReturnForm.vue";
 import SalesQuoteForm from "../modules/sales/sales-quote/SalesQuoteForm.vue";
 import SalesOrderForm from "../modules/sales/sales-order/SalesOrderForm.vue";
@@ -1000,6 +1020,8 @@ const salesQuoteTabId = "sales-quote-form";
 const deliveryNoticeTabId = "delivery-notice-form";
 const purchaseOrderTabId = "purchase-order-form";
 const purchaseInTabId = "purchase-in-form";
+const purchaseRequisitionTabId = "purchase-requisition-form";
+const purchasePlanTabId = "purchase-plan-form";
 const receiptTabId = "ar-receipt-form";
 const paymentTabId = "ap-payment-form";
 const cashTransferTabId = "cash-transfer-form";
@@ -1055,6 +1077,8 @@ const outboundFormRef = ref<InstanceType<typeof SalesOutForm> | null>(null);
 const salesReturnFormRef = ref<InstanceType<typeof SalesReturnForm> | null>(null);
 const purchaseOrderFormRef = ref<InstanceType<typeof PurchaseOrderForm> | null>(null);
 const purchaseInFormRef = ref<InstanceType<typeof PurchaseInForm> | null>(null);
+const purchaseRequisitionFormRef = ref<InstanceType<typeof PurchaseRequisitionForm> | null>(null);
+const purchasePlanFormRef = ref<InstanceType<typeof PurchasePlanForm> | null>(null);
 const receiptFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
 const paymentFormRef = ref<InstanceType<typeof SettlementDocumentForm> | null>(null);
 const cashTransferFormRef = ref<InstanceType<typeof CashTransferForm> | null>(null);
@@ -1669,6 +1693,12 @@ async function openCreateListRecord(payload: { listKey: string; row?: Record<str
   ) {
     return;
   }
+  if (
+    target.tabId === purchaseRequisitionTabId
+    && !confirmDirtyTabReplacement(target.tabId, "继续会打开列表中的采购申请单")
+  ) {
+    return;
+  }
   const opened = tabs.openTab({
     id: target.tabId,
     title: target.title,
@@ -1692,6 +1722,32 @@ function createListRecordTarget(listKey: string) {
   }
   if (listKey === "ap-payment-form-list") {
     return settlementListRecordTarget("payment");
+  }
+  if (listKey === "purchase-requisition-list") {
+    return {
+      tabId: purchaseRequisitionTabId,
+      title: "采购申请单",
+      module: "采购管理",
+      open: (row?: Record<string, unknown>) => {
+        const billNo = row?.billNo == null ? "" : String(row.billNo);
+        if (billNo) {
+          void purchaseRequisitionFormRef.value?.loadDocument(billNo);
+        }
+      }
+    };
+  }
+  if (listKey === "purchase-plan-list") {
+    return {
+      tabId: purchasePlanTabId,
+      title: "采购计划单",
+      module: "采购管理",
+      open: (row?: Record<string, unknown>) => {
+        const billNo = row?.billNo == null ? "" : String(row.billNo);
+        if (billNo) {
+          void purchasePlanFormRef.value?.loadDocument(billNo);
+        }
+      }
+    };
   }
   if (listKey === "bom-list") {
     return {

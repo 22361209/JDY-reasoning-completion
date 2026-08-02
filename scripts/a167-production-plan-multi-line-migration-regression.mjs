@@ -114,11 +114,11 @@ function topology(database, schema) {
 function assertTopology(label, actual, expectedFk) {
   const normalized = Object.fromEntries(Object.entries(actual).map(([key, value]) => [key, Number(value)]));
   assert(
-    normalized.tables === 87
-      && normalized.pk === 87
-      && normalized.uk === 82
+    normalized.tables === 89
+      && normalized.pk === 89
+      && normalized.uk === 85
       && normalized.fk === expectedFk
-      && normalized.check === 108,
+      && normalized.check === 117,
     `${label} topology mismatch`,
     normalized
   );
@@ -212,12 +212,12 @@ try {
     END $fixture$;
   `);
 
-  result.upgrade.flywayV110 = flyway(upgradeDatabase);
+  result.upgrade.flywayLatest = flyway(upgradeDatabase);
   const latestVersion = psql(upgradeDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success");
-  assert(latestVersion === "110", "upgrade must end at V110", latestVersion);
-  assertTopology("upgrade public", topology(upgradeDatabase, "public"), 191);
-  assertTopology("upgrade tenant", topology(upgradeDatabase, tenantSchema), 187);
-  assert(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`) === "87", "repeat tenant sync must return 87");
+  assert(latestVersion === "111", "upgrade must end at V111", latestVersion);
+  assertTopology("upgrade public", topology(upgradeDatabase, "public"), 203);
+  assertTopology("upgrade tenant", topology(upgradeDatabase, tenantSchema), 199);
+  assert(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`) === "89", "repeat tenant sync must return 89");
 
   const backfill = json(upgradeDatabase, `
     SELECT jsonb_build_object(
@@ -227,6 +227,12 @@ try {
       'publicSourceIssueColumn', (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='production_completion' AND column_name='source_issue_id'),
       'tenantSourceIssueColumn', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(tenantSchema)} AND table_name='production_completion' AND column_name='source_issue_id'),
       'backupSourceIssueColumn', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(backupSchema)} AND table_name='production_completion' AND column_name='source_issue_id'),
+      'publicPlanningFlags', (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='production_plan_line' AND column_name IN ('expand_multilevel_tasks', 'generate_purchase_requisition')),
+      'tenantPlanningFlags', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(tenantSchema)} AND table_name='production_plan_line' AND column_name IN ('expand_multilevel_tasks', 'generate_purchase_requisition')),
+      'backupPlanningFlags', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(backupSchema)} AND table_name='production_plan_line' AND column_name IN ('expand_multilevel_tasks', 'generate_purchase_requisition')),
+      'publicPurchasePlanTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('purchase_plan', 'purchase_plan_line')),
+      'tenantPurchasePlanTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema=${literal(tenantSchema)} AND table_name IN ('purchase_plan', 'purchase_plan_line')),
+      'backupPurchasePlanTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema=${literal(backupSchema)} AND table_name IN ('purchase_plan', 'purchase_plan_line')),
       'planBillNoUniqueBtree', (
         SELECT count(*) FROM pg_index index_row
         JOIN pg_class table_row ON table_row.oid=index_row.indrelid
@@ -243,6 +249,8 @@ try {
   assert(Number(backfill.backupLines) === 1, "V110 must backfill historical backup legacy plan as line 1", backfill);
   assert(Number(backfill.backupConstraints) === 0, "historical backup line table must remain data-only", backfill);
   assert(Number(backfill.publicSourceIssueColumn) === 1 && Number(backfill.tenantSourceIssueColumn) === 1 && Number(backfill.backupSourceIssueColumn) === 1, "receipt-to-issue trace column must exist in every schema shape", backfill);
+  assert(Number(backfill.publicPlanningFlags) === 2 && Number(backfill.tenantPlanningFlags) === 2 && Number(backfill.backupPlanningFlags) === 2, "A170 production plan switches must exist in public, tenant and backup shapes", backfill);
+  assert(Number(backfill.publicPurchasePlanTables) === 2 && Number(backfill.tenantPurchasePlanTables) === 2 && Number(backfill.backupPurchasePlanTables) === 2, "A170 purchase plan tables must exist in public, tenant and backup shapes", backfill);
   assert(Number(backfill.planBillNoUniqueBtree) === 1, "production_plan must retain exactly one single-column unique bill_no btree", backfill);
   result.upgrade = { ...result.upgrade, latestVersion, publicTopology: topology(upgradeDatabase, "public"), tenantTopology: topology(upgradeDatabase, tenantSchema), backfill };
 
@@ -253,9 +261,9 @@ try {
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
   const historyScripts = json(freshDatabase, "SELECT COALESCE(jsonb_agg(script ORDER BY installed_rank), '[]'::jsonb)::text FROM public.flyway_schema_history WHERE type='SQL'");
   assert(JSON.stringify(historyScripts) === JSON.stringify(sourceScripts), "fresh Flyway history must equal the migration source set");
-  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "110", "fresh migration must end at V110");
-  assertTopology("fresh public", topology(freshDatabase, "public"), 191);
-  result.fresh = { ...result.fresh, latestVersion: 110, topology: topology(freshDatabase, "public") };
+  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "111", "fresh migration must end at V111");
+  assertTopology("fresh public", topology(freshDatabase, "public"), 203);
+  result.fresh = { ...result.fresh, latestVersion: 111, topology: topology(freshDatabase, "public") };
   result.ok = true;
 } catch (error) {
   primaryError = error;

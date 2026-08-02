@@ -162,7 +162,9 @@ function blankLine(): ProductionPlanEntryLine {
     planDeliveryDate: todayText(),
     inProgressQty: "0",
     assignedQty: "0",
-    remainingQty: "1"
+    remainingQty: "1",
+    expandMultilevelTasks: false,
+    generatePurchaseRequisition: true
   };
 }
 
@@ -456,7 +458,9 @@ async function save() {
       warehouseCode: line.warehouseCode.trim(),
       departmentCode: line.departmentCode.trim(),
       qty: Number(line.qty) || 0,
-      planDeliveryDate: line.planDeliveryDate.trim()
+      planDeliveryDate: line.planDeliveryDate.trim(),
+      expandMultilevelTasks: line.expandMultilevelTasks,
+      generatePurchaseRequisition: line.generatePurchaseRequisition
     }));
   if (lines.length === 0) {
     hasError.value = true;
@@ -535,6 +539,8 @@ function applyLifecycleResult(result: { ok: boolean; message: string; data?: Rec
 function applyPlanData(data: Record<string, unknown>) {
   form.billNo = text(data.billNo);
   form.sourceType = text(data.sourceType) || "SELF";
+  form.warehouseCode = text(data.warehouseCode);
+  form.departmentCode = text(data.departmentCode);
   status.value = text(data.status) || "DRAFT";
   const rows = Array.isArray(data.lines) ? data.lines as Record<string, unknown>[] : [];
   const lines = rows.map(lineFromData);
@@ -559,7 +565,9 @@ function lineFromData(data: Record<string, unknown>): ProductionPlanEntryLine {
     planDeliveryDate: text(data.planDeliveryDate) || todayText(),
     inProgressQty: text(data.inProgressQty) || "0",
     assignedQty: text(data.assignedQty) || "0",
-    remainingQty: text(data.remainingQty) || "0"
+    remainingQty: text(data.remainingQty) || "0",
+    expandMultilevelTasks: booleanValue(data.expandMultilevelTasks, false),
+    generatePurchaseRequisition: booleanValue(data.generatePurchaseRequisition, true)
   };
 }
 
@@ -578,6 +586,11 @@ function text(value: unknown) {
 function numberValue(value: unknown, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function booleanValue(value: unknown, fallback: boolean) {
+  if (value == null || value === "") return fallback;
+  return ["true", "1", "yes", "是"].includes(String(value).trim().toLowerCase());
 }
 
 function todayText() {

@@ -6,7 +6,7 @@ import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a116b-production-source-chain-regression.json");
-const apiBase = "http://127.0.0.1:8080";
+const apiBase = process.env.JDY_API_BASE || "http://127.0.0.1:8080";
 
 await installApiSession(apiBase);
 await mkdir(verificationDir, { recursive: true });
@@ -171,44 +171,32 @@ await seedStock([
 
 const pushDown = await requireJson(`/api/production/plans/${encodeURIComponent(plan.billNo)}/push-down`, { method: "POST" });
 assert(Array.isArray(pushDown.productionTasks) && pushDown.productionTasks.length === 1, "pushdown should create one production task from single-parent plan");
-assert(Array.isArray(pushDown.purchaseRequisitions) && pushDown.purchaseRequisitions.length === 2, "pushdown should split purchase requisitions by material default supplier");
+assert(Array.isArray(pushDown.purchaseRequisitions) && pushDown.purchaseRequisitions.length === 1, "one plan pushdown should create one editable purchase requisition");
 
 const task = pushDown.productionTasks[0];
 assert(task.departmentCode === "HJ", "production task should keep production plan workshop snapshot");
 assert(Number(task.bomVersionNo) === Number(bomV1.versionNo), "production task should use the plan BOM history version, not the newer current BOM");
 await requireJson(`/api/production/tasks/${encodeURIComponent(task.billNo)}/audit`, { method: "POST" });
 
-const supplierOneLines = await selectableRequisitionLines("GYS-001");
-const sourceLine = supplierOneLines.find((line) => line.productCode === materialA && Number(line.remainingQty) === 10);
-assert(sourceLine, "supplier GYS-001 should expose a selectable purchase requisition line with BOM V1 quantity");
-
-const purchaseOrder = await requireJson("/api/purchase-orders/draft", {
-  method: "POST",
-  body: {
-    supplierCode: "GYS-001",
-    billDate: "2026-06-29",
-    department: "采购部",
-    ownerName: "A116B回归",
-    lines: [
-      {
-        productCode: sourceLine.productCode,
-        warehouseCode: sourceLine.warehouseCode || "CK-002",
-        qty: Number(sourceLine.remainingQty),
-        unitPrice: Number(sourceLine.unitPrice ?? 0),
-        taxRate: Number(sourceLine.taxRate ?? 13),
-        supplierMaterialCode: sourceLine.supplierMaterialCode || "",
-        sourceOrderNo: sourceLine.billNo,
-        sourceLineNo: Number(sourceLine.lineNo),
-        planDeliveryDate: sourceLine.planDeliveryDate || "2026-07-15"
-      }
-    ]
-  }
-});
-const purchaseOrderNo = purchaseOrder.billNo;
-await requireJson(`/api/purchase-orders/${encodeURIComponent(purchaseOrderNo)}/audit`, { method: "POST" });
-const afterOrderLines = await selectableRequisitionLines("GYS-001");
-const consumedLine = afterOrderLines.find((line) => line.billNo === sourceLine.billNo && Number(line.lineNo) === Number(sourceLine.lineNo));
-assert(!consumedLine, "audited purchase order should consume the selected purchase requisition line");
+const requisitionNo = pushDown.purchaseRequisitions[0].billNo;
+const requisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}`);
+assert(requisition.document.status === "DRAFT", "generated purchase requisition must be editable draft");
+assert(requisition.lines.length === 2, "one purchase requisition must preserve both BOM demand lines");
+const requisitionLineA = requisition.lines.find((line) => line.productCode === materialA);
+const requisitionLineB = requisition.lines.find((line) => line.productCode === materialB);
+assert(requisitionLineA?.supplierCode === "GYS-001" && Number(requisitionLineA.qty) === 10, "line A must use its default supplier and BOM V1 quantity");
+assert(requisitionLineB?.supplierCode === "GYS-002" && Number(requisitionLineB.qty) === 15, "line B must use its default supplier and BOM V1 quantity");
+await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/audit`, { method: "POST" });
+const planned = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/push-down`, { method: "POST" });
+assert(Array.isArray(planned.purchasePlans) && planned.purchasePlans.length === 2, "purchase requisition should generate one purchase plan per supplier");
+const purchasePlanNos = planned.purchasePlans.map((item) => item.billNo).sort();
+const purchasePlanDetails = await Promise.all(purchasePlanNos.map((billNo) => requireJson(`/api/purchase-plans/${encodeURIComponent(billNo)}`)));
+assert(purchasePlanDetails.every((detail) => detail.document.status === "DRAFT"), "generated purchase plans must remain draft");
+assert(purchasePlanDetails.some((detail) => detail.document.supplierCode === "GYS-001" && Number(detail.document.totalQty) === 10), "supplier one plan must total 10");
+assert(purchasePlanDetails.some((detail) => detail.document.supplierCode === "GYS-002" && Number(detail.document.totalQty) === 15), "supplier two plan must total 15");
+const afterPlanLines = await selectableRequisitionLines("GYS-001");
+const plannedLineStillSelectable = afterPlanLines.find((line) => line.billNo === requisitionNo);
+assert(!plannedLineStillSelectable, "planned requisition lines must not remain directly selectable for purchase orders");
 
 const issue = await requireJson(`/api/production/tasks/${encodeURIComponent(task.billNo)}/issue`, {
   method: "POST",
@@ -239,14 +227,16 @@ const result = {
   bomV2: bomV2.versionNo,
   planNo: plan.billNo,
   productionTaskNo: task.billNo,
-  purchaseOrderNo,
+  purchaseRequisitionNo: requisitionNo,
+  purchasePlanNos,
   materialIssueNo: issue.billNo,
   productInNo: completion.billNo,
   checks: {
     bomHistorySnapshot: Number(task.bomVersionNo) === Number(bomV1.versionNo),
     defaultWorkshop: task.departmentCode === "HJ",
-    splitPurchaseRequisitions: pushDown.purchaseRequisitions.length === 2,
-    purchaseRequisitionConsumed: !consumedLine,
+    singleEditablePurchaseRequisition: pushDown.purchaseRequisitions.length === 1,
+    supplierGroupedPurchasePlans: purchasePlanNos.length === 2,
+    plannedRequisitionHiddenFromDirectOrder: !plannedLineStillSelectable,
     materialIssuePushProductIn: productInDetail.document.status === "AUDITED"
   }
 };

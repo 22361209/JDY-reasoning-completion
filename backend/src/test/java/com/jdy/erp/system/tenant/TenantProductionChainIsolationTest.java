@@ -16,6 +16,7 @@ import com.jdy.erp.masterdata.api.MasterDataController;
 import com.jdy.erp.production.application.MaterialIssueAppService;
 import com.jdy.erp.production.application.ProductInAppService;
 import com.jdy.erp.production.application.ProductionTaskAppService;
+import com.jdy.erp.purchase.application.PurchaseRequisitionAppService;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
@@ -54,6 +55,9 @@ class TenantProductionChainIsolationTest {
 
     @Autowired
     private ProductionTaskAppService productionTaskAppService;
+
+    @Autowired
+    private PurchaseRequisitionAppService purchaseRequisitionAppService;
 
     @Autowired
     private MaterialIssueAppService materialIssueAppService;
@@ -110,7 +114,7 @@ class TenantProductionChainIsolationTest {
         createAuditedBom();
         var planNoA = createPlan(new BigDecimal("5"));
         assertKitAnalysis(planNoA, "A119 账套A子件", "10.0000", "30.0000", "0.0000");
-        var taskBillNoA = pushDownPlanAndAssertPurchaseRequisition(planNoA, "A119 账套A供应商", "A119 账套A子件", "10.0000");
+        var taskBillNoA = pushDownPlanAndAssertPurchaseRequisition(planNoA, "A119 账套A供应商", "10.0000");
         var issueNoA = saveAndAuditIssue(taskBillNoA);
         assertBalance(COMPONENT_CODE, "20.0000", "0.0000", "20.0000");
         var productInNoA = completeFromIssue(issueNoA, new BigDecimal("5"));
@@ -150,7 +154,7 @@ class TenantProductionChainIsolationTest {
         createAuditedBom();
         var planNoB = createPlan(BigDecimal.ONE);
         assertKitAnalysis(planNoB, "A119 账套B子件", "2.0000", "4.0000", "0.0000");
-        var taskBillNoB = pushDownPlanAndAssertPurchaseRequisition(planNoB, "A119 账套B供应商", "A119 账套B子件", "2.0000");
+        var taskBillNoB = pushDownPlanAndAssertPurchaseRequisition(planNoB, "A119 账套B供应商", "2.0000");
         var issueNoB = saveAndAuditIssue(taskBillNoB);
         assertBalance(COMPONENT_CODE, "2.0000", "0.0000", "2.0000");
         var productInNoB = completeFromIssue(issueNoB, BigDecimal.ONE);
@@ -184,7 +188,7 @@ class TenantProductionChainIsolationTest {
         saveComponentOpeningStock(new BigDecimal("30"));
         createAuditedBom();
         var planNo = createPlan(new BigDecimal("5"));
-        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 数量供应商", "A119 数量子件", "10.0000");
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 数量供应商", "10.0000");
 
         var savedIssue = materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
             null,
@@ -257,7 +261,7 @@ class TenantProductionChainIsolationTest {
         saveComponentOpeningStock(new BigDecimal("30"));
         createAuditedBom();
         var planNo = createPlan(new BigDecimal("5"));
-        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 反审供应商", "A119 反审子件", "10.0000");
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 反审供应商", "10.0000");
 
         var issueNo = saveAndAuditIssue(taskBillNo);
         assertTaskIssued(taskBillNo, "5.0000", "AUDITED");
@@ -420,7 +424,7 @@ class TenantProductionChainIsolationTest {
         return planNo;
     }
 
-    private String pushDownPlanAndAssertPurchaseRequisition(String planNo, String supplierName, String productName, String qty) {
+    private String pushDownPlanAndAssertPurchaseRequisition(String planNo, String supplierName, String qty) {
         var result = productionTaskAppService.pushDownPlan(planNo);
         @SuppressWarnings("unchecked")
         var tasks = (List<Map<String, Object>>) result.get("productionTasks");
@@ -430,13 +434,16 @@ class TenantProductionChainIsolationTest {
         assertThat(requisitions)
             .singleElement()
             .satisfies(row -> assertThat(row.get("supplier")).isEqualTo(supplierName));
-        assertListContainsSingle("purchase-requisition-list", supplierName, String.valueOf(requisitions.get(0).get("billNo")));
-        var lines = selectableRequisitionLines(supplierName);
-        assertThat(lines)
+        var requisitionNo = String.valueOf(requisitions.get(0).get("billNo"));
+        assertListContainsSingle("purchase-requisition-list", supplierName, requisitionNo);
+        purchaseRequisitionAppService.audit(requisitionNo);
+        @SuppressWarnings("unchecked")
+        var plans = (List<Map<String, Object>>) purchaseRequisitionAppService.pushDown(requisitionNo).get("purchasePlans");
+        assertThat(plans)
             .singleElement()
             .satisfies(row -> {
-                assertThat(row.get("productName")).isEqualTo(productName);
-                assertDecimal(row.get("remainingQty"), qty);
+                assertThat(row.get("supplierName")).isEqualTo(supplierName);
+                assertDecimal(row.get("totalQty"), qty);
             });
         var taskBillNo = String.valueOf(tasks.get(0).get("billNo"));
         productionTaskAppService.auditTask(taskBillNo);
@@ -549,28 +556,6 @@ class TenantProductionChainIsolationTest {
         assertThat(rows)
             .singleElement()
             .satisfies(row -> assertThat(row.get(field)).isEqualTo(value));
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> selectableRequisitionLines(String supplierName) {
-        var payload = listStubController.rows(
-            "purchase-requisition-list",
-            supplierName,
-            "",
-            1,
-            200,
-            "detail",
-            "",
-            "asc",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            ""
-        );
-        return (List<Map<String, Object>>) payload.get("rows");
     }
 
     private String generatedBillNo(Map<String, Object> saved, String label) {

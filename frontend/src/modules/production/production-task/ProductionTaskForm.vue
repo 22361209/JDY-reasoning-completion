@@ -56,7 +56,19 @@
         </label>
         <label>
           <span>来源生产计划</span>
-          <input v-model.trim="form.planNo" data-testid="production-task-plan-no" @input="markDirty" />
+          <input v-model.trim="form.planNo" data-testid="production-task-plan-no" :disabled="!isEditableTask" @input="markDirty" />
+        </label>
+        <label>
+          <span>任务来源</span>
+          <input :value="sourceKindLabel" data-testid="production-task-source-kind" disabled />
+        </label>
+        <label>
+          <span>BOM 层级</span>
+          <input :value="taskHead.sourceLevel ?? 0" data-testid="production-task-source-level" disabled />
+        </label>
+        <label>
+          <span>上级任务</span>
+          <input :value="taskHead.parentTaskNo || ''" data-testid="production-task-parent-task-no" disabled />
         </label>
         <label>
           <span>生产车间</span>
@@ -73,7 +85,7 @@
         <div class="form-head-fields production-task-product-fields">
           <label>
             <span>BOM 编码</span>
-            <input v-model.trim="form.bomCode" data-testid="production-task-bom-code" @input="markDirty" />
+            <input v-model.trim="form.bomCode" data-testid="production-task-bom-code" :disabled="!isEditableTask" @input="markDirty" />
           </label>
           <label>
             <span>母件编码</span>
@@ -97,11 +109,11 @@
           </label>
           <label>
             <span>完工仓库</span>
-            <input v-model.trim="form.warehouseCode" data-testid="production-task-warehouse-code" @input="markDirty" />
+            <input v-model.trim="form.warehouseCode" data-testid="production-task-warehouse-code" :disabled="!isEditableTask" @input="markDirty" />
           </label>
           <label class="required">
             <span>任务数量</span>
-            <input v-model.number="form.qty" data-testid="production-task-qty" type="number" min="0" step="1" @input="markDirty" />
+            <input v-model.number="form.qty" data-testid="production-task-qty" type="number" min="0" step="1" :disabled="!isEditableTask" @input="markDirty" />
           </label>
           <label>
             <span>生产剩余数量</span>
@@ -253,6 +265,11 @@ interface TaskHeadInfo {
   status?: string;
   closeStatus?: string;
   frozenStatus?: string;
+  sourceKind?: string;
+  sourceLevel?: number | string;
+  parentTaskNo?: string;
+  rootTaskNo?: string;
+  bomPath?: string;
 }
 
 const message = ref("");
@@ -293,7 +310,9 @@ const materialColumns: TableCoreColumn[] = [
 
 const statusLabel = computed(() => backendStatusLabel(form.status, form.closeStatus, form.frozenStatus));
 const statusClass = computed(() => form.status === "AUDITED" ? "audited" : "form");
-const canSave = computed(() => form.status === "DRAFT");
+const isEditableTask = computed(() => form.status === "DRAFT" && taskHead.sourceKind !== "BOM_CHILD");
+const sourceKindLabel = computed(() => taskHead.sourceKind === "BOM_CHILD" ? "多层 BOM 子任务" : taskHead.sourceKind === "PLAN_ROOT" ? "计划根任务" : "手工任务");
+const canSave = computed(() => isEditableTask.value);
 const canAudit = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "DRAFT" && props.hasPermission("production.task.audit"));
 const canReverse = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && props.hasPermission("production.task.audit"));
 const canVoid = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "DRAFT" && props.hasPermission("production.task.audit"));
@@ -507,7 +526,12 @@ function clearPreview() {
     department: "",
     status: "",
     closeStatus: "",
-    frozenStatus: ""
+    frozenStatus: "",
+    sourceKind: "",
+    sourceLevel: 0,
+    parentTaskNo: "",
+    rootTaskNo: "",
+    bomPath: ""
   });
   materialLines.value = [];
 }

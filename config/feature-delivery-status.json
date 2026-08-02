@@ -11,11 +11,6 @@
       "reason": "发货通知已有实现但原审批表没有 scope ID；A130 不新增范围，待用户确认 addition 后再由正式 scope 认领。"
     },
     {
-      "catalogEntryId": "purchase-requisition-list",
-      "disposition": "excluded_scope_pending_decision",
-      "reason": "采购申请对应 F031，但原审批 decision=exclude 且当前已有入口；待用户确认保留或退役，不能临时映射到其他 scope。"
-    },
-    {
       "catalogEntryId": "opening-stock-settings",
       "disposition": "platform_support_entry",
       "reason": "库存期初是多账套初始化和库存基线工具，原审批没有独立功能项；本次不把它并入库存查询或新增 scope。"
@@ -688,6 +683,54 @@
         "backend": "verified",
         "permission": "verified",
         "auditLog": "verified",
+        "automation": "verified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F031",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-requisition-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A170-多层生产任务与采购规划-20260802.md"
+      ],
+      "knownGaps": [
+        "采购申请成功操作日志尚未完成 A4 专项验收；失败审计由统一异常链保留。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "verified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F032",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-plan-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A170-多层生产任务与采购规划-20260802.md"
+      ],
+      "knownGaps": [
+        "采购计划成功操作日志尚未完成 A4 专项验收；A170 明确止于采购计划，不自动生成采购订单。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
         "automation": "verified",
         "browser": "verified"
       }

@@ -98,6 +98,8 @@ public class AccountSetInitializationService {
                 delivery_notice,
                 sales_out_line,
                 sales_out,
+                purchase_plan_line,
+                purchase_plan,
                 purchase_requisition_line,
                 purchase_requisition,
                 purchase_order_line,

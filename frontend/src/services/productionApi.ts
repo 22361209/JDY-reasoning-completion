@@ -54,6 +54,8 @@ export interface ProductionPlanLinePayload {
   qty: number;
   departmentCode?: string;
   planDeliveryDate?: string;
+  expandMultilevelTasks?: boolean;
+  generatePurchaseRequisition?: boolean;
 }
 
 export interface ProductionTaskPayload {
@@ -110,6 +112,11 @@ export interface MaterialIssuePreviewLine {
 export interface MaterialIssuePreview {
   document?: {
     sourceOrderNo?: string;
+    sourceKind?: string;
+    sourceLevel?: number | string;
+    parentTaskNo?: string;
+    rootTaskNo?: string;
+    bomPath?: string;
     billDate?: string;
     department?: string;
     status?: string;

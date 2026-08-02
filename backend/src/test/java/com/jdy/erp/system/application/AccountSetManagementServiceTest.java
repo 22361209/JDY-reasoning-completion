@@ -117,12 +117,14 @@ class AccountSetManagementServiceTest {
         assertThat(tableExists(schema, "production_material_scrap_line")).isTrue();
         assertThat(tableExists(schema, "cash_transfer")).isTrue();
         assertThat(tableExists(schema, "cash_transfer_fact")).isTrue();
+        assertThat(tableExists(schema, "purchase_plan")).isTrue();
+        assertThat(tableExists(schema, "purchase_plan_line")).isTrue();
         assertThat(tableExists(schema, "document_number_sequence")).isTrue();
-        assertThat(managedConstraintCount(schema, "p")).isEqualTo(87);
-        assertThat(managedConstraintCount(schema, "u")).isEqualTo(82);
-        assertThat(managedConstraintCount(schema, "f")).isEqualTo(187);
+        assertThat(managedConstraintCount(schema, "p")).isEqualTo(89);
+        assertThat(managedConstraintCount(schema, "u")).isEqualTo(85);
+        assertThat(managedConstraintCount(schema, "f")).isEqualTo(199);
         assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
-        assertThat(managedConstraintCount(schema, "c")).isEqualTo(108);
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(117);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
@@ -311,7 +313,7 @@ class AccountSetManagementServiceTest {
         var backup = (java.util.Map<String, Object>) backupResult.get("backup");
         var backupSchema = String.valueOf(backup.get("backupSchemaName"));
         createdBackupSchemas.add(backupSchema);
-        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("87");
+        assertThat(String.valueOf(backup.get("tableCount"))).isEqualTo("89");
         platformJdbcTemplate.execute("ALTER TABLE %s.md_product_category DROP COLUMN remark".formatted(quoteIdentifier(backupSchema)));
         platformJdbcTemplate.execute("ALTER TABLE %s.sales_order ADD COLUMN is_tax_inclusive BOOLEAN NOT NULL DEFAULT FALSE".formatted(quoteIdentifier(backupSchema)));
         var backupLogId = platformJdbcTemplate.queryForObject("""

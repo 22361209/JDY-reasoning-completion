@@ -259,10 +259,9 @@ public class MaterialIssueAppService {
                    GREATEST(s.required_qty - s.issued_qty, 0) AS qty
             FROM production_task_material_snapshot s
             JOIN md_product p ON p.id = s.product_id
-            LEFT JOIN prod_bom_line bom_line ON bom_line.id = s.source_bom_line_id
-            LEFT JOIN md_warehouse w ON w.id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+            LEFT JOIN md_warehouse w ON w.id = s.issue_warehouse_id
             LEFT JOIN inv_stock_balance stock ON stock.product_id = s.product_id
-                 AND stock.warehouse_id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+                 AND stock.warehouse_id = s.issue_warehouse_id
                  AND stock.account_set_id = ?::uuid
             WHERE s.task_id = ?::uuid
               AND s.required_qty - s.issued_qty > 0

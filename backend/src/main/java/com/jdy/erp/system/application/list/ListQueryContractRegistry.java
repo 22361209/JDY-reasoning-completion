@@ -47,6 +47,7 @@ public class ListQueryContractRegistry {
         "product-category-list",
         "production-department-list",
         "purchase-requisition-list",
+        "purchase-plan-list",
         "other-in-list",
         "other-in-form-list",
         "other-out-list",
@@ -177,6 +178,10 @@ public class ListQueryContractRegistry {
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourceBillNo", "customerCode", "customer", "partner", "currency", "productCode", "productName", "spec", "remark", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
             case "purchase-order-form-list", "purchase-in-list", "purchase-in-form-list", "purchase-return-list", "purchase-return-form-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "supplierCode", "supplier", "partner", "productCode", "productName", "spec", "sourceBillNo", "lineRemark"), "billDate", "exists", normalizedView, "default", false);
+            case "purchase-requisition-list" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourcePlanNo", "suppliers"), "billDate", "row", normalizedView, "default", false);
+            case "purchase-plan-list" ->
+                new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourceRequisitionNo", "supplierCode", "supplier"), "billDate", "row", normalizedView, "default", false);
             case "ar-receipt-form-list", "ap-payment-form-list" ->
                 new ListQueryContract(listKey, normalizedView, List.of("billNo", "sourceBillNo", "partyCode", "partyName", "currency", "remark"), "billDate", "row", normalizedView, "default", false);
             case "inventory-query-list", "stock-alert-list" ->

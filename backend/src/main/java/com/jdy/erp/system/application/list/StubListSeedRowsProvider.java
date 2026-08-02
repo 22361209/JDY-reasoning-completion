@@ -50,6 +50,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "production-department-list" -> realProductionDepartmentRows();
             case "sales-quote-form-list" -> salesQuoteRows();
             case "purchase-requisition-list" -> purchaseRequisitionRows();
+            case "purchase-plan-list" -> purchasePlanRows();
             case "purchase-order-form-list" -> purchaseOrderRows();
             case "delivery-notice-form-list" -> deliveryNoticeRows();
             case "purchase-in-list", "purchase-in-form-list" -> purchaseInRows();
@@ -1033,29 +1034,49 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
 
     private List<Map<String, ?>> purchaseRequisitionRows() {
         return List.copyOf(jdbcTemplate.queryForList("""
-            SELECT concat(pr.id::text, '-', line.line_no) AS id,
+            SELECT pr.id::text AS id,
                    pr.bill_no AS "billNo",
                    COALESCE(pr.source_plan_no, '') AS "sourcePlanNo",
-                   COALESCE(pr.supplier_code_snapshot, supplier.code) AS "supplierCode",
-                   COALESCE(pr.supplier_name_snapshot, supplier.name) AS supplier,
                    to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
-                   COALESCE(line.product_code_snapshot, product.code) AS "productCode",
-                   COALESCE(line.product_name_snapshot, product.name) AS "productName",
-                   COALESCE(line.product_unit_snapshot, product.unit, '') AS unit,
-                   trim(to_char(line.qty, 'FM9999999990.####')) AS qty,
-                   trim(to_char(COALESCE(line.ordered_qty, 0), 'FM9999999990.####')) AS "orderedQty",
-                   trim(to_char(GREATEST(0, line.qty - COALESCE(line.ordered_qty, 0)), 'FM9999999990.####')) AS "remainingQty",
-                   COALESCE(to_char(line.plan_delivery_date, 'YYYY-MM-DD'), '') AS "planDeliveryDate",
-                   CASE
-                       WHEN line.line_close_status = 'CLOSED' THEN '已关闭'
-                       WHEN pr.status = 'DRAFT' THEN '草稿'
-                       ELSE '已审核'
-                   END AS status
+                   COUNT(line.id) AS "lineCount",
+                   COUNT(DISTINCT COALESCE(line.supplier_id, pr.supplier_id)) AS "supplierCount",
+                   COUNT(*) FILTER (WHERE COALESCE(line.supplier_id, pr.supplier_id) IS NULL) AS "missingSupplierCount",
+                   COALESCE(string_agg(DISTINCT concat_ws(' ',
+                       COALESCE(line.supplier_code_snapshot, supplier.code),
+                       COALESCE(line.supplier_name_snapshot, supplier.name)
+                   ), '、'), '') AS suppliers,
+                   trim(to_char(COALESCE(SUM(line.qty), 0), 'FM9999999990.####')) AS "totalQty",
+                   trim(to_char(COALESCE(SUM(line.planned_qty), 0), 'FM9999999990.####')) AS "plannedQty",
+                   trim(to_char(COALESCE(SUM(GREATEST(0, line.qty - COALESCE(line.planned_qty, 0) - COALESCE(line.ordered_qty, 0))), 0), 'FM9999999990.####')) AS "remainingQty",
+                   pr.status AS "statusCode",
+                   CASE WHEN pr.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status
             FROM purchase_requisition pr
             JOIN purchase_requisition_line line ON line.requisition_id = pr.id
-            JOIN md_supplier supplier ON supplier.id = pr.supplier_id
-            JOIN md_product product ON product.id = line.product_id
-            ORDER BY pr.updated_at DESC, line.line_no
+            LEFT JOIN md_supplier supplier ON supplier.id = COALESCE(line.supplier_id, pr.supplier_id)
+            GROUP BY pr.id, pr.bill_no, pr.source_plan_no, pr.bill_date, pr.status, pr.updated_at
+            ORDER BY pr.updated_at DESC
+            """));
+    }
+
+    private List<Map<String, ?>> purchasePlanRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT plan.id::text AS id,
+                   plan.bill_no AS "billNo",
+                   plan.source_requisition_no AS "sourceRequisitionNo",
+                   COALESCE(plan.supplier_code_snapshot, supplier.code) AS "supplierCode",
+                   COALESCE(plan.supplier_name_snapshot, supplier.name) AS supplier,
+                   to_char(plan.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COUNT(line.id) AS "lineCount",
+                   trim(to_char(COALESCE(SUM(line.qty), 0), 'FM9999999990.####')) AS "totalQty",
+                   plan.status AS "statusCode",
+                   CASE WHEN plan.status = 'DRAFT' THEN '草稿' ELSE '已审核' END AS status
+            FROM purchase_plan plan
+            JOIN md_supplier supplier ON supplier.id = plan.supplier_id
+            JOIN purchase_plan_line line ON line.plan_id = plan.id
+            GROUP BY plan.id, plan.bill_no, plan.source_requisition_no,
+                     plan.supplier_code_snapshot, plan.supplier_name_snapshot,
+                     supplier.code, supplier.name, plan.bill_date, plan.status, plan.updated_at
+            ORDER BY plan.updated_at DESC
             """));
     }
 
@@ -1617,6 +1638,11 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             SELECT t.id::text AS id,
                    t.bill_no AS "billNo",
                    COALESCE(pl.bill_no, '') AS "planNo",
+                   t.source_kind AS "sourceKind",
+                   CASE t.source_kind WHEN 'BOM_CHILD' THEN '多层子任务' WHEN 'PLAN_ROOT' THEN '计划根任务' ELSE '手工任务' END AS "sourceKindLabel",
+                   t.source_level AS "sourceLevel",
+                   COALESCE(parent.bill_no, '') AS "parentTaskNo",
+                   COALESCE(root.bill_no, t.bill_no) AS "rootTaskNo",
                    COALESCE(t.bom_code_snapshot, b.code) AS "bomCode",
                    COALESCE(t.bom_version_no, b.version_no) AS "bomVersionNo",
                    COALESCE(t.product_code_snapshot, p.code) AS "productCode",
@@ -1643,6 +1669,8 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    END AS status
             FROM production_task t
             LEFT JOIN production_plan pl ON pl.id = t.plan_id
+            LEFT JOIN production_task parent ON parent.id = t.parent_task_id
+            LEFT JOIN production_task root ON root.id = t.root_task_id
             JOIN prod_bom b ON b.id = t.bom_id
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
@@ -1702,6 +1730,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                 FROM production_task
                 WHERE plan_line_id IS NOT NULL
                   AND status <> 'VOID'
+                  AND source_kind = 'PLAN_ROOT'
                 GROUP BY plan_line_id
             ) task_qty ON task_qty.plan_line_id = plan_line.id
             GROUP BY pl.id, pl.bill_no, pl.source_type, pl.status, pl.updated_at

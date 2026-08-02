@@ -207,8 +207,8 @@ public class PurchaseOrderAppService {
     public Map<String, Object> selectableRequisitionLines(String supplierCode) {
         var rows = jdbcTemplate.queryForList("""
             SELECT pr.bill_no AS "billNo",
-                   COALESCE(pr.supplier_code_snapshot, s.code) AS "supplierCode",
-                   COALESCE(pr.supplier_name_snapshot, s.name) AS supplier,
+                   COALESCE(l.supplier_code_snapshot, pr.supplier_code_snapshot, s.code) AS "supplierCode",
+                   COALESCE(l.supplier_name_snapshot, pr.supplier_name_snapshot, s.name) AS supplier,
                    to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
                    pr.department,
                    pr.owner_name AS "ownerName",
@@ -223,7 +223,7 @@ public class PurchaseOrderAppService {
                    COALESCE(w.code, '') AS "warehouseCode",
                    l.qty AS "sourceQty",
                    COALESCE(l.ordered_qty, 0) AS "receivedQty",
-                   GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0)) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0) - COALESCE(l.planned_qty, 0)) AS "remainingQty",
                    COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    COALESCE(p.purchase_price, 0) AS "unitPrice",
                    COALESCE(p.tax_rate, 13) AS "taxRate",
@@ -233,14 +233,14 @@ public class PurchaseOrderAppService {
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_requisition pr
             JOIN purchase_requisition_line l ON l.requisition_id = pr.id
-            JOIN md_supplier s ON s.id = pr.supplier_id
+            JOIN md_supplier s ON s.id = COALESCE(l.supplier_id, pr.supplier_id)
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             WHERE s.code = ?
               AND pr.status = ?
               AND l.line_close_status = 'OPEN'
               AND l.line_frozen_status = 'NORMAL'
-              AND GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0)) > 0
+              AND GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0) - COALESCE(l.planned_qty, 0)) > 0
             ORDER BY pr.bill_date DESC, pr.bill_no DESC, l.line_no
             """, supplierCode == null ? "" : supplierCode.trim(), BillStatus.AUDITED.name());
         return Map.of("supplierCode", supplierCode == null ? "" : supplierCode.trim(), "lines", rows);
@@ -436,7 +436,7 @@ public class PurchaseOrderAppService {
         for (var demand : demands) {
             refreshPurchaseRequisitionOrderedQty(demand, currentBillNo);
             var rows = jdbcTemplate.queryForList("""
-                SELECT line.qty - COALESCE(line.ordered_qty, 0) AS remaining_qty
+                SELECT line.qty - COALESCE(line.ordered_qty, 0) - COALESCE(line.planned_qty, 0) AS remaining_qty
                 FROM purchase_requisition req
                 JOIN purchase_requisition_line line ON line.requisition_id = req.id
                 WHERE req.bill_no = ?

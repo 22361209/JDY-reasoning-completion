@@ -194,7 +194,9 @@ const planPayload = {
       warehouseCode: "CK-002",
       departmentCode: "CY",
       qty: 3,
-      planDeliveryDate: billDate
+      planDeliveryDate: billDate,
+      expandMultilevelTasks: false,
+      generatePurchaseRequisition: false
     },
     {
       productId: parentBRow.id,
@@ -203,7 +205,9 @@ const planPayload = {
       warehouseCode: "CK-003",
       departmentCode: "HJ",
       qty: 2,
-      planDeliveryDate: billDate
+      planDeliveryDate: billDate,
+      expandMultilevelTasks: false,
+      generatePurchaseRequisition: false
     }
   ]
 };

@@ -18,7 +18,7 @@
     table-class="entry-native-table"
     :columns="visiblePlanEntryColumns"
     :rows="lines"
-    :min-width="1460"
+    :min-width="1700"
     :max-resize-width="420"
     :row-key="planRowKey"
     :row-visible="rowMatchesFilters"
@@ -142,6 +142,24 @@
         @input="emit('markDirty')"
       />
       <span v-else-if="column.key === 'inProgressQty'" class="entry-cell-value number-text">{{ line.inProgressQty }}</span>
+      <label v-else-if="column.key === 'expandMultilevelTasks'" class="entry-checkbox">
+        <input
+          v-model="line.expandMultilevelTasks"
+          type="checkbox"
+          :disabled="!isDraft"
+          :data-testid="`production-plan-multilevel-task-${rowIndex + 1}`"
+          @change="emit('markDirty')"
+        />
+      </label>
+      <label v-else-if="column.key === 'generatePurchaseRequisition'" class="entry-checkbox">
+        <input
+          v-model="line.generatePurchaseRequisition"
+          type="checkbox"
+          :disabled="!isDraft"
+          :data-testid="`production-plan-generate-requisition-${rowIndex + 1}`"
+          @change="emit('markDirty')"
+        />
+      </label>
     </template>
   </TableCore>
 
@@ -197,6 +215,8 @@ export interface ProductionPlanEntryLine {
   inProgressQty: string;
   assignedQty: string;
   remainingQty: string;
+  expandMultilevelTasks: boolean;
+  generatePurchaseRequisition: boolean;
 }
 
 interface ProductionPlanEntryColumn extends TableCoreColumn {
@@ -240,7 +260,9 @@ const defaultPlanEntryColumns: ProductionPlanEntryColumn[] = [
   { key: "departmentCode", title: "生产车间", width: 140, minWidth: 110, visible: true },
   { key: "qty", title: "数量", width: 104, minWidth: 84, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
   { key: "planDeliveryDate", title: "预计交期", width: 124, minWidth: 96, visible: true },
-  { key: "inProgressQty", title: "在制未完工", width: 120, minWidth: 96, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" }
+  { key: "inProgressQty", title: "在制未完工", width: 120, minWidth: 96, align: "right", visible: true, headerClass: "entry-number-cell", cellClass: "entry-number-cell" },
+  { key: "expandMultilevelTasks", title: "多层生产任务", width: 120, minWidth: 104, align: "center", visible: true },
+  { key: "generatePurchaseRequisition", title: "生成采购申请", width: 120, minWidth: 104, align: "center", visible: true }
 ];
 const planEntryColumns = ref<ProductionPlanEntryColumn[]>(defaultPlanEntryColumns.map((column) => ({ ...column })));
 const visiblePlanEntryColumns = computed(() => planEntryColumns.value.filter((column) => column.visible));
@@ -308,7 +330,9 @@ function planEntryColumnValue(row: unknown, rowIndex: number, key: string) {
     departmentCode: line.departmentCode,
     qty: String(line.qty ?? ""),
     planDeliveryDate: line.planDeliveryDate,
-    inProgressQty: line.inProgressQty
+    inProgressQty: line.inProgressQty,
+    expandMultilevelTasks: line.expandMultilevelTasks ? "是" : "否",
+    generatePurchaseRequisition: line.generatePurchaseRequisition ? "是" : "否"
   };
   return values[key] ?? "";
 }
@@ -326,5 +350,18 @@ function planEntryColumnValue(row: unknown, rowIndex: number, key: string) {
   color: #7b8da1;
   font-size: 12px;
   font-style: normal;
+}
+
+.entry-checkbox {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.entry-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 </style>

@@ -6,7 +6,7 @@ import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a116-production-plan-pushdown-regression.json");
-const apiBase = "http://127.0.0.1:8080";
+const apiBase = process.env.JDY_API_BASE || "http://127.0.0.1:8080";
 await installApiSession(apiBase);
 await mkdir(verificationDir, { recursive: true });
 
@@ -120,8 +120,12 @@ const requisitionNo = pushDown.purchaseRequisitions[0].billNo;
 const requisitionList = await requireJson(`/api/lists/purchase-requisition-list?keyword=${encodeURIComponent(requisitionNo)}&pageSize=200`);
 const requisitionRow = requisitionList.rows.find((row) => row.billNo === requisitionNo);
 assert(requisitionRow, "purchase requisition list should show generated requisition");
-assert(Number(requisitionRow.qty) === 10, "purchase requisition qty should equal BOM unit qty * plan qty");
-assert(requisitionRow.supplierCode === "GYS-001", "purchase requisition should group by material default supplier");
+assert(Number(requisitionRow.totalQty) === 10, "purchase requisition total qty should equal BOM unit qty * plan qty");
+assert(Number(requisitionRow.lineCount) === 1, "purchase requisition list should expose one header row with one line");
+const requisitionDetail = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}`);
+assert(requisitionDetail.document.status === "DRAFT", "generated purchase requisition should remain editable draft");
+assert(Number(requisitionDetail.lines[0]?.qty) === 10, "purchase requisition detail should keep BOM demand quantity");
+assert(requisitionDetail.lines[0]?.supplierCode === "GYS-001", "purchase requisition line should default the product supplier");
 
 const duplicate = await request(`/api/production/plans/${encodeURIComponent(plan.billNo)}/push-down`, { method: "POST" });
 assert(duplicate.response.status === 409, "duplicate pushdown should be blocked after all plan qty is assigned");
@@ -144,7 +148,7 @@ const result = {
     auditedBeforePushdown: auditedPlan.status === "AUDITED",
     planUsesCurrentBom: plan.bomCode === bomCode,
     defaultWorkshop: plan.departmentCode === "CY",
-    purchaseQty: Number(requisitionRow.qty),
+    purchaseQty: Number(requisitionRow.totalQty),
     duplicatePushdownBlocked: duplicate.response.status === 409,
     reverseAfterPushdownBlocked: reverseAfterPushdown.response.status === 409
   }

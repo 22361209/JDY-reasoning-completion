@@ -466,8 +466,8 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
     private SourceQuerySpec purchaseRequisitionSpec() {
         return new SourceQuerySpec("""
             SELECT pr.bill_no AS "billNo",
-                   COALESCE(pr.supplier_code_snapshot, s.code) AS "supplierCode",
-                   COALESCE(pr.supplier_name_snapshot, s.name) AS supplier,
+                   COALESCE(l.supplier_code_snapshot, pr.supplier_code_snapshot, s.code) AS "supplierCode",
+                   COALESCE(l.supplier_name_snapshot, pr.supplier_name_snapshot, s.name) AS supplier,
                    to_char(pr.bill_date, 'YYYY-MM-DD') AS "billDate",
                    pr.department,
                    pr.owner_name AS "ownerName",
@@ -482,7 +482,7 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    COALESCE(w.code, '') AS "warehouseCode",
                    l.qty AS "sourceQty",
                    COALESCE(l.ordered_qty, 0) AS "receivedQty",
-                   GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0)) AS "remainingQty",
+                   GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0) - COALESCE(l.planned_qty, 0)) AS "remainingQty",
                    COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    COALESCE(p.purchase_price, 0) AS "unitPrice",
                    COALESCE(p.tax_rate, 13) AS "taxRate",
@@ -492,13 +492,13 @@ public class SourceSelectorListQueryAdapter implements ListQueryAdapter {
                    to_char(l.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_requisition pr
             JOIN purchase_requisition_line l ON l.requisition_id = pr.id
-            JOIN md_supplier s ON s.id = pr.supplier_id
+            JOIN md_supplier s ON s.id = COALESCE(l.supplier_id, pr.supplier_id)
             JOIN md_product p ON p.id = l.product_id
             LEFT JOIN md_warehouse w ON w.id = l.warehouse_id
             WHERE pr.status = 'AUDITED'
               AND l.line_close_status = 'OPEN'
               AND l.line_frozen_status = 'NORMAL'
-              AND GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0)) > 0
+              AND GREATEST(0, l.qty - COALESCE(l.ordered_qty, 0) - COALESCE(l.planned_qty, 0)) > 0
             """, List.of(), sourceFields(
                 "billNo", "supplierCode", "supplier", "billDate", "department", "ownerName",
                 "lineNo", "productId", "productCode", "productName", "spec", "unit", "netWeight", "grossWeight",

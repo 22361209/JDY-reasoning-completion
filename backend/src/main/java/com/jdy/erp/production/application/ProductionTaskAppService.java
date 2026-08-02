@@ -4,11 +4,15 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
+import com.jdy.erp.purchase.application.PurchaseRequisitionAppService;
+import com.jdy.erp.purchase.application.PurchaseRequisitionAppService.GeneratedLine;
 import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.OperationLogCommand;
@@ -32,8 +36,9 @@ public class ProductionTaskAppService {
     private final NumberingService numberingService;
     private final TenantDataScopeService tenantDataScopeService;
     private final CurrentSessionService currentSessionService;
+    private final PurchaseRequisitionAppService purchaseRequisitionAppService;
 
-    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService, TenantDataScopeService tenantDataScopeService, CurrentSessionService currentSessionService) {
+    public ProductionTaskAppService(JdbcTemplate jdbcTemplate, LookupService lookupService, ValidationService validationService, OperationLogService operationLogService, NumberingService numberingService, TenantDataScopeService tenantDataScopeService, CurrentSessionService currentSessionService, PurchaseRequisitionAppService purchaseRequisitionAppService) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
         this.validationService = validationService;
@@ -41,6 +46,7 @@ public class ProductionTaskAppService {
         this.numberingService = numberingService;
         this.tenantDataScopeService = tenantDataScopeService;
         this.currentSessionService = currentSessionService;
+        this.purchaseRequisitionAppService = purchaseRequisitionAppService;
     }
 
     @Transactional
@@ -118,6 +124,9 @@ public class ProductionTaskAppService {
                 ? nullableText(material.get("defaultWarehouseCode"))
                 : issueWarehouseCode;
             var childBom = lookupOptionalCurrentBom(line.childBomCode());
+            if (childBom.get("id") != null && !materialId.equals(String.valueOf(childBom.get("productId")))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "第 " + lineNo + " 行子件 BOM 的母件与子件物料不一致");
+            }
             jdbcTemplate.update("""
                 INSERT INTO prod_bom_line (
                     bom_id, line_no, material_id, qty, product_qty, material_qty, unit_qty,
@@ -504,13 +513,15 @@ public class ProductionTaskAppService {
         result.put("id", null);
         result.put("code", null);
         result.put("versionNo", null);
+        result.put("productId", null);
         if (normalized == null) {
             return result;
         }
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    code,
-                   version_no AS "versionNo"
+                   version_no AS "versionNo",
+                   product_id::text AS "productId"
             FROM prod_bom
             WHERE code = ?
               AND audit_status = 'AUDITED'
@@ -589,6 +600,8 @@ public class ProductionTaskAppService {
                    line.planned_qty AS qty,
                    to_char(line.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
                    COALESCE(line.in_progress_qty, 0) AS "inProgressQty",
+                   line.expand_multilevel_tasks AS "expandMultilevelTasks",
+                   line.generate_purchase_requisition AS "generatePurchaseRequisition",
                    COALESCE(task_qty.assigned_qty, 0) AS "assignedQty",
                    GREATEST(line.planned_qty - COALESCE(task_qty.assigned_qty, 0), 0) AS "remainingQty"
             FROM production_plan plan
@@ -601,6 +614,7 @@ public class ProductionTaskAppService {
                 FROM production_task
                 WHERE plan_line_id IS NOT NULL
                   AND status <> 'VOID'
+                  AND source_kind = 'PLAN_ROOT'
                 GROUP BY plan_line_id
             ) task_qty ON task_qty.plan_line_id = line.id
             WHERE plan.bill_no = ?
@@ -651,11 +665,24 @@ public class ProductionTaskAppService {
     @Transactional
     public Map<String, Object> pushDownPlan(String planNo) {
         var sources = resolveAvailablePlanSources(planNo);
+        var explosions = sources.stream().map(this::buildPlanExplosion).toList();
         var tasks = new ArrayList<Map<String, Object>>();
-        for (var source : sources) {
-            tasks.add(createTaskFromSource(null, source));
+        var taskIdsByPath = new LinkedHashMap<String, String>();
+        for (var explosion : explosions) {
+            persistExplosionTasks(explosion.root(), null, null, tasks, taskIdsByPath);
         }
-        var purchaseRequisitions = createPurchaseRequisitionsFromPlan(sources);
+        var purchaseLines = new ArrayList<GeneratedLine>();
+        for (var explosion : explosions) {
+            for (var demand : explosion.purchaseDemands()) {
+                purchaseLines.add(generatedPurchaseLine(demand, taskIdsByPath.get(taskPathKey(demand.planLineId(), demand.ownerTaskPath()))));
+            }
+        }
+        var purchaseRequisition = purchaseRequisitionAppService.createFromProductionPlan(
+            String.valueOf(sources.get(0).get("planId")),
+            String.valueOf(sources.get(0).get("planNo")),
+            purchaseLines
+        );
+        var purchaseRequisitions = purchaseRequisition.isEmpty() ? List.<Map<String, Object>>of() : List.of(purchaseRequisition);
         return Map.of(
             "planNo", planNo,
             "productionTasks", tasks,
@@ -665,14 +692,26 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> createTask(TaskRequest request) {
-        return createTaskFromSource(request.billNo(), resolveTaskSource(request));
+        var source = resolveTaskSource(request);
+        source.put("sourceKind", source.get("planId") == null ? "MANUAL" : "PLAN_ROOT");
+        source.put("sourceLevel", 0);
+        source.put("bomPath", source.get("planId") == null ? null : "ROOT");
+        return createTaskFromSource(request.billNo(), source);
     }
 
     private Map<String, Object> createTaskFromSource(String requestedBillNo, Map<String, Object> source) {
         var billNo = numberingService.assignBillNo("productionTask", requestedBillNo);
+        var sourceKind = String.valueOf(source.getOrDefault("sourceKind", source.get("planId") == null ? "MANUAL" : "PLAN_ROOT"));
+        var sourceLevel = source.get("sourceLevel") instanceof Number value ? value.intValue() : 0;
         var rows = jdbcTemplate.queryForList("""
-            INSERT INTO production_task (bill_no, plan_id, plan_line_id, bom_id, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, department_code, bom_code_snapshot, bom_version_no, qty, status)
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?)
+            INSERT INTO production_task (
+                bill_no, plan_id, plan_line_id, bom_id, product_id,
+                product_code_snapshot, product_name_snapshot, product_spec_snapshot,
+                warehouse_id, department_code, bom_code_snapshot, bom_version_no,
+                qty, status, source_kind, parent_task_id, root_task_id,
+                source_bom_line_id, source_level, bom_path
+            )
+            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET plan_id = EXCLUDED.plan_id,
                 plan_line_id = EXCLUDED.plan_line_id,
@@ -687,9 +726,16 @@ public class ProductionTaskAppService {
                 bom_version_no = EXCLUDED.bom_version_no,
                 qty = EXCLUDED.qty,
                 status = EXCLUDED.status,
+                source_kind = EXCLUDED.source_kind,
+                parent_task_id = EXCLUDED.parent_task_id,
+                root_task_id = EXCLUDED.root_task_id,
+                source_bom_line_id = EXCLUDED.source_bom_line_id,
+                source_level = EXCLUDED.source_level,
+                bom_path = EXCLUDED.bom_path,
                 updated_at = now()
             WHERE production_task.status = 'DRAFT'
-            RETURNING id::text AS id, bill_no AS "billNo", department_code AS "departmentCode", bom_code_snapshot AS "bomCode", bom_version_no AS "bomVersionNo", qty, status
+              AND production_task.source_kind <> 'BOM_CHILD'
+            RETURNING id::text AS id, bill_no AS "billNo", department_code AS "departmentCode", bom_code_snapshot AS "bomCode", bom_version_no AS "bomVersionNo", qty, status, source_kind AS "sourceKind", source_level AS "sourceLevel", bom_path AS "bomPath"
             """,
             billNo,
             source.get("planId"),
@@ -704,12 +750,22 @@ public class ProductionTaskAppService {
             source.get("bomCode"),
             source.get("bomVersionNo"),
             source.get("taskQty"),
-            BillStatus.DRAFT.name()
+            BillStatus.DRAFT.name(),
+            sourceKind,
+            source.get("parentTaskId"),
+            source.get("rootTaskId"),
+            source.get("sourceBomLineId"),
+            sourceLevel,
+            source.get("bomPath")
         );
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿生产任务单可以修改");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "只有普通草稿生产任务单可以修改，多层 BOM 子任务不可直接改写来源");
         }
         var taskId = String.valueOf(rows.get(0).get("id"));
+        var rootTaskId = source.get("rootTaskId") == null ? taskId : String.valueOf(source.get("rootTaskId"));
+        if (source.get("rootTaskId") == null) {
+            jdbcTemplate.update("UPDATE production_task SET root_task_id = ?::uuid WHERE id = ?::uuid", taskId, taskId);
+        }
         rebuildTaskMaterialSnapshot(taskId);
         operationLogService.logCurrent(OperationLogCommand.success(
             "PRODUCTION", "CREATE_TASK", "production_task",
@@ -718,6 +774,9 @@ public class ProductionTaskAppService {
         ));
         var result = new LinkedHashMap<String, Object>(rows.get(0));
         result.put("planLineNo", source.get("planLineNo"));
+        result.put("rootTaskId", rootTaskId);
+        result.put("parentTaskId", source.get("parentTaskId"));
+        result.put("sourceBomLineId", source.get("sourceBomLineId"));
         return result;
     }
 
@@ -727,6 +786,11 @@ public class ProductionTaskAppService {
                    t.bill_no AS "billNo",
                    COALESCE(pl.bill_no, '') AS "planNo",
                    plan_line.line_no AS "planLineNo",
+                   t.source_kind AS "sourceKind",
+                   t.source_level AS "sourceLevel",
+                   t.bom_path AS "bomPath",
+                   COALESCE(parent.bill_no, '') AS "parentTaskNo",
+                   COALESCE(root.bill_no, t.bill_no) AS "rootTaskNo",
                    to_char(t.created_at, 'YYYY-MM-DD') AS "billDate",
                    COALESCE(t.department_code, '生产部') AS department,
                    t.status,
@@ -735,6 +799,8 @@ public class ProductionTaskAppService {
             FROM production_task t
             LEFT JOIN production_plan pl ON pl.id = t.plan_id
             LEFT JOIN production_plan_line plan_line ON plan_line.id = t.plan_line_id
+            LEFT JOIN production_task parent ON parent.id = t.parent_task_id
+            LEFT JOIN production_task root ON root.id = t.root_task_id
             WHERE t.bill_no = ?
             """, validationService.required(taskNo, "生产任务单号"));
         if (taskRows.isEmpty()) {
@@ -776,10 +842,9 @@ public class ProductionTaskAppService {
                    0 AS "stockInTransit"
             FROM production_task_material_snapshot s
             JOIN md_product p ON p.id = s.product_id
-            LEFT JOIN prod_bom_line bom_line ON bom_line.id = s.source_bom_line_id
-            LEFT JOIN md_warehouse w ON w.id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+            LEFT JOIN md_warehouse w ON w.id = s.issue_warehouse_id
             LEFT JOIN inv_stock_balance stock ON stock.product_id = s.product_id
-                 AND stock.warehouse_id = COALESCE(bom_line.issue_warehouse_id, p.default_warehouse_id)
+                 AND stock.warehouse_id = s.issue_warehouse_id
                  AND stock.account_set_id = ?::uuid
             WHERE s.task_id = ?::uuid
             ORDER BY s.line_no
@@ -937,6 +1002,9 @@ public class ProductionTaskAppService {
 
     private List<Map<String, Object>> resolveAvailablePlanSources(String planNo) {
         var sources = queryPlanSources(planNo, null);
+        if (sources.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "生产计划不存在或未审核");
+        }
         var available = new ArrayList<Map<String, Object>>();
         for (var source : sources) {
             var remainingQty = (BigDecimal) source.get("availableQty");
@@ -1008,6 +1076,8 @@ public class ProductionTaskAppService {
                        COALESCE(line.bom_version_no, b.version_no) AS "bomVersionNo",
                        line.planned_qty AS "plannedQty",
                        line.plan_delivery_date AS "planDeliveryDateValue",
+                       line.expand_multilevel_tasks AS "expandMultilevelTasks",
+                       line.generate_purchase_requisition AS "generatePurchaseRequisition",
                        COALESCE(task_qty.assigned_qty, 0) AS "assignedQty",
                        GREATEST(line.planned_qty - COALESCE(task_qty.assigned_qty, 0), 0) AS "availableQty"
                 FROM production_plan_line line
@@ -1018,6 +1088,7 @@ public class ProductionTaskAppService {
                     FROM production_task
                     WHERE plan_line_id IS NOT NULL
                       AND status <> 'VOID'
+                      AND source_kind = 'PLAN_ROOT'
                       AND (?::text IS NULL OR bill_no <> ?::text)
                     GROUP BY plan_line_id
                 ) task_qty ON task_qty.plan_line_id = line.id
@@ -1042,6 +1113,8 @@ public class ProductionTaskAppService {
             source.put("bomVersionNo", plan.get("bomVersionNo"));
             source.put("plannedQty", plan.get("plannedQty"));
             source.put("planDeliveryDateValue", plan.get("planDeliveryDateValue"));
+            source.put("expandMultilevelTasks", plan.get("expandMultilevelTasks"));
+            source.put("generatePurchaseRequisition", plan.get("generatePurchaseRequisition"));
             source.put("assignedQty", plan.get("assignedQty"));
             source.put("availableQty", plan.get("availableQty"));
             sources.add(source);
@@ -1124,6 +1197,8 @@ public class ProductionTaskAppService {
             resolved.put("departmentCode", departmentCode);
             resolved.put("plannedQty", positive(line.qty(), "第 " + lineNo + " 行计划数量"));
             resolved.put("planDeliveryDate", deliveryDate);
+            resolved.put("expandMultilevelTasks", Boolean.TRUE.equals(line.expandMultilevelTasks()));
+            resolved.put("generatePurchaseRequisition", line.generatePurchaseRequisition() == null || Boolean.TRUE.equals(line.generatePurchaseRequisition()));
             resolvedLines.add(resolved);
             lineNo += 1;
         }
@@ -1186,9 +1261,9 @@ public class ProductionTaskAppService {
                     product_name_snapshot, product_spec_snapshot, product_unit_snapshot,
                     net_weight_snapshot, gross_weight_snapshot, warehouse_id,
                     department_code, bom_code_snapshot, bom_version_no, planned_qty,
-                    plan_delivery_date
+                    plan_delivery_date, expand_multilevel_tasks, generate_purchase_requisition
                 )
-                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?)
+                VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (plan_id, line_no) DO UPDATE
                 SET bom_id = EXCLUDED.bom_id,
                     product_id = EXCLUDED.product_id,
@@ -1204,6 +1279,8 @@ public class ProductionTaskAppService {
                     bom_version_no = EXCLUDED.bom_version_no,
                     planned_qty = EXCLUDED.planned_qty,
                     plan_delivery_date = EXCLUDED.plan_delivery_date,
+                    expand_multilevel_tasks = EXCLUDED.expand_multilevel_tasks,
+                    generate_purchase_requisition = EXCLUDED.generate_purchase_requisition,
                     updated_at = now()
                 """,
                 planId,
@@ -1221,7 +1298,9 @@ public class ProductionTaskAppService {
                 resolved.get("bomCode"),
                 resolved.get("bomVersionNo"),
                 resolved.get("plannedQty"),
-                resolved.get("planDeliveryDate")
+                resolved.get("planDeliveryDate"),
+                resolved.get("expandMultilevelTasks"),
+                resolved.get("generatePurchaseRequisition")
             );
         }
         jdbcTemplate.update("DELETE FROM production_plan_line WHERE plan_id = ?::uuid AND line_no >= ?", planId, lineNo);
@@ -1458,109 +1537,338 @@ public class ProductionTaskAppService {
         return text == null ? null : LocalDate.parse(text);
     }
 
-    private List<Map<String, Object>> createPurchaseRequisitionsFromPlan(List<Map<String, Object>> planSources) {
-        var sourceLines = new ArrayList<Map<String, Object>>();
-        for (var source : planSources) {
-            var taskQty = (BigDecimal) source.get("taskQty");
-            sourceLines.addAll(jdbcTemplate.queryForList("""
-                SELECT plan.id::text AS "planId",
-                       plan.bill_no AS "planNo",
-                       plan_line.id::text AS "planLineId",
-                       plan_line.line_no AS "planLineNo",
-                       to_char(plan_line.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate",
-                       COALESCE(plan_line.department_code, '') AS department,
-                       line.id::text AS "sourceBomLineId",
-                       line.line_no AS "sourceLineNo",
-                       material.id::text AS "productId",
-                       material.code AS "productCode",
-                       material.name AS "productName",
-                       COALESCE(material.spec, '') AS spec,
-                       COALESCE(material.unit, '') AS unit,
-                       material.net_weight AS "netWeight",
-                       material.gross_weight AS "grossWeight",
-                       material.default_supplier_id::text AS "supplierId",
-                       supplier.code AS "supplierCode",
-                       supplier.name AS "supplierName",
-                       material.default_warehouse_id::text AS "warehouseId",
-                       (COALESCE(line.unit_qty, line.qty) * ?)
-                           + COALESCE(line.fixed_loss_qty, 0)
-                           + ((COALESCE(line.unit_qty, line.qty) * ?) * COALESCE(line.loss_rate, 0) / 100) AS qty
-                FROM production_plan plan
-                JOIN production_plan_line plan_line ON plan_line.plan_id = plan.id
-                JOIN prod_bom_line line ON line.bom_id = plan_line.bom_id
-                JOIN md_product material ON material.id = line.material_id
-                LEFT JOIN md_supplier supplier ON supplier.id = material.default_supplier_id
-                WHERE plan_line.id = ?::uuid
-                  AND material.enabled = TRUE
-                  AND material.audit_status = 'AUDITED'
-                  AND material.is_purchase = TRUE
-                ORDER BY supplier.code NULLS LAST, line.line_no
-                """, taskQty, taskQty, source.get("planLineId")));
+    private static final int MAX_BOM_DEPTH = 20;
+    private static final int MAX_BOM_NODES = 500;
+
+    private PlanExplosion buildPlanExplosion(Map<String, Object> source) {
+        var rootSource = new LinkedHashMap<String, Object>(source);
+        rootSource.put("sourceKind", "PLAN_ROOT");
+        rootSource.put("sourceLevel", 0);
+        rootSource.put("bomPath", "ROOT");
+        rootSource.put("ownerTaskPath", "ROOT");
+        var root = new ExplosionTaskNode(rootSource, true);
+        var demands = new ArrayList<PurchaseDemand>();
+        var expandTasks = Boolean.TRUE.equals(source.get("expandMultilevelTasks"));
+        var generatePurchase = Boolean.TRUE.equals(source.get("generatePurchaseRequisition"));
+        if (!expandTasks && !generatePurchase) {
+            return new PlanExplosion(root, demands);
         }
-        if (sourceLines.stream().anyMatch(line -> line.get("supplierId") == null)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "可采购物料缺少默认供应商，无法自动生成采购申请");
+        var activeBomIds = new HashSet<String>();
+        var activeProductIds = new HashSet<String>();
+        activeBomIds.add(String.valueOf(source.get("bomId")));
+        activeProductIds.add(String.valueOf(source.get("productId")));
+        var nodeCounter = new int[] { 1 };
+        expandBomNode(root, expandTasks, generatePurchase, activeBomIds, activeProductIds, nodeCounter, demands);
+        return new PlanExplosion(root, demands);
+    }
+
+    private void expandBomNode(
+        ExplosionTaskNode node,
+        boolean expandTasks,
+        boolean generatePurchase,
+        Set<String> activeBomIds,
+        Set<String> activeProductIds,
+        int[] nodeCounter,
+        List<PurchaseDemand> demands
+    ) {
+        var level = ((Number) node.source.get("sourceLevel")).intValue();
+        if (level >= MAX_BOM_DEPTH) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "BOM 展开超过 " + MAX_BOM_DEPTH + " 层，请检查循环或异常层级");
         }
-        var bySupplier = new LinkedHashMap<String, List<Map<String, Object>>>();
-        for (var line : sourceLines) {
-            bySupplier.computeIfAbsent(String.valueOf(line.get("supplierId")), ignored -> new ArrayList<>()).add(line);
+        var bomLines = explosionBomLines(String.valueOf(node.source.get("bomId")));
+        if (bomLines.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "BOM " + node.source.get("bomCode") + " 没有有效分录，不能下推");
         }
-        var result = new ArrayList<Map<String, Object>>();
-        for (var entry : bySupplier.entrySet()) {
-            var lines = entry.getValue();
-            if (lines.isEmpty()) {
+        var parentQty = (BigDecimal) node.source.get("taskQty");
+        for (var line : bomLines) {
+            var materialCode = String.valueOf(line.get("productCode"));
+            if (!Boolean.TRUE.equals(line.get("productEnabled")) || !"AUDITED".equals(String.valueOf(line.get("productAuditStatus")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "BOM " + node.source.get("bomCode") + " 的子件 " + materialCode + " 未审核或已禁用");
+            }
+            var requiredQty = requiredBomLineQty(line, parentQty);
+            var isProduce = Boolean.TRUE.equals(line.get("isProduce"));
+            var isPurchase = Boolean.TRUE.equals(line.get("isPurchase"));
+            if (isProduce) {
+                var childBom = resolveExplosionChildBom(line);
+                var childBomId = String.valueOf(childBom.get("bomId"));
+                var childProductId = String.valueOf(line.get("productId"));
+                if (activeBomIds.contains(childBomId) || activeProductIds.contains(childProductId)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "BOM 存在循环引用：" + node.source.get("bomCode") + " -> " + childBom.get("bomCode"));
+                }
+                nodeCounter[0] += 1;
+                if (nodeCounter[0] > MAX_BOM_NODES) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "BOM 展开节点超过 " + MAX_BOM_NODES + " 个，请拆分或检查异常结构");
+                }
+                var childPath = String.valueOf(node.source.get("bomPath")) + "/" + line.get("lineNo");
+                var childSource = new LinkedHashMap<String, Object>();
+                childSource.put("planId", node.source.get("planId"));
+                childSource.put("planLineId", node.source.get("planLineId"));
+                childSource.put("planNo", node.source.get("planNo"));
+                childSource.put("planLineNo", node.source.get("planLineNo"));
+                childSource.put("bomId", childBom.get("bomId"));
+                childSource.put("productId", line.get("productId"));
+                childSource.put("productCode", line.get("productCode"));
+                childSource.put("productName", line.get("productName"));
+                childSource.put("spec", line.get("spec"));
+                childSource.put("warehouseId", line.get("completionWarehouseId"));
+                childSource.put("departmentCode", line.get("completionDepartmentCode"));
+                childSource.put("bomCode", childBom.get("bomCode"));
+                childSource.put("bomVersionNo", childBom.get("bomVersionNo"));
+                childSource.put("taskQty", requiredQty);
+                childSource.put("planDeliveryDateValue", node.source.get("planDeliveryDateValue"));
+                childSource.put("sourceKind", "BOM_CHILD");
+                childSource.put("sourceLevel", level + 1);
+                childSource.put("sourceBomLineId", line.get("sourceBomLineId"));
+                childSource.put("bomPath", childPath);
+                childSource.put("ownerTaskPath", expandTasks ? childPath : node.source.get("ownerTaskPath"));
+                if (expandTasks && (line.get("completionWarehouseId") == null || line.get("completionDepartmentCode") == null)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "自制子件 " + materialCode + " 缺少已审核启用的默认完工仓库或生产车间");
+                }
+                var childNode = new ExplosionTaskNode(childSource, expandTasks);
+                node.children.add(childNode);
+                activeBomIds.add(childBomId);
+                activeProductIds.add(childProductId);
+                try {
+                    expandBomNode(childNode, expandTasks, generatePurchase, activeBomIds, activeProductIds, nodeCounter, demands);
+                } finally {
+                    activeBomIds.remove(childBomId);
+                    activeProductIds.remove(childProductId);
+                }
                 continue;
             }
-            var first = lines.get(0);
-            var billNo = numberingService.nextBillNo("purchaseRequisition");
-            var header = jdbcTemplate.queryForMap("""
-                INSERT INTO purchase_requisition (bill_no, source_plan_id, source_plan_no, supplier_id, supplier_code_snapshot, supplier_name_snapshot, bill_date, department, status, owner_name)
-                VALUES (?, ?::uuid, ?, ?::uuid, ?, ?, CURRENT_DATE, ?, ?, ?)
-                RETURNING id::text AS id, bill_no AS "billNo", supplier_code_snapshot AS "supplierCode", supplier_name_snapshot AS supplier, status
-                """,
-                billNo,
-                first.get("planId"),
-                first.get("planNo"),
-                first.get("supplierId"),
-                first.get("supplierCode"),
-                first.get("supplierName"),
-                first.get("department"),
-                BillStatus.AUDITED.name(),
-                "系统生成"
-            );
-            var lineNo = 1;
-            for (var line : lines) {
-                jdbcTemplate.update("""
-                    INSERT INTO purchase_requisition_line (requisition_id, line_no, source_plan_id, source_plan_line_id, source_plan_no, source_bom_line_id, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot, net_weight_snapshot, gross_weight_snapshot, warehouse_id, qty, plan_delivery_date)
-                    VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?::date)
-                    """,
-                    header.get("id"),
-                    lineNo,
-                    line.get("planId"),
-                    line.get("planLineId"),
-                    line.get("planNo"),
-                    line.get("sourceBomLineId"),
-                    line.get("productId"),
-                    line.get("productCode"),
-                    line.get("productName"),
-                    line.get("spec"),
-                    line.get("unit"),
-                    line.get("netWeight"),
-                    line.get("grossWeight"),
-                    line.get("warehouseId"),
-                    line.get("qty"),
-                    line.get("planDeliveryDate")
-                );
-                lineNo += 1;
+            if (!generatePurchase) {
+                continue;
             }
-            result.add(header);
+            if (!isPurchase) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "非自制子件 " + materialCode + " 未启用可采购，无法形成采购申请");
+            }
+            demands.add(new PurchaseDemand(
+                String.valueOf(node.source.get("planId")),
+                String.valueOf(node.source.get("planLineId")),
+                ((Number) node.source.get("planLineNo")).intValue(),
+                String.valueOf(node.source.get("ownerTaskPath")),
+                level + 1,
+                String.valueOf(line.get("sourceBomLineId")),
+                String.valueOf(node.source.get("bomCode")),
+                ((Number) node.source.get("bomVersionNo")).intValue(),
+                ((Number) line.get("lineNo")).intValue(),
+                String.valueOf(node.source.get("bomPath")) + "/L" + line.get("lineNo"),
+                String.valueOf(line.get("productId")),
+                materialCode,
+                String.valueOf(line.get("productName")),
+                String.valueOf(line.get("spec")),
+                String.valueOf(line.get("unit")),
+                (BigDecimal) line.get("netWeight"),
+                (BigDecimal) line.get("grossWeight"),
+                nullableText(line.get("defaultWarehouseId")),
+                nullableText(line.get("supplierId")),
+                nullableText(line.get("supplierCode")),
+                nullableText(line.get("supplierName")),
+                requiredQty,
+                dateValue(node.source.get("planDeliveryDateValue")),
+                nullableText(node.source.get("departmentCode"))
+            ));
         }
-        return result;
+    }
+
+    private List<Map<String, Object>> explosionBomLines(String bomId) {
+        return jdbcTemplate.queryForList("""
+            SELECT line.id::text AS "sourceBomLineId",
+                   line.line_no AS "lineNo",
+                   COALESCE(line.unit_qty, line.qty) AS "unitQty",
+                   COALESCE(line.fixed_loss_qty, 0) AS "fixedLossQty",
+                   COALESCE(line.loss_rate, 0) AS "lossRate",
+                   material.id::text AS "productId",
+                   material.code AS "productCode",
+                   material.name AS "productName",
+                   COALESCE(material.spec, '') AS spec,
+                   COALESCE(material.unit, '') AS unit,
+                   material.net_weight AS "netWeight",
+                   material.gross_weight AS "grossWeight",
+                   material.enabled AS "productEnabled",
+                   material.audit_status AS "productAuditStatus",
+                   material.is_produce AS "isProduce",
+                   material.is_purchase AS "isPurchase",
+                   material.default_warehouse_id::text AS "defaultWarehouseId",
+                   completion_warehouse.id::text AS "completionWarehouseId",
+                   completion_department.code AS "completionDepartmentCode",
+                   supplier.id::text AS "supplierId",
+                   supplier.code AS "supplierCode",
+                   supplier.name AS "supplierName",
+                   line.child_bom_id::text AS "childBomId"
+            FROM prod_bom_line line
+            JOIN md_product material ON material.id = line.material_id
+            LEFT JOIN md_warehouse completion_warehouse
+              ON completion_warehouse.id = material.default_warehouse_id
+             AND completion_warehouse.enabled = TRUE
+             AND completion_warehouse.audit_status = 'AUDITED'
+            LEFT JOIN md_production_department completion_department
+              ON completion_department.id = material.default_workshop_id
+             AND completion_department.enabled = TRUE
+             AND completion_department.audit_status = 'AUDITED'
+            LEFT JOIN md_supplier supplier
+              ON supplier.id = material.default_supplier_id
+             AND supplier.enabled = TRUE
+             AND supplier.audit_status = 'AUDITED'
+            WHERE line.bom_id = ?::uuid
+            ORDER BY line.line_no
+            """, bomId);
+    }
+
+    private Map<String, Object> resolveExplosionChildBom(Map<String, Object> line) {
+        var childBomId = nullableText(line.get("childBomId"));
+        var rows = childBomId == null
+            ? jdbcTemplate.queryForList("""
+                SELECT id::text AS "bomId", code AS "bomCode", version_no AS "bomVersionNo", product_id::text AS "productId"
+                FROM prod_bom
+                WHERE product_id = ?::uuid
+                  AND audit_status = 'AUDITED'
+                  AND enabled = TRUE
+                  AND is_current = TRUE
+                FOR SHARE
+                """, line.get("productId"))
+            : jdbcTemplate.queryForList("""
+                SELECT id::text AS "bomId", code AS "bomCode", version_no AS "bomVersionNo", product_id::text AS "productId"
+                FROM prod_bom
+                WHERE id = ?::uuid
+                  AND audit_status = 'AUDITED'
+                FOR SHARE
+                """, childBomId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "自制子件 " + line.get("productCode") + " 缺少可用子 BOM");
+        }
+        var childBom = rows.get(0);
+        if (!String.valueOf(line.get("productId")).equals(String.valueOf(childBom.get("productId")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "自制子件 " + line.get("productCode") + " 关联的子 BOM 母件不一致");
+        }
+        return childBom;
+    }
+
+    private BigDecimal requiredBomLineQty(Map<String, Object> line, BigDecimal parentQty) {
+        var unitQty = (BigDecimal) line.get("unitQty");
+        var fixedLoss = (BigDecimal) line.get("fixedLossQty");
+        var lossRate = (BigDecimal) line.get("lossRate");
+        var base = unitQty.multiply(parentQty);
+        return base.add(fixedLoss).add(base.multiply(lossRate).divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP));
+    }
+
+    private void persistExplosionTasks(
+        ExplosionTaskNode node,
+        String parentTaskId,
+        String rootTaskId,
+        List<Map<String, Object>> tasks,
+        Map<String, String> taskIdsByPath
+    ) {
+        if (!node.persist) {
+            return;
+        }
+        node.source.put("parentTaskId", parentTaskId);
+        node.source.put("rootTaskId", rootTaskId);
+        var task = createTaskFromSource(null, node.source);
+        var taskId = String.valueOf(task.get("id"));
+        var actualRootTaskId = rootTaskId == null ? taskId : rootTaskId;
+        taskIdsByPath.put(taskPathKey(String.valueOf(node.source.get("planLineId")), String.valueOf(node.source.get("bomPath"))), taskId);
+        tasks.add(task);
+        for (var child : node.children) {
+            persistExplosionTasks(child, taskId, actualRootTaskId, tasks, taskIdsByPath);
+        }
+    }
+
+    private GeneratedLine generatedPurchaseLine(PurchaseDemand demand, String sourceTaskId) {
+        return new GeneratedLine(
+            demand.planLineId(),
+            demand.planLineNo(),
+            sourceTaskId,
+            demand.sourceLevel(),
+            demand.sourceBomLineId(),
+            demand.sourceBomCode(),
+            demand.sourceBomVersionNo(),
+            demand.sourceBomLineNo(),
+            demand.sourceBomPath(),
+            demand.productId(),
+            demand.productCode(),
+            demand.productName(),
+            demand.productSpec(),
+            demand.productUnit(),
+            demand.netWeight(),
+            demand.grossWeight(),
+            demand.warehouseId(),
+            demand.supplierId(),
+            demand.supplierCode(),
+            demand.supplierName(),
+            demand.qty(),
+            demand.planDeliveryDate(),
+            demand.department()
+        );
+    }
+
+    private String taskPathKey(String planLineId, String bomPath) {
+        return planLineId + "\u0000" + bomPath;
+    }
+
+    private LocalDate dateValue(Object value) {
+        if (value instanceof LocalDate date) {
+            return date;
+        }
+        if (value instanceof java.sql.Date date) {
+            return date.toLocalDate();
+        }
+        var text = nullableText(value);
+        return text == null ? null : LocalDate.parse(text);
+    }
+
+    private record PlanExplosion(ExplosionTaskNode root, List<PurchaseDemand> purchaseDemands) {
+    }
+
+    private static final class ExplosionTaskNode {
+        private final Map<String, Object> source;
+        private final boolean persist;
+        private final List<ExplosionTaskNode> children = new ArrayList<>();
+
+        private ExplosionTaskNode(Map<String, Object> source, boolean persist) {
+            this.source = source;
+            this.persist = persist;
+        }
+    }
+
+    private record PurchaseDemand(
+        String planId,
+        String planLineId,
+        int planLineNo,
+        String ownerTaskPath,
+        int sourceLevel,
+        String sourceBomLineId,
+        String sourceBomCode,
+        int sourceBomVersionNo,
+        int sourceBomLineNo,
+        String sourceBomPath,
+        String productId,
+        String productCode,
+        String productName,
+        String productSpec,
+        String productUnit,
+        BigDecimal netWeight,
+        BigDecimal grossWeight,
+        String warehouseId,
+        String supplierId,
+        String supplierCode,
+        String supplierName,
+        BigDecimal qty,
+        LocalDate planDeliveryDate,
+        String department
+    ) {
     }
 
     private void rebuildTaskMaterialSnapshot(String taskId) {
         jdbcTemplate.update("DELETE FROM production_task_material_snapshot WHERE task_id = ?::uuid", taskId);
         jdbcTemplate.update("""
-            INSERT INTO production_task_material_snapshot (task_id, line_no, source_bom_line_id, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, product_unit_snapshot, net_weight_snapshot, gross_weight_snapshot, bom_code_snapshot, bom_version_no, unit_qty, required_qty)
+            INSERT INTO production_task_material_snapshot (
+                task_id, line_no, source_bom_line_id, product_id,
+                product_code_snapshot, product_name_snapshot, product_spec_snapshot,
+                product_unit_snapshot, net_weight_snapshot, gross_weight_snapshot,
+                bom_code_snapshot, bom_version_no, unit_qty, required_qty,
+                issue_warehouse_id, issue_warehouse_code_snapshot, issue_method_snapshot
+            )
             SELECT t.id,
                    l.line_no,
                    l.id,
@@ -1576,10 +1884,14 @@ public class ProductionTaskAppService {
                    COALESCE(l.unit_qty, l.qty),
                    (COALESCE(l.unit_qty, l.qty) * t.qty)
                        + COALESCE(l.fixed_loss_qty, 0)
-                       + ((COALESCE(l.unit_qty, l.qty) * t.qty) * COALESCE(l.loss_rate, 0) / 100)
+                       + ((COALESCE(l.unit_qty, l.qty) * t.qty) * COALESCE(l.loss_rate, 0) / 100),
+                   COALESCE(l.issue_warehouse_id, p.default_warehouse_id),
+                   COALESCE(l.issue_warehouse_code, warehouse.code),
+                   COALESCE(l.issue_method, '按单领料')
             FROM production_task t
             JOIN prod_bom_line l ON l.bom_id = t.bom_id
             JOIN md_product p ON p.id = l.material_id
+            LEFT JOIN md_warehouse warehouse ON warehouse.id = COALESCE(l.issue_warehouse_id, p.default_warehouse_id)
             WHERE t.id = ?::uuid
             ORDER BY l.line_no
             """, taskId);
@@ -1659,8 +1971,22 @@ public class ProductionTaskAppService {
         String warehouseCode,
         BigDecimal qty,
         String departmentCode,
-        String planDeliveryDate
+        String planDeliveryDate,
+        Boolean expandMultilevelTasks,
+        Boolean generatePurchaseRequisition
     ) {
+        public PlanLineRequest(
+            String productId,
+            String productCode,
+            String bomCode,
+            String warehouseCode,
+            BigDecimal qty,
+            String departmentCode,
+            String planDeliveryDate
+        ) {
+            this(productId, productCode, bomCode, warehouseCode, qty, departmentCode, planDeliveryDate, null, null);
+        }
+
         public PlanLineRequest(
             String productCode,
             String bomCode,
@@ -1669,7 +1995,7 @@ public class ProductionTaskAppService {
             String departmentCode,
             String planDeliveryDate
         ) {
-            this(null, productCode, bomCode, warehouseCode, qty, departmentCode, planDeliveryDate);
+            this(null, productCode, bomCode, warehouseCode, qty, departmentCode, planDeliveryDate, null, null);
         }
     }
 

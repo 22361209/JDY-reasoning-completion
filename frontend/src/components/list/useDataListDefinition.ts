@@ -134,22 +134,35 @@ const rawDefinitions: Record<string, RawListDefinition> = {
   },
   "purchase-requisition-list": {
     title: "采购申请单列表",
-    subtitle: "采购申请由生产计划下推生成，按供应商汇总待转采购订单数量。",
-    keywordPlaceholder: "申请单号、生产计划、供应商、物料",
-    statuses: ["已审核", "已关闭"],
+    subtitle: "采购申请由生产计划下推生成，可逐行维护数量和供应商，再按供应商下推采购计划。",
+    keywordPlaceholder: "申请单号、生产计划、供应商",
+    statuses: ["草稿", "已审核"],
     columns: [
       { field: "billNo", title: "申请单号", width: 150, fixed: "left", visible: true },
       { field: "sourcePlanNo", title: "来源计划", width: 160, visible: true },
+      { field: "billDate", title: "单据日期", width: 130, visible: true },
+      { field: "lineCount", title: "分录数", width: 90, align: "right", visible: true },
+      { field: "supplierCount", title: "供应商数", width: 100, align: "right", visible: true },
+      { field: "missingSupplierCount", title: "缺供应商行", width: 110, align: "right", visible: true },
+      { field: "totalQty", title: "申请数量", width: 110, align: "right", visible: true },
+      { field: "plannedQty", title: "已计划数量", width: 120, align: "right", visible: true },
+      { field: "remainingQty", title: "待计划数量", width: 120, align: "right", visible: true },
+      { field: "status", title: "状态", width: 100, visible: true }
+    ]
+  },
+  "purchase-plan-list": {
+    title: "采购计划单列表",
+    subtitle: "采购计划由已审核采购申请按供应商分组生成。",
+    keywordPlaceholder: "计划单号、采购申请、供应商",
+    statuses: ["草稿", "已审核"],
+    columns: [
+      { field: "billNo", title: "计划单号", width: 150, fixed: "left", visible: true },
+      { field: "sourceRequisitionNo", title: "来源采购申请", width: 170, visible: true },
       { field: "supplierCode", title: "供应商编码", width: 130, visible: true },
       { field: "supplier", title: "供应商名称", width: 220, visible: true },
       { field: "billDate", title: "单据日期", width: 130, visible: true },
-      { field: "productCode", title: "物料编码", width: 140, visible: true },
-      { field: "productName", title: "物料名称", width: 180, visible: true },
-      { field: "unit", title: "单位", width: 80, visible: true },
-      { field: "qty", title: "申请数量", width: 110, align: "right", visible: true },
-      { field: "orderedQty", title: "已转订单数量", width: 130, align: "right", visible: true },
-      { field: "remainingQty", title: "未转订单数量", width: 130, align: "right", visible: true },
-      { field: "planDeliveryDate", title: "交期", width: 130, visible: true },
+      { field: "lineCount", title: "分录数", width: 90, align: "right", visible: true },
+      { field: "totalQty", title: "计划数量", width: 110, align: "right", visible: true },
       { field: "status", title: "状态", width: 100, visible: true }
     ]
   },
@@ -466,6 +479,9 @@ const rawDefinitions: Record<string, RawListDefinition> = {
     columns: [
       { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
       { field: "planNo", title: "来源计划", width: 160, visible: true },
+      { field: "sourceKindLabel", title: "任务来源", width: 110, visible: true },
+      { field: "sourceLevel", title: "BOM层级", width: 90, align: "right", visible: true },
+      { field: "parentTaskNo", title: "上级任务", width: 160, visible: true },
       { field: "bomCode", title: "BOM", width: 120, visible: true },
       { field: "productCode", title: "物料编码", width: 130, visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },
@@ -811,6 +827,9 @@ const rawDefinitions: Record<string, RawListDefinition> = {
     columns: [
       { field: "billNo", title: "任务单号", width: 160, fixed: "left", visible: true },
       { field: "planNo", title: "来源计划", width: 160, visible: true },
+      { field: "sourceKindLabel", title: "任务来源", width: 110, visible: true },
+      { field: "sourceLevel", title: "BOM层级", width: 90, align: "right", visible: true },
+      { field: "parentTaskNo", title: "上级任务", width: 160, visible: true },
       { field: "bomCode", title: "BOM", width: 120, visible: true },
       { field: "productCode", title: "物料编码", width: 130, visible: true },
       { field: "productName", title: "物料名称", width: 180, visible: true },

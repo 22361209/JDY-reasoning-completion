@@ -63,8 +63,8 @@ function methodBody(text, signature) {
 assert(count(source.catalog, /id:\s*["']numbering-rule-settings["']/g) === 1, "numbering-rule-settings must remain the only catalog owner");
 assert(!source.catalog.includes("id: \"numbering-rule-list\""), "retired unknown numbering list must not return");
 
-assert(count(source.service, /new NumberingRule\(/g) === 28, "backend registry must contain exactly 28 formal document types");
-assert(source.service.includes("registry.size() != 28"), "backend registry must fail closed on count drift");
+assert(count(source.service, /new NumberingRule\(/g) === 29, "backend registry must contain exactly 29 formal document types");
+assert(source.service.includes("registry.size() != 29"), "backend registry must fail closed on count drift");
 assert(!/synchronized\s+String\s+nextBillNo/.test(source.service), "single-JVM synchronized numbering guard must be removed");
 assert(count(source.service, /public Map<String, Object> saveRule\(/g) === 1, "NumberingService must expose only the versioned saveRule API");
 assert(source.tenantIsolationTest.includes('JSON.textNode("0")'), "tenant numbering isolation must call the versioned saveRule API");
