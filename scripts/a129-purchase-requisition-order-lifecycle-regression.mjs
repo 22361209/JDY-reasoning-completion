@@ -6,7 +6,7 @@ import { installApiSession } from "./helpers/regression-auth.mjs";
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a129-purchase-requisition-order-lifecycle-regression.json");
-const apiBase = "http://127.0.0.1:8080";
+const apiBase = process.env.JDY_API_BASE || "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-07-05";
 const requisitionNo = `CGSQ-A129-${batch}`;

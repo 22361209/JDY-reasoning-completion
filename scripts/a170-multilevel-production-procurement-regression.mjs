@@ -19,13 +19,22 @@ const rootProduct = `A170-FG-ROOT-${batch}`;
 const midProduct = `A170-SA-MID-${batch}`;
 const purchaseOnlyRoot = `A170-FG-PUR-${batch}`;
 const taskOnlyRoot = `A170-FG-TASK-${batch}`;
+const warehouseRoot = `A170-FG-WH-${batch}`;
+const staleRoot = `A170-FG-STALE-${batch}`;
+const staleMid = `A170-SA-STALE-${batch}`;
 const materialA = `A170-RM-A-${batch}`;
 const materialB = `A170-RM-B-${batch}`;
 const materialC = `A170-RM-C-${batch}`;
+const warehouseMaterial = `A170-RM-WH-${batch}`;
+const staleMaterial = `A170-RM-STALE-${batch}`;
 const rootBom = `BOM-A170-ROOT-${batch}`;
 const midBom = `BOM-A170-MID-${batch}`;
 const purchaseOnlyBom = `BOM-A170-PUR-${batch}`;
 const taskOnlyBom = `BOM-A170-TASK-${batch}`;
+const warehouseBom = `BOM-A170-WH-${batch}`;
+const staleRootBom = `BOM-A170-STALE-ROOT-${batch}`;
+const staleMidBomV1 = `BOM-A170-STALE-MID-V1-${batch}`;
+const staleMidBomV2 = `BOM-A170-STALE-MID-V2-${batch}`;
 
 function assert(condition, message, details = undefined) {
   if (!condition) {
@@ -125,6 +134,23 @@ const taskOnlyRow = await upsertProduct(taskOnlyRoot, {
   name: "A170仅根任务总成",
   spec: "A170 / 仅根任务"
 });
+const warehouseRootRow = await upsertProduct(warehouseRoot, {
+  ...commonFinishedProduct,
+  name: "A170仓库覆盖总成",
+  spec: "A170 / 仓库覆盖"
+});
+const staleRootRow = await upsertProduct(staleRoot, {
+  ...commonFinishedProduct,
+  name: "A170失效子BOM总成",
+  spec: "A170 / 失效子 BOM"
+});
+await upsertProduct(staleMid, {
+  ...commonFinishedProduct,
+  name: "A170失效子BOM中间件",
+  spec: "A170 / 失效中间件",
+  defaultWarehouseCode: "CK-003",
+  defaultWorkshop: "CY"
+});
 
 await upsertProduct(materialA, {
   name: "A170默认供应商一零件",
@@ -168,6 +194,34 @@ await upsertProduct(materialC, {
   taxRate: "13",
   status: "启用"
 });
+await upsertProduct(warehouseMaterial, {
+  name: "A170仓库覆盖零件",
+  category: "零配件",
+  unit: "件",
+  spec: "A170 / 仓库覆盖",
+  defaultWarehouseCode: "CK-001",
+  defaultSupplierCode: "GYS-001",
+  isPurchase: "true",
+  isInventory: "true",
+  isProduce: "false",
+  purchasePrice: "5.50",
+  taxRate: "13",
+  status: "启用"
+});
+await upsertProduct(staleMaterial, {
+  name: "A170失效子BOM零件",
+  category: "零配件",
+  unit: "件",
+  spec: "A170 / 失效子 BOM",
+  defaultWarehouseCode: "CK-001",
+  defaultSupplierCode: "GYS-001",
+  isPurchase: "true",
+  isInventory: "true",
+  isProduce: "false",
+  purchasePrice: "6.50",
+  taxRate: "13",
+  status: "启用"
+});
 
 await saveAndAuditBom(midBom, midProduct, [
   { materialCode: materialA, qty: 2, issueWarehouseCode: "CK-001" },
@@ -181,6 +235,18 @@ await saveAndAuditBom(purchaseOnlyBom, purchaseOnlyRoot, [
 ]);
 await saveAndAuditBom(taskOnlyBom, taskOnlyRoot, [
   { materialCode: materialC, qty: 1, issueWarehouseCode: "CK-002" }
+]);
+await saveAndAuditBom(warehouseBom, warehouseRoot, [
+  { materialCode: warehouseMaterial, qty: 1, issueWarehouseCode: "CK-004" }
+]);
+await saveAndAuditBom(staleMidBomV1, staleMid, [
+  { materialCode: staleMaterial, qty: 1, issueWarehouseCode: "CK-001" }
+]);
+await saveAndAuditBom(staleRootBom, staleRoot, [
+  { materialCode: staleMid, qty: 1, childBomCode: staleMidBomV1, issueWarehouseCode: "CK-003" }
+]);
+await saveAndAuditBom(staleMidBomV2, staleMid, [
+  { materialCode: staleMaterial, qty: 2, issueWarehouseCode: "CK-001" }
 ]);
 
 const plan = await requireJson("/api/production/plans", {
@@ -291,31 +357,106 @@ requisition = await requireJson("/api/purchase-requisitions/draft", {
 });
 assert(requisition.lines.find((line) => line.productCode === materialB)?.supplierCode === "GYS-002", "reversed draft must accept a replacement supplier", requisition.lines);
 await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/audit`, { method: "POST" });
-const planned = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/push-down`, { method: "POST" });
+let planned = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/push-down`, { method: "POST" });
 assert(planned.purchasePlans?.length === 2, "two line suppliers must generate two purchase plans", planned.purchasePlans);
 
-const purchasePlanDetails = await Promise.all(planned.purchasePlans.map((planRow) => (
+let purchasePlanDetails = await Promise.all(planned.purchasePlans.map((planRow) => (
   requireJson(`/api/purchase-plans/${encodeURIComponent(planRow.billNo)}`)
 )));
-const supplierOnePlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-001");
-const supplierTwoPlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-002");
+let supplierOnePlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-001");
+let supplierTwoPlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-002");
 assert(supplierOnePlan?.document.status === "DRAFT" && numberOf(supplierOnePlan.document.totalQty) === 15, "supplier one plan must be a 15-unit draft", supplierOnePlan);
 assert(supplierTwoPlan?.document.status === "DRAFT" && numberOf(supplierTwoPlan.document.totalQty) === 24, "supplier two plan must be a 24-unit draft", supplierTwoPlan);
+
+const selectableDraftSupplierOne = await requireJson(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent("GYS-001")}`);
+const selectableDraftSupplierTwo = await requireJson(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent("GYS-002")}`);
+assert((selectableDraftSupplierOne.lines || []).some((line) => line.billNo === requisitionNo && numberOf(line.remainingQty) === 15), "draft plan must not occupy supplier-one requisition quantity", selectableDraftSupplierOne.lines);
+assert((selectableDraftSupplierTwo.lines || []).some((line) => line.billNo === requisitionNo && numberOf(line.remainingQty) === 24), "draft plan must not occupy supplier-two requisition quantity", selectableDraftSupplierTwo.lines);
+
+const draftPlanNo = supplierOnePlan.document.billNo;
+const reversedDraftRequisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/reverse`, { method: "POST" });
+assert(reversedDraftRequisition.document.status === "DRAFT", "draft purchase plans must not block requisition reverse", reversedDraftRequisition.document);
+const removedDraftPlan = await request(`/api/purchase-plans/${encodeURIComponent(draftPlanNo)}`);
+assert(removedDraftPlan.response.status === 404, "reversing a requisition must discard its linked draft plans", removedDraftPlan.data);
+await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/audit`, { method: "POST" });
+planned = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/push-down`, { method: "POST" });
+assert(planned.purchasePlans?.length === 2, "re-audited requisition must regenerate supplier-grouped draft plans", planned.purchasePlans);
+purchasePlanDetails = await Promise.all(planned.purchasePlans.map((planRow) => (
+  requireJson(`/api/purchase-plans/${encodeURIComponent(planRow.billNo)}`)
+)));
+supplierOnePlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-001");
+supplierTwoPlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-002");
 
 const planOneNo = supplierOnePlan.document.billNo;
 const auditedPlan = await requireJson(`/api/purchase-plans/${encodeURIComponent(planOneNo)}/audit`, { method: "POST" });
 assert(auditedPlan.document.status === "AUDITED", "purchase plan must support audit", auditedPlan.document);
+const occupiedRequisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}`);
+assert(numberOf(occupiedRequisition.lines.find((line) => line.productCode === materialA)?.plannedQty) === 15, "audited purchase plan must occupy its requisition line", occupiedRequisition.lines);
+const selectableAuditedSupplierOne = await requireJson(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent("GYS-001")}`);
+const selectableAuditedSupplierTwo = await requireJson(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent("GYS-002")}`);
+assert(!(selectableAuditedSupplierOne.lines || []).some((line) => line.billNo === requisitionNo), "audited purchase plan must block its requisition line from direct purchase order selection", selectableAuditedSupplierOne.lines);
+assert((selectableAuditedSupplierTwo.lines || []).some((line) => line.billNo === requisitionNo && numberOf(line.remainingQty) === 24), "other draft plans must remain non-occupying", selectableAuditedSupplierTwo.lines);
+const blockedRequisitionReverse = await request(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/reverse`, { method: "POST" });
+assert(blockedRequisitionReverse.response.status === 409, "audited purchase plan must block requisition reverse", blockedRequisitionReverse.data);
 const reversedPlan = await requireJson(`/api/purchase-plans/${encodeURIComponent(planOneNo)}/reverse`, { method: "POST" });
 assert(reversedPlan.document.status === "DRAFT", "purchase plan must support reverse audit", reversedPlan.document);
+const releasedRequisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}`);
+assert(numberOf(releasedRequisition.lines.find((line) => line.productCode === materialA)?.plannedQty) === 0, "reversed purchase plan must release its requisition line", releasedRequisition.lines);
+const selectableReversedSupplierOne = await requireJson(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent("GYS-001")}`);
+assert((selectableReversedSupplierOne.lines || []).some((line) => line.billNo === requisitionNo && numberOf(line.remainingQty) === 15), "reversed purchase plan must restore direct purchase order selection", selectableReversedSupplierOne.lines);
 
 const requisitionRows = await listRows("purchase-requisition-list", requisitionNo);
 assert(requisitionRows.length === 1 && numberOf(requisitionRows[0].lineCount) === 2, "requisition list must show one header row and current line count", requisitionRows);
 const purchasePlanRows = await listRows("purchase-plan-list", requisitionNo);
 assert(purchasePlanRows.length === 2, "purchase plan list must show both supplier-grouped plans", purchasePlanRows);
-for (const supplierCode of ["GYS-001", "GYS-002"]) {
-  const directOrderLines = await requireJson(`/api/purchase-orders/selectable-requisition-lines?supplierCode=${encodeURIComponent(supplierCode)}`);
-  assert(!(directOrderLines.lines || []).some((line) => line.billNo === requisitionNo), "planned requisition lines must not be selectable directly for purchase order", { supplierCode, lines: directOrderLines.lines });
-}
+const finalReversedRequisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}/reverse`, { method: "POST" });
+assert(finalReversedRequisition.document.status === "DRAFT", "reversed purchase plans must leave the requisition reversible", finalReversedRequisition.document);
+
+const warehouseOverridePlan = await requireJson("/api/production/plans", {
+  method: "POST",
+  body: {
+    sourceType: "SELF",
+    lines: [{
+      productId: warehouseRootRow.id,
+      productCode: warehouseRoot,
+      bomCode: warehouseBom,
+      warehouseCode: "CK-002",
+      departmentCode: "HJ",
+      qty: 3,
+      planDeliveryDate: billDate,
+      expandMultilevelTasks: false,
+      generatePurchaseRequisition: true
+    }]
+  }
+});
+await requireJson(`/api/production/plans/${encodeURIComponent(warehouseOverridePlan.billNo)}/audit`, { method: "POST" });
+const warehouseOverridePush = await requireJson(`/api/production/plans/${encodeURIComponent(warehouseOverridePlan.billNo)}/push-down`, { method: "POST" });
+assert(warehouseOverridePush.purchaseRequisitions?.length === 1, "warehouse override plan must create one requisition", warehouseOverridePush);
+const warehouseOverrideRequisition = await requireJson(`/api/purchase-requisitions/${encodeURIComponent(warehouseOverridePush.purchaseRequisitions[0].billNo)}`);
+const warehouseOverrideLine = warehouseOverrideRequisition.lines.find((line) => line.productCode === warehouseMaterial);
+assert(warehouseOverrideLine?.warehouseCode === "CK-004", "purchase demand must inherit the BOM issue warehouse instead of the material default warehouse", warehouseOverrideLine);
+
+const staleChildPlan = await requireJson("/api/production/plans", {
+  method: "POST",
+  body: {
+    sourceType: "SELF",
+    lines: [{
+      productId: staleRootRow.id,
+      productCode: staleRoot,
+      bomCode: staleRootBom,
+      warehouseCode: "CK-002",
+      departmentCode: "HJ",
+      qty: 1,
+      planDeliveryDate: billDate,
+      expandMultilevelTasks: true,
+      generatePurchaseRequisition: false
+    }]
+  }
+});
+await requireJson(`/api/production/plans/${encodeURIComponent(staleChildPlan.billNo)}/audit`, { method: "POST" });
+const staleChildPush = await request(`/api/production/plans/${encodeURIComponent(staleChildPlan.billNo)}/push-down`, { method: "POST" });
+assert(staleChildPush.response.status === 409, "superseded explicit child BOM must block multilevel pushdown", staleChildPush.data);
+assert(String(staleChildPush.data.reason || staleChildPush.data.message || staleChildPush.text).includes("缺少可用子 BOM"), "stale child BOM failure must identify unavailable child BOM", staleChildPush.data);
 
 const warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
 const denied = await request(`/api/purchase-requisitions/${encodeURIComponent(requisitionNo)}`, {
@@ -339,7 +480,10 @@ const result = {
     removeLineAndEditQty: true,
     missingSupplierBlocked: true,
     supplierGroupedPlans: true,
-    plannedLinesExcludedFromDirectOrder: true,
+    draftPlanDoesNotOccupy: true,
+    auditedPlanOccupiesAndReverseReleases: true,
+    bomIssueWarehousePreserved: true,
+    staleChildBomRejected: true,
     purchasePermissionFailClosed: true
   }
 };

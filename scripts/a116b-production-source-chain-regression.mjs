@@ -192,11 +192,20 @@ assert(Array.isArray(planned.purchasePlans) && planned.purchasePlans.length === 
 const purchasePlanNos = planned.purchasePlans.map((item) => item.billNo).sort();
 const purchasePlanDetails = await Promise.all(purchasePlanNos.map((billNo) => requireJson(`/api/purchase-plans/${encodeURIComponent(billNo)}`)));
 assert(purchasePlanDetails.every((detail) => detail.document.status === "DRAFT"), "generated purchase plans must remain draft");
-assert(purchasePlanDetails.some((detail) => detail.document.supplierCode === "GYS-001" && Number(detail.document.totalQty) === 10), "supplier one plan must total 10");
+const supplierOnePlan = purchasePlanDetails.find((detail) => detail.document.supplierCode === "GYS-001");
+assert(supplierOnePlan && Number(supplierOnePlan.document.totalQty) === 10, "supplier one plan must total 10");
 assert(purchasePlanDetails.some((detail) => detail.document.supplierCode === "GYS-002" && Number(detail.document.totalQty) === 15), "supplier two plan must total 15");
-const afterPlanLines = await selectableRequisitionLines("GYS-001");
-const plannedLineStillSelectable = afterPlanLines.find((line) => line.billNo === requisitionNo);
-assert(!plannedLineStillSelectable, "planned requisition lines must not remain directly selectable for purchase orders");
+const afterDraftPlanLines = await selectableRequisitionLines("GYS-001");
+const draftPlannedLine = afterDraftPlanLines.find((line) => line.billNo === requisitionNo);
+assert(Number(draftPlannedLine?.remainingQty) === 10, "draft purchase plan must not occupy the requisition line");
+await requireJson(`/api/purchase-plans/${encodeURIComponent(supplierOnePlan.document.billNo)}/audit`, { method: "POST" });
+const afterAuditedPlanLines = await selectableRequisitionLines("GYS-001");
+const auditedPlannedLine = afterAuditedPlanLines.find((line) => line.billNo === requisitionNo);
+assert(!auditedPlannedLine, "audited purchase plan must occupy the requisition line");
+await requireJson(`/api/purchase-plans/${encodeURIComponent(supplierOnePlan.document.billNo)}/reverse`, { method: "POST" });
+const afterReversedPlanLines = await selectableRequisitionLines("GYS-001");
+const reversedPlannedLine = afterReversedPlanLines.find((line) => line.billNo === requisitionNo);
+assert(Number(reversedPlannedLine?.remainingQty) === 10, "reversed purchase plan must release the requisition line");
 
 const issue = await requireJson(`/api/production/tasks/${encodeURIComponent(task.billNo)}/issue`, {
   method: "POST",
@@ -236,7 +245,9 @@ const result = {
     defaultWorkshop: task.departmentCode === "HJ",
     singleEditablePurchaseRequisition: pushDown.purchaseRequisitions.length === 1,
     supplierGroupedPurchasePlans: purchasePlanNos.length === 2,
-    plannedRequisitionHiddenFromDirectOrder: !plannedLineStillSelectable,
+    draftPurchasePlanDoesNotOccupy: Number(draftPlannedLine?.remainingQty) === 10,
+    auditedPurchasePlanOccupies: !auditedPlannedLine,
+    reversedPurchasePlanReleases: Number(reversedPlannedLine?.remainingQty) === 10,
     materialIssuePushProductIn: productInDetail.document.status === "AUDITED"
   }
 };

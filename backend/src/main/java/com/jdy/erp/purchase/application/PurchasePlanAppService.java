@@ -2,7 +2,9 @@ package com.jdy.erp.purchase.application;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
@@ -86,21 +88,14 @@ public class PurchasePlanAppService {
     @Transactional
     public Map<String, Object> audit(String billNo) {
         var normalizedBillNo = validationService.required(billNo, "采购计划单号");
+        var planReference = findPlanReference(normalizedBillNo);
+        var sourceRequisitionId = String.valueOf(planReference.get("sourceRequisitionId"));
+        lockSourceRequisition(sourceRequisitionId, true);
+        var lines = sourceLineDemands(String.valueOf(planReference.get("id")));
         var plan = lockPlan(normalizedBillNo);
+        requireSameSourceRequisition(plan, sourceRequisitionId);
         requireStatus(plan, BillStatus.DRAFT, "只有草稿采购计划可以审核");
-        var lines = jdbcTemplate.queryForList("""
-            SELECT line_no AS "lineNo", qty
-            FROM purchase_plan_line
-            WHERE plan_id = ?::uuid
-            ORDER BY line_no
-            FOR UPDATE
-            """, plan.get("id"));
-        if (lines.isEmpty()) {
-            throw badRequest("采购计划至少需要一条分录");
-        }
-        for (var line : lines) {
-            validationService.positive((BigDecimal) line.get("qty"), "第 " + line.get("lineNo") + " 行计划数量");
-        }
+        reserveSourceRequisitionLines(sourceRequisitionId, lines);
         transitionLocked(plan, BillStatus.DRAFT, BillStatus.AUDITED, "采购计划状态已变化，本次审核已回滚");
         return detail(normalizedBillNo);
     }
@@ -108,16 +103,110 @@ public class PurchasePlanAppService {
     @Transactional
     public Map<String, Object> reverse(String billNo) {
         var normalizedBillNo = validationService.required(billNo, "采购计划单号");
+        var planReference = findPlanReference(normalizedBillNo);
+        var sourceRequisitionId = String.valueOf(planReference.get("sourceRequisitionId"));
+        lockSourceRequisition(sourceRequisitionId, false);
+        var lines = sourceLineDemands(String.valueOf(planReference.get("id")));
         var plan = lockPlan(normalizedBillNo);
+        requireSameSourceRequisition(plan, sourceRequisitionId);
         requireStatus(plan, BillStatus.AUDITED, "只有已审核采购计划可以反审核");
+        releaseSourceRequisitionLines(sourceRequisitionId, lines);
         transitionLocked(plan, BillStatus.AUDITED, BillStatus.DRAFT, "采购计划状态已变化，本次反审核已回滚");
         return detail(normalizedBillNo);
+    }
+
+    private Map<String, Object> findPlanReference(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   source_requisition_id::text AS "sourceRequisitionId"
+            FROM purchase_plan
+            WHERE bill_no = ?
+            """, billNo);
+        if (rows.isEmpty()) {
+            throw notFound("采购计划不存在");
+        }
+        return rows.get(0);
+    }
+
+    private void lockSourceRequisition(String sourceRequisitionId, boolean requireAudited) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT status
+            FROM purchase_requisition
+            WHERE id = ?::uuid
+            FOR UPDATE
+            """, sourceRequisitionId);
+        if (rows.isEmpty()) {
+            throw conflict("采购计划来源采购申请不存在");
+        }
+        if (requireAudited && !BillStatus.AUDITED.name().equals(String.valueOf(rows.get(0).get("status")))) {
+            throw conflict("采购计划来源采购申请未审核，不能审核采购计划");
+        }
+    }
+
+    private List<Map<String, Object>> sourceLineDemands(String planId) {
+        var lines = jdbcTemplate.queryForList("""
+            SELECT line_no AS "lineNo",
+                   source_requisition_line_id::text AS "sourceRequisitionLineId",
+                   qty
+            FROM purchase_plan_line
+            WHERE plan_id = ?::uuid
+            ORDER BY line_no
+            """, planId);
+        if (lines.isEmpty()) {
+            throw badRequest("采购计划至少需要一条分录");
+        }
+        for (var line : lines) {
+            validationService.positive((BigDecimal) line.get("qty"), "第 " + line.get("lineNo") + " 行计划数量");
+        }
+        return lines;
+    }
+
+    private void reserveSourceRequisitionLines(String sourceRequisitionId, List<Map<String, Object>> lines) {
+        for (var entry : sourceLineQuantities(lines).entrySet()) {
+            var updated = jdbcTemplate.update("""
+                UPDATE purchase_requisition_line
+                SET planned_qty = planned_qty + ?,
+                    updated_at = now()
+                WHERE requisition_id = ?::uuid
+                  AND id = ?::uuid
+                  AND qty - COALESCE(ordered_qty, 0) - COALESCE(planned_qty, 0) >= ?
+                """, entry.getValue(), sourceRequisitionId, entry.getKey(), entry.getValue());
+            if (updated != 1) {
+                throw conflict("采购计划数量不能超过采购申请剩余可计划数量");
+            }
+        }
+    }
+
+    private void releaseSourceRequisitionLines(String sourceRequisitionId, List<Map<String, Object>> lines) {
+        for (var entry : sourceLineQuantities(lines).entrySet()) {
+            var updated = jdbcTemplate.update("""
+                UPDATE purchase_requisition_line
+                SET planned_qty = planned_qty - ?,
+                    updated_at = now()
+                WHERE requisition_id = ?::uuid
+                  AND id = ?::uuid
+                  AND COALESCE(planned_qty, 0) >= ?
+                """, entry.getValue(), sourceRequisitionId, entry.getKey(), entry.getValue());
+            if (updated != 1) {
+                throw conflict("采购计划来源占用已变化，不能反审核");
+            }
+        }
+    }
+
+    private Map<String, BigDecimal> sourceLineQuantities(List<Map<String, Object>> lines) {
+        var quantities = new TreeMap<String, BigDecimal>();
+        for (var line : lines) {
+            var sourceLineId = String.valueOf(line.get("sourceRequisitionLineId"));
+            quantities.merge(sourceLineId, (BigDecimal) line.get("qty"), BigDecimal::add);
+        }
+        return quantities;
     }
 
     private Map<String, Object> lockPlan(String billNo) {
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    bill_no AS "billNo",
+                   source_requisition_id::text AS "sourceRequisitionId",
                    status,
                    version
             FROM purchase_plan
@@ -128,6 +217,12 @@ public class PurchasePlanAppService {
             throw notFound("采购计划不存在");
         }
         return rows.get(0);
+    }
+
+    private void requireSameSourceRequisition(Map<String, Object> plan, String sourceRequisitionId) {
+        if (!sourceRequisitionId.equals(String.valueOf(plan.get("sourceRequisitionId")))) {
+            throw conflict("采购计划来源采购申请已变化，本次操作已回滚");
+        }
     }
 
     private void requireStatus(Map<String, Object> plan, BillStatus expected, String message) {

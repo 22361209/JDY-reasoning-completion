@@ -394,15 +394,30 @@ public class PurchaseRequisitionAppService {
         requireStatus(header, BillStatus.AUDITED, "只有已审核且未下推的采购申请可以反审核");
         var downstream = jdbcTemplate.queryForObject("""
             SELECT
-                (SELECT COUNT(*) FROM purchase_plan WHERE source_requisition_id = ?::uuid)
+                (SELECT COUNT(*)
+                 FROM purchase_plan
+                 WHERE source_requisition_id = ?::uuid
+                   AND status = 'AUDITED')
                 +
                 (SELECT COUNT(*) FROM purchase_requisition_line
                  WHERE requisition_id = ?::uuid
-                   AND (COALESCE(planned_qty, 0) > 0 OR COALESCE(ordered_qty, 0) > 0))
+                   AND COALESCE(ordered_qty, 0) > 0)
             """, Integer.class, header.get("id"), header.get("id"));
         if (downstream != null && downstream > 0) {
             throw conflict("采购申请已有采购计划或采购订单占用，不能反审核");
         }
+        jdbcTemplate.update("""
+            DELETE FROM purchase_plan
+            WHERE source_requisition_id = ?::uuid
+              AND status = 'DRAFT'
+            """, header.get("id"));
+        jdbcTemplate.update("""
+            UPDATE purchase_requisition_line
+            SET planned_qty = 0,
+                updated_at = now()
+            WHERE requisition_id = ?::uuid
+              AND COALESCE(planned_qty, 0) <> 0
+            """, header.get("id"));
         transitionLocked(header, BillStatus.AUDITED, BillStatus.DRAFT, "采购申请状态已变化，本次反审核已回滚");
         return detail(normalizedBillNo);
     }
@@ -544,22 +559,6 @@ public class PurchaseRequisitionAppService {
                         line.remainingQty(),
                         line.planDeliveryDate()
                     );
-                    var occupied = jdbcTemplate.update("""
-                        UPDATE purchase_requisition_line
-                        SET planned_qty = planned_qty + ?,
-                            updated_at = now()
-                        WHERE id = ?::uuid
-                          AND qty - COALESCE(ordered_qty, 0) - COALESCE(planned_qty, 0) >= ?
-                          AND planned_qty + ? <= qty
-                        """,
-                        line.remainingQty(),
-                        line.id(),
-                        line.remainingQty(),
-                        line.remainingQty()
-                    );
-                    if (occupied != 1) {
-                        throw conflict("采购申请第 " + line.sourceLineNo() + " 行剩余数量已变化，本次下推已全部回滚");
-                    }
                     totalQty = totalQty.add(line.remainingQty());
                     lineNo += 1;
                 }

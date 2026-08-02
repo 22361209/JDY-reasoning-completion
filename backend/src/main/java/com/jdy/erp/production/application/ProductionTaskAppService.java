@@ -1660,7 +1660,7 @@ public class ProductionTaskAppService {
                 String.valueOf(line.get("unit")),
                 (BigDecimal) line.get("netWeight"),
                 (BigDecimal) line.get("grossWeight"),
-                nullableText(line.get("defaultWarehouseId")),
+                nullableText(line.get("issueWarehouseId")),
                 nullableText(line.get("supplierId")),
                 nullableText(line.get("supplierCode")),
                 nullableText(line.get("supplierName")),
@@ -1689,7 +1689,7 @@ public class ProductionTaskAppService {
                    material.audit_status AS "productAuditStatus",
                    material.is_produce AS "isProduce",
                    material.is_purchase AS "isPurchase",
-                   material.default_warehouse_id::text AS "defaultWarehouseId",
+                   COALESCE(line.issue_warehouse_id, material.default_warehouse_id)::text AS "issueWarehouseId",
                    completion_warehouse.id::text AS "completionWarehouseId",
                    completion_department.code AS "completionDepartmentCode",
                    supplier.id::text AS "supplierId",
@@ -1732,6 +1732,8 @@ public class ProductionTaskAppService {
                 FROM prod_bom
                 WHERE id = ?::uuid
                   AND audit_status = 'AUDITED'
+                  AND enabled = TRUE
+                  AND is_current = TRUE
                 FOR SHARE
                 """, childBomId);
         if (rows.isEmpty()) {
