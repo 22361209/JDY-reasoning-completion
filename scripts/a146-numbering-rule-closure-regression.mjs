@@ -22,7 +22,8 @@ const files = {
   tenantIsolationTest: "backend/src/test/java/com/jdy/erp/system/tenant/TenantMasterDataBomNumberingIsolationTest.java",
   integrationTest: "backend/src/test/java/com/jdy/erp/shared/application/NumberingServiceReliabilityIntegrationTest.java",
   permissionTest: "backend/src/test/java/com/jdy/erp/shared/application/NumberingControllerPermissionIntegrationTest.java",
-  migrationTest: "scripts/a146-numbering-rule-migration-regression.mjs"
+  migrationTest: "scripts/a146-numbering-rule-migration-regression.mjs",
+  migrationHeadHelper: "scripts/helpers/current-migration-head.mjs"
 };
 const source = Object.fromEntries(await Promise.all(
   Object.entries(files).map(async ([key, relative]) => [key, await readFile(path.join(rootDir, relative), "utf8")])
@@ -197,11 +198,23 @@ for (const tier of [manifest.areas.system, manifest.full]) {
 }
 assert(manifest.areas.security.includes("scripts/a146-numbering-rule-closure-regression.mjs"), "A146 permission/static gate must be registered in security");
 assert(source.migrationTest.includes("flyway(upgradeDatabase, 104)"), "A146 migration gate must preserve its historical target boundary");
-assert(source.migrationTest.includes('version === "105"') && source.migrationTest.includes("V105") && source.migrationTest.includes("numbering"), "A146 migration gate must preserve V105 numbering semantics");
-assert(source.migrationTest.includes('version === "106"') && source.migrationTest.includes("1207842815"), "A146 migration gate must enforce exactly one successful immutable V106");
-assert(source.migrationTest.includes('version === "107"'), "A146 migration gate must enforce exactly one successful V107");
-assert(source.migrationTest.includes('version === "108"'), "A146 migration gate must enforce exactly one successful V108");
-assert(source.migrationTest.includes('version === "111"') && source.migrationTest.includes("public V111 topology mismatch"), "A146 migration gate must preserve the fixed V111 topology contract");
+assert(source.migrationTest.includes('assertPublishedMigrationHistory(upgradeHistory, "A146 upgrade history")'), "A146 upgrade gate must validate the centralized published migration contract");
+assert(source.migrationTest.includes('assertPublishedMigrationHistory(freshHistory, "A146 fresh history")'), "A146 fresh gate must validate the centralized published migration contract");
+for (const { version, script, checksum } of [
+  { version: "105", script: "V105__numbering_rule_reliability.sql", checksum: -848130561 },
+  { version: "106", script: "V106__inventory_source_trace.sql", checksum: 1207842815 },
+  { version: "107", script: "V107__inventory_source_trace_reaudit_fix.sql", checksum: 1245463618 },
+  { version: "108", script: "V108__production_material_scrap.sql", checksum: 32021494 },
+  { version: "109", script: "V109__cash_transfer_document.sql", checksum: -1955046012 },
+  { version: "110", script: "V110__production_plan_multi_line.sql", checksum: 1117782105 },
+  { version: "111", script: "V111__multilevel_production_purchase_planning.sql", checksum: 1195966262 },
+  { version: "112", script: "V112__recalculate_purchase_plan_reservations.sql", checksum: -1613216154 },
+  { version: "113", script: "V113__recalculate_backup_purchase_plan_reservations.sql", checksum: -1592974444 }
+]) {
+  const contract = `{ version: "${version}", script: "${script}", checksum: ${checksum} }`;
+  assert(source.migrationHeadHelper.includes(contract), `published V${version} migration checksum contract must remain fixed`);
+}
+assert(source.migrationTest.includes("public V111 topology mismatch"), "A146 migration gate must preserve the fixed V111 topology contract");
 assert(source.migrationTest.includes("freshHistory") && source.migrationTest.includes("sourceScripts"), "A146 migration gate must compare fresh history with migration sources");
 
 const result = {
