@@ -19,13 +19,22 @@ const ARTIFACT_BASELINE_VERSION = 2;
 const artifactRootIdentityProperty = Symbol("regressionArtifactRootIdentity");
 const safeUnlinkHelperPath = path.join(import.meta.dirname, "regression-safe-unlink.py");
 
+function isMutableServiceLogArtifact(relative) {
+  return relative === "logs" || relative.startsWith(`logs${path.sep}`);
+}
+
 export async function snapshotRegressionArtifacts(root) {
   const snapshot = new Map();
   const rootIdentity = captureArtifactDirectoryIdentitySync(root, "regression artifact root");
   attachArtifactRootIdentity(snapshot, rootIdentity);
   for (const entry of await recursiveEntries(root, rootIdentity)) {
+    const relative = path.relative(root, entry.file);
+    // dev-up owns these append-only service logs. They are neither suite
+    // evidence nor private artifacts, so including them makes crash recovery
+    // falsely treat a normal backend write as an unremovable baseline drift.
+    if (isMutableServiceLogArtifact(relative)) continue;
     if (entry.kind === "directory") {
-      snapshot.set(path.relative(root, entry.file), { kind: "directory" });
+      snapshot.set(relative, { kind: "directory" });
       continue;
     }
     if (entry.kind !== "file") {
@@ -37,7 +46,7 @@ export async function snapshotRegressionArtifacts(root) {
       throw new Error(`regression artifact baseline contains a multiply-linked or unsafe file: ${path.relative(root, file)}`);
     }
     const payload = await readFile(file);
-    snapshot.set(path.relative(root, file), {
+    snapshot.set(relative, {
       kind: "file",
       size: metadata.size,
       mtimeMs: metadata.mtimeMs,
@@ -353,6 +362,7 @@ async function changedArtifactFiles(root, baseline) {
   for (const entry of await recursiveEntries(root, rootIdentity)) {
     const { file, kind } = entry;
     const relative = path.relative(root, file);
+    if (isMutableServiceLogArtifact(relative)) continue;
     seenPaths.add(relative);
     const before = baseline?.get(relative);
     if (kind === "directory") {
@@ -387,6 +397,7 @@ async function changedArtifactFiles(root, baseline) {
   }
   if (baseline instanceof Map) {
     for (const relative of baseline.keys()) {
+      if (isMutableServiceLogArtifact(relative)) continue;
       if (seenPaths.has(relative)) continue;
       changed.push({ file: path.join(root, relative), relative, kind: "missing" });
     }

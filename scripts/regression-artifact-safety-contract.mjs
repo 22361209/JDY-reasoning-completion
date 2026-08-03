@@ -90,6 +90,24 @@ try {
   }), /root identity is invalid/);
   await rm(roundTripDirectory, { recursive: true, force: true });
 
+  const mutableLogs = path.join(contractRoot, "logs");
+  const mutableLog = path.join(mutableLogs, "backend-dev-live.log");
+  await mkdir(mutableLogs);
+  await writeFile(mutableLog, "service start\n");
+  const serviceLogBaseline = await snapshotRegressionArtifacts(contractRoot);
+  assert.equal(serviceLogBaseline.has("logs"), false,
+    "service-owned log directories must not enter a suite artifact baseline");
+  await writeFile(mutableLog, "service start\nrequest handled\n");
+  const serviceLogPurge = await purgeChangedRegressionArtifacts({
+    root: contractRoot,
+    workspaceRoot,
+    baseline: serviceLogBaseline
+  });
+  assert.equal(serviceLogPurge.residueFree, true,
+    "normal dev-service log appends must not retain a stale suite lock");
+  assert.equal(await readFile(mutableLog, "utf8"), "service start\nrequest handled\n");
+  await rm(mutableLogs, { recursive: true, force: true });
+
   const swappedRoot = path.join(contractRoot, "root-swap");
   const parkedRoot = path.join(contractRoot, "root-swap.parked");
   const externalSentinel = path.join(externalRoot, "must-survive-root-swap.txt");
