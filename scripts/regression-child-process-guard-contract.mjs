@@ -182,6 +182,10 @@ const source = `
   if (!executionCapabilityClosed || process.env.JDY_REGRESSION_EXECUTION_BASELINE_FD) {
     throw new Error("tracked execution baseline capability remained visible to the manifest");
   }
+  // Check capability closure before opening a socket: POSIX may reuse a closed
+  // descriptor number for the network connection created by native fetch.
+  const localHealth = await fetch("http://127.0.0.1:8080/actuator/health");
+  if (!localHealth.ok) throw new Error("guarded native fetch could not reach the local health endpoint");
   const {
     abort: namedProcessAbort,
     exit: namedProcessExit,
@@ -352,6 +356,7 @@ const source = `
     proxyFilesystemPathBlocked,
     proxyNetworkOptionsBlocked,
     accessorNetworkOptionsBlocked,
+    localFetchAllowed: true,
     forgedChildHandleSignalBlocked,
     approvedChildHandleSignalAllowed,
     arrayPrimordialFrozen,
@@ -458,6 +463,7 @@ try {
   assert.equal(report.proxyFilesystemPathBlocked, true);
   assert.equal(report.proxyNetworkOptionsBlocked, true);
   assert.equal(report.accessorNetworkOptionsBlocked, true);
+  assert.equal(report.localFetchAllowed, true);
   assert.equal(report.forgedChildHandleSignalBlocked, true);
   assert.equal(report.approvedChildHandleSignalAllowed, true);
   assert.equal(report.arrayPrimordialFrozen, true);

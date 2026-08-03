@@ -1744,6 +1744,7 @@ function installNetworkBoundary() {
   const originalNetCreateConnection = netModule.createConnection;
   const originalSocketConnect = netModule.Socket.prototype.connect;
   const originalTlsConnect = tlsModule.connect;
+  let approvedNetConnectDepth = 0;
 
   const snapshotCanonicalUrl = (candidate, label) => {
     if (trustedIsProxy(candidate) || typeof trustedUrlHrefGetter !== "function") {
@@ -1816,12 +1817,32 @@ function installNetworkBoundary() {
     return trustedReflectApply(originalHttpsGet, this, assertHttpTarget(args));
   };
   const guardedNetConnect = function guardedNetConnect(...args) {
-    return trustedReflectApply(originalNetConnect, this, assertTcpTarget(args));
+    const snapshot = assertTcpTarget(args);
+    // Node's native fetch/undici enters Socket.connect synchronously from
+    // net.connect with a Node-internal option object. The public net.connect
+    // arguments have already been copied and validated above; re-validating
+    // that internal object would reject legitimate local HTTP traffic solely
+    // because it does not have a userland plain-object shape.
+    approvedNetConnectDepth += 1;
+    try {
+      return trustedReflectApply(originalNetConnect, this, snapshot);
+    } finally {
+      approvedNetConnectDepth -= 1;
+    }
   };
   const guardedNetCreateConnection = function guardedNetCreateConnection(...args) {
-    return trustedReflectApply(originalNetCreateConnection, this, assertTcpTarget(args));
+    const snapshot = assertTcpTarget(args);
+    approvedNetConnectDepth += 1;
+    try {
+      return trustedReflectApply(originalNetCreateConnection, this, snapshot);
+    } finally {
+      approvedNetConnectDepth -= 1;
+    }
   };
   const guardedSocketConnect = function guardedSocketConnect(...args) {
+    if (approvedNetConnectDepth > 0) {
+      return trustedReflectApply(originalSocketConnect, this, args);
+    }
     return trustedReflectApply(originalSocketConnect, this, assertTcpTarget(args));
   };
   const guardedTlsConnect = function guardedTlsConnect(...args) {
