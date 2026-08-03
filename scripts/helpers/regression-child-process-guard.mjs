@@ -182,7 +182,10 @@ const trustedLstatSync = lstatSync;
 const trustedOpenSync = openSync;
 const trustedReadFileSync = readFileSync;
 const trustedRealpathSync = (realpathSync.native || realpathSync).bind(null);
-const maximumDockerIntents = 256;
+// A43's bounded fixture cleanup legitimately issues several hundred
+// individually leased Docker commands. Keep the launch cap below the reader's
+// recoverable envelope while leaving enough room for its cleanup to finish.
+const maximumDockerIntents = 1_024;
 let activeDetachedSpawnSeal = null;
 let regressionDockerOwnership = null;
 let regressionExecutionBaseline = null;

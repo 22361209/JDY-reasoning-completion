@@ -33,6 +33,8 @@ assert.match(guardSource,
 assert.match(guardSource,
   /if \(!child\?\.pid\) \{[\s\S]{0,220}?type: "failed"/,
   "a spawned watchdog must retain signed ownership evidence on initialization failure");
+assert.match(guardSource, /const maximumDockerIntents = 1_024;/,
+  "the guarded Docker lease cap must cover the bounded A43 cleanup envelope");
 const token = "a".repeat(32);
 const runId = "b".repeat(32);
 const secretDir = mkdtempSync(path.join(tmpdir(), "jdy-child-guard-contract-"));

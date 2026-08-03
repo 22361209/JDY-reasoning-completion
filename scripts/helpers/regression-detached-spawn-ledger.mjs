@@ -23,7 +23,7 @@ import path from "node:path";
 const ledgerVersion = 1;
 const maximumLedgerBytes = 1024 * 1024;
 const maximumSpawnIntents = 128;
-// New guards stop at 256 before launch. The reader deliberately retains a
+// New guards stop at 1,024 before launch. The reader deliberately retains a
 // larger bounded recovery envelope so a ledger produced by the former
 // post-launch limit bug can still expose every signed lease for cleanup.
 const maximumRecoverableDockerIntents = 4_096;
