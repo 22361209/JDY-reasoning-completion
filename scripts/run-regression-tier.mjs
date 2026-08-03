@@ -675,6 +675,12 @@ try {
     };
     results.push(entry);
     console.log(JSON.stringify({ tier, script, ok: entry.ok, status: entry.status, durationMs: entry.durationMs, continueOnFailure: shouldContinue }));
+    if (!entry.ok && entry.stderrTail) {
+      // Full results are only published after lock release. Emit the already
+      // redacted per-script tail as well, so a fail-closed ownership stop is
+      // diagnosable without publishing an incomplete suite summary.
+      console.error(JSON.stringify({ tier, script, stderrTail: entry.stderrTail }));
+    }
     if (sharedStateInvariantError) {
       console.error(`Regression stopped after shared regression-state drift: ${sharedStateInvariantError}`);
       break;
