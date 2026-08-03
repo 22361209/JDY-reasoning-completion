@@ -344,7 +344,11 @@ export async function manageRegressionRequestFence(
     throw new Error(`regression request fence ${action} returned invalid JSON`);
   }
   if (!response.ok) {
-    throw new Error(`regression request fence ${action} failed with status ${response.status}`);
+    // The control endpoint never echoes the capability. Preserve its bounded
+    // public reason so preflight failures distinguish owner-schema, ownership,
+    // and authorization defects without leaking the run-scoped token.
+    const reason = String(body?.message || body?.error || "").replace(/[^\p{L}\p{N}\s:_.-]/gu, " ").trim().slice(0, 240);
+    throw new Error(`regression request fence ${action} failed with status ${response.status}${reason ? `: ${reason}` : ""}`);
   }
   const expectedState = action === "OPEN" ? "OPEN" : "CLOSED";
   if (body?.state !== expectedState || Number(body?.activeCount) !== 0) {

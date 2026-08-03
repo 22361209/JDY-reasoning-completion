@@ -101,8 +101,13 @@ async function checkTaskAndSnapshot() {
   integerInRange(task.maxCommits, "maxCommits", 1, 10);
   integerInRange(task.maxConcurrentSubagents, "maxConcurrentSubagents", 0, 3);
   integerOrUnbounded(task.maxTotalSubagents, "maxTotalSubagents", 0, Number.MAX_SAFE_INTEGER);
-  integerInRange(task.maxFullGateRuns, "maxFullGateRuns", 0, 2);
-  if (Number(task.maxFullGateRuns) > 1) {
+  integerOrUnbounded(task.maxFullGateRuns, "maxFullGateRuns", 0, 2);
+  if (task.maxFullGateRuns === "unbounded") {
+    expect(/^user_authorized_[a-z0-9_-]+$/i.test(task.fullGateAuthorization || ""),
+      "an unbounded full gate requires an explicit recorded user authorization");
+    expect(taskSource.includes("自主调整 full 门禁配额"),
+      "an unbounded full gate requires recorded autonomous full-gate scope");
+  } else if (Number(task.maxFullGateRuns) > 1) {
     expect(/^user_authorized_[a-z0-9_-]+$/i.test(task.fullGateAuthorization || ""),
       "a second full gate requires an explicit recorded user authorization");
     expect(/首轮 full .*预检.*未执行脚本/.test(taskSource),
