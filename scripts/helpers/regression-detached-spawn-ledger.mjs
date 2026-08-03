@@ -475,12 +475,22 @@ export function readRegressionDetachedSpawnLedger({
   };
 }
 
-export function removeRegressionDetachedSpawnLedger({ secretDir, reference, expectedParentPid }) {
+export function removeRegressionDetachedSpawnLedger({
+  secretDir,
+  reference,
+  expectedParentPid,
+  allowHeaderOnly = false
+}) {
   const ledger = readRegressionDetachedSpawnLedger({
     secretDir,
     reference,
     expectedParentPid,
-    requireClosed: true
+    requireClosed: true,
+    // A signed header with no intent record proves that this child never
+    // requested a detached spawn. It is therefore a closed capability, not a
+    // crashed spawn intent. Callers must opt in explicitly so recovery still
+    // fails closed for all non-empty ledgers.
+    allowHeaderOnly
   });
   unlinkSync(ledger.path);
   fsyncDirectory(secretDir);

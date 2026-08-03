@@ -223,7 +223,19 @@ try {
   });
   assert.equal(recoveredHeader.headerOnly, true,
     "an unpublished start-gated child ledger may be recovered from its signed header alone");
-  unlinkSync(headerOnly.path);
+  assert.throws(() => removeRegressionDetachedSpawnLedger({
+    secretDir,
+    reference: headerOnly.reference,
+    expectedParentPid: 0
+  }), /unclosed spawn intent/, "header-only cleanup requires an explicit safe-terminal opt-in");
+  removeRegressionDetachedSpawnLedger({
+    secretDir,
+    reference: headerOnly.reference,
+    expectedParentPid: 0,
+    allowHeaderOnly: true
+  });
+  assert.equal(existsSync(headerOnly.path), false,
+    "an explicitly allowed header-only ledger must be removable");
 
   const provisionalFile = ".003.detached-processes.jsonl.0123456789abcdef.tmp";
   writeFileSync(path.join(secretDir, provisionalFile), "partial", { mode: 0o600, flag: "wx" });
@@ -245,6 +257,7 @@ try {
     partialTailRejected: true,
     inodeSafetyVerified: true,
     unpublishedHeaderRecovered: true,
+    headerOnlySafeTerminalVerified: true,
     provisionalCapabilityRecovered: true
   }));
 } finally {

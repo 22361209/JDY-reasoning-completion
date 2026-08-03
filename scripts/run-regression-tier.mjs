@@ -618,7 +618,8 @@ try {
       removeRegressionDetachedSpawnLedger({
         secretDir,
         reference: completedChild.childDetachedSpawnLedger,
-        expectedParentPid: completedChild.child.pid
+        expectedParentPid: completedChild.child.pid,
+        allowHeaderOnly: true
       });
       activeChildDetachedSpawnLedger = null;
     } else {
@@ -749,7 +750,8 @@ try {
         removeRegressionDetachedSpawnLedger({
           secretDir,
           reference: completedChildReference,
-          expectedParentPid: completedChildPid
+          expectedParentPid: completedChildPid,
+          allowHeaderOnly: true
         });
         activeChildDetachedSpawnLedger = null;
       } catch (error) {
@@ -2995,7 +2997,8 @@ function closeChildDetachedSpawnLedger(handle) {
     secretDir: String(handle?.secretDir || secretDir),
     reference: handle?.childDetachedSpawnLedger,
     expectedParentPid: groupId,
-    requireClosed: true
+    requireClosed: true,
+    allowHeaderOnly: true
   });
   handle.childProcessLedger = adoptRegressionProcessLedgerRecords({
     ledger: handle?.childProcessLedger || [],
