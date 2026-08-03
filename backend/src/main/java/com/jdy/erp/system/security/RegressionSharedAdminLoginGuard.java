@@ -84,6 +84,7 @@ public final class RegressionSharedAdminLoginGuard {
         "secretDir",
         "state",
         "tier",
+        "updatedAt",
         "userId",
         "username"
     );
@@ -322,6 +323,7 @@ public final class RegressionSharedAdminLoginGuard {
             || !OWNER_STATES.contains(owner.path("state").asText(""))
             || !owner.path("acquiredAt").isTextual()
             || !owner.path("tier").isTextual()
+            || !owner.path("updatedAt").isTextual()
             || !owner.path("secretDir").isTextual()
             || !owner.path("userId").isTextual()
             || !owner.path("childProcessFingerprint").isTextual()

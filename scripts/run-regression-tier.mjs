@@ -2235,6 +2235,7 @@ async function acquireSuiteLock(owner) {
   await removeStaleRegressionSuiteProvisionalDirectories();
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
+      const acquiredAt = new Date().toISOString();
       const initialOwner = {
         ...owner,
         pid: process.pid,
@@ -2253,7 +2254,8 @@ async function acquireSuiteLock(owner) {
         latestPublication: null,
         ownerRevision: 0,
         parentProcessFingerprint: processIdentityFingerprint(process.pid),
-        acquiredAt: new Date().toISOString()
+        acquiredAt,
+        updatedAt: acquiredAt
       };
       const provisionalDir = await mkdtemp(path.join(
         tmpdir(),

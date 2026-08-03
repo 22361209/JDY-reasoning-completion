@@ -219,7 +219,8 @@ class RegressionSharedAdminLoginGuardTest {
               "latestPublication":null,
               "ownerRevision":0,
               "parentProcessFingerprint":"%s",
-              "acquiredAt":"2026-08-03T00:00:00Z"
+              "acquiredAt":"2026-08-03T00:00:00Z",
+              "updatedAt":"2026-08-03T00:00:00Z"
             }
             """.formatted("a".repeat(32), digest, "d".repeat(64));
         var ownerPath = lockDirectory.resolve("owner.json");
