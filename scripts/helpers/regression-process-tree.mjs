@@ -228,7 +228,12 @@ export function selectRegressionProcessOwnershipMembers({
     const parentPid = Number(member?.parentPid);
     const pgid = Number(member?.pgid);
     if (!pid || !Number.isInteger(parentPid) || parentPid < 0 || !Number.isInteger(pgid) || pgid <= 0) {
-      throw Object.assign(new Error("regression process ownership snapshot member is invalid"), {
+      // PIDs are operating-system metadata rather than regression credentials.
+      // Keeping this bounded context makes a fail-closed launch rejection
+      // diagnosable without exposing a child command line or environment.
+      throw Object.assign(new Error(
+        `regression process ownership snapshot member is invalid (pid=${String(member?.pid)}, parentPid=${String(member?.parentPid)}, pgid=${String(member?.pgid)})`
+      ), {
         code: persistedLedgerCode
       });
     }
