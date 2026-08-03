@@ -312,8 +312,9 @@ public final class RegressionSharedAdminLoginGuard {
         var lock = readPrivateDirectory(suiteLockDirectory, null);
         var ownerPath = suiteLockDirectory.resolve("owner.json");
         var owner = readPrivateJson(ownerPath, lock.owner());
+        var ownerFields = owner.isObject() ? fieldNames(owner) : Set.<String>of();
         if (!owner.isObject()
-            || !fieldNames(owner).equals(OWNER_KEYS)
+            || !ownerFields.equals(OWNER_KEYS)
             || !RUN_ID.matcher(owner.path("runId").asText("")).matches()
             || !DIGEST.matcher(owner.path("requestFenceControlDigest").asText("")).matches()
             || !DIGEST.matcher(owner.path("parentProcessFingerprint").asText("")).matches()
@@ -335,7 +336,7 @@ public final class RegressionSharedAdminLoginGuard {
             || owner.path("childPid").asInt() < 0
             || !owner.path("childProcessLedger").isArray()
             || owner.path("childProcessLedger").size() > 4096) {
-            throw new IOException("regression suite owner schema is invalid");
+            throw new IOException("regression suite owner schema is invalid (fields=" + ownerFields + ")");
         }
         var expectedSecretDir = suiteLockDirectory.resolve("private").toAbsolutePath().normalize().toString();
         var secretDir = owner.path("secretDir").asText();
