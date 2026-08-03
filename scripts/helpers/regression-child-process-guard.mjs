@@ -1122,6 +1122,17 @@ function guardedOptions(options, { inheritControlDescriptor, allowDetached, rewr
   return guarded;
 }
 
+function invocationNeedsSecretReportDescriptor(invocation) {
+  // Only the reviewed Node guard probe receives the report pipe. Docker,
+  // Chromium and build-tool children neither emit secret frames nor need the
+  // capability, and passing it to their helper trees delays kernel EOF after
+  // the manifest itself has finished.
+  return invocation.executable === trustedNodeExecutable
+    && invocation.argv.length === 1
+    && trustedPathResolve(invocation.argv[0])
+      === trustedPathResolve(import.meta.dirname, "regression-child-guard-probe.mjs");
+}
+
 function captureApprovedChildProcessIdentity(pid, originalExecFileSync) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     let output = "";
@@ -1926,7 +1937,7 @@ function installGuard() {
       fail("Docker stdin payloads are forbidden; use the validated tool command argument");
     }
     const guardedInvocationOptions = guardedOptions(request.options, {
-      inheritControlDescriptor: true,
+      inheritControlDescriptor: invocationNeedsSecretReportDescriptor(request),
       allowDetached: policy.allowDetached,
       rewriteDetachedIntoOwnedGroup: policy.rewriteDetachedIntoOwnedGroup === true
     });
@@ -1972,7 +1983,7 @@ function installGuard() {
       fail("Docker stdin payloads are forbidden; use the validated tool command argument");
     }
     const invocationOptions = guardedOptions(request.options, {
-      inheritControlDescriptor: true,
+      inheritControlDescriptor: invocationNeedsSecretReportDescriptor(request),
       allowDetached: false
     });
     const invocation = policy.kind === "docker"
@@ -2002,7 +2013,7 @@ function installGuard() {
       fail("Docker stdin payloads are forbidden; use the validated tool command argument");
     }
     const invocationOptions = guardedOptions(request.options, {
-      inheritControlDescriptor: true,
+      inheritControlDescriptor: invocationNeedsSecretReportDescriptor(request),
       allowDetached: false
     });
     const invocation = policy.kind === "docker"
