@@ -686,6 +686,7 @@ try {
   }
 } catch (error) {
   setupError = error instanceof Error ? error.message : String(error);
+  console.error(`Regression suite setup failed before script execution: ${redactOutput(setupError, suiteFixture?.password || "", [...childReportedSecrets])}`);
 } finally {
   if (activeChild) {
     try {
