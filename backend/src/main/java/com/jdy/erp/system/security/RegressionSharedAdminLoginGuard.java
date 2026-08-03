@@ -35,11 +35,14 @@ import com.jdy.erp.inventory.config.InventoryTestAdjustmentProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public final class RegressionSharedAdminLoginGuard {
+    private static final Logger LOG = LoggerFactory.getLogger(RegressionSharedAdminLoginGuard.class);
     private static final Set<String> ALLOWED_PROFILES = Set.of("local", "test", "regression");
     private static final String TEST_ACCOUNT_SET_CODE = "BLD-TEST";
     private static final String SHARED_ADMIN_USERNAME = "admin";
@@ -247,6 +250,11 @@ public final class RegressionSharedAdminLoginGuard {
         } catch (ResponseStatusException exception) {
             throw exception;
         } catch (IOException | RuntimeException exception) {
+            // This endpoint is loopback-only and accepts only an opaque
+            // capability. Log the validation class, never the capability nor
+            // owner contents, so a preflight failure is diagnosable without
+            // weakening the response boundary.
+            LOG.warn("Regression fixture control metadata was rejected: {}", exception.getMessage());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "回归测试控制接口不可用", exception);
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "回归测试控制能力无效");
