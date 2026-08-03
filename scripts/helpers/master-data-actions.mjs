@@ -62,7 +62,7 @@ async function readResponse(response) {
   }
 }
 
-export async function requestMasterDataJson(apiBase, pathname, options = {}) {
+async function requestMasterDataJson(apiBase, pathname, options = {}) {
   const method = options.method ?? "GET";
   const response = await fetch(`${apiBase}${pathname}`, {
     method,
@@ -138,6 +138,7 @@ export function fixturePatchChanges(type, payload) {
 }
 
 export async function patchMasterDataRecord(apiBase, type, code, version, changes) {
+  masterDataListKey(type);
   if (!Number.isInteger(version) || version < 0) {
     throw new Error(`${type} ${code} patch requires a nonnegative integer version`);
   }
@@ -155,6 +156,7 @@ function isAudited(row) {
 }
 
 export async function upsertMasterDataFixture({ apiBase, type, payload, audit = true }) {
+  masterDataListKey(type);
   const code = String(payload?.code ?? "").trim();
   if (!code) {
     throw new Error(`${type} fixture requires code`);

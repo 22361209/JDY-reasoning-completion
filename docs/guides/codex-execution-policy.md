@@ -22,7 +22,7 @@ owner: project-governance
 | `maxCommits` | 10 | 超过后必须先复盘范围 |
 | `maxConcurrentSubagents` | 3 | 受 `.codex/config.toml` 同时限制 |
 | `maxTotalSubagents` | `unbounded` | 累计数不设上限；仍受同时并发槽位约束 |
-| `maxFullGateRuns` | 1 | 未改动时不得重复执行 |
+| `maxFullGateRuns` | 1 | 默认一次；只有用户明确授权、任务包记录原因且首轮未完整执行时才可提高到 2 |
 | `outOfScopePolicy` | `record-and-stop` | 范围外失败只登记，不顺手修复 |
 
 任务还必须写明业务目标、允许路径、明确不做事项、目标门禁和停止条件。墙钟时间与累计子代理不再作为停止预算；其他预算需要提高时，先给出原因、已用量和替代方案，由用户确认。

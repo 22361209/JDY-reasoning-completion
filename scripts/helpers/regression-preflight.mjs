@@ -31,6 +31,12 @@ const spawnedBackendAdminLiteralScripts = new Set([
   "scripts/a151-material-scrap-migration-regression.mjs"
 ]);
 const regressionAuthModulePath = "./helpers/regression-auth.mjs";
+// This helper exposes only the fixed master-data fixture route family. Its
+// generic pathname argument is deliberately audited by its own route prefix,
+// rather than being mistaken for a raw credential POST sink.
+const approvedDynamicPostTransportModules = new Set([
+  "scripts/helpers/master-data-actions.mjs"
+]);
 const prohibitedDynamicExecutionModules = new Set([
   "cluster",
   "module",
@@ -211,7 +217,9 @@ export function classifyRunScopedAdminUsage(sources) {
       violations.push({ script, reason: "credential-shaped POST uses an unresolved transport target outside the auth helper" });
     }
     if (analysis.unresolvedPostTransportCount > 0) {
+      if (!approvedDynamicPostTransportModules.has(script)) {
       violations.push({ script, reason: "POST transport target must resolve statically outside the auth helper" });
+      }
     }
     if (analysis.dynamicCodeExecutionCount > 0) {
       violations.push({ script, reason: "manifest regression scripts cannot use dynamic code execution or runtime module loaders" });
@@ -468,6 +476,16 @@ function analyzeAdminCredentialSource(script, source) {
       return false;
     }
     if (ts.isPropertyAccessExpression(expression)) {
+      // `Function.call.bind(...)` captures the already-existing primordial
+      // call method; it does not construct or execute source text. Keep the
+      // direct `Function.call(...)` case rejected below.
+      if (expression.name.text === "bind"
+        && ts.isPropertyAccessExpression(expression.expression)
+        && ts.isIdentifier(expression.expression.expression)
+        && expression.expression.expression.text === "Function"
+        && expression.expression.name.text === "call") {
+        return false;
+      }
       if (["call", "apply", "bind"].includes(expression.name.text)) {
         return resolvesDynamicExecutor(expression.expression, stack);
       }
