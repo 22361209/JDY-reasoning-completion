@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
+import { loginAs as sharedLoginAs, loginAsAdmin, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -47,7 +47,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
 
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await loginAsAdmin(page);
   const createUser = await browserFetch(page, "/api/system/managed-users", {
     method: "POST",
     body: {

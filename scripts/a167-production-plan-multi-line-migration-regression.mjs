@@ -73,8 +73,8 @@ async function psqlFile(database, file) {
   const statement = await readFile(file, "utf8");
   return execFileSync(
     "docker",
-    ["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", databaseUser, "-d", safeDatabase(database), "-tAq"],
-    { encoding: "utf8", input: statement, maxBuffer: 30 * 1024 * 1024 }
+    ["exec", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", databaseUser, "-d", safeDatabase(database), "-tAq", "-c", statement],
+    { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 }
   ).trim();
 }
 

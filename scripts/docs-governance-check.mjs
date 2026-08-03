@@ -42,6 +42,11 @@ function integerInRange(value, key, minimum, maximum) {
   expect(Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum, `${key} must be an integer in ${minimum}..${maximum}`);
 }
 
+function integerOrUnbounded(value, key, minimum, maximum) {
+  if (value === "unbounded") return;
+  integerInRange(value, key, minimum, maximum);
+}
+
 async function checkCurrentLinks() {
   const currentFiles = (await markdownFiles(docsDir)).filter((filePath) => (
     !filePath.includes(`${path.sep}archive${path.sep}`)
@@ -91,13 +96,15 @@ async function checkTaskAndSnapshot() {
   expect(task.taskState === "in_progress", "active task must use taskState: in_progress");
   expect(task.taskId && task.taskId !== "null", "active task must declare taskId");
   expect(task.title && task.title !== "无活动任务", "active task must declare a title");
-  integerInRange(task.timeBudgetMinutes, "timeBudgetMinutes", 1, 300);
+  integerOrUnbounded(task.timeBudgetMinutes, "timeBudgetMinutes", 1, Number.MAX_SAFE_INTEGER);
   integerInRange(task.goalTokenBudget, "goalTokenBudget", 1, 15000000);
   integerInRange(task.maxCommits, "maxCommits", 1, 10);
   integerInRange(task.maxConcurrentSubagents, "maxConcurrentSubagents", 0, 3);
-  integerInRange(task.maxTotalSubagents, "maxTotalSubagents", 0, 6);
+  integerOrUnbounded(task.maxTotalSubagents, "maxTotalSubagents", 0, Number.MAX_SAFE_INTEGER);
   integerInRange(task.maxFullGateRuns, "maxFullGateRuns", 0, 1);
-  expect(Number(task.maxTotalSubagents) >= Number(task.maxConcurrentSubagents), "maxTotalSubagents must not be smaller than maxConcurrentSubagents");
+  expect(task.maxTotalSubagents === "unbounded"
+    || Number(task.maxTotalSubagents) >= Number(task.maxConcurrentSubagents),
+  "maxTotalSubagents must be unbounded or not smaller than maxConcurrentSubagents");
   expect(task.outOfScopePolicy === "record-and-stop", "active task must use outOfScopePolicy: record-and-stop");
   for (const heading of ["目标", "允许路径", "明确不做", "验收"]) {
     expect(new RegExp(`^## ${heading}`, "m").test(taskSource), `active task must contain ## ${heading}`);

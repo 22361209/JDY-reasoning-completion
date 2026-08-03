@@ -12,6 +12,11 @@ import {
   currentMigrationHead
 } from "./helpers/current-migration-head.mjs";
 import { loginApi } from "./helpers/regression-auth.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(root, "backend/src/main/resources/db/migration");
@@ -408,24 +413,16 @@ async function tailFile(filePath, maximumLength = 12_000) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) return false;
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    if (error?.code === "EPERM") return true;
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function stopBackend(processInfo) {
   if (!processGroupIsAlive(processInfo)) return;
-  process.kill(-processInfo.child.pid, "SIGTERM");
+  signalRegressionProcessTree(processInfo, "SIGTERM");
   const deadline = Date.now() + 8_000;
   while (processGroupIsAlive(processInfo) && Date.now() < deadline) await sleep(100);
   if (processGroupIsAlive(processInfo)) {
-    process.kill(-processInfo.child.pid, "SIGKILL");
+    signalRegressionProcessTree(processInfo, "SIGKILL");
     const killDeadline = Date.now() + 3_000;
     while (processGroupIsAlive(processInfo) && Date.now() < killDeadline) await sleep(100);
   }
@@ -460,13 +457,17 @@ async function startBackend() {
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(root, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = { child, port, baseUrl: `http://127.0.0.1:${port}`, logPath, spawnError: null };
   backend = processInfo;
   child.once("error", (error) => { processInfo.spawnError = error; });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     if (processInfo.spawnError) throw processInfo.spawnError;
     if (child.exitCode != null) throw new Error(`isolated backend exited before health check:\n${await tailFile(logPath)}`);
@@ -712,5 +713,5 @@ console.log(JSON.stringify({
 
 if (primaryError) {
   console.error(primaryError?.stack ?? String(primaryError));
-  process.exit(1);
+  process.exitCode = 1;
 }

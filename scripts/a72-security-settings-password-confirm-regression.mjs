@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fillRegressionAdminPassword, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -32,14 +33,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAsAdmin(page) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
-}
-
 async function openSecuritySettings(page) {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-security-settings").click();
@@ -53,7 +46,12 @@ async function savePolicyWithPassword(page, policy, password) {
     await page.getByTestId("security-policy-single-active").click();
   }
   await page.getByTestId("security-repeated-login-policy").selectOption(policy);
-  await page.getByTestId("security-current-password").fill(password);
+  const currentPassword = page.getByTestId("security-current-password");
+  if (password === undefined) {
+    await fillRegressionAdminPassword(currentPassword);
+  } else {
+    await currentPassword.fill(password);
+  }
   const [response] = await Promise.all([
     page.waitForResponse((res) => res.url().includes("/api/system/security-settings") && res.request().method() === "PUT"),
     page.getByTestId("security-settings-save").click()
@@ -82,7 +80,7 @@ try {
 
   const initialSettings = await readSettings(page);
   if (initialSettings.repeatedLoginPolicy !== "SINGLE_ACTIVE") {
-    const resetResponse = await savePolicyWithPassword(page, "SINGLE_ACTIVE", "admin123");
+    const resetResponse = await savePolicyWithPassword(page, "SINGLE_ACTIVE");
     assert(resetResponse.status === 200, `reset policy should succeed, got ${resetResponse.status}: ${resetResponse.text}`);
   }
 
@@ -94,7 +92,7 @@ try {
   rejectedScreenshot = `a72-security-settings-wrong-password-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, rejectedScreenshot), fullPage: true });
 
-  const correctPasswordResponse = await savePolicyWithPassword(page, "ALLOW_CONCURRENT", "admin123");
+  const correctPasswordResponse = await savePolicyWithPassword(page, "ALLOW_CONCURRENT");
   assert(correctPasswordResponse.status === 200, `correct current password should save, got ${correctPasswordResponse.status}: ${correctPasswordResponse.text}`);
   await page.getByTestId("security-settings-message").filter({ hasText: "安全设置已保存" }).waitFor({ state: "visible" });
   const settingsAfterCorrect = await readSettings(page);
@@ -102,7 +100,7 @@ try {
   acceptedScreenshot = `a72-security-settings-correct-password-${batch}.png`;
   await page.screenshot({ path: path.join(screenshotDir, acceptedScreenshot), fullPage: true });
 
-  const restoreResponse = await savePolicyWithPassword(page, "SINGLE_ACTIVE", "admin123");
+  const restoreResponse = await savePolicyWithPassword(page, "SINGLE_ACTIVE");
   assert(restoreResponse.status === 200, `restore policy should succeed, got ${restoreResponse.status}: ${restoreResponse.text}`);
   const restoredSettings = await readSettings(page);
   assert(restoredSettings.repeatedLoginPolicy === "SINGLE_ACTIVE", "policy should restore to SINGLE_ACTIVE");

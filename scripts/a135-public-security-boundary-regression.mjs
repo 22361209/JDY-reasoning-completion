@@ -6,7 +6,12 @@ import net from "node:net";
 import path from "node:path";
 
 import { chromium } from "playwright";
-import { loginApi, logout } from "./helpers/regression-auth.mjs";
+import { loginApi, logout, postPublicPasswordResetRequest } from "./helpers/regression-auth.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -476,15 +481,10 @@ function canonicalJson(value) {
 }
 
 async function postPasswordReset(baseUrl, username, contactNote, forwardedFor = "") {
-  const headers = new Headers({ "Content-Type": "application/json" });
-  if (forwardedFor) {
-    headers.set("X-Forwarded-For", forwardedFor);
-  }
-  const response = await fetch(`${baseUrl}/api/system/password-reset-requests`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ username, contactNote }),
-    signal: AbortSignal.timeout(5_000)
+  const response = await postPublicPasswordResetRequest(baseUrl, {
+    username,
+    contactNote,
+    forwardedFor
   });
   const text = await response.text();
   let data = null;
@@ -637,7 +637,7 @@ async function spawnIsolatedBackend({
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(rootDir, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = {
@@ -654,7 +654,11 @@ async function spawnIsolatedBackend({
   child.once("error", (error) => {
     processInfo.spawnError = error;
   });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   return processInfo;
 }
 
@@ -713,21 +717,7 @@ async function expectProfileGuardStartupFailure(options) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) {
-    return false;
-  }
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") {
-      return false;
-    }
-    if (error?.code === "EPERM") {
-      return true;
-    }
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function waitForProcessGroupExit(processInfo, timeoutMs) {
@@ -755,7 +745,7 @@ async function stopIsolatedBackend(processInfo) {
       return;
     }
     try {
-      process.kill(-processInfo.child.pid, "SIGTERM");
+      signalRegressionProcessTree(processInfo, "SIGTERM");
     } catch (error) {
       if (error?.code === "ESRCH") {
         processInfo.stopped = true;
@@ -766,7 +756,7 @@ async function stopIsolatedBackend(processInfo) {
     if (!await waitForProcessGroupExit(processInfo, 8000)) {
       processInfo.forcedKill = true;
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
       } catch (error) {
         if (error?.code !== "ESRCH") {
           throw error;
@@ -893,7 +883,7 @@ async function runPasswordResetIsolation() {
         continue;
       }
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
         processInfo.forcedKill = true;
         isolation.cleanup.exitLastResortKills.push(processInfo.name);
       } catch (error) {
@@ -982,7 +972,7 @@ async function runPasswordResetIsolation() {
       process.exitCode = exitCode;
       void cleanupIsolation().finally(() => {
         removeSignalHandlers();
-        process.exit(exitCode);
+        process.exitCode = exitCode;
       });
     };
     signalHandlers.set(signal, handler);
@@ -1284,11 +1274,13 @@ try {
   result.management.anonymousStatus = anonymousManage.status;
 
   for (const [role, username, password] of [
-    ["ADMIN", "admin", "admin123"],
+    ["ADMIN", "", ""],
     ["WAREHOUSE", "warehouse", "warehouse123"],
     ["FINANCE", "finance", "finance123"]
   ]) {
-    const cookie = await loginApi(apiBase, username, password, "BLD-TEST");
+    const cookie = role === "ADMIN"
+      ? await loginApi(apiBase)
+      : await loginApi(apiBase, username, password, "BLD-TEST");
     apiCookies.set(role, cookie);
     const accountSetsResponse = await request(cookie, "/api/system/account-sets");
     expectStatus(`${role} account sets`, accountSetsResponse, 200);

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession } from "./helpers/regression-auth.mjs";
+import { installApiSession, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const faultPhase = process.env.A32_FAULT_PHASE ?? "";
@@ -10,6 +10,7 @@ const resultPath = path.join(rootDir, faultPhase
   ? "verification/a32-line-remark-output-regression-fault.json"
   : "verification/a32-line-remark-output-regression.json");
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 const runId = randomUUID();
 const runToken = runId.replaceAll("-", "").slice(0, 12).toUpperCase();
 const fixtureKey = `A32-${runToken}`;
@@ -350,7 +351,7 @@ async function run() {
   sessionInstalled = true;
   const session = await requireJson("/api/system/session");
   assert(session?.authenticated === true
-    && session.user?.username === "admin"
+    && session.user?.username === adminIdentity.username
     && session.user?.roleCode === "ADMIN"
     && session.tenant?.code === "BLD-TEST"
     && session.tenant?.schemaName === "public",
@@ -363,10 +364,10 @@ async function run() {
       AND account_set.code='BLD-TEST'
       AND account_set.schema_name='public'
       AND account_set.enabled=TRUE
-      AND actor.username='admin'
+      AND actor.username=${sqlLiteral(adminIdentity.username)}
       AND actor.enabled=TRUE
   `);
-  assert(route?.accountSet?.id === session.tenant.id && route.actor?.username === "admin",
+  assert(route?.accountSet?.id === session.tenant.id && route.actor?.username === adminIdentity.username,
     "A32 database route must match the authenticated BLD-TEST/public actor", route);
   assertUuid(route.actor.id, "A32 admin actor id");
   result.environment = {

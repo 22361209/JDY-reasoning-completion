@@ -1,7 +1,11 @@
 import { chromium } from "playwright";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import {
+  installApiSession,
+  loginAsAdmin,
+  requestWithRegressionAdminConfirmation
+} from "./helpers/regression-auth.mjs";
 import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -12,7 +16,7 @@ const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-26";
 
-await installApiSession(apiBase);
+const adminCookie = await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
 await mkdir(path.dirname(resultPath), { recursive: true });
 
@@ -274,22 +278,28 @@ async function verifyLifecycleApi() {
       lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 }]
     }
   }), "A105作废草稿");
-  const wrongPassword = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
-    body: { reason: "A105 错密", username: "admin", password: "bad" },
-    expectFailure: true
-  });
+  const wrongPassword = await requestWithRegressionAdminConfirmation(
+    apiBase,
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`,
+    { sessionCookie: adminCookie, reason: "A105 错密", invalidPassword: true }
+  );
   assert(wrongPassword.status === 401, `wrong password void should be 401, got ${wrongPassword.status}`);
-  const voided = await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
-    body: { reason: "A105 草稿作废", username: "admin", password: "admin123" }
-  });
+  const voidedResponse = await requestWithRegressionAdminConfirmation(
+    apiBase,
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`,
+    { sessionCookie: adminCookie, reason: "A105 草稿作废" }
+  );
+  assert(voidedResponse.ok, `draft void should succeed, got ${voidedResponse.status}`);
+  const voided = voidedResponse.data;
   assert(voided.status === "VOID", "draft void should set VOID");
 
   const downstreamNo = await createSalesOrder("DOWNSTREAM");
   await createSalesOutFromOrder(downstreamNo, "DOWNSTREAM");
-  const blockedVoid = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`, {
-    body: { reason: "A105 有下游作废", username: "admin", password: "admin123" },
-    expectFailure: true
-  });
+  const blockedVoid = await requestWithRegressionAdminConfirmation(
+    apiBase,
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`,
+    { sessionCookie: adminCookie, reason: "A105 有下游作废" }
+  );
   assert(blockedVoid.status === 409, `void with downstream should be blocked with 409, got ${blockedVoid.status}`);
 
   return { closeNo, freezeNo, lineBlockNo, voidNo, downstreamNo, wrongPasswordStatus: wrongPassword.status, blockedVoidStatus: blockedVoid.status, frozenAuditStatus: frozenAudit.status };

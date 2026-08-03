@@ -269,8 +269,8 @@ function textArray(values) {
 function psql(sql) {
   return execFileSync(
     "docker",
-    ["exec", "-i", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "jdy", "-d", "jdy_erp"],
-    { encoding: "utf8", input: sql }
+    ["exec", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "jdy", "-d", "jdy_erp", "-c", sql],
+    { encoding: "utf8" }
   ).trim();
 }
 

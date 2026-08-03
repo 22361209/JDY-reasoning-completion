@@ -3,13 +3,14 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginAsAdmin, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a51-operation-log-user-preset-override-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const listKey = "operation-log-list";
@@ -200,7 +201,7 @@ let restoredOriginalIds = false;
 try {
   session = await requireApi("/api/system/session");
   assert(session.user.roleCode === "ADMIN", "session should expose ADMIN role code");
-  assert(session.user.username === "admin", "session should expose current login username");
+  assert(session.user.username === adminIdentity.username, "session should expose current run-scoped login username");
   assert(session.user.name === "本地管理员", "session should expose current display name");
   assert(session?.tenant?.schemaName === "public", `A51 preset snapshot SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
   presetUserName = session.user.username;
@@ -327,7 +328,7 @@ const result = {
   userPresetId: userPreset.id,
   roleDefaultPresetId: roleDefaultPreset.id,
   checks: {
-    sessionHasUsername: session.user.username === "admin",
+    sessionHasUsername: session.user.username === adminIdentity.username,
     sessionHasDisplayName: session.user.name === "本地管理员",
     userPresetSavedAsDefault: userPreset.isDefault === true,
     roleDefaultStillDefault: roleDefaultPreset.isDefault === true,

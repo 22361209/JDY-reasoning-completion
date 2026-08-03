@@ -34,10 +34,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAs(page, username, password, expectedRole) {
-  await sharedLoginAs(page, username, password, expectedRole);
-}
-
 async function logout(page) {
   await sharedLogout(page);
 }
@@ -47,7 +43,7 @@ let screenshot = "";
 try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
 
   const draftResponse = await browserFetch(page, "/api/sales-orders/draft", {
     method: "POST",
@@ -67,7 +63,7 @@ try {
   assert(/^XSDD\d{6}$/.test(billNo), `admin draft should use backend automatic numbering, got ${JSON.stringify(billNo)}`);
 
   await logout(page);
-  await loginAs(page, "warehouse", "warehouse123", "仓库员");
+  await sharedLoginAs(page, "warehouse", "warehouse123", "仓库员");
 
   const warehouseSession = await browserFetch(page, "/api/system/session");
   assert(warehouseSession.status === 200, "warehouse session should load");
@@ -84,7 +80,7 @@ try {
   assert(blockedAudit.status === 403, `warehouse direct sales order audit should be 403, got ${blockedAudit.status}`);
 
   await logout(page);
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-销售管理").hover();
   await page.getByTestId("entry-sales-order-form").waitFor({ state: "visible" });
 

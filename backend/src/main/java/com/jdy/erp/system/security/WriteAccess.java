@@ -22,6 +22,7 @@ public @interface WriteAccess {
         LOGIN(Mode.PUBLIC, RequestMethod.POST, "/api/system/login"),
         LOGOUT(Mode.PUBLIC, RequestMethod.POST, "/api/system/logout"),
         REQUEST_PASSWORD_RESET(Mode.PUBLIC, RequestMethod.POST, "/api/system/password-reset-requests"),
+        MANAGE_REGRESSION_REQUEST_FENCE(Mode.PUBLIC, RequestMethod.POST, "/api/system/regression-request-fence"),
         CHANGE_OWN_PASSWORD(Mode.AUTHENTICATED, RequestMethod.PUT, "/api/system/password"),
         SWITCH_AUTHORIZED_ACCOUNT_SET(Mode.AUTHENTICATED, RequestMethod.POST, "/api/system/account-sets/current"),
         RELEASE_OWN_DOCUMENT_LOCK(Mode.AUTHENTICATED, RequestMethod.DELETE, "/api/document-locks/{type}/{billNo}"),

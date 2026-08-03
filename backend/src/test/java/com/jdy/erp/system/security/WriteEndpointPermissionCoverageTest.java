@@ -75,15 +75,15 @@ class WriteEndpointPermissionCoverageTest {
     }
 
     @Test
-    void namedWritePoliciesKeepTheA134ThreeThreeTwoBoundary() {
+    void namedWritePoliciesIncludeTheTestOnlyFenceControlBoundary() {
         var counts = Arrays.stream(WriteAccess.Policy.values())
             .collect(Collectors.groupingBy(WriteAccess.Policy::mode, Collectors.counting()));
 
         assertThat(counts)
-            .containsEntry(WriteAccess.Mode.PUBLIC, 3L)
+            .containsEntry(WriteAccess.Mode.PUBLIC, 4L)
             .containsEntry(WriteAccess.Mode.AUTHENTICATED, 3L)
             .containsEntry(WriteAccess.Mode.REQUEST_SCOPED_PERMISSION, 2L);
-        assertThat(WriteAccess.Policy.values()).hasSize(8);
+        assertThat(WriteAccess.Policy.values()).hasSize(9);
     }
 
     private int accessSemanticCount(HandlerMethod handler) {

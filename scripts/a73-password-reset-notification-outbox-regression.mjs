@@ -38,10 +38,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
-}
-
 async function createUser(page, username, displayName) {
   const response = await browserFetch(page, "/api/system/managed-users", {
     method: "POST",
@@ -72,7 +68,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
 
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
   await createUser(page, resetUsername, "A73 通知重置员工");
   await createUser(page, rejectUsername, "A73 通知驳回员工");
 
@@ -82,7 +78,7 @@ try {
   await submitResetRequest(page, resetUsername, "A73 重置通知核验 13800000001");
   await submitResetRequest(page, rejectUsername, "A73 驳回通知核验 13800000002");
 
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").click();
   await page.getByTestId("password-reset-admin-panel").waitFor({ state: "visible" });

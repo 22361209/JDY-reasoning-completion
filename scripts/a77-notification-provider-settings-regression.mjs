@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
+import { fillRegressionAdminPassword, loginAsAdmin, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -37,10 +37,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAsAdmin(page) {
-  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
-}
-
 const browser = await chromium.launch({ headless: true });
 let settingsScreenshot = "";
 try {
@@ -57,7 +53,7 @@ try {
   await page.getByTestId("notification-provider-endpoint-url").fill("https://provider.example.test/a77/send");
   await page.getByTestId("notification-provider-webhook-secret").fill(`a77-secret-${suffix}`);
   await page.getByTestId("notification-provider-dry-run").check();
-  await page.getByTestId("notification-provider-current-password").fill("admin123");
+  await fillRegressionAdminPassword(page.getByTestId("notification-provider-current-password"));
   await page.getByTestId("notification-provider-save").click();
   await page.getByTestId("notification-provider-message").filter({ hasText: "通知供应商设置已保存" }).waitFor({ state: "visible" });
 

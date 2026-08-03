@@ -3,13 +3,14 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginAsAdmin, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a50-operation-log-role-scoped-preset-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const listKey = "operation-log-list";
@@ -171,7 +172,7 @@ function removeWarehouseFixture() {
 try {
   session = await requireApi("/api/system/session");
   assert(session.user.roleCode === "ADMIN", "session should expose ADMIN role code");
-  assert(session.user.username === "admin", "session should expose the stable ADMIN username");
+  assert(session.user.username === adminIdentity.username, "session should expose the run-scoped ADMIN username");
   assert(session?.tenant?.schemaName === "public", `A50 preset snapshot SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
 
   baselinePresets = readCompletePresetSnapshot();

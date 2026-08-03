@@ -601,7 +601,7 @@ console.log(JSON.stringify({
 
 if (primaryError) {
   console.error(errorText(primaryError));
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 function runEnforcementChecks() {

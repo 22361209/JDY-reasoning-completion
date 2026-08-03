@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fillRegressionAdminPassword, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -52,7 +53,7 @@ async function savePolicy(page, policy) {
     await page.getByTestId("security-policy-single-active").click();
   }
   await page.getByTestId("security-repeated-login-policy").selectOption(policy);
-  await page.getByTestId("security-current-password").fill("admin123");
+  await fillRegressionAdminPassword(page.getByTestId("security-current-password"));
   await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/system/security-settings") && response.request().method() === "PUT"),
     page.getByTestId("security-settings-save").click()
@@ -68,7 +69,7 @@ try {
   const adminContext = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const adminPage = await adminContext.newPage();
   await adminPage.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(adminPage, "admin", "admin123", "系统管理员");
+  await loginAsAdmin(adminPage);
   await savePolicy(adminPage, "ALLOW_CONCURRENT");
   allowScreenshot = `a69-policy-allow-concurrent-${batch}.png`;
   await adminPage.screenshot({ path: path.join(screenshotDir, allowScreenshot), fullPage: true });

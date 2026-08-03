@@ -33,10 +33,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAs(page, username, password, expectedRole) {
-  await sharedLoginAs(page, username, password, expectedRole);
-}
-
 const browser = await chromium.launch({ headless: true });
 let beforeScreenshot = "";
 let afterScreenshot = "";
@@ -44,7 +40,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const pageA = await context.newPage();
   await pageA.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(pageA, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(pageA, "admin", "admin123", "系统管理员");
 
   const pageB = await context.newPage();
   await pageB.goto(frontendUrl, { waitUntil: "networkidle" });

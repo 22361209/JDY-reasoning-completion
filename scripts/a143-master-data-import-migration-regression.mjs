@@ -11,6 +11,11 @@ import {
   assertPublishedMigrationHistory,
   currentMigrationHead
 } from "./helpers/current-migration-head.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
@@ -538,15 +543,7 @@ async function tailFile(filePath, maximumLength = 16_000) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) return false;
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    if (error?.code === "EPERM") return true;
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function waitForProcessGroupExit(processInfo, timeoutMs) {
@@ -564,14 +561,14 @@ async function stopBackend(processInfo) {
       return;
     }
     try {
-      process.kill(-processInfo.child.pid, "SIGTERM");
+      signalRegressionProcessTree(processInfo, "SIGTERM");
     } catch (error) {
       if (error?.code !== "ESRCH") throw error;
     }
     if (!await waitForProcessGroupExit(processInfo, 8_000)) {
       processInfo.forcedKill = true;
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
       } catch (error) {
         if (error?.code !== "ESRCH") throw error;
       }
@@ -608,7 +605,7 @@ async function startBackend() {
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(rootDir, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = {
@@ -625,7 +622,11 @@ async function startBackend() {
   child.once("error", (error) => {
     processInfo.spawnError = error;
   });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     if (processInfo.spawnError) throw processInfo.spawnError;
     if (processInfo.child.exitCode != null) {
@@ -689,7 +690,7 @@ function exitLastResort() {
   for (const processInfo of [...processes].reverse()) {
     if (!processGroupIsAlive(processInfo)) continue;
     try {
-      process.kill(-processInfo.child.pid, "SIGKILL");
+      signalRegressionProcessTree(processInfo, "SIGKILL");
       processInfo.forcedKill = true;
     } catch (error) {
       if (error?.code !== "ESRCH") {
@@ -765,7 +766,7 @@ for (const [signal, exitCode] of signalExitCodes) {
       result.failure = errorText(primaryError);
       await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`);
       removeLifecycleHandlers();
-      process.exit(exitCode);
+      process.exitCode = exitCode;
     });
   };
   signalHandlers.set(signal, handler);

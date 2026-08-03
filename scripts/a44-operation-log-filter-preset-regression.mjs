@@ -368,6 +368,7 @@ async function runAcceptance() {
     if (url.pathname.startsWith("/api/")) recordApiRequest(request.method(), url.pathname);
   });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
+  await identity.openRequestFence();
   await loginAsAdmin(page, identity.password, "BLD-TEST", identity.username);
   await captureSessionCookie();
   await page.evaluate(() => localStorage.removeItem("jdy:operation-log-filter-presets"));

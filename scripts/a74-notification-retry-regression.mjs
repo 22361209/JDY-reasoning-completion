@@ -1,11 +1,9 @@
 import { chromium } from "playwright";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
-const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const screenshotDir = path.join(verificationDir, "playwright");
@@ -54,7 +52,7 @@ async function markNoticeFailed(notificationId) {
         last_attempt_at = now()
     WHERE id = '${notificationId.replaceAll("'", "''")}'::uuid;
   `;
-  await execFileAsync("docker", ["exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-v", "ON_ERROR_STOP=1", "-c", sql]);
+  execFileSync("docker", ["exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-v", "ON_ERROR_STOP=1", "-c", sql]);
 }
 
 const browser = await chromium.launch({ headless: true });

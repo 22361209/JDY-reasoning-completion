@@ -3,13 +3,14 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginAsAdmin, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a101-stock-alert-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const productCode = "CP-118";
 const faultPhase = (process.env.A101_FAULT_PHASE ?? "").trim();
@@ -550,7 +551,7 @@ assert(health.status === "UP", `A101 health precondition should be UP, got ${JSO
 assert(health.testInventoryAdjustmentApi === true, `A101 requires health.testInventoryAdjustmentApi=true before fixture writes, got ${JSON.stringify(health.testInventoryAdjustmentApi)}`);
 const session = await api("/api/system/session");
 assert(session.authenticated === true, `A101 session must be authenticated, got ${JSON.stringify(session.authenticated)}`);
-assert(session.user?.username === "admin", `A101 session actor must be admin, got ${JSON.stringify(session.user?.username)}`);
+assert(session.user?.username === adminIdentity.username, `A101 session actor must be the run-scoped admin, got ${JSON.stringify(session.user?.username)}`);
 assert(session.tenant?.code === "BLD-TEST", `A101 must run only in tenant.code=BLD-TEST, got ${JSON.stringify(session.tenant?.code)}`);
 assert(session.tenant?.schemaName === "public", `A101 must run only in tenant.schemaName=public, got ${JSON.stringify(session.tenant?.schemaName)}`);
 assertUuid(session.tenant?.id, "A101 account set id");

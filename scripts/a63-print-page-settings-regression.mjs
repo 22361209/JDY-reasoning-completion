@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { loginAsAdmin, logout } from "./helpers/regression-auth.mjs";
+import { loginAsAdmin, logout, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const screenshotDir = path.join(verificationDir, "playwright");
 const frontendUrl = "http://127.0.0.1:5173/";
+const adminIdentity = regressionAdminIdentity();
 const runId = randomUUID();
 const runToken = runId.replaceAll("-", "").slice(0, 12).toUpperCase();
 const fixtureKey = `A63-${runToken}`;
@@ -102,9 +103,9 @@ function uuidArray(values) {
 
 function psql(sql) {
   return execFileSync("docker", [
-    "exec", "-i", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt",
-    "-U", "jdy", "-d", "jdy_erp"
-  ], { encoding: "utf8", input: sql }).trim();
+    "exec", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt",
+    "-U", "jdy", "-d", "jdy_erp", "-c", sql
+  ], { encoding: "utf8" }).trim();
 }
 
 function dbJson(sql) {
@@ -543,7 +544,7 @@ async function runScenario() {
     "A63 direct cleanup is restricted to BLD-TEST/public");
   const actor = dbJson(`
     SELECT to_jsonb(actor_row)::text FROM public.sys_user actor_row
-    WHERE actor_row.username='admin' AND actor_row.enabled=TRUE
+    WHERE actor_row.username=${sqlLiteral(adminIdentity.username)} AND actor_row.enabled=TRUE
   `);
   assertUuid(actor?.id, "A63 admin actor id");
   artifacts.actorId = actor.id;
@@ -562,7 +563,7 @@ async function runScenario() {
   artifacts.loggedIn = true;
   const session = await requireJson("/api/system/session");
   assert(session?.authenticated === true
-    && session.user?.username === "admin"
+    && session.user?.username === adminIdentity.username
     && session.user?.roleCode === "ADMIN"
     && session.tenant?.code === "BLD-TEST"
     && session.tenant?.schemaName === "public",

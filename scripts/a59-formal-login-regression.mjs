@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -54,7 +55,7 @@ try {
   const preLoginManagedUsers = await browserFetch(page, "/api/system/managed-users");
   assert(preLoginManagedUsers.status === 401, `pre-login managed-users should be 401, got ${preLoginManagedUsers.status}`);
 
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await loginAsAdmin(page);
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").waitFor({ state: "visible" });
   const adminManagedUsers = await browserFetch(page, "/api/system/managed-users");

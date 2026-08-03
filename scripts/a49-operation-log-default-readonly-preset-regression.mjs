@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginApi, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginApi, loginAsAdmin, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -11,6 +11,7 @@ const screenshotDir = path.join(rootDir, "verification/playwright");
 const resultPath = path.join(rootDir, "verification/a49-operation-log-default-readonly-preset-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 const nativeFetch = globalThis.fetch.bind(globalThis);
 await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
@@ -319,7 +320,7 @@ async function removeReadonlyFixture() {
 try {
   const session = await requireApi("/api/system/session", { method: "GET" });
   assert(session?.tenant?.schemaName === "public", `A49 readonly fixture SQL expects the BLD-TEST public schema, got ${JSON.stringify(session?.tenant?.schemaName)}`);
-  assert(session?.user?.roleCode === "ADMIN" && session?.user?.username === "admin", "A49 setup must use the ADMIN session");
+  assert(session?.user?.roleCode === "ADMIN" && session?.user?.username === adminIdentity.username, "A49 setup must use the run-scoped ADMIN session");
   await createProbeUser();
   completePresetBaseline = completePresetSnapshot();
 
