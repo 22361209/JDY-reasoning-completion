@@ -224,6 +224,10 @@ export function selectRegressionProcessOwnershipMembers({
   const processGroups = new Set(persistedProcessGroups.map(normalizedPid).filter(Boolean));
   const byPid = new Map();
   for (const member of members) {
+    // `ps -axo` includes the init/launchd row (PID 1, PPID 0). It cannot be a
+    // descendant of a runner-owned group (which always has a PID above 1), so
+    // ignore it before applying the ownership-record validation below.
+    if (Number(member?.pid) === 1) continue;
     const pid = normalizedPid(member?.pid);
     const parentPid = Number(member?.parentPid);
     const pgid = Number(member?.pgid);

@@ -167,7 +167,13 @@ function assertPersistedGroupLedgerContract() {
   assert.deepEqual(compactedLedger.map(({ pid }) => pid), [boundedRootPid, 51_000]);
 
   const detachedSelection = selectRegressionProcessOwnershipMembers({
-    members: [root, {
+    members: [{
+      pid: 1,
+      parentPid: 0,
+      pgid: 1,
+      lstart: "Mon Aug 3 09:00:00 2026",
+      commandFingerprint: hash("init")
+    }, root, {
       pid: 43_010,
       parentPid: root.pid,
       pgid: 43_010,
@@ -189,7 +195,7 @@ function assertPersistedGroupLedgerContract() {
     groupId: root.pid
   });
   assert.deepEqual(detachedSelection.map(({ pid }) => pid), [root.pid, 43_010, 43_011],
-    "a live detached descendant chain must remain in the outer ownership snapshot");
+    "a live detached descendant chain must remain selected while the global init row is ignored");
 
   const detachedLeader = {
     pid: 43_010,
@@ -473,7 +479,8 @@ try {
     exactPersistedSignalsVerified: true,
     relocatedIdentitySignaled: true,
     boundedLedgerCompactionVerified: true,
-    detachedDescendantSelected: true
+    detachedDescendantSelected: true,
+    initProcessIgnored: true
   }));
 } finally {
   try {
