@@ -43,6 +43,10 @@ const requestedTier = args.find((arg) => !arg.startsWith("--")) ?? "smoke";
 const tier = requestedTier.endsWith(":continue") ? requestedTier.slice(0, -":continue".length) : requestedTier;
 const shouldContinue = continueOnFailure || requestedTier.endsWith(":continue");
 const resultTier = shouldContinue && tier === "full" ? "full-continue" : tier;
+// Child exit can precede kernel EOF on an already-proven private descriptor
+// while the operating system drains its final close notification. Keep this
+// bounded; an actually retained descriptor still fails the suite closed.
+const childDescriptorCloseGraceMs = 10_000;
 const bootstrapExecutionBaseline = captureRegressionExecutionBaselineSync({
   rootDir,
   strictClean: tier === "full"
@@ -1465,7 +1469,7 @@ async function runScript(script, {
           secretCollector.fail("regression child secret report descriptor did not close after child exit or SIGKILL");
           child.stdio[3].destroy();
           maybeFinish();
-        }, 2_000);
+        }, childDescriptorCloseGraceMs);
         forcedResolutionTimer.unref?.();
       };
       const scheduleChildCloseFailure = () => {
@@ -1480,7 +1484,7 @@ async function runScript(script, {
           childCloseObserved = true;
           childCloseStatus = 1;
           maybeFinish();
-        }, 2_000);
+        }, childDescriptorCloseGraceMs);
       };
       const scheduleDockerWatchdogAckFailure = () => {
         if (dockerWatchdogAckTimer || dockerWatchdogAckClosed) return;
