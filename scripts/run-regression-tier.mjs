@@ -535,10 +535,19 @@ try {
           childProcessFingerprint: handle.childProcessFingerprint,
           childProcessGuardToken: handle.childProcessGuardToken,
           childDetachedSpawnLedger: handle.childDetachedSpawnLedger,
-          childProcessLedger: handle.childProcessLedger
+          childProcessLedger: handle.childProcessLedger,
+          diagnosticError: ""
         });
         startChildProcessLedgerMonitor(handle, async (childProcessLedger) => {
           await suiteLock.update({ childProcessLedger });
+        }, async (error) => {
+          await suiteLock.update({
+            diagnosticError: redactOutput(
+              error instanceof Error ? error.message : String(error),
+              suiteFixture?.password || "",
+              [...childReportedSecrets]
+            ).slice(0, 1_024)
+          });
         });
       }
     });
@@ -3107,7 +3116,7 @@ function closeChildDockerLeaseWatchdog(handle) {
   return result;
 }
 
-function startChildProcessLedgerMonitor(handle, persistLedger) {
+function startChildProcessLedgerMonitor(handle, persistLedger, persistFailure = async () => {}) {
   handle.processLedgerUpdate = Promise.resolve();
   handle.processLedgerError = null;
   handle.processLedgerStopped = false;
@@ -3122,6 +3131,7 @@ function startChildProcessLedgerMonitor(handle, persistLedger) {
         setupError,
         error instanceof Error ? error.message : String(error)
       ].filter(Boolean).join("; ");
+      return persistFailure(error).catch(() => {});
     });
   };
   handle.processLedgerMonitor = setInterval(tick, 100);
