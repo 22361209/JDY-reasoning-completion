@@ -1564,6 +1564,11 @@ async function runScript(script, {
       };
       const scheduleChildCloseFailure = () => {
         if (childCloseTimer || childCloseObserved) return;
+        // The detached Docker watchdog legitimately holds inherited control
+        // descriptors until it has written every CLOSED receipt and its signed
+        // acknowledgement.  Start the ordinary stdout/stderr close deadline
+        // only after that bounded watchdog phase has actually ended.
+        if (!dockerWatchdogAckClosed) return;
         childCloseTimer = setTimeout(() => {
           childCloseForced = true;
           if (!forcedCloseMessage) {
@@ -1685,6 +1690,7 @@ async function runScript(script, {
         dockerWatchdogAckClosed = true;
         handle.dockerWatchdogAckPayload = dockerWatchdogAckPayload;
         if (dockerWatchdogAckTimer) clearTimeout(dockerWatchdogAckTimer);
+        scheduleChildCloseFailure();
         maybeFinish();
       });
       child.stdin.on("error", (error) => {
