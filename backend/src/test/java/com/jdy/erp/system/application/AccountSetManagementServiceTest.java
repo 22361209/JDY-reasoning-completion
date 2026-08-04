@@ -17,6 +17,7 @@ import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
 import com.jdy.erp.system.tenant.TenantDataSourceRegistry;
+import com.jdy.erp.testsupport.IsolatedAdminFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,11 +53,17 @@ class AccountSetManagementServiceTest {
     private final List<String> createdCodes = new ArrayList<>();
     private final List<String> createdSchemas = new ArrayList<>();
     private final List<String> createdBackupSchemas = new ArrayList<>();
+    private IsolatedAdminFixture.Identity fixture;
 
     @BeforeEach
     void bindRequest() {
+        if (fixture != null) {
+            currentSessionService.logout();
+            IsolatedAdminFixture.remove(platformJdbcTemplate, fixture);
+        }
+        fixture = IsolatedAdminFixture.create(platformJdbcTemplate, "accountset");
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
-        currentSessionService.login("admin", "admin123", "BLD-TEST");
+        currentSessionService.login(fixture.username(), IsolatedAdminFixture.PASSWORD, "BLD-TEST");
     }
 
     @AfterEach
@@ -77,6 +84,7 @@ class AccountSetManagementServiceTest {
                 """, code);
             platformJdbcTemplate.update("DELETE FROM sys_account_set WHERE code = ?", code);
         }
+        IsolatedAdminFixture.remove(platformJdbcTemplate, fixture);
     }
 
     @Test
@@ -150,7 +158,7 @@ class AccountSetManagementServiceTest {
         assertThat(grants).isEqualTo(1);
 
         bindRequest();
-        currentSessionService.login("admin", "admin123", code);
+        currentSessionService.login(fixture.username(), IsolatedAdminFixture.PASSWORD, code);
         assertThat(currentSessionService.currentAccountSetCode()).isEqualTo(code);
     }
 
@@ -249,7 +257,7 @@ class AccountSetManagementServiceTest {
         createImportBatchFixture(schemaB, codeB, "VALIDATED", "initialize-b");
 
         bindRequest();
-        currentSessionService.login("admin", "admin123", codeA);
+        currentSessionService.login(fixture.username(), IsolatedAdminFixture.PASSWORD, codeA);
         TenantContext.setTenant(currentSessionService.currentAccountSet());
 
         initializationService.initializeCurrentAccountSet(true);
@@ -271,7 +279,7 @@ class AccountSetManagementServiceTest {
         var code = createManagedAccountSet("A119OPS");
         var schema = schemaFor(code);
         bindRequest();
-        currentSessionService.login("admin", "admin123", code);
+        currentSessionService.login(fixture.username(), IsolatedAdminFixture.PASSWORD, code);
         TenantContext.setTenant(currentSessionService.currentAccountSet());
 
         platformJdbcTemplate.update("""

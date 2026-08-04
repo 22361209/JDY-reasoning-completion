@@ -14,6 +14,7 @@ import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.system.application.AccountSetManagementService;
 import com.jdy.erp.system.security.CurrentSessionService;
+import com.jdy.erp.testsupport.IsolatedAdminFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,9 +57,11 @@ class TenantMasterDataBomNumberingIsolationTest {
 
     private final List<String> createdCodes = new ArrayList<>();
     private final List<String> createdSchemas = new ArrayList<>();
+    private IsolatedAdminFixture.Identity fixture;
 
     @BeforeEach
     void bindRequest() {
+        fixture = IsolatedAdminFixture.create(platformJdbcTemplate, "masterdata");
         useTenant("BLD-TEST");
     }
 
@@ -77,6 +80,7 @@ class TenantMasterDataBomNumberingIsolationTest {
                 """, code);
             platformJdbcTemplate.update("DELETE FROM sys_account_set WHERE code = ?", code);
         }
+        IsolatedAdminFixture.remove(platformJdbcTemplate, fixture);
     }
 
     @Test
@@ -133,7 +137,7 @@ class TenantMasterDataBomNumberingIsolationTest {
     private void useTenant(String code) {
         TenantContext.clear();
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
-        currentSessionService.login("admin", "admin123", code);
+        currentSessionService.login(fixture.username(), IsolatedAdminFixture.PASSWORD, code);
         TenantContext.setTenant(currentSessionService.currentAccountSet());
     }
 
