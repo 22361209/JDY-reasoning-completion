@@ -214,6 +214,7 @@ class RegressionSharedAdminLoginGuardTest {
               "childProcessGuardToken":"",
               "childDetachedSpawnLedger":null,
               "childProcessLedger":[],
+              "diagnosticError":"",
               "artifactBaseline":null,
               "executionBaseline":null,
               "latestPublication":null,

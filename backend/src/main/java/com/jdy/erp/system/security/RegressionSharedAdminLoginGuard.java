@@ -72,6 +72,7 @@ public final class RegressionSharedAdminLoginGuard {
         "childProcessFingerprint",
         "childProcessGuardToken",
         "childProcessLedger",
+        "diagnosticError",
         "childScript",
         "executionBaseline",
         "latestPublication",
@@ -328,6 +329,7 @@ public final class RegressionSharedAdminLoginGuard {
             || !owner.path("userId").isTextual()
             || !owner.path("childProcessFingerprint").isTextual()
             || !owner.path("childProcessGuardToken").isTextual()
+            || !owner.path("diagnosticError").isTextual()
             || !owner.path("pid").canConvertToInt()
             || owner.path("pid").asInt() <= 0
             || !owner.path("ownerRevision").canConvertToLong()

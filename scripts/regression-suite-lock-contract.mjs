@@ -432,6 +432,7 @@ function owner({
     childProcessGuardToken: "",
     childDetachedSpawnLedger: null,
     childProcessLedger: [],
+    diagnosticError: "",
     artifactBaseline,
     executionBaseline,
     parentProcessFingerprint: fingerprint,

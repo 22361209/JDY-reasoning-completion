@@ -1352,8 +1352,12 @@ export async function runRegressionPreflight({ rootDir, tier, scripts, adminFixt
   };
 }
 
-export async function assertSharedRegressionBaseline(preflight, label = "postflight") {
-  const current = await readSharedRegressionBaseline(preflight.fixtureControl || {});
+export async function assertSharedRegressionBaseline(
+  preflight,
+  label = "postflight",
+  fixtureControlOptions = preflight.fixtureControl || {}
+) {
+  const current = await readSharedRegressionBaseline(fixtureControlOptions);
   const changes = {};
   if (!sameJson(current.permissionCatalogCodes, preflight.permissionCatalogCodes)) {
     changes.permissionCatalog = setDiff(preflight.permissionCatalogCodes, current.permissionCatalogCodes);
@@ -1489,11 +1493,15 @@ export function assertRedisDigestEvolution({
   return { expired };
 }
 
-export async function assertRegressionPostflight(preflight, label = "suite postflight") {
+export async function assertRegressionPostflight(
+  preflight,
+  label = "suite postflight",
+  fixtureControlOptions = preflight.fixtureControl || {}
+) {
   const errors = [];
   let sharedState = null;
   try {
-    sharedState = await assertSharedRegressionBaseline(preflight, label);
+    sharedState = await assertSharedRegressionBaseline(preflight, label, fixtureControlOptions);
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
@@ -1565,7 +1573,9 @@ async function readSharedRegressionBaseline(adminFixtureOptions = {}) {
   }
   let cleanupError = null;
   try {
-    await fixture.cleanup();
+    await fixture.cleanup({
+      allowForcedRedisRelease: adminFixtureOptions.allowForcedRedisRelease === true
+    });
   } catch (error) {
     cleanupError = error;
   }
