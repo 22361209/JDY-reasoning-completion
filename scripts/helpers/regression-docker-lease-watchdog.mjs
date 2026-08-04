@@ -1,5 +1,5 @@
 import path from "node:path";
-import { closeSync, fstatSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, fstatSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import {
   cleanupRegressionDockerLeaseIntents,
   encodeRegressionDockerWatchdogAck,
@@ -50,6 +50,11 @@ if (!path.isAbsolute(secretDir)
   || reference?.guardToken == null) {
   throw new Error("regression Docker watchdog ownership metadata is invalid");
 }
+const watchdogAckFile = `${String(reference.file).replace(/\.detached-processes\.jsonl$/, "")}.docker-watchdog.ack`;
+if (!/^[0-9]{3}\.docker-watchdog\.ack$/.test(watchdogAckFile)) {
+  throw new Error("regression Docker watchdog acknowledgement path is invalid");
+}
+const watchdogAckPath = path.join(secretDir, watchdogAckFile);
 
 let closing = false;
 let ownerLivenessTimer = null;
@@ -106,6 +111,11 @@ async function closeOwnedDockerLeases(trigger) {
   }
   try {
     const payload = encodeRegressionDockerWatchdogAck(result);
+    // The bootstrap may close the inherited stdout descriptor before a
+    // detached watchdog completes its bounded cleanup.  Persist the exact
+    // same signed frame in the already-private suite directory so the runner
+    // can recover it only when the pipe delivered no bytes at all.
+    writeFileSync(watchdogAckPath, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
     await new Promise((resolve, reject) => {
       const onError = (error) => reject(error);
       process.stdout.once("error", onError);

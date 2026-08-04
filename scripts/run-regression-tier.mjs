@@ -10,6 +10,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  unlinkSync,
   writeFileSync
 } from "node:fs";
 import {
@@ -3253,7 +3254,10 @@ function closeChildDockerLeaseWatchdog(handle) {
     expectedParentPid: groupId,
     requireClosed: true
   });
-  const payload = String(handle?.dockerWatchdogAckPayload || "");
+  const streamedPayload = String(handle?.dockerWatchdogAckPayload || "");
+  const durableAckPath = dockerWatchdogDurableAckPath(handle, groupId);
+  const durablePayload = readDurableDockerWatchdogAck(durableAckPath);
+  const payload = streamedPayload || durablePayload;
   let result;
   try {
     result = readRegressionDockerWatchdogAck({
@@ -3274,7 +3278,46 @@ function closeChildDockerLeaseWatchdog(handle) {
   }
   handle.dockerLeaseClosureVerified = true;
   handle.dockerLeaseClosureResult = result;
+  if (durablePayload) {
+    try {
+      unlinkSync(durableAckPath);
+    } catch (error) {
+      throw new Error(`regression Docker watchdog durable acknowledgement could not be removed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   return result;
+}
+
+function dockerWatchdogDurableAckPath(handle, groupId) {
+  const file = String(handle?.childDetachedSpawnLedger?.file || "");
+  const ackFile = `${file.replace(/\.detached-processes\.jsonl$/, "")}.docker-watchdog.ack`;
+  if (!/^[0-9]{3}\.docker-watchdog\.ack$/.test(ackFile)) {
+    throw new Error("regression Docker watchdog durable acknowledgement name is invalid");
+  }
+  const directory = path.resolve(String(handle?.secretDir || secretDir));
+  if (directory !== path.resolve(String(handle?.secretDir || secretDir)) || !Number.isInteger(groupId) || groupId <= 1) {
+    throw new Error("regression Docker watchdog durable acknowledgement directory is invalid");
+  }
+  return path.join(directory, ackFile);
+}
+
+function readDurableDockerWatchdogAck(ackPath) {
+  let metadata;
+  try {
+    metadata = lstatSync(ackPath);
+  } catch {
+    return "";
+  }
+  if (!metadata.isFile()
+    || metadata.isSymbolicLink()
+    || metadata.nlink !== 1
+    || (metadata.mode & 0o077) !== 0
+    || metadata.size < 1
+    || metadata.size > 1024 * 1024
+    || (typeof process.getuid === "function" && metadata.uid !== process.getuid())) {
+    throw new Error("regression Docker watchdog durable acknowledgement is unsafe");
+  }
+  return readFileSync(ackPath, "utf8");
 }
 
 function startChildProcessLedgerMonitor(handle, persistLedger, persistFailure = async () => {}) {
