@@ -1489,7 +1489,11 @@ function startRegressionDockerLeaseWatchdog({
       cwd: workspaceRoot,
       detached: process.platform !== "win32",
       env: { HOME: homedir(), PATH: trustedPath },
-      stdio: [6, 7, "ignore", ownershipDescriptor, readinessDescriptor]
+      // Preserve watchdog startup/cleanup failures on the already-redacted
+      // guarded-child stderr channel. The acknowledgement pipe remains
+      // capability-only on stdout (FD 7), so no acknowledgement payload or
+      // session material can be emitted as diagnostics.
+      stdio: [6, 7, "inherit", ownershipDescriptor, readinessDescriptor]
     });
     const identity = detachedProcessIdentity(child, watchdogPath, originalExecFileSync);
     appendDetachedSpawnLedgerRecord(descriptorProof, signer, {
