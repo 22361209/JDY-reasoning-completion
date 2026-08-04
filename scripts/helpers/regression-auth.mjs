@@ -1967,16 +1967,27 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
         if (closed || attempt === 9) break;
         synchronousPause(250);
       }
-      assert(Number(state?.userCount) === 1
-        && Number(state?.enabledCount) === 0
-        && Number(state?.activeSessionCount) === 0
-        && Number(state?.roleCount) === 0
-        && Number(state?.grantCount) === 0
-        && Number(state?.scopeCount) === 0
-        && redis.primaryHashes.length === 0
-        && redis.keys.length === 0
-        && redis.members.length === 0,
-      "isolated regression reusable identity is not in a closed quarantine state");
+      const closedState = {
+        userCount: Number(state?.userCount),
+        enabledCount: Number(state?.enabledCount),
+        activeSessionCount: Number(state?.activeSessionCount),
+        roleCount: Number(state?.roleCount),
+        grantCount: Number(state?.grantCount),
+        scopeCount: Number(state?.scopeCount),
+        redisPrimaryHashCount: redis.primaryHashes.length,
+        redisKeyCount: redis.keys.length,
+        redisMemberCount: redis.members.length
+      };
+      assert(closedState.userCount === 1
+        && closedState.enabledCount === 0
+        && closedState.activeSessionCount === 0
+        && closedState.roleCount === 0
+        && closedState.grantCount === 0
+        && closedState.scopeCount === 0
+        && closedState.redisPrimaryHashCount === 0
+        && closedState.redisKeyCount === 0
+        && closedState.redisMemberCount === 0,
+      `isolated regression reusable identity is not in a closed quarantine state: ${JSON.stringify(closedState)}`);
     }
     const created = dbJson(existing ? `
       WITH created_user AS (
