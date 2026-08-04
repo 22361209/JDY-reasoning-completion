@@ -144,7 +144,7 @@ function assertPersistedGroupLedgerContract() {
   assert.equal(escapedSignalReport.ambiguous, false);
 
   const boundedRootPid = 50_000;
-  const boundedLedger = Array.from({ length: 1_024 }, (_, index) => ({
+  const boundedLedger = Array.from({ length: 4_096 }, (_, index) => ({
     pid: boundedRootPid + index,
     parentPid: index === 0 ? 49_999 : boundedRootPid,
     pgid: boundedRootPid,
@@ -154,7 +154,7 @@ function assertPersistedGroupLedgerContract() {
   const compactedLedger = mergeRegressionProcessGroupLedger({
     ledger: boundedLedger,
     members: [boundedLedger[0], {
-      pid: 52_050,
+      pid: 55_000,
       parentPid: boundedRootPid,
       pgid: 51_000,
       lstart: "Mon Aug 3 10:00:00 2026",
@@ -164,7 +164,7 @@ function assertPersistedGroupLedgerContract() {
   });
   assert.equal(compactedLedger.length, 2,
     "a full historical ledger plus a new live member must compact before persistence");
-  assert.deepEqual(compactedLedger.map(({ pid }) => pid), [boundedRootPid, 52_050]);
+  assert.deepEqual(compactedLedger.map(({ pid }) => pid), [boundedRootPid, 55_000]);
 
   const detachedSelection = selectRegressionProcessOwnershipMembers({
     members: [{
