@@ -1489,11 +1489,10 @@ function startRegressionDockerLeaseWatchdog({
       cwd: workspaceRoot,
       detached: process.platform !== "win32",
       env: { HOME: homedir(), PATH: trustedPath },
-      // Preserve watchdog startup/cleanup failures on the already-redacted
-      // guarded-child stderr channel. The acknowledgement pipe remains
-      // capability-only on stdout (FD 7), so no acknowledgement payload or
-      // session material can be emitted as diagnostics.
-      stdio: [6, 7, "inherit", ownershipDescriptor, readinessDescriptor]
+      // A detached watchdog must not inherit bootstrap stderr: doing so keeps
+      // the runner's child descriptor open after the manifest exits and turns
+      // a normal EOF into a false secret/output-channel failure.
+      stdio: [6, 7, "ignore", ownershipDescriptor, readinessDescriptor]
     });
     const identity = detachedProcessIdentity(child, watchdogPath, originalExecFileSync);
     appendDetachedSpawnLedgerRecord(descriptorProof, signer, {
