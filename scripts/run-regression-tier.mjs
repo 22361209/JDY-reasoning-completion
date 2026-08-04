@@ -1703,17 +1703,6 @@ async function runScript(script, {
       });
       child.on("exit", () => {
         handle.closeParentWatchdogControl();
-        try {
-          // EOF on an inherited detached-pipe can be delayed or dropped by
-          // the host once the bootstrap has exited.  The watchdog is already
-          // recorded in the signed detached ledger, so revalidate and signal
-          // that exact identity rather than relying on an anonymous pipe
-          // close.  Its SIGTERM handler publishes the same signed ACK.
-          signalDetachedDockerWatchdogAfterOwnerExit(handle);
-        } catch (error) {
-          dockerWatchdogAckError = `regression Docker watchdog could not be signaled after owner exit: ${error instanceof Error ? error.message : String(error)}`;
-          child.stdio[7]?.destroy();
-        }
         if (!secretStreamClosed) {
           scheduleSecretDescriptorFailure("regression child secret report descriptor outlived the child process");
         }
@@ -1799,40 +1788,6 @@ function dockerWatchdogPid(handle) {
     throw new Error("regression child does not have one proven Docker watchdog identity");
   }
   return detached.members[0].pid;
-}
-
-function signalDetachedDockerWatchdogAfterOwnerExit(handle) {
-  const child = handle?.child;
-  const groupId = Number(child?.pid || 0);
-  if (!groupId || !handle?.childDetachedSpawnLedger) {
-    throw new Error("regression child watchdog ownership metadata is unavailable after owner exit");
-  }
-  const detached = readRegressionDetachedSpawnLedger({
-    secretDir: String(handle.secretDir || secretDir),
-    reference: handle.childDetachedSpawnLedger,
-    expectedParentPid: groupId,
-    requireClosed: false
-  });
-  if (detached.members.length !== 1) {
-    throw new Error("regression child does not have one proven Docker watchdog identity after owner exit");
-  }
-  const watchdogLedger = adoptRegressionProcessLedgerRecords({
-    ledger: [],
-    records: detached.members,
-    groupId
-  });
-  const report = signalRegressionProcessGroupLedger({
-    ledger: watchdogLedger,
-    groupId,
-    signal: "SIGTERM",
-    snapshotMembers: () => processGroupIdentitySnapshot(groupId, watchdogLedger, true)
-      .filter((member) => member.pid === watchdogLedger[0].pid),
-    signalProcess: (pid, signal) => process.kill(pid, signal)
-  });
-  if (report.ambiguous) {
-    throw new Error("regression Docker watchdog identity changed after owner exit");
-  }
-  return report;
 }
 
 function signalPersistedChildProcessMembers(handle, signal = "SIGTERM", { deferDockerWatchdog = false } = {}) {

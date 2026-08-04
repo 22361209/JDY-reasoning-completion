@@ -57,11 +57,9 @@ if (!/^[0-9]{3}\.docker-watchdog\.ack$/.test(watchdogAckFile)) {
 const watchdogAckPath = path.join(secretDir, watchdogAckFile);
 
 let closing = false;
-let ownerLivenessTimer = null;
 async function closeOwnedDockerLeases(trigger) {
   if (closing) return;
   closing = true;
-  if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
   process.stdin.pause();
   process.stdin.unref?.();
   let result;
@@ -140,14 +138,6 @@ process.stdin.once("end", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.once("close", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.once("error", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.resume();
-// The owner-control pipe is the normal termination signal.  Keep a second,
-// local liveness observation because a detached child can retain a pipe whose
-// writer vanished without the platform delivering a stream terminal event.
-// `ppid` changes as soon as this exact watchdog is reparented, so it does not
-// trust a reusable numeric PID lookup to decide whether its owner is alive.
-ownerLivenessTimer = setInterval(() => {
-  if (process.ppid !== expectedParentPid) void closeOwnedDockerLeases("OWNER_EXIT");
-}, 25);
 const readinessMarker = Buffer.from("READY\n");
 if (writeSync(4, readinessMarker, 0, readinessMarker.length, 0) !== readinessMarker.length) {
   throw new Error("regression Docker watchdog readiness capability is truncated");
