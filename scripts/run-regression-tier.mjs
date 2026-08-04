@@ -2992,29 +2992,37 @@ function processGroupIdentitySnapshot(groupId, persistedMembers = [], includeDes
   }
   const psFormat = "pid=,ppid=,pgid=,state=,lstart=,command=";
   const snapshots = [];
-  try {
-    snapshots.push(execFileSync("ps", [
-      "-ww",
-      "-g", [...observedProcessGroups].join(","),
-      "-o", psFormat
-    ], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 64 * 1024 * 1024
-    }));
-    if (includedPids.size > 0) {
-      snapshots.push(execFileSync("ps", [
-        "-ww",
-        "-p", [...includedPids].join(","),
-        "-o", psFormat
-      ], {
+  const readSelectedProcesses = (args) => {
+    try {
+      return execFileSync("ps", args, {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: 64 * 1024 * 1024
-      }));
+      });
+    } catch (error) {
+      // BSD ps exits 1 when a previously-proven PID or PGID has naturally
+      // disappeared between snapshots. That is an empty, valid observation;
+      // treating it as an infrastructure failure turns normal short-lived
+      // descendants into a false ownership escape.
+      if (Number(error?.status) === 1) return String(error?.stdout || "");
+      throw error;
     }
-  } catch {
-    throw new Error(`could not enumerate regression process group ${groupId}`);
+  };
+  try {
+    snapshots.push(readSelectedProcesses([
+      "-ww",
+      "-g", [...observedProcessGroups].join(","),
+      "-o", psFormat
+    ]));
+    if (includedPids.size > 0) {
+      snapshots.push(readSelectedProcesses([
+        "-ww",
+        "-p", [...includedPids].join(","),
+        "-o", psFormat
+      ]));
+    }
+  } catch (error) {
+    throw new Error(`could not enumerate regression process group ${groupId}: ${error instanceof Error ? error.message : String(error)}`);
   }
   const rowsByPid = new Map();
   for (const output of snapshots) for (const line of output.split(/\r?\n/)) {
