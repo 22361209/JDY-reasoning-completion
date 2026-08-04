@@ -1945,8 +1945,28 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
       "isolated regression fixture reservation does not match the owned identity");
     if (existing) {
       assert(options.reuseQuarantinedIdentity === true, "isolated regression username collision");
-      const state = fixtureIdentityState({ username, userId: existing.userId });
-      const redis = redisOwnedByUsername(username);
+      // The preflight fixture closes a Redis-backed session immediately before
+      // the suite reopens this retained tombstone. Redis/session invalidation
+      // can become visible a short moment after the SQL tombstone transition;
+      // retry only the exact read-only closed-state observation and never
+      // weaken any of its zero-residue requirements.
+      let state = null;
+      let redis = null;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        state = fixtureIdentityState({ username, userId: existing.userId });
+        redis = redisOwnedByUsername(username);
+        const closed = Number(state?.userCount) === 1
+          && Number(state?.enabledCount) === 0
+          && Number(state?.activeSessionCount) === 0
+          && Number(state?.roleCount) === 0
+          && Number(state?.grantCount) === 0
+          && Number(state?.scopeCount) === 0
+          && redis.primaryHashes.length === 0
+          && redis.keys.length === 0
+          && redis.members.length === 0;
+        if (closed || attempt === 9) break;
+        synchronousPause(250);
+      }
       assert(Number(state?.userCount) === 1
         && Number(state?.enabledCount) === 0
         && Number(state?.activeSessionCount) === 0
