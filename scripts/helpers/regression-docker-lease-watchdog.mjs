@@ -52,9 +52,11 @@ if (!path.isAbsolute(secretDir)
 }
 
 let closing = false;
+let ownerLivenessTimer = null;
 async function closeOwnedDockerLeases(trigger) {
   if (closing) return;
   closing = true;
+  if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
   process.stdin.pause();
   process.stdin.unref?.();
   let result;
@@ -133,10 +135,9 @@ process.stdin.resume();
 // writer vanished without the platform delivering a stream terminal event.
 // `ppid` changes as soon as this exact watchdog is reparented, so it does not
 // trust a reusable numeric PID lookup to decide whether its owner is alive.
-const ownerLivenessTimer = setInterval(() => {
+ownerLivenessTimer = setInterval(() => {
   if (process.ppid !== expectedParentPid) void closeOwnedDockerLeases("OWNER_EXIT");
 }, 25);
-ownerLivenessTimer.unref?.();
 const readinessMarker = Buffer.from("READY\n");
 if (writeSync(4, readinessMarker, 0, readinessMarker.length, 0) !== readinessMarker.length) {
   throw new Error("regression Docker watchdog readiness capability is truncated");
