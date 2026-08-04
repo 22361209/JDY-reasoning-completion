@@ -39,10 +39,15 @@ const verificationDir = path.join(rootDir, "verification");
 const args = process.argv.slice(2);
 const continueOnFailure = args.includes("--continue-on-failure") || args.includes("--continue");
 const listOnly = args.includes("--list");
+const onlyScriptIndex = args.indexOf("--only");
+const onlyScript = onlyScriptIndex >= 0 ? String(args[onlyScriptIndex + 1] || "") : "";
+if (onlyScriptIndex >= 0 && (!onlyScript || onlyScript.startsWith("-"))) {
+  throw new Error("--only requires one manifest script path");
+}
 const requestedTier = args.find((arg) => !arg.startsWith("--")) ?? "smoke";
 const tier = requestedTier.endsWith(":continue") ? requestedTier.slice(0, -":continue".length) : requestedTier;
 const shouldContinue = continueOnFailure || requestedTier.endsWith(":continue");
-const resultTier = shouldContinue && tier === "full" ? "full-continue" : tier;
+let resultTier = shouldContinue && tier === "full" ? "full-continue" : tier;
 // Child exit can precede kernel EOF on an already-proven private descriptor
 // while the operating system drains its final close notification. Keep this
 // bounded; an actually retained descriptor still fails the suite closed.
@@ -155,7 +160,7 @@ const areaScripts = manifest.areas;
 const fullScripts = manifest.full;
 
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`Usage: node scripts/run-regression-tier.mjs smoke|area:<module>|full [--continue-on-failure] [--list]
+  console.log(`Usage: node scripts/run-regression-tier.mjs smoke|area:<module>|full [--continue-on-failure] [--only <manifest-script>] [--list]
 
 Examples:
   node scripts/run-regression-tier.mjs smoke
@@ -170,7 +175,14 @@ Areas:
 }
 
 const startedAt = new Date().toISOString();
-const scripts = await scriptsForTier(tier);
+let scripts = await scriptsForTier(tier);
+if (onlyScript) {
+  if (!scripts.includes(onlyScript)) {
+    throw new Error(`--only script is not part of tier ${tier}: ${onlyScript}`);
+  }
+  scripts = [onlyScript];
+  resultTier = `${resultTier}-only-${path.basename(onlyScript, ".mjs")}`;
+}
 if (listOnly) {
   console.log(JSON.stringify({
     tier,
@@ -1621,7 +1633,12 @@ async function runScript(script, {
         closeParentWatchdogControl() {
           if (this.parentWatchdogControlClosed) return;
           this.parentWatchdogControlClosed = true;
-          child.stdio[6]?.destroy();
+          // FD 6 is the detached watchdog's owner-control input.  Destroying
+          // the parent-side pipe can reset it before the watchdog observes
+          // EOF, so its OWNER_EOF cleanup never writes the signed ACK.  End
+          // the writable side instead; the watchdog then receives an actual
+          // EOF while its acknowledgement pipe remains live.
+          child.stdio[6]?.end();
         },
         forceClose(message) {
           if (!forcedCloseMessage) {
