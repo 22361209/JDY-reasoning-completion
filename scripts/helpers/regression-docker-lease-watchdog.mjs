@@ -128,6 +128,15 @@ process.stdin.once("end", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.once("close", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.once("error", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.resume();
+// The owner-control pipe is the normal termination signal.  Keep a second,
+// local liveness observation because a detached child can retain a pipe whose
+// writer vanished without the platform delivering a stream terminal event.
+// `ppid` changes as soon as this exact watchdog is reparented, so it does not
+// trust a reusable numeric PID lookup to decide whether its owner is alive.
+const ownerLivenessTimer = setInterval(() => {
+  if (process.ppid !== expectedParentPid) void closeOwnedDockerLeases("OWNER_EXIT");
+}, 25);
+ownerLivenessTimer.unref?.();
 const readinessMarker = Buffer.from("READY\n");
 if (writeSync(4, readinessMarker, 0, readinessMarker.length, 0) !== readinessMarker.length) {
   throw new Error("regression Docker watchdog readiness capability is truncated");
