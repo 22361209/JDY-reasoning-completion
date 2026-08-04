@@ -1578,6 +1578,22 @@ async function browserParityChecks() {
   let uiRequest = null;
   let exportRequest = null;
   let renderedUi = null;
+  const exportNetwork = { requests: [], responses: [], failures: [] };
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv") {
+      exportNetwork.requests.push({ method: request.method(), url: request.url() });
+    }
+  });
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname === "/api/lists/operation-log-list/export.csv") {
+      exportNetwork.responses.push({ status: response.status(), url: response.url() });
+    }
+  });
+  page.on("requestfailed", (request) => {
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv") {
+      exportNetwork.failures.push({ url: request.url(), failure: request.failure()?.errorText || "unknown" });
+    }
+  });
   try {
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
     await page.getByTestId("content-area").waitFor({ state: "visible", timeout: 10000 });
@@ -1670,11 +1686,17 @@ async function browserParityChecks() {
       (response) => matchesExactOperationLogResponse(response, "/api/lists/operation-log-list/export.csv", artifacts.documents.red.billNo),
       { timeout: 10000 }
     );
-    const [download, exportResponse] = await Promise.all([
-      page.waitForEvent("download", { timeout: 10000 }),
-      exportResponsePromise,
-      page.getByTestId("list-export").click()
-    ]);
+    let download;
+    let exportResponse;
+    try {
+      [download, exportResponse] = await Promise.all([
+        page.waitForEvent("download", { timeout: 10000 }),
+        exportResponsePromise,
+        page.getByTestId("list-export").click()
+      ]);
+    } catch (error) {
+      throw new Error(`A43 UI export did not produce the exact download response: ${errorText(error)}; network=${JSON.stringify(exportNetwork)}`);
+    }
     assert(exportResponse.status() === 200, "A43 exact UI export response must return 200", exportResponse.status());
     exportRequest = assertExactOperationLogQuery(exportResponse.url(), artifacts.documents.red.billNo, "A43 UI export response");
     downloadFileName = download.suggestedFilename();
