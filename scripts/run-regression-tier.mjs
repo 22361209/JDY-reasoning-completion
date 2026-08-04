@@ -838,15 +838,40 @@ try {
       const expectedTombstone = cleanup.closed === true
         && cleanup.retainedDisabled === true
         && cleanup.reusableTombstone === true;
-      suiteIdentity.cleanup = expectedTombstone
-        ? { ok: true, ...cleanup }
-        : { ok: false, error: "suite identity did not close as the owned disabled tombstone", ...cleanup };
+      if (expectedTombstone) {
+        suiteIdentity.cleanup = { ok: true, ...cleanup };
+      } else {
+        const recovery = recoverIsolatedAdminSessionFixture({
+          username: suiteUsername,
+          displayName: suiteDisplayName,
+          retainQuarantinedIdentity: true,
+          allowIdentityNeverCreated: true,
+          allowLegacySuiteTombstoneAdoption: true
+        });
+        suiteIdentity.cleanup = recovery.closed === true
+          ? { ok: true, fallbackRecovery: true, originalCleanup: cleanup, ...recovery }
+          : { ok: false, error: "suite identity did not close as the owned disabled tombstone", originalCleanup: cleanup, ...recovery };
+      }
     } catch (error) {
-      suiteIdentity.cleanup = {
-        ok: false,
-        error: redactOutput(error instanceof Error ? error.message : String(error), suiteFixture.password),
-        ...(error?.cleanup || {})
-      };
+      const originalError = redactOutput(error instanceof Error ? error.message : String(error), suiteFixture.password);
+      try {
+        const recovery = recoverIsolatedAdminSessionFixture({
+          username: suiteUsername,
+          displayName: suiteDisplayName,
+          retainQuarantinedIdentity: true,
+          allowIdentityNeverCreated: true,
+          allowLegacySuiteTombstoneAdoption: true
+        });
+        suiteIdentity.cleanup = recovery.closed === true
+          ? { ok: true, fallbackRecovery: true, originalError, ...(error?.cleanup || {}), ...recovery }
+          : { ok: false, error: originalError, ...(error?.cleanup || {}), ...recovery };
+      } catch (recoveryError) {
+        suiteIdentity.cleanup = {
+          ok: false,
+          error: `${originalError}; fallback recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`,
+          ...(error?.cleanup || {})
+        };
+      }
     }
   } else if (suiteLock) {
     try {
