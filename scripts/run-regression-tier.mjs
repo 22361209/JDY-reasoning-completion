@@ -1603,11 +1603,11 @@ async function runScript(script, {
             maybeFinish();
             return;
           }
-          // Only leases without a signed completion can require watchdog
-          // cleanup. A43 legitimately records hundreds of completed Redis
-          // commands; charging all of them here turns a closed child into an
-          // hour-long false wait for an acknowledgement.
-          const timeoutMs = regressionDockerCleanupDeadlineMs(ledger.pendingDockerIntents.length);
+          // Every signed lease needs the watchdog's durable CLOSED receipt,
+          // including commands that already completed normally.  Its deadline
+          // must therefore match the full cleanup set rather than only the
+          // still-pending subset.
+          const timeoutMs = regressionDockerCleanupDeadlineMs(ledger.dockerIntents.length);
           dockerWatchdogAckTimer = setTimeout(() => {
             dockerWatchdogAckError = "regression Docker watchdog acknowledgement did not close within its cleanup deadline";
             child.stdio[7]?.destroy();

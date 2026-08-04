@@ -73,11 +73,7 @@ async function closeOwnedDockerLeases(trigger) {
       requireClosed: false
     });
     const cleanup = await cleanupRegressionDockerLeaseIntents({
-      // Completed leases already have a signed terminal receipt.  The runner
-      // derives its ACK deadline from this same pending set, so re-cleaning
-      // every historical A43 intent can make a valid watchdog exceed its own
-      // bounded acknowledgement window.
-      intents: ledger.pendingDockerIntents,
+      intents: ledger.dockerIntents,
       runId: reference.runId,
       guardToken: reference.guardToken
     });
