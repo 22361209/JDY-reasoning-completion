@@ -2968,32 +2968,60 @@ function processGroupIdentitySnapshot(groupId, persistedMembers = [], includeDes
       && Number(member.pid) === Number(member.pgidAtProof))
     .map((member) => Number(member.pid))
     .filter((pid) => Number.isInteger(pid) && pid > 1));
-  let output;
+  // A43 can create thousands of short-lived guarded commands.  Do not ask ps
+  // for every process on the host: unrelated long command lines make that
+  // global snapshot both unnecessarily expensive and capable of overflowing a
+  // bounded capture.  The child PGID plus previously proven detached PGIDs and
+  // PIDs form the complete trusted observation set; a new reparented group can
+  // only enter through the signed detached ledger below.
+  const observedProcessGroups = new Set([Number(groupId)]);
+  for (const member of normalizedPersisted) {
+    const memberGroupId = Number(member?.pgidAtProof);
+    if (Number.isInteger(memberGroupId) && memberGroupId > 1) {
+      observedProcessGroups.add(memberGroupId);
+    }
+  }
+  const psFormat = "pid=,ppid=,pgid=,state=,lstart=,command=";
+  const snapshots = [];
   try {
-    output = execFileSync("ps", ["-ww", "-axo", "pid=,ppid=,pgid=,state=,lstart=,command="], {
+    snapshots.push(execFileSync("ps", [
+      "-ww",
+      "-g", [...observedProcessGroups].join(","),
+      "-o", psFormat
+    ], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      // A43 can legitimately create thousands of concurrent short-lived
-      // guarded commands. Keep the process-table read bounded but above
-      // Node's 1 MiB default so that it remains an ownership snapshot rather
-      // than a false ENOBUFS failure at the reviewed 4,096-member ceiling.
       maxBuffer: 64 * 1024 * 1024
-    });
+    }));
+    if (includedPids.size > 0) {
+      snapshots.push(execFileSync("ps", [
+        "-ww",
+        "-p", [...includedPids].join(","),
+        "-o", psFormat
+      ], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 64 * 1024 * 1024
+      }));
+    }
   } catch {
     throw new Error(`could not enumerate regression process group ${groupId}`);
   }
-  const rows = output.split(/\r?\n/).flatMap((line) => {
+  const rowsByPid = new Map();
+  for (const output of snapshots) for (const line of output.split(/\r?\n/)) {
     const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.+)$/);
-    if (!match || match[4].startsWith("Z")) return [];
-    return [{
+    if (!match || match[4].startsWith("Z")) continue;
+    const row = {
       pid: Number(match[1]),
       parentPid: Number(match[2]),
       pgid: Number(match[3]),
       lstart: match[5].replace(/\s+/g, " "),
       command: match[6],
       commandFingerprint: createHash("sha256").update(match[6]).digest("hex")
-    }];
-  });
+    };
+    rowsByPid.set(row.pid, row);
+  }
+  const rows = [...rowsByPid.values()];
   if (includeDescendants) {
     return selectRegressionProcessOwnershipMembers({
       members: rows,
