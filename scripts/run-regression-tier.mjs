@@ -2972,7 +2972,12 @@ function processGroupIdentitySnapshot(groupId, persistedMembers = [], includeDes
   try {
     output = execFileSync("ps", ["-ww", "-axo", "pid=,ppid=,pgid=,state=,lstart=,command="], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      // A43 can legitimately create thousands of concurrent short-lived
+      // guarded commands. Keep the process-table read bounded but above
+      // Node's 1 MiB default so that it remains an ownership snapshot rather
+      // than a false ENOBUFS failure at the reviewed 4,096-member ceiling.
+      maxBuffer: 16 * 1024 * 1024
     });
   } catch {
     throw new Error(`could not enumerate regression process group ${groupId}`);
