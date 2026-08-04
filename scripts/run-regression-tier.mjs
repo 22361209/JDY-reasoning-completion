@@ -3110,15 +3110,25 @@ function closeChildDockerLeaseWatchdog(handle) {
     expectedParentPid: groupId,
     requireClosed: true
   });
-  const result = readRegressionDockerWatchdogAck({
-    payload: String(handle?.dockerWatchdogAckPayload || ""),
-    ledgerFile: handle.childDetachedSpawnLedger.file,
-    runId: handle.childDetachedSpawnLedger.runId,
-    guardToken: handle.childDetachedSpawnLedger.guardToken,
-    expectedIntentIds: detached.dockerIntents.map(({ id }) => id),
-    expectedCompletedIds: detached.completedDockerIntentIds,
-    requireSealed: true
-  });
+  const payload = String(handle?.dockerWatchdogAckPayload || "");
+  let result;
+  try {
+    result = readRegressionDockerWatchdogAck({
+      payload,
+      ledgerFile: handle.childDetachedSpawnLedger.file,
+      runId: handle.childDetachedSpawnLedger.runId,
+      guardToken: handle.childDetachedSpawnLedger.guardToken,
+      expectedIntentIds: detached.dockerIntents.map(({ id }) => id),
+      expectedCompletedIds: detached.completedDockerIntentIds,
+      requireSealed: true
+    });
+  } catch (error) {
+    // The ACK itself is capability-bearing; retain only transport shape when
+    // diagnosing a rejected frame, never the payload or its identifiers.
+    const byteLength = Buffer.byteLength(payload);
+    const terminalByte = byteLength === 0 ? -1 : payload.charCodeAt(payload.length - 1);
+    throw new Error(`${error instanceof Error ? error.message : String(error)} (ackBytes=${byteLength}, terminalByte=${terminalByte})`);
+  }
   handle.dockerLeaseClosureVerified = true;
   handle.dockerLeaseClosureResult = result;
   return result;
