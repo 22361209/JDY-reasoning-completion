@@ -1633,12 +1633,11 @@ async function runScript(script, {
         closeParentWatchdogControl() {
           if (this.parentWatchdogControlClosed) return;
           this.parentWatchdogControlClosed = true;
-          // FD 6 is the detached watchdog's owner-control input.  Destroying
-          // the parent-side pipe can reset it before the watchdog observes
-          // EOF, so its OWNER_EOF cleanup never writes the signed ACK.  End
-          // the writable side instead; the watchdog then receives an actual
-          // EOF while its acknowledgement pipe remains live.
-          child.stdio[6]?.end();
+          // This is the dedicated owner-control descriptor.  The watchdog
+          // contract deliberately treats an owner-side close as a terminal
+          // event; destroy it so no later bootstrap write can keep the owner
+          // relationship open after the manifest has exited.
+          child.stdio[6]?.destroy();
         },
         forceClose(message) {
           if (!forcedCloseMessage) {
