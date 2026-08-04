@@ -122,6 +122,11 @@ async function closeOwnedDockerLeases(trigger) {
 process.once("SIGINT", () => { void closeOwnedDockerLeases("SIGINT"); });
 process.once("SIGTERM", () => { void closeOwnedDockerLeases("SIGTERM"); });
 process.stdin.once("end", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
+// A parent-side pipe close can surface as `close` (or an I/O error) without
+// delivering Node's readable `end` event.  All three terminal conditions are
+// the same owner-loss boundary; `closing` makes the cleanup idempotent.
+process.stdin.once("close", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
+process.stdin.once("error", () => { void closeOwnedDockerLeases("OWNER_EOF"); });
 process.stdin.resume();
 const readinessMarker = Buffer.from("READY\n");
 if (writeSync(4, readinessMarker, 0, readinessMarker.length, 0) !== readinessMarker.length) {
