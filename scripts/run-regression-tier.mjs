@@ -2977,7 +2977,7 @@ function processGroupIdentitySnapshot(groupId, persistedMembers = [], includeDes
       // guarded commands. Keep the process-table read bounded but above
       // Node's 1 MiB default so that it remains an ownership snapshot rather
       // than a false ENOBUFS failure at the reviewed 4,096-member ceiling.
-      maxBuffer: 16 * 1024 * 1024
+      maxBuffer: 64 * 1024 * 1024
     });
   } catch {
     throw new Error(`could not enumerate regression process group ${groupId}`);
