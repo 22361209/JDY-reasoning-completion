@@ -832,6 +832,43 @@ try {
       ].filter(Boolean).join("; ");
     }
   }
+  // The parent ledger drain uses the suite request-fence control capability.
+  // Close it while the suite fixture is still authenticated; its cleanup
+  // deliberately closes that fence and would otherwise turn this final,
+  // deterministic drain into a 403 after every otherwise-complete run.
+  if (parentFixtureLedger) {
+    try {
+      const parentFixtureClosure = await closeAndRecoverRegressionFixtureLedger(
+        preflight?.apiBase || "http://127.0.0.1:8080",
+        {
+          secretDir,
+          reference: parentFixtureLedger.reference,
+          writer: parentFixtureLedger.writer
+        },
+        runId,
+        requestFenceControlToken
+      );
+      const latestSuiteOwner = parentFixtureClosure.results
+        .filter((entry) => entry.username === suiteUsername)
+        .sort((left, right) => right.generation - left.generation)[0];
+      if (latestSuiteOwner && suiteLock) {
+        await suiteLock.update({
+          userId: latestSuiteOwner.userId,
+          requestFenceGeneration: latestSuiteOwner.generation
+        });
+      }
+      sealRegressionFixtureLedger(parentFixtureLedger.writer);
+      removeRegressionFixtureLedger({
+        secretDir,
+        reference: parentFixtureLedger.reference,
+        requireSealed: true
+      });
+      parentFixtureLedger = null;
+    } catch (error) {
+      auxiliaryFixturesClosed = false;
+      setupError = [setupError, error instanceof Error ? error.message : String(error)].filter(Boolean).join("; ");
+    }
+  }
   if (suiteFixture) {
     try {
       const cleanup = await suiteFixture.cleanup({ allowForcedRedisRelease: true });
@@ -929,39 +966,6 @@ try {
     postflight = { ok: true, ...(await assertRegressionPostflight(preflight, "suite postflight")) };
   } catch (error) {
     postflight = { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-  if (parentFixtureLedger) {
-    try {
-      const parentFixtureClosure = await closeAndRecoverRegressionFixtureLedger(
-        preflight?.apiBase || "http://127.0.0.1:8080",
-        {
-          secretDir,
-          reference: parentFixtureLedger.reference,
-          writer: parentFixtureLedger.writer
-        },
-        runId,
-        requestFenceControlToken
-      );
-      const latestSuiteOwner = parentFixtureClosure.results
-        .filter((entry) => entry.username === suiteUsername)
-        .sort((left, right) => right.generation - left.generation)[0];
-      if (latestSuiteOwner && suiteLock) {
-        await suiteLock.update({
-          userId: latestSuiteOwner.userId,
-          requestFenceGeneration: latestSuiteOwner.generation
-        });
-      }
-      sealRegressionFixtureLedger(parentFixtureLedger.writer);
-      removeRegressionFixtureLedger({
-        secretDir,
-        reference: parentFixtureLedger.reference,
-        requireSealed: true
-      });
-      parentFixtureLedger = null;
-    } catch (error) {
-      auxiliaryFixturesClosed = false;
-      setupError = [setupError, error instanceof Error ? error.message : String(error)].filter(Boolean).join("; ");
-    }
   }
   if (suiteLock
     && processOwnershipComplete
