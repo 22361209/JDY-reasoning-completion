@@ -1016,6 +1016,29 @@ try {
       setupError = [setupError, error instanceof Error ? error.message : String(error)].filter(Boolean).join("; ");
     }
   }
+  if (suiteLock && !suiteReleasePrepared) {
+    // A retained lock must say which final invariant prevented release. Keep
+    // this structural and secret-free so stale recovery can be diagnosed
+    // without publishing child output or credentials.
+    try {
+      await suiteLock.update({
+        diagnosticError: JSON.stringify({
+          suiteCleanupClosed: suiteIdentity.cleanup?.closed === true,
+          suiteCleanupOk: suiteIdentity.cleanup?.ok === true,
+          childProcessGroupClosed,
+          auxiliaryFixturesClosed,
+          processOwnershipComplete,
+          dockerLeaseClosureComplete,
+          executionIntegrityComplete,
+          secretResidueFree: secretScan.residueFree === true,
+          postflightOk: postflight.ok === true,
+          terminationSignal: terminationSignal || null
+        })
+      });
+    } catch (error) {
+      setupError = [setupError, error instanceof Error ? error.message : String(error)].filter(Boolean).join("; ");
+    }
+  }
 }
 const bad = results.filter((result) => !result.ok);
 const infrastructureBadCount = (setupError ? 1 : 0)
