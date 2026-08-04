@@ -567,6 +567,12 @@ try {
       await suiteLock.update({ childProcessLedger: completedChild.childProcessLedger });
     }
     const lingeringChildError = await closeCompletedChildGroup(completedChild);
+    // Completion can race a signed watchdog's final short-lived descendants.
+    // Persist any safely reconciled identities before the suite advances, so a
+    // crash after the bounded cleanup retains the same exact-member evidence.
+    if (suiteLock) {
+      await suiteLock.update({ childProcessLedger: completedChild.childProcessLedger });
+    }
     if (processGroupIsAlive(completedChild)) {
       throw new Error("regression child process group survived bounded cleanup; lock ownership was preserved");
     }
@@ -1774,23 +1780,45 @@ async function waitForProcessGroupExit(handle, timeoutMs) {
 
 async function closeCompletedChildGroup(handle) {
   if (!handle) return "";
+  // The monitor deliberately stops before this bounded cleanup. A signed
+  // Docker watchdog may nevertheless still be reaping one of its own command
+  // children. Reconcile the final live snapshot through the existing
+  // continuity proof before classifying it; this never adopts a numerically
+  // reused group because mergeRegressionProcessGroupLedger requires a live
+  // persisted PID+lstart anchor.
+  refreshChildProcessLedger(handle);
   const initial = persistedChildProcessClassification(handle);
   if (initial.matching.length === 0 && initial.drifted.length === 0 && initial.unproven.length === 0) return "";
   const termReport = signalPersistedChildProcessMembers(handle, "SIGTERM");
-  const ambiguityObserved = termReport.ambiguous;
+  refreshChildProcessLedger(handle);
+  const afterTerm = persistedChildProcessClassification(handle);
+  if (termReport.ambiguous && (afterTerm.drifted.length > 0 || afterTerm.unproven.length > 0)) {
+    processOwnershipComplete = false;
+    throw new Error("regression child process group contains unproven identities after SIGTERM cleanup");
+  }
   if (await waitForPersistedChildProcessesExit(handle, 2_000)) {
-    if (ambiguityObserved || processGroupIsAlive(handle)) {
+    refreshChildProcessLedger(handle);
+    const final = persistedChildProcessClassification(handle);
+    if (final.drifted.length > 0 || final.unproven.length > 0 || processGroupIsAlive(handle)) {
       processOwnershipComplete = false;
       throw new Error("regression child process group contains unproven identities after SIGTERM cleanup");
     }
     return "regression child left descendants after completion; the process group required SIGTERM cleanup";
   }
   const killReport = signalPersistedChildProcessMembers(handle, "SIGKILL");
+  refreshChildProcessLedger(handle);
+  const afterKill = persistedChildProcessClassification(handle);
+  if (killReport.ambiguous && (afterKill.drifted.length > 0 || afterKill.unproven.length > 0)) {
+    processOwnershipComplete = false;
+    throw new Error("regression child process group contains unproven identities after SIGKILL cleanup");
+  }
   if (!(await waitForPersistedChildProcessesExit(handle, 2_000))) {
     processOwnershipComplete = false;
     throw new Error("regression child process group survived bounded exact-member SIGKILL cleanup");
   }
-  if (ambiguityObserved || killReport.ambiguous || processGroupIsAlive(handle)) {
+  refreshChildProcessLedger(handle);
+  const final = persistedChildProcessClassification(handle);
+  if (final.drifted.length > 0 || final.unproven.length > 0 || processGroupIsAlive(handle)) {
     processOwnershipComplete = false;
     throw new Error("regression child process group contains unproven identities after SIGKILL cleanup");
   }

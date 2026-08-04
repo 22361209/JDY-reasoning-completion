@@ -76,6 +76,20 @@ mark_closed_lease() {
   /usr/bin/mv "$state_file.tmp" "$state_file" || return 1
   /usr/bin/rm -f "$start_file"
 }
+publish_cancelled_absent_state() {
+  # The cancel file is created before this helper runs. Publish with a hard-link
+  # claim rather than replacing state: a wrapper that wins the race observes
+  # cancel before it can release its gated tool, while a wrapper that starts
+  # after this claim exits on the already-present terminal receipt.
+  cancelled_tmp="$state_file.cancel.$$"
+  printf 'CANCELLED||||%s\n' "$lease_id" > "$cancelled_tmp" || return 1
+  if /usr/bin/ln "$cancelled_tmp" "$state_file" 2>/dev/null; then
+    /usr/bin/rm -f "$cancelled_tmp" "$start_file"
+    return 0
+  fi
+  /usr/bin/rm -f "$cancelled_tmp"
+  return 1
+}
 close_database_backend() {
   [ -n "$expected_application" ] || return 0
   printf '%s\n' "$expected_application" \
@@ -152,11 +166,19 @@ while [ "$attempt" -lt 80 ]; do
       /usr/bin/sleep 0.05
       continue
     fi
-    # No state means the daemon may have accepted ExecStart without yet
-    # materializing the fixed wrapper. Retain cancel and fail closed; a delayed
-    # wrapper must leave a durable CANCELLED receipt for the next recovery pass.
-    cleanup_status=81
-    break
+    # A cancel tombstone was published before this bounded wait. Atomically
+    # claim the absent state as CANCELLED: a delayed wrapper either sees this
+    # receipt and exits, or wins the claim race but still sees cancel before its
+    # gated tool can start. This turns a proven non-executing launch into a
+    # scavengable terminal receipt without deleting an ambiguous lease.
+    if publish_cancelled_absent_state; then
+      mark_closed_lease || cleanup_status=83
+      break
+    fi
+    # The wrapper raced our atomic claim; re-read its receipt through the
+    # normal exact-state path rather than inferring closure from absence.
+    attempt=0
+    continue
   fi
   IFS='|' read -r state pid started tool recorded_lease < "$state_file" || exit 71
   [ "$recorded_lease" = "$lease_id" ] || { cleanup_status=75; break; }
