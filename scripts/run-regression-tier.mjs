@@ -1554,6 +1554,11 @@ async function runScript(script, {
       };
       const scheduleSecretDescriptorFailure = (message) => {
         if (forcedResolutionTimer) return;
+        // A guarded descendant may keep the inherited secret-report pipe open
+        // until the detached Docker watchdog completes its bounded closure.
+        // The watchdog ACK is the authoritative end of that phase; only then
+        // can a remaining report descriptor be treated as an ownership leak.
+        if (!dockerWatchdogAckClosed) return;
         forcedResolutionTimer = setTimeout(() => {
           if (!forcedCloseMessage) forcedCloseMessage = message;
           secretCollector.fail("regression child secret report descriptor did not close after child exit or SIGKILL");
@@ -1690,6 +1695,9 @@ async function runScript(script, {
         dockerWatchdogAckClosed = true;
         handle.dockerWatchdogAckPayload = dockerWatchdogAckPayload;
         if (dockerWatchdogAckTimer) clearTimeout(dockerWatchdogAckTimer);
+        if (!secretStreamClosed) {
+          scheduleSecretDescriptorFailure("regression child secret report descriptor outlived the Docker watchdog closure");
+        }
         scheduleChildCloseFailure();
         maybeFinish();
       });
