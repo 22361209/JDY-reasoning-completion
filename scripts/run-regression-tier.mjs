@@ -1032,6 +1032,16 @@ try {
           executionIntegrityComplete,
           secretResidueFree: secretScan.residueFree === true,
           postflightOk: postflight.ok === true,
+          postflightError: postflight.ok === true ? "" : redactOutput(
+            String(postflight.error || "postflight failed"),
+            suiteFixture?.password || "",
+            [...childReportedSecrets]
+          ).slice(0, 512),
+          setupError: redactOutput(
+            String(setupError || ""),
+            suiteFixture?.password || "",
+            [...childReportedSecrets]
+          ).slice(0, 512),
           terminationSignal: terminationSignal || null
         })
       });
