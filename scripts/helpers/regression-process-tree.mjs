@@ -5,7 +5,11 @@ const ownershipDriftCode = "REGRESSION_PROCESS_OWNERSHIP_DRIFT";
 const unprovenIdentityCode = "REGRESSION_PROCESS_IDENTITY_UNPROVEN";
 const unprovenRootCode = "REGRESSION_PROCESS_ROOT_UNPROVEN";
 const persistedLedgerCode = "REGRESSION_PERSISTED_PROCESS_LEDGER_UNPROVEN";
-const maximumPersistedMembers = 512;
+// A43 legitimately launches hundreds of short-lived guarded Docker commands.
+// Keep the process-identity envelope above the reviewed per-child Docker
+// intent cap (1,024) so a valid concurrent peak cannot turn into a false
+// ownership escape, while remaining bounded for lock/recovery handling.
+const maximumPersistedMembers = 1_024;
 
 function normalizedPid(value) {
   const pid = Number(value);
