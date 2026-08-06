@@ -1017,6 +1017,7 @@ try {
   // has closed, then scan that final artifact surface.
   if (artifactBaseline) {
     try {
+      await new Promise((resolve) => setTimeout(resolve, 250));
       await restoreRegressionArtifactBaselineBackup({
         root: verificationDir,
         lockDir,
