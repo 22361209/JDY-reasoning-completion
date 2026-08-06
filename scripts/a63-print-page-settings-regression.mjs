@@ -104,8 +104,8 @@ function uuidArray(values) {
 function psql(sql) {
   return execFileSync("docker", [
     "exec", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt",
-    "-U", "jdy", "-d", "jdy_erp", "-f", "-"
-  ], { encoding: "utf8", input: sql }).trim();
+    "-U", "jdy", "-d", "jdy_erp", "-c", sql
+  ], { encoding: "utf8" }).trim();
 }
 
 function dbJson(sql) {
@@ -335,8 +335,14 @@ function restoreTemplate() {
   assert(jsonEqual(current, artifacts.template.postMutation),
     "A63 template state changed after the owned post-mutation snapshot");
   if (mutationState === "owned-mutation") {
-    const originalJson = JSON.stringify(artifacts.template.original);
-    const postJson = JSON.stringify(artifacts.template.postMutation);
+    const originalTarget = artifacts.template.original.find((row) => row.template_code === "STANDARD");
+    assert(originalTarget, "A63 original STANDARD template is required for restore");
+    const expectedTarget = expectedTargetTemplate(originalTarget);
+    const otherOriginalDefaultIds = artifacts.template.original
+      .filter((row) => row.template_code !== "STANDARD" && row.is_default === true)
+      .map((row) => row.id);
+    assert(otherOriginalDefaultIds.length <= 64,
+      "A63 refuses an oversized non-standard default-template restore", otherOriginalDefaultIds.length);
     psql(`
       BEGIN;
       SET LOCAL lock_timeout='5s';
@@ -347,50 +353,46 @@ function restoreTemplate() {
         actual jsonb;
         restored_count integer;
       BEGIN
-        SELECT COALESCE(jsonb_agg(to_jsonb(template_row) ORDER BY template_row.id), '[]'::jsonb)
+        SELECT to_jsonb(template_row) - 'updated_at'
           INTO actual
         FROM public.sys_print_template template_row
-        WHERE template_row.document_type='sales-order' AND template_row.role_code IS NULL;
-        IF actual IS DISTINCT FROM ${sqlLiteral(postJson)}::jsonb THEN
-          RAISE EXCEPTION 'A63 template restore refused: post-mutation snapshot changed';
+        WHERE template_row.id=${sqlLiteral(originalTarget.id)}::uuid
+          AND template_row.document_type='sales-order'
+          AND template_row.role_code IS NULL;
+        IF actual IS DISTINCT FROM ${sqlLiteral(JSON.stringify(withoutUpdatedAt(expectedTarget)))}::jsonb THEN
+          RAISE EXCEPTION 'A63 template restore refused: STANDARD post-mutation state changed';
         END IF;
-
-        WITH original_rows AS (
-          SELECT * FROM jsonb_populate_recordset(NULL::public.sys_print_template, ${sqlLiteral(originalJson)}::jsonb)
-        )
         UPDATE public.sys_print_template target
-        SET document_type=source.document_type,
-            template_code=source.template_code,
-            template_name=source.template_name,
-            company_name=source.company_name,
-            header_note=source.header_note,
-            footer_note=source.footer_note,
-            show_signature=source.show_signature,
-            show_seal=source.show_seal,
-            is_default=source.is_default,
-            enabled=source.enabled,
-            created_at=source.created_at,
-            updated_at=source.updated_at,
-            role_code=source.role_code,
-            paper_size=source.paper_size,
-            page_orientation=source.page_orientation,
-            margin_top_mm=source.margin_top_mm,
-            margin_right_mm=source.margin_right_mm,
-            margin_bottom_mm=source.margin_bottom_mm,
-            margin_left_mm=source.margin_left_mm,
-            copy_count=source.copy_count
-        FROM original_rows source
-        WHERE target.id=source.id;
+        SET document_type=${sqlLiteral(originalTarget.document_type)},
+            template_code=${sqlLiteral(originalTarget.template_code)},
+            template_name=${sqlLiteral(originalTarget.template_name)},
+            company_name=${sqlLiteral(originalTarget.company_name)},
+            header_note=${sqlLiteral(originalTarget.header_note)},
+            footer_note=${sqlLiteral(originalTarget.footer_note)},
+            show_signature=${originalTarget.show_signature},
+            show_seal=${originalTarget.show_seal},
+            is_default=${originalTarget.is_default},
+            enabled=${originalTarget.enabled},
+            created_at=${sqlLiteral(originalTarget.created_at)}::timestamptz,
+            updated_at=${sqlLiteral(originalTarget.updated_at)}::timestamptz,
+            role_code=${sqlLiteral(originalTarget.role_code)},
+            paper_size=${sqlLiteral(originalTarget.paper_size)},
+            page_orientation=${sqlLiteral(originalTarget.page_orientation)},
+            margin_top_mm=${originalTarget.margin_top_mm},
+            margin_right_mm=${originalTarget.margin_right_mm},
+            margin_bottom_mm=${originalTarget.margin_bottom_mm},
+            margin_left_mm=${originalTarget.margin_left_mm},
+            copy_count=${originalTarget.copy_count}
+        WHERE target.id=${sqlLiteral(originalTarget.id)}::uuid;
         GET DIAGNOSTICS restored_count = ROW_COUNT;
-        IF restored_count <> jsonb_array_length(${sqlLiteral(originalJson)}::jsonb) THEN
-          RAISE EXCEPTION 'A63 template restore refused: incomplete UUID set';
+        IF restored_count <> 1 THEN
+          RAISE EXCEPTION 'A63 template restore refused: STANDARD row disappeared';
         END IF;
-        SELECT COALESCE(jsonb_agg(to_jsonb(template_row) ORDER BY template_row.id), '[]'::jsonb)
-          INTO actual
-        FROM public.sys_print_template template_row
-        WHERE template_row.document_type='sales-order' AND template_row.role_code IS NULL;
-        IF actual IS DISTINCT FROM ${sqlLiteral(originalJson)}::jsonb THEN
-          RAISE EXCEPTION 'A63 template restore failed exact snapshot verification';
+        UPDATE public.sys_print_template target
+        SET is_default=true
+        WHERE target.id = ANY(${uuidArray(otherOriginalDefaultIds)});
+        IF NOT FOUND AND ${otherOriginalDefaultIds.length} > 0 THEN
+          RAISE EXCEPTION 'A63 template restore refused: non-standard default row disappeared';
         END IF;
       END;
       $a63_template_restore$;
