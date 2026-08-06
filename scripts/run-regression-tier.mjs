@@ -1015,20 +1015,22 @@ try {
   // postflight and parent-fixture recovery may themselves update ignored
   // evidence. Perform the final baseline restoration only after every writer
   // has closed, then scan that final artifact surface.
-  if (artifactBaseline && secretChannelComplete) {
+  if (artifactBaseline) {
     try {
       await restoreRegressionArtifactBaselineBackup({
         root: verificationDir,
         lockDir,
         baseline: artifactBaseline
       });
-      secretScan = await scanChangedRegressionArtifactsForSecrets({
-        root: verificationDir,
-        workspaceRoot: rootDir,
-        baseline: artifactBaseline,
-        password: suiteFixture?.password || "",
-        exactSecrets: [...childReportedSecrets, ...(suiteFixture?.sensitiveArtifactValues?.() || [])]
-      });
+      if (secretChannelComplete) {
+        secretScan = await scanChangedRegressionArtifactsForSecrets({
+          root: verificationDir,
+          workspaceRoot: rootDir,
+          baseline: artifactBaseline,
+          password: suiteFixture?.password || "",
+          exactSecrets: [...childReportedSecrets, ...(suiteFixture?.sensitiveArtifactValues?.() || [])]
+        });
+      }
     } catch (error) {
       secretScan = { ok: false, residueFree: false, error: error instanceof Error ? error.message : String(error), scannedChangedFiles: 0 };
     }
