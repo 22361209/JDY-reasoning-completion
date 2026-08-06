@@ -381,6 +381,7 @@ export function appendRegressionFixturePrepared(writer, entry) {
   const normalized = normalizePreparedRecord(entry);
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
+  refreshWriterLedgerIfChanged(state);
   const ledger = state.ledger;
   assert(ledger.entries.length < maximumRegistrations
     && !ledger.entries.some(({ registrationId }) => registrationId === normalized.registrationId),
@@ -397,6 +398,7 @@ export function appendRegressionFixtureState(writer, registrationId, stateName) 
   "regression fixture state transition is invalid");
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
+  refreshWriterLedgerIfChanged(state);
   const ledger = state.ledger;
   const entry = ledger.entries.find(({ registrationId: candidate }) => candidate === normalizedId);
   assert(entry && entry.state === "PREPARED",
@@ -407,6 +409,7 @@ export function appendRegressionFixtureState(writer, registrationId, stateName) 
 export function sealRegressionFixtureLedger(writer) {
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
+  refreshWriterLedgerIfChanged(state);
   const ledger = state.ledger;
   if (ledger.sealed) return ledger;
   assert(!ledger.hasPartialRecord, "regression fixture ledger cannot seal a partial record");
