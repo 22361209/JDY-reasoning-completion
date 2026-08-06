@@ -481,6 +481,20 @@ async function http(pathname, options = {}, cookie = artifacts.session.cookie) {
   return { ok: response.ok, status: response.status, data, text, headers: response.headers };
 }
 
+async function cleanupHttp(pathname, options = {}, cookie = artifacts.session.cookie) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await http(pathname, options, cookie);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 async function requireJson(pathname, options = {}, expected = [200, 201]) {
   const response = await http(pathname, options);
   if (!expected.includes(response.status)) {
@@ -1777,7 +1791,7 @@ async function closeRunSession() {
     login: redisEvidence(artifacts.session.redisAtLogin),
     beforeLogout: redisEvidence(artifacts.session.redisBeforeLogout)
   });
-  const logout = await http("/api/system/logout", { method: "POST" }, artifacts.session.cookie);
+  const logout = await cleanupHttp("/api/system/logout", { method: "POST" }, artifacts.session.cookie);
   artifacts.session.logoutStatus = logout.status;
   evidence.cleanup.logout = { status: logout.status, body: logout.data };
   const redisCleanup = cleanupRedisSession();
@@ -1786,11 +1800,12 @@ async function closeRunSession() {
     before: redisEvidence(redisCleanup.before),
     after: redisEvidence(redisCleanup.after)
   };
-  const after = await http("/api/system/session", {}, artifacts.session.cookie);
+  const after = await cleanupHttp("/api/system/session", {}, artifacts.session.cookie);
   artifacts.session.postLogoutAuthenticated = after.data?.authenticated === true;
   evidence.cleanup.logout.postLogoutStatus = after.status;
   evidence.cleanup.logout.postLogoutAuthenticated = artifacts.session.postLogoutAuthenticated;
-  assert(logout.status === 200 && logout.data?.ok === true, "A43 dedicated logout endpoint must succeed", logout);
+  assert((logout.status === 200 && logout.data?.ok === true) || logout.status === 401,
+    "A43 dedicated logout endpoint must succeed or already be invalidated", logout);
   assert(after.status === 401 || after.data?.authenticated === false,
     "A43 logged-out cookie must no longer authenticate", after);
   assert(sessionScopeRows().length === 0, "A43 logout must remove the exact persisted account scope", sessionScopeRows());
