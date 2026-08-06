@@ -154,7 +154,6 @@ export function mergeRegressionProcessGroupLedger({ ledger = [], members = [], g
       `regression process groups have no same-group or live-parent continuity anchor: ${[...unresolved.keys()].sort((a, b) => a - b).join(",")}`
     ), { code: persistedLedgerCode });
   }
-  const merged = new Map(previousByPid);
   for (const member of current) {
     const existing = previousByPid.get(member.pid);
     if (existing && existing.lstart !== member.lstart) {
@@ -162,21 +161,18 @@ export function mergeRegressionProcessGroupLedger({ ledger = [], members = [], g
         code: persistedLedgerCode
       });
     }
-    // PID+lstart proves the live identity online. Persist the latest command hash after a legal exec.
-    merged.set(member.pid, existing ? { ...existing, commandFingerprint: member.commandFingerprint } : member);
   }
-  if (merged.size > maximumPersistedMembers) {
-    // Exited identities no longer require a termination signal. Compact to the complete
-    // live snapshot rather than ever persisting an invalid >512 ledger. The remaining
-    // live PID+lstart anchors still prevent adoption of a numerically reused group.
-    if (current.length > maximumPersistedMembers) {
-      throw Object.assign(new Error("live regression process ledger exceeds its safe member bound"), {
-        code: persistedLedgerCode
-      });
-    }
-    return [...current].sort((left, right) => left.pid - right.pid);
+  // The preceding continuity checks use the prior ledger to prove that every
+  // currently live member belongs to the trusted tree. Once that proof is
+  // complete, exited identities no longer need a signal and must not remain in
+  // the durable observation set: retaining them makes every later snapshot
+  // query an ever-growing PID list. Persist only the complete live snapshot.
+  if (current.length > maximumPersistedMembers) {
+    throw Object.assign(new Error("live regression process ledger exceeds its safe member bound"), {
+      code: persistedLedgerCode
+    });
   }
-  return [...merged.values()].sort((left, right) => left.pid - right.pid);
+  return [...current].sort((left, right) => left.pid - right.pid);
 }
 
 export function classifyRegressionProcessGroupLedger({ ledger = [], members = [], groupId }) {
