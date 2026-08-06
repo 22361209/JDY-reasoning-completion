@@ -915,6 +915,16 @@ try {
   }
   if (artifactBaseline) {
     try {
+      // A regression can overwrite an ignored artifact that predates this run.
+      // Those bytes are not disposable: restore the private baseline first, then
+      // scan only the run-created surface for secret residue. Otherwise the
+      // scanner correctly refuses to delete the baseline entry but leaves a
+      // leaked run secret behind and prevents the final summary from publishing.
+      await restoreRegressionArtifactBaselineBackup({
+        root: verificationDir,
+        lockDir,
+        baseline: artifactBaseline
+      });
       secretScan = !suiteFixture
         ? await scanChangedRegressionArtifactsForSecrets({
             root: verificationDir,
