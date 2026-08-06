@@ -90,6 +90,10 @@ function recordHash(record) {
   return createHash("sha256").update(canonicalRecord(record)).digest("hex");
 }
 
+function bytesDigest(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 function decodeCanonicalBase64(value, label) {
   const encoded = trustedString(value || "");
   assert(/^[A-Za-z0-9+/]+={0,2}$/.test(encoded), `${label} is not canonical base64`);
@@ -290,19 +294,43 @@ export function openRegressionFixtureLedgerWriter({ secretDir, reference, signin
   trustedWeakMapSet(writerState, writer, {
     secretDir,
     reference,
-    privateKey: privateKeyObject(signingPrivateKey, reference.signingPublicKey)
+    privateKey: privateKeyObject(signingPrivateKey, reference.signingPublicKey),
+    ledger,
+    byteLength: ledger.byteLength,
+    contentDigest: ledger.contentDigest
   });
   return writer;
+}
+
+function assertWriterLedgerUnchanged(state) {
+  const bytes = stableLedgerBytes(state.secretDir, state.reference);
+  assert(bytes.length === state.byteLength && bytesDigest(bytes) === state.contentDigest,
+    "regression fixture ledger changed outside its trusted writer");
+}
+
+function applyTrustedAppend(ledger, record) {
+  assert(record.sequence === ledger.nextSequence && record.previousHash === ledger.previousHash,
+    "regression fixture ledger writer sequence changed unexpectedly");
+  if (record.type === "prepared") {
+    ledger.entries.push({ ...normalizePreparedRecord(record), state: "PREPARED" });
+  } else if (record.type === "state") {
+    const entry = ledger.entries.find(({ registrationId }) => registrationId === record.registrationId);
+    assert(entry && entry.state === "PREPARED", "regression fixture ledger writer state changed unexpectedly");
+    entry.state = record.state;
+  } else if (record.type === "seal") {
+    ledger.sealed = true;
+  } else {
+    throw new Error("regression fixture ledger writer record type is invalid");
+  }
+  ledger.nextSequence += 1;
+  ledger.previousHash = recordHash(record);
 }
 
 function appendSignedRecord(writer, unsigned) {
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
-  const ledger = readRegressionFixtureLedgerInternal({
-    secretDir: state.secretDir,
-    reference: state.reference,
-    requireSealed: false
-  });
+  assertWriterLedgerUnchanged(state);
+  const ledger = state.ledger;
   assert(!ledger.sealed && !ledger.hasPartialRecord,
     "regression fixture ledger cannot append after an incomplete or sealed record");
   const record = {
@@ -329,6 +357,12 @@ function appendSignedRecord(writer, unsigned) {
   } finally {
     trustedCloseSync(descriptor);
   }
+  const bytes = stableLedgerBytes(state.secretDir, state.reference);
+  assert(bytes.length === state.byteLength + frame.length,
+    "regression fixture ledger append changed its expected length");
+  state.byteLength = bytes.length;
+  state.contentDigest = bytesDigest(bytes);
+  applyTrustedAppend(ledger, record);
   return record;
 }
 
@@ -336,7 +370,7 @@ export function appendRegressionFixturePrepared(writer, entry) {
   const normalized = normalizePreparedRecord(entry);
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
-  const ledger = readRegressionFixtureLedgerInternal({ secretDir: state.secretDir, reference: state.reference });
+  const ledger = state.ledger;
   assert(ledger.entries.length < maximumRegistrations
     && !ledger.entries.some(({ registrationId }) => registrationId === normalized.registrationId),
   "regression fixture registration already exists or reached its bound");
@@ -352,7 +386,7 @@ export function appendRegressionFixtureState(writer, registrationId, stateName) 
   "regression fixture state transition is invalid");
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
-  const ledger = readRegressionFixtureLedgerInternal({ secretDir: state.secretDir, reference: state.reference });
+  const ledger = state.ledger;
   const entry = ledger.entries.find(({ registrationId: candidate }) => candidate === normalizedId);
   assert(entry && entry.state === "PREPARED",
     "regression fixture state transition does not match one prepared identity");
@@ -362,7 +396,7 @@ export function appendRegressionFixtureState(writer, registrationId, stateName) 
 export function sealRegressionFixtureLedger(writer) {
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
-  const ledger = readRegressionFixtureLedgerInternal({ secretDir: state.secretDir, reference: state.reference });
+  const ledger = state.ledger;
   if (ledger.sealed) return ledger;
   assert(!ledger.hasPartialRecord, "regression fixture ledger cannot seal a partial record");
   appendSignedRecord(writer, {
@@ -450,6 +484,8 @@ function readRegressionFixtureLedgerInternal({ secretDir, reference, requireSeal
     version: ledgerVersion,
     runId: reference.runId,
     reference,
+    byteLength: bytes.length,
+    contentDigest: bytesDigest(bytes),
     entries,
     sealed,
     hasPartialRecord,

@@ -35,6 +35,15 @@ try {
   assert.equal(snapshot.entries[0].state, "PREPARED");
 
   const authenticBytes = readFileSync(ledger.path);
+  const tamperedBytes = Buffer.from(authenticBytes);
+  tamperedBytes[tamperedBytes.length - 2] ^= 1;
+  writeFileSync(ledger.path, tamperedBytes);
+  assert.throws(
+    () => appendRegressionFixtureState(ledger.writer, fixture.registrationId, "CLOSED"),
+    /changed outside its trusted writer/,
+    "the cached writer snapshot must reject any externally modified ledger before append"
+  );
+  writeFileSync(ledger.path, authenticBytes);
   writeFileSync(ledger.path, `${JSON.stringify({ version: 1, runId, entries: [] })}\n`);
   assert.throws(
     () => readRegressionFixtureLedger({ secretDir, reference: ledger.reference }),
@@ -71,6 +80,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     unsignedEmptyLedgerRejected: true,
+    writerTamperRejected: true,
     unbrandedWriterRejected: true,
     privilegedPathApiSealed: true,
     brandedAppendAfterSealVerified: true
