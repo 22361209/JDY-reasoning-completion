@@ -1632,6 +1632,7 @@ async function browserParityChecks() {
       { timeout: 10000 }
     );
     await page.getByTestId("column-filter-ok").click();
+    await page.getByTestId("list-query").click();
     const listResponse = await listResponsePromise;
     assert(listResponse.status() === 200, "A43 exact UI list response must return 200", listResponse.status());
     uiRequest = assertExactOperationLogQuery(listResponse.url(), artifacts.documents.red.billNo, "A43 UI list response");

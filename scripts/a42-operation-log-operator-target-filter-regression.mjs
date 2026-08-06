@@ -182,10 +182,11 @@ try {
   });
   await page.getByTestId("list-query").click();
   const listRequest = await listRequestPromise;
+  const listRequestUrl = new URL(listRequest.url());
   const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
   assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
-  assert(new URL(listRequest.url()).searchParams.get("scope") === "current", "UI request should preserve current scope");
-  assert(new URL(listRequest.url()).searchParams.get("actorType") === "USER", "UI request should preserve USER actor type");
+  assert(listRequestUrl.searchParams.get("scope") === "current", `UI request should preserve current scope: ${listRequest.url()}`);
+  assert(listRequestUrl.searchParams.get("actorType") === "USER", `UI request should preserve USER actor type: ${listRequest.url()}`);
   const table = page.getByTestId("vxe-list-table");
   await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
   await table.getByText("sales_out").first().waitFor({ state: "visible" });
