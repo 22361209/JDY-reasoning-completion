@@ -272,6 +272,10 @@ public class CurrentSessionService {
         return String.valueOf(currentUser().get("name"));
     }
 
+    public boolean requiresRegressionFixtureFence(HttpServletRequest request) {
+        return regressionSharedAdminLoginGuard.isSharedAdminLoginGuardActive(request);
+    }
+
     public void login(String username) {
         login(username, null, null);
     }

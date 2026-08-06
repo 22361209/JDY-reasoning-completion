@@ -295,8 +295,8 @@ try {
     /cleanup\.closed && fixtureLedgerClosed && executionIntegrityComplete/,
     "preflight failure may release its lock only while tracked execution integrity remains complete");
   assert.match(runnerSource,
-    /regressionDockerCleanupDeadlineMs\(ledger\.pendingDockerIntents\.length\)/,
-    "the watchdog ACK deadline must cover only durable Docker leases that remain pending cleanup");
+    /regressionDockerCleanupDeadlineMs\(ledger\.dockerIntents\.length\)/,
+    "the watchdog ACK deadline must cover every durable Docker lease that requires a CLOSED receipt");
   const finalGreenStateIndex = runnerSource.indexOf("summary.ok = verifiedOutcomeOk");
   const preparePublicationIndex = runnerSource.indexOf("const publication = await prepareLatestPublication(summaryText)", finalGreenStateIndex);
   const publicationCasIndex = runnerSource.indexOf("await suiteLock.update({ latestPublication: publication })", preparePublicationIndex);

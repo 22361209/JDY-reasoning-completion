@@ -57,7 +57,8 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
                     regressionActiveRequestTracker.trackRegisteredIdentity(
                         request,
                         userId,
-                        RegressionActiveRequestTracker.isFixtureUsername(username),
+                        RegressionActiveRequestTracker.isFixtureUsername(username)
+                            && currentSessionService.requiresRegressionFixtureFence(request),
                         (long) currentSessionService.currentSessionGeneration()
                     );
                     var actor = operationActorProvider.captureCurrentUser();
