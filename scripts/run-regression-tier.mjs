@@ -1012,6 +1012,27 @@ try {
       setupError = [setupError, error instanceof Error ? error.message : String(error)].filter(Boolean).join("; ");
     }
   }
+  // postflight and parent-fixture recovery may themselves update ignored
+  // evidence. Perform the final baseline restoration only after every writer
+  // has closed, then scan that final artifact surface.
+  if (artifactBaseline && secretChannelComplete) {
+    try {
+      await restoreRegressionArtifactBaselineBackup({
+        root: verificationDir,
+        lockDir,
+        baseline: artifactBaseline
+      });
+      secretScan = await scanChangedRegressionArtifactsForSecrets({
+        root: verificationDir,
+        workspaceRoot: rootDir,
+        baseline: artifactBaseline,
+        password: suiteFixture?.password || "",
+        exactSecrets: [...childReportedSecrets, ...(suiteFixture?.sensitiveArtifactValues?.() || [])]
+      });
+    } catch (error) {
+      secretScan = { ok: false, residueFree: false, error: error instanceof Error ? error.message : String(error), scannedChangedFiles: 0 };
+    }
+  }
   if (suiteLock
     && processOwnershipComplete
     && dockerLeaseClosureComplete
