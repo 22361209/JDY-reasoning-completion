@@ -61,6 +61,35 @@ try {
   });
   assert.equal(await readFile(roundTripFile, "utf8"), "baseline\n",
     "stale recovery must restore an overwritten pre-existing artifact byte-for-byte");
+  const backupFile = path.join(baselineLockRoot, "artifact-baseline-backup", Buffer.from("round-trip-dir/baseline.txt").toString("base64url"));
+  await chmod(backupFile, 0o644);
+  await assert.rejects(
+    restoreRegressionArtifactBaselineBackup({
+      root: contractRoot,
+      lockDir: baselineLockRoot,
+      baseline: roundTripBaseline
+    }),
+    /private artifact backup changed/,
+    "stale recovery must reject a group-readable private artifact backup"
+  );
+  await chmod(backupFile, 0o600);
+  await rm(roundTripDirectory, { recursive: true, force: true });
+  await symlink(externalRoot, roundTripDirectory);
+  await assert.rejects(
+    restoreRegressionArtifactBaselineBackup({
+      root: contractRoot,
+      lockDir: baselineLockRoot,
+      baseline: roundTripBaseline
+    }),
+    /restore ancestor is unsafe/,
+    "stale recovery must not recreate a baseline artifact through a symlinked parent"
+  );
+  await unlink(roundTripDirectory);
+  await restoreRegressionArtifactBaselineBackup({
+    root: contractRoot,
+    lockDir: baselineLockRoot,
+    baseline: roundTripBaseline
+  });
   assert.deepEqual(
     serializeRegressionArtifactBaseline(readPersistedRegressionArtifactBaselineSync({
       lockDir: baselineLockRoot,

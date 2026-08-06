@@ -4,9 +4,12 @@ import {
   closeSync,
   constants as fsConstants,
   fstatSync,
+  fsyncSync,
   lstatSync,
+  mkdirSync,
   openSync,
-  readFileSync
+  readFileSync,
+  writeFileSync
 } from "node:fs";
 import { link, lstat, mkdir, open, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -177,15 +180,33 @@ export async function persistRegressionArtifactBaselineBackup({ root, lockDir, b
   const rootIdentity = assertRegressionArtifactRootIdentitySync({ root, baseline });
   const backupDir = path.join(lockDir, PERSISTED_BACKUP_DIR);
   await mkdir(backupDir, { mode: 0o700 });
+  assertPrivateArtifactBackupDirectorySync(backupDir);
   for (const [relative, metadata] of baseline) {
     if (metadata.kind !== "file") continue;
     const source = path.join(root, relative);
     assertArtifactPathBoundarySync({ root, file: source, rootIdentity });
-    const payload = await readFile(source);
+    const payload = readPrivateArtifactFileSync({
+      file: source,
+      expected: metadata,
+      label: "regression artifact changed before private baseline backup",
+      requirePrivate: false
+    });
     if (payload.length !== metadata.size || createHash("sha256").update(payload).digest("hex") !== metadata.sha256) {
       throw new Error("regression artifact changed before private baseline backup");
     }
-    await writeFile(path.join(backupDir, Buffer.from(relative).toString("base64url")), payload, { mode: 0o600, flag: "wx" });
+    const backupFile = path.join(backupDir, Buffer.from(relative).toString("base64url"));
+    const descriptor = openSync(backupFile, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+    try {
+      writeFileSync(descriptor, payload);
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    readPrivateArtifactFileSync({
+      file: backupFile,
+      expected: metadata,
+      label: "regression private artifact backup changed"
+    });
   }
   return { directory: PERSISTED_BACKUP_DIR };
 }
@@ -193,14 +214,19 @@ export async function persistRegressionArtifactBaselineBackup({ root, lockDir, b
 export async function restoreRegressionArtifactBaselineBackup({ root, lockDir, baseline }) {
   const rootIdentity = assertRegressionArtifactRootIdentitySync({ root, baseline });
   const backupDir = path.join(lockDir, PERSISTED_BACKUP_DIR);
+  assertPrivateArtifactBackupDirectorySync(backupDir);
   for (const [relative, metadata] of baseline) {
     if (metadata.kind !== "file") continue;
-    const payload = await readFile(path.join(backupDir, Buffer.from(relative).toString("base64url")));
+    const payload = readPrivateArtifactFileSync({
+      file: path.join(backupDir, Buffer.from(relative).toString("base64url")),
+      expected: metadata,
+      label: "regression private artifact backup changed"
+    });
     if (payload.length !== metadata.size || createHash("sha256").update(payload).digest("hex") !== metadata.sha256) {
       throw new Error("regression private artifact backup changed");
     }
     const target = path.join(root, relative);
-    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    ensureArtifactRestoreParentBoundarySync({ root, target, rootIdentity });
     const targetMetadata = await lstat(target).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
     if (targetMetadata && (!targetMetadata.isFile() || targetMetadata.isSymbolicLink() || targetMetadata.nlink !== 1)) {
       throw new Error("regression artifact restore target is unsafe");
@@ -210,6 +236,68 @@ export async function restoreRegressionArtifactBaselineBackup({ root, lockDir, b
     await rename(temporary, target);
     assertArtifactPathBoundarySync({ root, file: target, rootIdentity });
   }
+}
+
+function assertPrivateArtifactBackupDirectorySync(directory) {
+  const metadata = lstatSync(directory);
+  if (!metadata.isDirectory()
+    || metadata.isSymbolicLink()
+    || (metadata.mode & 0o077) !== 0
+    || (typeof process.getuid === "function" && metadata.uid !== process.getuid())) {
+    throw new Error("regression private artifact backup directory is missing or unsafe");
+  }
+}
+
+function readPrivateArtifactFileSync({ file, expected, label, requirePrivate = true }) {
+  const descriptor = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const before = fstatSync(descriptor);
+    if (!before.isFile()
+      || before.nlink !== 1
+      || (requirePrivate && (before.mode & 0o077) !== 0)
+      || (typeof process.getuid === "function" && before.uid !== process.getuid())
+      || before.size !== expected.size) {
+      throw new Error(label);
+    }
+    const payload = readFileSync(descriptor);
+    const after = fstatSync(descriptor);
+    if (after.size !== before.size
+      || String(after.dev) !== String(before.dev)
+      || String(after.ino) !== String(before.ino)
+      || createHash("sha256").update(payload).digest("hex") !== expected.sha256) {
+      throw new Error(label);
+    }
+    return payload;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function ensureArtifactRestoreParentBoundarySync({ root, target, rootIdentity }) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  if (resolvedTarget === resolvedRoot || !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error("regression artifact restore escaped the verification directory");
+  }
+  assertArtifactRootIdentityValueSync(resolvedRoot, rootIdentity);
+  const segments = path.relative(resolvedRoot, resolvedTarget).split(path.sep).slice(0, -1);
+  let ancestor = resolvedRoot;
+  for (const segment of segments) {
+    ancestor = path.join(ancestor, segment);
+    let metadata;
+    try {
+      metadata = lstatSync(ancestor);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      mkdirSync(ancestor, { mode: 0o700 });
+      metadata = lstatSync(ancestor);
+    }
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()
+      || (typeof process.getuid === "function" && metadata.uid !== process.getuid())) {
+      throw new Error("regression artifact restore ancestor is unsafe");
+    }
+  }
+  assertArtifactRootIdentityValueSync(resolvedRoot, rootIdentity);
 }
 
 export async function readPersistedRegressionArtifactBaseline({ lockDir, reference }) {
