@@ -78,12 +78,13 @@ async function runScenario({ index, mode }) {
           JDY_REGRESSION_DETACHED_SPAWN_LEDGER_REFERENCE: JSON.stringify(ledger.reference),
           JDY_REGRESSION_DOCKER_WATCHDOG_PATH: path.join(rootDir, "scripts/helpers/regression-docker-lease-watchdog.mjs"),
           JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD: "7",
-          JDY_REGRESSION_EXECUTION_BASELINE_FD: "8"
+          JDY_REGRESSION_EXECUTION_BASELINE_FD: "8",
+          JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD: "9"
         },
         stdio: [
           "pipe", "pipe", "pipe", "pipe",
           ledger.descriptor, ledger.signingKeyDescriptor,
-          "pipe", "pipe", executionCapability.descriptor
+          "pipe", "pipe", executionCapability.descriptor, "pipe"
         ]
       });
     } finally {
@@ -115,6 +116,7 @@ async function runScenario({ index, mode }) {
     const exit = once(direct, "exit");
     direct.stdin.destroy();
     direct.stdio[6].destroy();
+    direct.stdio[9].destroy();
     await Promise.race([
       exit,
       sleep(4_000, undefined, { ref: false }).then(() => { throw new Error(`${mode} owned group survived parent EOF`); })

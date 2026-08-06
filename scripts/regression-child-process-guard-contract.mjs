@@ -179,6 +179,11 @@ const source = `
   if (!watchdogAckCapabilityClosed || process.env.JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD) {
     throw new Error("Docker watchdog acknowledgement capability remained visible to the manifest");
   }
+  let watchdogOwnerCapabilityClosed = false;
+  try { filesystem.fstatSync(9); } catch { watchdogOwnerCapabilityClosed = true; }
+  if (!watchdogOwnerCapabilityClosed || process.env.JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD) {
+    throw new Error("Docker watchdog owner-control capability remained visible to the manifest");
+  }
   let executionCapabilityClosed = false;
   try { filesystem.fstatSync(8); } catch { executionCapabilityClosed = true; }
   if (!executionCapabilityClosed || process.env.JDY_REGRESSION_EXECUTION_BASELINE_FD) {
@@ -338,6 +343,7 @@ const source = `
     wrappersImmutable,
     signingCapabilityClosed,
     watchdogAckCapabilityClosed,
+    watchdogOwnerCapabilityClosed,
     executionCapabilityClosed,
     rawBindingBlocked,
     primordialBypassBlocked,
@@ -395,7 +401,8 @@ try {
     JDY_REGRESSION_DETACHED_SPAWN_LEDGER_REFERENCE: JSON.stringify(detachedLedger.reference),
     JDY_REGRESSION_DOCKER_WATCHDOG_PATH: path.join(rootDir, "scripts/helpers/regression-docker-lease-watchdog.mjs"),
     JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD: "7",
-    JDY_REGRESSION_EXECUTION_BASELINE_FD: "8"
+    JDY_REGRESSION_EXECUTION_BASELINE_FD: "8",
+    JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD: "9"
   },
   stdio: [
     "ignore",
@@ -406,7 +413,8 @@ try {
     detachedLedger.signingKeyDescriptor,
     "pipe",
     "pipe",
-    executionCapability.descriptor
+    executionCapability.descriptor,
+    "pipe"
   ]
   });
 } finally {
@@ -436,7 +444,7 @@ try {
     Promise.all([once(direct, "exit"), once(direct.stdio[3], "close")]),
     timeout
   ]);
-  direct.stdio[6].destroy();
+  direct.stdio[9].destroy();
   const dockerAck = await dockerAckPromise;
   assert.equal(direct.exitCode, 0, stderr);
   const report = JSON.parse(stdout.trim().split(/\r?\n/).at(-1));
@@ -445,6 +453,7 @@ try {
   assert.equal(report.wrappersImmutable, true);
   assert.equal(report.signingCapabilityClosed, true);
   assert.equal(report.watchdogAckCapabilityClosed, true);
+  assert.equal(report.watchdogOwnerCapabilityClosed, true);
   assert.equal(report.executionCapabilityClosed, true);
   assert.equal(report.rawBindingBlocked, true);
   assert.equal(report.primordialBypassBlocked, true);

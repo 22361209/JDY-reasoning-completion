@@ -266,6 +266,7 @@ async function runCrashOwnershipScenario() {
 
   const exit = once(direct, "exit");
   direct.stdio[6].destroy();
+  direct.stdio[9].destroy();
   if (process.platform !== "win32") process.kill(-direct.pid, "SIGKILL");
   else direct.kill("SIGKILL");
   await exit;
@@ -337,6 +338,7 @@ async function runRedisCrashOwnershipScenario() {
 
   const exit = once(direct, "exit");
   direct.stdio[6].destroy();
+  direct.stdio[9].destroy();
   if (process.platform !== "win32") process.kill(-direct.pid, "SIGKILL");
   else direct.kill("SIGKILL");
   await exit;
@@ -386,6 +388,7 @@ async function spawnGuardedSource({ index, token, source }) {
   const dockerAckPromise = collectDockerAck(child);
   await once(child, "exit");
   child.stdio[6].destroy();
+  child.stdio[9].destroy();
   const dockerAck = await dockerAckPromise;
   assert.equal(child.exitCode, 0, stderr);
   return { ledger, pid: child.pid, stdout, stderr, dockerAck };
@@ -412,13 +415,14 @@ function guardedSpawnOptions({ ledger, token }) {
       JDY_REGRESSION_DOCKER_WATCHDOG_PATH: watchdogPath,
       JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD: "7",
       JDY_REGRESSION_EXECUTION_BASELINE_FD: "8",
+      JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD: "9",
       DOCKER_HOST: "tcp://127.0.0.1:1",
       DOCKER_CONTEXT: "forbidden-remote"
     },
     stdio: [
       "ignore", "pipe", "pipe", "pipe",
       ledger.descriptor, ledger.signingKeyDescriptor,
-      "pipe", "pipe", executionCapability.descriptor
+      "pipe", "pipe", executionCapability.descriptor, "pipe"
     ]
   };
 }

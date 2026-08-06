@@ -210,6 +210,7 @@ const regressionDetachedSpawnLedgerPathEnvironment = "JDY_REGRESSION_DETACHED_SP
 const regressionDetachedSpawnLedgerReferenceEnvironment = "JDY_REGRESSION_DETACHED_SPAWN_LEDGER_REFERENCE";
 const regressionDockerWatchdogPathEnvironment = "JDY_REGRESSION_DOCKER_WATCHDOG_PATH";
 const regressionDockerWatchdogAckFdEnvironment = "JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD";
+const regressionDockerWatchdogOwnerFdEnvironment = "JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD";
 const regressionExecutionBaselineFdEnvironment = "JDY_REGRESSION_EXECUTION_BASELINE_FD";
 const regressionSuiteLockDir = path.join(tmpdir(), "jdy-erp-regression-suite.lock");
 const regressionSuiteProvisionalPrefix = "jdy-erp-regression-suite.provisional-";
@@ -1494,6 +1495,7 @@ async function runScript(script, {
       delete childEnvironment[regressionDetachedSpawnLedgerReferenceEnvironment];
       delete childEnvironment[regressionDockerWatchdogPathEnvironment];
       delete childEnvironment[regressionDockerWatchdogAckFdEnvironment];
+      delete childEnvironment[regressionDockerWatchdogOwnerFdEnvironment];
       delete childEnvironment[regressionExecutionBaselineFdEnvironment];
       delete childEnvironment.JDY_REGRESSION_PARENT_WATCHDOG_FD;
       if (usesSuiteCredentials) {
@@ -1515,6 +1517,7 @@ async function runScript(script, {
       );
       childEnvironment[regressionDockerWatchdogAckFdEnvironment] = "7";
       childEnvironment[regressionExecutionBaselineFdEnvironment] = "8";
+      childEnvironment[regressionDockerWatchdogOwnerFdEnvironment] = "9";
       delete childEnvironment.JDY_REGRESSION_ALLOW_CLEANUP_FAULTS;
       const childScriptPath = path.resolve(rootDir, script);
       const authHelperPath = path.resolve(rootDir, "scripts/helpers/regression-auth.mjs");
@@ -1545,7 +1548,8 @@ async function runScript(script, {
             childDetachedSpawnLedger.signingKeyDescriptor,
             "pipe",
             "pipe",
-            childExecutionBaselineCapability.descriptor
+            childExecutionBaselineCapability.descriptor,
+            "pipe"
           ]
         });
       } finally {
@@ -1699,6 +1703,7 @@ async function runScript(script, {
         dockerLeaseClosureVerified: false,
         dockerLeaseClosureResult: null,
         parentWatchdogControlClosed: false,
+        dockerWatchdogOwnerControlClosed: false,
         closeParentWatchdogControl() {
           if (this.parentWatchdogControlClosed) return;
           this.parentWatchdogControlClosed = true;
@@ -1707,6 +1712,14 @@ async function runScript(script, {
           // event; destroy it so no later bootstrap write can keep the owner
           // relationship open after the manifest has exited.
           child.stdio[6]?.destroy();
+        },
+        closeDockerWatchdogOwnerControl() {
+          if (this.dockerWatchdogOwnerControlClosed) return;
+          this.dockerWatchdogOwnerControlClosed = true;
+          // FD 9 belongs solely to the detached Docker watchdog.  Unlike the
+          // bootstrap's parent-death FD 6, it remains open until the manifest
+          // process has exited and sealed its spawn ledger.
+          child.stdio[9]?.destroy();
         },
         forceClose(message) {
           if (!forcedCloseMessage) {
@@ -1766,9 +1779,11 @@ async function runScript(script, {
       child.on("error", (error) => {
         stderr += `\nregression child spawn failed: ${error instanceof Error ? error.message : String(error)}`;
         handle.closeParentWatchdogControl();
+        handle.closeDockerWatchdogOwnerControl();
       });
       child.on("exit", () => {
         handle.closeParentWatchdogControl();
+        handle.closeDockerWatchdogOwnerControl();
         if (!secretStreamClosed) {
           scheduleSecretDescriptorFailure("regression child secret report descriptor outlived the child process");
         }

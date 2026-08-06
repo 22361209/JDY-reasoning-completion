@@ -39,6 +39,7 @@ export const regressionChildGuardTokenEnvironment = "JDY_REGRESSION_CHILD_GUARD_
 export const regressionDetachedSpawnLedgerFdEnvironment = "JDY_REGRESSION_DETACHED_SPAWN_LEDGER_FD";
 export const regressionDetachedSpawnSigningKeyFdEnvironment = "JDY_REGRESSION_DETACHED_SPAWN_SIGNING_KEY_FD";
 export const regressionExecutionBaselineFdEnvironment = "JDY_REGRESSION_EXECUTION_BASELINE_FD";
+export const regressionDockerWatchdogOwnerFdEnvironment = "JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD";
 const controlEnvironmentNames = [
   regressionChildGuardTokenEnvironment,
   regressionDetachedSpawnLedgerFdEnvironment,
@@ -56,6 +57,7 @@ const controlEnvironmentNames = [
   "JDY_REGRESSION_DETACHED_SPAWN_LEDGER_REFERENCE",
   "JDY_REGRESSION_DOCKER_WATCHDOG_PATH",
   "JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD",
+  regressionDockerWatchdogOwnerFdEnvironment,
   "NODE_OPTIONS"
 ];
 const injectionEnvironmentNames = [
@@ -1438,6 +1440,7 @@ function startRegressionDockerLeaseWatchdog({
   if (!trustedPathIsAbsolute(ledgerPath)
     || watchdogPath !== expectedDockerWatchdogPath
     || process.env.JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD !== "7"
+    || process.env[regressionDockerWatchdogOwnerFdEnvironment] !== "9"
     || reference?.device !== descriptorProof.detachedLedger.device
     || reference?.inode !== descriptorProof.detachedLedger.inode
     || reference?.guardToken !== trustedString(process.env[regressionChildGuardTokenEnvironment] || "")
@@ -1447,8 +1450,12 @@ function startRegressionDockerLeaseWatchdog({
     fail("Docker lease watchdog ownership capability is invalid");
   }
   const acknowledgementDescriptor = fstatSync(7);
+  const ownerControlDescriptor = fstatSync(9);
   if (!acknowledgementDescriptor.isSocket() && !acknowledgementDescriptor.isFIFO()) {
     fail("Docker lease watchdog acknowledgement capability is not a private pipe");
+  }
+  if (!ownerControlDescriptor.isSocket() && !ownerControlDescriptor.isFIFO()) {
+    fail("Docker lease watchdog owner-control capability is not a private pipe");
   }
   const secretDir = trustedPathDirname(ledgerPath);
   const protectedSuiteLockCandidate = trustedPathBasename(secretDir) === "private"
@@ -1492,7 +1499,7 @@ function startRegressionDockerLeaseWatchdog({
       // A detached watchdog must not inherit bootstrap stderr: doing so keeps
       // the runner's child descriptor open after the manifest exits and turns
       // a normal EOF into a false secret/output-channel failure.
-      stdio: [6, 7, "ignore", ownershipDescriptor, readinessDescriptor]
+      stdio: [9, 7, "ignore", ownershipDescriptor, readinessDescriptor]
     });
     const identity = detachedProcessIdentity(child, watchdogPath, originalExecFileSync);
     appendDetachedSpawnLedgerRecord(descriptorProof, signer, {
@@ -1528,10 +1535,12 @@ function startRegressionDockerLeaseWatchdog({
       try { closeSync(readinessDescriptor); } catch { /* child ownership remains in the signed ledger */ }
     }
     try { closeSync(7); } catch { /* A missing ACK capability keeps the runner fail-closed. */ }
+    try { closeSync(9); } catch { /* The runner retains the sole watchdog owner writer. */ }
     delete process.env.JDY_REGRESSION_DETACHED_SPAWN_LEDGER_PATH;
     delete process.env.JDY_REGRESSION_DETACHED_SPAWN_LEDGER_REFERENCE;
     delete process.env.JDY_REGRESSION_DOCKER_WATCHDOG_PATH;
     delete process.env.JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD;
+    delete process.env[regressionDockerWatchdogOwnerFdEnvironment];
   }
   regressionDockerOwnership = Object.freeze({
     runId: reference.runId,
