@@ -9,9 +9,11 @@ import path from "node:path";
 import {
   deserializeRegressionArtifactBaseline,
   persistRegressionArtifactBaseline,
+  persistRegressionArtifactBaselineBackup,
   purgeChangedRegressionArtifacts,
   readPersistedRegressionArtifactBaseline,
   readPersistedRegressionArtifactBaselineSync,
+  restoreRegressionArtifactBaselineBackup,
   scanChangedRegressionArtifactsForSecrets,
   serializeRegressionArtifactBaseline,
   snapshotRegressionArtifacts
@@ -46,6 +48,19 @@ try {
     reference: baselineReference
   });
   assert.deepEqual(serializeRegressionArtifactBaseline(persistedBaseline), serializedBaseline);
+  await persistRegressionArtifactBaselineBackup({
+    root: contractRoot,
+    lockDir: baselineLockRoot,
+    baseline: roundTripBaseline
+  });
+  await writeFile(roundTripFile, "overwritten by interrupted suite\n");
+  await restoreRegressionArtifactBaselineBackup({
+    root: contractRoot,
+    lockDir: baselineLockRoot,
+    baseline: roundTripBaseline
+  });
+  assert.equal(await readFile(roundTripFile, "utf8"), "baseline\n",
+    "stale recovery must restore an overwritten pre-existing artifact byte-for-byte");
   assert.deepEqual(
     serializeRegressionArtifactBaseline(readPersistedRegressionArtifactBaselineSync({
       lockDir: baselineLockRoot,

@@ -116,10 +116,12 @@ const {
 const {
   assertRegressionArtifactRootIdentitySync,
   persistRegressionArtifactBaseline,
+  persistRegressionArtifactBaselineBackup,
   purgeChangedRegressionArtifacts,
   readPersistedRegressionArtifactBaseline,
   readPersistedRegressionArtifactBaselineSync,
   regressionArtifactPayloadContainsSecret,
+  restoreRegressionArtifactBaselineBackup,
   scanChangedRegressionArtifactsForSecrets,
   serializeRegressionArtifactBaseline,
   snapshotRegressionArtifacts
@@ -301,6 +303,11 @@ try {
     lockDir: suiteLock.lockDir,
     serialized: serializeRegressionArtifactBaseline(artifactBaseline),
     runId
+  });
+  await persistRegressionArtifactBaselineBackup({
+    root: verificationDir,
+    lockDir: suiteLock.lockDir,
+    baseline: artifactBaseline
   });
   await suiteLock.update({
     state: "baseline-ready",
@@ -2107,6 +2114,11 @@ async function purgeStaleRegressionArtifacts(lockDir, staleOwner) {
     reference: staleOwner.artifactBaseline
   });
   await recoverStaleLatestPublication({ lockDir, staleOwner, baseline });
+  await restoreRegressionArtifactBaselineBackup({
+    root: verificationDir,
+    lockDir,
+    baseline
+  });
   const purge = await purgeChangedRegressionArtifacts({
     root: verificationDir,
     workspaceRoot: rootDir,

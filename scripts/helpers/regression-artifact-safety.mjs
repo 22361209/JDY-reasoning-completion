@@ -8,12 +8,13 @@ import {
   openSync,
   readFileSync
 } from "node:fs";
-import { link, lstat, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const MAX_SERIALIZED_BASELINE_ENTRIES = 20_000;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const PERSISTED_BASELINE_FILE = "artifact-baseline.json";
+const PERSISTED_BACKUP_DIR = "artifact-baseline-backup";
 const MAX_PERSISTED_BASELINE_BYTES = 32 * 1024 * 1024;
 const ARTIFACT_BASELINE_VERSION = 2;
 const artifactRootIdentityProperty = Symbol("regressionArtifactRootIdentity");
@@ -168,6 +169,47 @@ export async function persistRegressionArtifactBaseline({ lockDir, serialized, r
     sha256: createHash("sha256").update(payload).digest("hex"),
     entryCount: baseline.size
   };
+}
+
+// Persist bytes as well as metadata: a stale owner may have overwritten an
+// ignored, pre-existing artifact and hash-only metadata cannot restore it.
+export async function persistRegressionArtifactBaselineBackup({ root, lockDir, baseline }) {
+  const rootIdentity = assertRegressionArtifactRootIdentitySync({ root, baseline });
+  const backupDir = path.join(lockDir, PERSISTED_BACKUP_DIR);
+  await mkdir(backupDir, { mode: 0o700 });
+  for (const [relative, metadata] of baseline) {
+    if (metadata.kind !== "file") continue;
+    const source = path.join(root, relative);
+    assertArtifactPathBoundarySync({ root, file: source, rootIdentity });
+    const payload = await readFile(source);
+    if (payload.length !== metadata.size || createHash("sha256").update(payload).digest("hex") !== metadata.sha256) {
+      throw new Error("regression artifact changed before private baseline backup");
+    }
+    await writeFile(path.join(backupDir, Buffer.from(relative).toString("base64url")), payload, { mode: 0o600, flag: "wx" });
+  }
+  return { directory: PERSISTED_BACKUP_DIR };
+}
+
+export async function restoreRegressionArtifactBaselineBackup({ root, lockDir, baseline }) {
+  const rootIdentity = assertRegressionArtifactRootIdentitySync({ root, baseline });
+  const backupDir = path.join(lockDir, PERSISTED_BACKUP_DIR);
+  for (const [relative, metadata] of baseline) {
+    if (metadata.kind !== "file") continue;
+    const payload = await readFile(path.join(backupDir, Buffer.from(relative).toString("base64url")));
+    if (payload.length !== metadata.size || createHash("sha256").update(payload).digest("hex") !== metadata.sha256) {
+      throw new Error("regression private artifact backup changed");
+    }
+    const target = path.join(root, relative);
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const targetMetadata = await lstat(target).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+    if (targetMetadata && (!targetMetadata.isFile() || targetMetadata.isSymbolicLink() || targetMetadata.nlink !== 1)) {
+      throw new Error("regression artifact restore target is unsafe");
+    }
+    const temporary = `${target}.restore-${process.pid}`;
+    await writeFile(temporary, payload, { mode: 0o600, flag: "wx" });
+    await rename(temporary, target);
+    assertArtifactPathBoundarySync({ root, file: target, rootIdentity });
+  }
 }
 
 export async function readPersistedRegressionArtifactBaseline({ lockDir, reference }) {
