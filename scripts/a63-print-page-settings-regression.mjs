@@ -104,8 +104,8 @@ function uuidArray(values) {
 function psql(sql) {
   return execFileSync("docker", [
     "exec", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt",
-    "-U", "jdy", "-d", "jdy_erp", "-c", sql
-  ], { encoding: "utf8" }).trim();
+    "-U", "jdy", "-d", "jdy_erp", "-f", "-"
+  ], { encoding: "utf8", input: sql }).trim();
 }
 
 function dbJson(sql) {
