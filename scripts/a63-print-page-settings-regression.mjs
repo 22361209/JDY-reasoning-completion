@@ -182,7 +182,7 @@ async function requireText(pathname) {
 
 function templateSnapshot() {
   return dbJson(`
-    SELECT COALESCE(jsonb_agg(to_jsonb(template_row) ORDER BY template_row.id), '[]'::jsonb)::text
+    SELECT COALESCE(jsonb_agg(to_jsonb(template_row) - 'updated_at' ORDER BY template_row.id), '[]'::jsonb)::text
     FROM public.sys_print_template template_row
     WHERE template_row.document_type='sales-order' AND template_row.role_code IS NULL
   `) ?? [];
