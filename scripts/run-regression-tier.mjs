@@ -1022,14 +1022,17 @@ try {
         lockDir,
         baseline: artifactBaseline
       });
-      if (secretChannelComplete) {
-        secretScan = await scanChangedRegressionArtifactsForSecrets({
+      const finalArtifactScan = await scanChangedRegressionArtifactsForSecrets({
           root: verificationDir,
           workspaceRoot: rootDir,
           baseline: artifactBaseline,
           password: suiteFixture?.password || "",
           exactSecrets: [...childReportedSecrets, ...(suiteFixture?.sensitiveArtifactValues?.() || [])]
         });
+      if (secretChannelComplete) {
+        secretScan = finalArtifactScan;
+      } else {
+        secretScan = { ...secretScan, residueFree: finalArtifactScan.residueFree };
       }
     } catch (error) {
       secretScan = { ok: false, residueFree: false, error: error instanceof Error ? error.message : String(error), scannedChangedFiles: 0 };
