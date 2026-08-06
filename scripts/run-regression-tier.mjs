@@ -1107,6 +1107,20 @@ try {
           dockerLeaseClosureComplete,
           executionIntegrityComplete,
           secretResidueFree: secretScan.residueFree === true,
+          secretScanOk: secretScan.ok === true,
+          secretScanError: secretScan.error
+            ? redactOutput(
+              String(secretScan.error),
+              suiteFixture?.password || "",
+              [...childReportedSecrets]
+            ).slice(0, 512)
+            : "",
+          secretScanChangedFiles: Number.isSafeInteger(secretScan.scannedChangedFiles)
+            ? secretScan.scannedChangedFiles
+            : 0,
+          secretScanResidueCount: Array.isArray(secretScan.residueFiles)
+            ? secretScan.residueFiles.length
+            : 0,
           postflightOk: postflight.ok === true,
           postflightError: postflight.ok === true ? "" : redactOutput(
             String(postflight.error || "postflight failed"),
