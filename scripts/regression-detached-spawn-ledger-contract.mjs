@@ -85,12 +85,13 @@ async function createSealedLedger(index) {
         JDY_REGRESSION_DETACHED_SPAWN_LEDGER_REFERENCE: JSON.stringify(capability.reference),
         JDY_REGRESSION_DOCKER_WATCHDOG_PATH: path.join(rootDir, "scripts/helpers/regression-docker-lease-watchdog.mjs"),
         JDY_REGRESSION_DOCKER_WATCHDOG_ACK_FD: "7",
-        JDY_REGRESSION_EXECUTION_BASELINE_FD: "8"
+        JDY_REGRESSION_EXECUTION_BASELINE_FD: "8",
+        JDY_REGRESSION_DOCKER_WATCHDOG_OWNER_FD: "9"
       },
       stdio: [
         "ignore", "ignore", "pipe", "pipe",
         capability.descriptor, capability.signingKeyDescriptor,
-        "pipe", "pipe", executionCapability.descriptor
+        "pipe", "pipe", executionCapability.descriptor, "pipe"
       ]
     });
   } finally {
@@ -103,6 +104,7 @@ async function createSealedLedger(index) {
   await once(child, "exit");
   assert.equal(child.exitCode, 0, stderr);
   child.stdio[6].destroy();
+  child.stdio[9].destroy();
   const dockerAck = await dockerAckPromise;
   capability.expectedParentPid = child.pid;
   readRegressionDockerWatchdogAck({
