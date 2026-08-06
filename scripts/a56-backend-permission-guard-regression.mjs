@@ -20,7 +20,13 @@ const deniedPermissions = [
 ];
 
 await mkdir(verificationDir, { recursive: true });
-const identity = createIsolatedAdminSessionFixture(apiBase, { label: "a56" });
+const identity = createIsolatedAdminSessionFixture(apiBase, {
+  label: "a56",
+  // This random r_a56_* identity is owned exclusively by this script. Its
+  // cleanup may therefore release its own Redis session, then proves zero
+  // residue; no shared admin or suite identity is ever eligible here.
+  allowForcedRedisRelease: true
+});
 let deniedRoleCookie = "";
 let billNo = "";
 let result = null;
@@ -215,7 +221,9 @@ if (deniedRoleCookie) {
   }
 }
 try {
-  await identity.cleanup();
+  await identity.cleanup({
+    allowForcedRedisRelease: true
+  });
 } catch (error) {
   cleanupErrors.push(error instanceof Error ? error.message : String(error));
 }
