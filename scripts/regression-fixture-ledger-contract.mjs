@@ -40,8 +40,8 @@ try {
   writeFileSync(ledger.path, tamperedBytes);
   assert.throws(
     () => appendRegressionFixtureState(ledger.writer, fixture.registrationId, "CLOSED"),
-    /changed outside its trusted writer/,
-    "the cached writer snapshot must reject any externally modified ledger before append"
+    /signature|hash chain|invalid JSONL/,
+    "a changed writer snapshot must fully re-verify and reject any tampered ledger"
   );
   writeFileSync(ledger.path, authenticBytes);
   writeFileSync(ledger.path, `${JSON.stringify({ version: 1, runId, entries: [] })}\n`);
@@ -80,7 +80,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     unsignedEmptyLedgerRejected: true,
-    writerTamperRejected: true,
+    writerTamperReverified: true,
     unbrandedWriterRejected: true,
     privilegedPathApiSealed: true,
     brandedAppendAfterSealVerified: true

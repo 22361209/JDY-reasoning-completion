@@ -302,10 +302,21 @@ export function openRegressionFixtureLedgerWriter({ secretDir, reference, signin
   return writer;
 }
 
-function assertWriterLedgerUnchanged(state) {
+function refreshWriterLedgerIfChanged(state) {
   const bytes = stableLedgerBytes(state.secretDir, state.reference);
-  assert(bytes.length === state.byteLength && bytesDigest(bytes) === state.contentDigest,
-    "regression fixture ledger changed outside its trusted writer");
+  if (bytes.length === state.byteLength && bytesDigest(bytes) === state.contentDigest) return;
+  // Parent and child each hold a branded writer for the same private ledger.
+  // A different digest is therefore not itself a violation: fully re-verify
+  // the chain before accepting an authorized sibling append. An unsigned or
+  // otherwise tampered replacement still fails closed in this reader.
+  const ledger = readRegressionFixtureLedgerInternal({
+    secretDir: state.secretDir,
+    reference: state.reference,
+    requireSealed: false
+  });
+  state.ledger = ledger;
+  state.byteLength = ledger.byteLength;
+  state.contentDigest = ledger.contentDigest;
 }
 
 function applyTrustedAppend(ledger, record) {
@@ -329,7 +340,7 @@ function applyTrustedAppend(ledger, record) {
 function appendSignedRecord(writer, unsigned) {
   const state = trustedWeakMapGet(writerState, writer);
   assert(state, "regression fixture ledger writer capability is invalid");
-  assertWriterLedgerUnchanged(state);
+  refreshWriterLedgerIfChanged(state);
   const ledger = state.ledger;
   assert(!ledger.sealed && !ledger.hasPartialRecord,
     "regression fixture ledger cannot append after an incomplete or sealed record");
