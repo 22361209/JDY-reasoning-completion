@@ -922,7 +922,7 @@ try {
       // leaked run secret behind and prevents the final summary from publishing.
       await restoreRegressionArtifactBaselineBackup({
         root: verificationDir,
-        lockDir,
+        lockDir: suiteLock.lockDir,
         baseline: artifactBaseline
       });
       secretScan = !suiteFixture
@@ -1020,7 +1020,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 250));
       await restoreRegressionArtifactBaselineBackup({
         root: verificationDir,
-        lockDir,
+        lockDir: suiteLock.lockDir,
         baseline: artifactBaseline
       });
       const finalArtifactScan = await scanChangedRegressionArtifactsForSecrets({
