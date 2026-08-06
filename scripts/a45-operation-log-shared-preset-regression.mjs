@@ -182,12 +182,14 @@ try {
   await page.getByTestId("query-operation-log-list").click();
   await page.getByTestId("tab-operation-log-list").waitFor({ state: "visible" });
   await ensureOperationLogFilters(page);
-  const presetValue = await page.getByTestId("operation-log-preset-select").evaluate((select, name) => {
+  const presetSelect = page.getByTestId("operation-log-preset-select");
+  await presetSelect.locator("option").filter({ hasText: presetName }).waitFor({ state: "attached", timeout: 5000 });
+  const presetValue = await presetSelect.evaluate((select, name) => {
     const option = Array.from(select.options).find((item) => item.textContent?.includes(name));
     return option?.value ?? "";
   }, presetName);
   assert(presetValue, `preset select should contain ${presetName}`);
-  await page.getByTestId("operation-log-preset-select").selectOption(presetValue);
+  await presetSelect.selectOption(presetValue);
   await page.getByTestId("operation-log-preset-apply").click();
   await page.getByTestId("operation-log-preset-message").getByText("预设已应用").waitFor({ state: "visible" });
   assert(await page.getByTestId("list-keyword").inputValue() === sales.redBillNo, "applied shared preset should restore keyword");
