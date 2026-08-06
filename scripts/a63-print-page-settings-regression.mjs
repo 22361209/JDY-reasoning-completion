@@ -374,7 +374,6 @@ function restoreTemplate() {
             is_default=${originalTarget.is_default},
             enabled=${originalTarget.enabled},
             created_at=${sqlLiteral(originalTarget.created_at)}::timestamptz,
-            updated_at=${sqlLiteral(originalTarget.updated_at)}::timestamptz,
             role_code=${sqlLiteral(originalTarget.role_code)},
             paper_size=${sqlLiteral(originalTarget.paper_size)},
             page_orientation=${sqlLiteral(originalTarget.page_orientation)},
