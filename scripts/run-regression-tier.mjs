@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   assertRegressionExecutionBaselineSync,
+  assertRegressionExecutionSourcesTrackedSync,
   captureRegressionExecutionBaselineSync,
   createRegressionExecutionBaselineCapability,
   persistRegressionExecutionBaselineSync,
@@ -597,9 +598,6 @@ try {
       processOwnershipComplete = false;
       setupError = [setupError, error instanceof Error ? error.message : String(error)].filter(Boolean).join("; ");
     }
-    if (closeChildDetachedSpawnLedger(completedChild)) {
-      await suiteLock.update({ childProcessLedger: completedChild.childProcessLedger });
-    }
     const lingeringChildError = await closeCompletedChildGroup(completedChild);
     // Completion can race a signed watchdog's final short-lived descendants.
     // Persist any safely reconciled identities before the suite advances, so a
@@ -611,15 +609,20 @@ try {
       throw new Error("regression child process group survived bounded cleanup; lock ownership was preserved");
     }
     childProcessGroupClosed = true;
-    if (closeChildDetachedSpawnLedger(completedChild)) {
-      await suiteLock.update({ childProcessLedger: completedChild.childProcessLedger });
-    }
     let dockerLeaseCleanupError = "";
     try {
       closeChildDockerLeaseWatchdog(completedChild);
     } catch (error) {
       dockerLeaseClosureComplete = false;
       dockerLeaseCleanupError = error instanceof Error ? error.message : String(error);
+    }
+    // Keep the signed detached-spawn ledger until the Docker watchdog has
+    // produced its closure proof.  It is also the only durable identity
+    // evidence a stale-lock recovery can use if that watchdog fails or the
+    // parent is interrupted at this boundary.
+    if (completedChild?.dockerLeaseClosureVerified === true
+      && closeChildDetachedSpawnLedger(completedChild)) {
+      await suiteLock.update({ childProcessLedger: completedChild.childProcessLedger });
     }
     try {
       await closeAndRecoverRegressionFixtureLedger(preflight.apiBase, {
@@ -759,9 +762,6 @@ try {
         && finalClassification.drifted.length === 0
         && finalClassification.unproven.length === 0
         && !processGroupIsAlive(activeChild);
-      if (childProcessGroupClosed && closeChildDetachedSpawnLedger(activeChild) && suiteLock) {
-        await suiteLock.update({ childProcessLedger: activeChild.childProcessLedger });
-      }
       if (childProcessGroupClosed && activeChild.dockerLeaseClosureVerified !== true) {
         try {
           closeChildDockerLeaseWatchdog(activeChild);
@@ -772,6 +772,12 @@ try {
             `regression Docker lease closure evidence is incomplete: ${error instanceof Error ? error.message : String(error)}`
           ].filter(Boolean).join("; ");
         }
+      }
+      if (childProcessGroupClosed
+        && activeChild.dockerLeaseClosureVerified === true
+        && closeChildDetachedSpawnLedger(activeChild)
+        && suiteLock) {
+        await suiteLock.update({ childProcessLedger: activeChild.childProcessLedger });
       }
     } catch (error) {
       processOwnershipComplete = false;
@@ -2073,6 +2079,32 @@ async function stopStaleChildGroup(staleOwner) {
   handle.childProcessGuardToken = recordedGuardToken;
   handle.childDetachedSpawnLedger = staleOwner.childDetachedSpawnLedger;
   handle.childProcessLedger = staleOwner.childProcessLedger;
+  // A historical runner version could unlink this ledger immediately after the
+  // bootstrap exited, before the Docker watchdog ACK was verified.  That left
+  // a docker-closure-incomplete lock with no live child and no retained
+  // capability.  Accept that *only* as an already-closed legacy terminal:
+  // the state is exact, every persisted identity is absent, and the private
+  // directory has no substitute evidence to discard.  Current runners retain
+  // the ledger until watchdog closure, so every non-terminal recovery remains
+  // fail-closed on its signed ledger.
+  const detachedLedgerPath = path.join(handle.secretDir, String(handle.childDetachedSpawnLedger?.file || ""));
+  const detachedLedgerMetadata = await lstat(detachedLedgerPath).catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!detachedLedgerMetadata) {
+    const classification = persistedChildProcessClassification(handle);
+    const privateEntries = await readdir(handle.secretDir);
+    if (staleState === "docker-closure-incomplete"
+      && classification.matching.length === 0
+      && classification.drifted.length === 0
+      && classification.unproven.length === 0
+      && !processGroupIsAlive(handle)
+      && privateEntries.length === 0) {
+      return;
+    }
+    throw new Error("stale regression detached spawn ledger is missing before exact terminal closure");
+  }
   refreshChildProcessLedger(handle);
   const preCleanedDockerIntentIds = new Set();
   try {
@@ -2947,7 +2979,23 @@ function assertStaleRegressionExecutionBaseline(lockDir, staleOwner) {
     rootDir,
     expectedRunId: staleOwner.runId
   });
-  assertRegressionExecutionBaselineSync({ rootDir, baseline });
+  try {
+    assertRegressionExecutionBaselineSync({ rootDir, baseline });
+  } catch (error) {
+    // Recovery never accepts a stale run as a result.  If a dead runner's
+    // checkout was subsequently repaired in a clean commit, the old HEAD can
+    // no longer match even though cleanup must still release its durable
+    // fixture and artifact state.  Preserve the old baseline's source-tree
+    // anti-injection check and require the current tree itself to be clean;
+    // any uncommitted source drift or new executable source retains the lock.
+    assertRegressionExecutionSourcesTrackedSync({ rootDir, baseline });
+    const status = execFileSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      cwd: rootDir,
+      encoding: "buffer",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    if (Buffer.byteLength(status) !== 0) throw error;
+  }
 }
 
 async function closeStaleSuiteRequestFence(staleOwner, recoveryCapability) {

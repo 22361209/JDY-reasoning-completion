@@ -292,6 +292,15 @@ try {
     /function assertStaleRegressionExecutionBaseline[\s\S]{0,900}?readPersistedRegressionExecutionBaselineSync[\s\S]{0,500}?assertRegressionExecutionBaselineSync/,
     "stale recovery must retain the canonical lock unless its durable baseline still matches the current tree");
   assert.match(runnerSource,
+    /docker-closure-incomplete[\s\S]{0,1400}?privateEntries\.length === 0[\s\S]{0,300}?stale regression detached spawn ledger is missing before exact terminal closure/,
+    "only an empty legacy Docker-closure terminal may lack its detached ownership ledger");
+  assert.match(runnerSource,
+    /closeChildDockerLeaseWatchdog\(completedChild\)[\s\S]{0,1000}?dockerLeaseClosureVerified === true[\s\S]{0,300}?closeChildDetachedSpawnLedger\(completedChild\)/,
+    "the normal child path must retain detached ownership through Docker watchdog closure");
+  assert.match(runnerSource,
+    /assertRegressionExecutionSourcesTrackedSync[\s\S]{0,700}?git", \["status", "--porcelain=v1", "-z", "--untracked-files=all"\]/,
+    "a committed stale-baseline drift may recover only after source tracking and clean-tree checks");
+  assert.match(runnerSource,
     /cleanup\.closed && fixtureLedgerClosed && executionIntegrityComplete/,
     "preflight failure may release its lock only while tracked execution integrity remains complete");
   assert.match(runnerSource,
