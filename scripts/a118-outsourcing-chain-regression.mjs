@@ -368,16 +368,25 @@ function cleanupRedisSession() {
   return { before, after };
 }
 
-async function http(pathname, options = {}, cookie = artifacts.session.cookie) {
+async function http(pathname, options = {}, cookie = artifacts.session.cookie, { retryTransientTransport = false } = {}) {
   const method = options.method ?? "GET";
   const headers = new Headers(options.headers ?? {});
   if (cookie) headers.set("Cookie", cookie);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await nativeFetch(`${apiBase}${pathname}`, {
-    method,
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)
-  });
+  let response;
+  for (let attempt = 0; attempt < (retryTransientTransport ? 2 : 1); attempt += 1) {
+    try {
+      response = await nativeFetch(`${apiBase}${pathname}`, {
+        method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      });
+      break;
+    } catch (error) {
+      if (!(retryTransientTransport && attempt === 0 && error instanceof TypeError)) throw error;
+    }
+  }
+  assert(response, `A118 ${method} ${pathname} did not produce a response after retry`);
   const text = await response.text();
   let data = null;
   try {
@@ -1724,12 +1733,26 @@ async function closeRunSession() {
       "A118 refuses to claim a response-loss Redis session; unknown session residue is preserved", redis);
     return;
   }
-  const logout = await http("/api/system/logout", { method: "POST" }, artifacts.session.cookie);
+  // Logout is idempotent: once the first request has invalidated the session, a
+  // duplicate call is a no-op that still returns { ok: true }. Limit the retry to
+  // this cleanup action and its following read; business writes must never be
+  // retried after an ambiguous transport loss.
+  const logout = await http(
+    "/api/system/logout",
+    { method: "POST" },
+    artifacts.session.cookie,
+    { retryTransientTransport: true }
+  );
   artifacts.session.logoutStatus = logout.status;
   result.cleanup.logout = { skipped: false, status: logout.status, body: logout.data };
   const redis = cleanupRedisSession();
   result.cleanup.redis = redis;
-  const sessionAfter = await http("/api/system/session", {}, artifacts.session.cookie);
+  const sessionAfter = await http(
+    "/api/system/session",
+    {},
+    artifacts.session.cookie,
+    { retryTransientTransport: true }
+  );
   artifacts.session.postLogoutAuthenticated = sessionAfter.data?.authenticated === true;
   result.cleanup.logout.postLogoutStatus = sessionAfter.status;
   result.cleanup.logout.postLogoutAuthenticated = artifacts.session.postLogoutAuthenticated;
