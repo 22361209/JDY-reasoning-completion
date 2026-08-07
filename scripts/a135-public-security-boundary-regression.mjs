@@ -481,11 +481,19 @@ function canonicalJson(value) {
 }
 
 async function postPasswordReset(baseUrl, username, contactNote, forwardedFor = "") {
-  const response = await postPublicPasswordResetRequest(baseUrl, {
-    username,
-    contactNote,
-    forwardedFor
-  });
+  let response;
+  try {
+    response = await postPublicPasswordResetRequest(baseUrl, {
+      username,
+      contactNote,
+      forwardedFor
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.cause instanceof Error
+      ? `${error.name}: ${error.message}; cause=${error.cause.name}: ${error.cause.message}`
+      : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    throw new Error(`password-reset transport failed for isolated origin ${baseUrl}: ${reason}`, { cause: error });
+  }
   const text = await response.text();
   let data = null;
   try {
