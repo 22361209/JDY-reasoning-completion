@@ -321,20 +321,33 @@ export async function manageRegressionRequestFence(
   );
   assert(/^[0-9a-f]{32}$/.test(controlCapability),
     "regression request fence control capability is unavailable");
+  // Both operations are idempotent for one fixture generation: OPEN returns the
+  // existing open entry, while CLOSE_AND_DRAIN continues draining the same one.
+  // A locally reset TCP connection can therefore be retried once without ever
+  // broadening ownership or masking an HTTP authorization/state failure.
   let response;
-  try {
-    response = await nativeFetch(`${origin}${regressionRequestFencePath}`, {
-      method: "POST",
-      redirect: "error",
-      headers: {
-        "Content-Type": "application/json",
-        "X-JDY-Regression-Fence-Capability": controlCapability
-      },
-      body: JSON.stringify({ action, userId, username, generation }),
-      signal: AbortSignal.timeout(action === "CLOSE_AND_DRAIN" ? 35_000 : 10_000)
-    });
-  } catch (error) {
-    throw new Error(`regression request fence ${action} is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  let unavailableError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      response = await nativeFetch(`${origin}${regressionRequestFencePath}`, {
+        method: "POST",
+        redirect: "error",
+        headers: {
+          "Content-Type": "application/json",
+          "X-JDY-Regression-Fence-Capability": controlCapability
+        },
+        body: JSON.stringify({ action, userId, username, generation }),
+        signal: AbortSignal.timeout(action === "CLOSE_AND_DRAIN" ? 35_000 : 10_000)
+      });
+      unavailableError = null;
+      break;
+    } catch (error) {
+      unavailableError = error;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  if (unavailableError || !response) {
+    throw new Error(`regression request fence ${action} is unavailable after 2 attempts: ${unavailableError instanceof Error ? unavailableError.message : String(unavailableError)}`);
   }
   const text = await response.text();
   let body;

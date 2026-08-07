@@ -17,6 +17,7 @@ const username = `r_full_${randomBytes(12).toString("hex")}`;
 const password = `R!${randomBytes(18).toString("base64url")}a1`;
 const userId = randomUUID();
 const calls = [];
+let fenceOpenAttempts = 0;
 
 try {
   const fixtureLedger = initializeRegressionFixtureLedger({ secretDir, name: "001", runId });
@@ -49,6 +50,17 @@ try {
         headers: { "Set-Cookie": "SESSION=origin-contract-cookie-0001; Path=/; HttpOnly" }
       });
     }
+    if (new URL(url).pathname === "/api/system/regression-request-fence") {
+      const request = JSON.parse(String(init.body || "{}"));
+      if (request.action === "OPEN") {
+        fenceOpenAttempts += 1;
+        if (fenceOpenAttempts === 1) throw new TypeError("simulated transient local connection reset");
+      }
+      return new Response(JSON.stringify({
+        state: request.action === "OPEN" ? "OPEN" : "CLOSED",
+        activeCount: 0
+      }), { status: 200 });
+    }
     return new Response("{}", { status: 200 });
   };
 
@@ -61,6 +73,16 @@ try {
   const canonicalizedLoginCall = calls.filter((call) => new URL(call.url).pathname === "/api/system/login").at(-1);
   assert.deepEqual(JSON.parse(canonicalizedLoginCall.body), { username, password, accountSetCode: "BLD-TEST" },
     "trimmed case variants of the shared administrator must map to the run-scoped identity");
+
+  const fence = await auth.manageRegressionRequestFence(
+    "http://127.0.0.1:8080",
+    { username, userId, generation: 0 },
+    "OPEN",
+    "f".repeat(32)
+  );
+  assert.deepEqual(fence, { state: "OPEN", activeCount: 0 });
+  assert.equal(fenceOpenAttempts, 2,
+    "a transient request-fence transport failure must retry exactly once for the same generation");
 
   await globalThis.fetch("http://127.0.0.1:8080/api/owned");
   await globalThis.fetch("http://127.0.0.1:8080@attacker.example/collect");
@@ -123,7 +145,8 @@ try {
     exactOriginCookieRouting: true,
     runtimeNonMainLogoutRejected: true,
     canonicalOriginRejected: true,
-    isolatedMainOriginRejected: true
+    isolatedMainOriginRejected: true,
+    requestFenceTransientTransportRetry: true
   }));
 } finally {
   globalThis.fetch = originalFetch;
