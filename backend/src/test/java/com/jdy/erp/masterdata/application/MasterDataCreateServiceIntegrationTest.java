@@ -73,6 +73,7 @@ class MasterDataCreateServiceIntegrationTest {
             .containsEntry("auditStatus", "草稿");
 
         var reference = auditedCategoryAndUnit();
+        maintainAuditedProductName("A143 手工物料");
         assertThat(service.create("product", Map.of(
             "code", productCode,
             "name", "A143 手工物料",
@@ -159,6 +160,7 @@ class MasterDataCreateServiceIntegrationTest {
         var categoryName = String.valueOf(reference.get("category_name"));
         var unitCode = String.valueOf(reference.get("unit_code"));
         var code = "CP-A143-STRICT-" + suffix();
+        maintainAuditedProductName("A143 严格导入物料");
         var basePayload = Map.of(
             "code", code,
             "name", "A143 严格导入物料",
@@ -265,5 +267,15 @@ class MasterDataCreateServiceIntegrationTest {
 
     private String suffix() {
         return Long.toUnsignedString(System.nanoTime(), 36).toUpperCase();
+    }
+
+    private void maintainAuditedProductName(String name) {
+        jdbcTemplate.update("""
+            INSERT INTO md_product_name (code, name, enabled, audit_status)
+            VALUES (?, ?, TRUE, 'AUDITED')
+            ON CONFLICT (name) DO UPDATE
+            SET enabled = TRUE,
+                audit_status = 'AUDITED'
+            """, "PN-A143-" + suffix(), name);
     }
 }

@@ -60,6 +60,7 @@ class MasterDataPatchServiceIntegrationTest {
     void sparsePatchPreservesEveryUndeclaredColumnForAllFourTypes() {
         var suffix = suffix();
         var productCode = "CP-A138-" + suffix;
+        maintainAuditedProductName("A138 物料");
         controller.create("product", Map.ofEntries(
             Map.entry("code", productCode),
             Map.entry("name", "A138 物料"),
@@ -160,6 +161,7 @@ class MasterDataPatchServiceIntegrationTest {
         )).isNull();
 
         var productCode = "CP-A138-Z-" + suffix;
+        maintainAuditedProductName("A138 零值物料");
         controller.create("product", Map.ofEntries(
             Map.entry("code", productCode),
             Map.entry("name", "A138 零值物料"),
@@ -257,6 +259,7 @@ class MasterDataPatchServiceIntegrationTest {
         ));
 
         var productCode = "CP-A138-TYPE-" + suffix();
+        maintainAuditedProductName("A138 类型物料");
         controller.create("product", Map.of(
             "code", productCode,
             "name", "A138 类型物料",
@@ -279,6 +282,7 @@ class MasterDataPatchServiceIntegrationTest {
     void allFourTypesRejectUnknownRequiredAndLifecycleFieldsWithoutVersionChange() {
         var suffix = suffix();
         var productCode = "CP-A138-NEG-" + suffix;
+        maintainAuditedProductName("A138 负向物料");
         controller.create("product", Map.of(
             "code", productCode,
             "name", "A138 负向物料",
@@ -344,6 +348,7 @@ class MasterDataPatchServiceIntegrationTest {
     @Test
     void productReferencesUpdateInPairsAndInvalidReferenceRollsBackWholePatch() {
         var code = "CP-A138-REF-" + suffix();
+        maintainAuditedProductName("A138 引用物料");
         controller.create("product", Map.ofEntries(
             Map.entry("code", code),
             Map.entry("name", "A138 引用物料"),
@@ -528,6 +533,16 @@ class MasterDataPatchServiceIntegrationTest {
 
     private String suffix() {
         return Long.toUnsignedString(System.nanoTime(), 36).toUpperCase();
+    }
+
+    private void maintainAuditedProductName(String name) {
+        jdbcTemplate.update("""
+            INSERT INTO md_product_name (code, name, enabled, audit_status)
+            VALUES (?, ?, TRUE, 'AUDITED')
+            ON CONFLICT (name) DO UPDATE
+            SET enabled = TRUE,
+                audit_status = 'AUDITED'
+            """, "PN-A138-" + suffix(), name);
     }
 
     private void useTenant(String accountSetCode) {
