@@ -79,7 +79,7 @@ public class MasterDataController {
         if (SPARSE_PATCH_TYPES.contains(type)) {
             throw new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "该主数据类型只允许使用带 version 的 PATCH 更新");
         }
-        if (!Set.of("productCategory", "unit", "productionDepartment").contains(type)) {
+        if (!Set.of("productName", "productCategory", "unit", "productionDepartment").contains(type)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unsupported master data type");
         }
         var payload = legacyPayload(requestBody);
@@ -89,6 +89,7 @@ public class MasterDataController {
         }
         var enabled = !"禁用".equals(payload.getOrDefault("status", "启用"));
         return switch (type) {
+            case "productName" -> updateProductName(code, name, payload, enabled);
             case "productCategory" -> updateProductCategory(code, name, payload, enabled);
             case "unit" -> updateUnit(code, name, payload, enabled);
             case "productionDepartment" -> updateProductionDepartment(code, name, payload, enabled);
@@ -173,6 +174,15 @@ public class MasterDataController {
             enabled,
             code
         );
+    }
+
+    private Map<String, Object> updateProductName(String code, String name, Map<String, String> payload, boolean enabled) {
+        return updateAndReturn("""
+            UPDATE md_product_name
+            SET name = ?, remark = ?, enabled = ?, audit_status = 'DRAFT', updated_at = now(), version = version + 1
+            WHERE code = ?
+            RETURNING id::text AS id, code, name
+            """, name, optional(payload, "remark"), enabled, code);
     }
 
     private Map<String, Object> updateUnit(String code, String name, Map<String, String> payload, boolean enabled) {
@@ -394,6 +404,7 @@ public class MasterDataController {
             case "customer" -> "md_customer";
             case "supplier" -> "md_supplier";
             case "warehouse" -> "md_warehouse";
+            case "productName" -> "md_product_name";
             case "productCategory" -> "md_product_category";
             case "unit" -> "md_unit";
             case "productionDepartment" -> "md_production_department";

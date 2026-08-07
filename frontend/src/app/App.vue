@@ -404,6 +404,7 @@
           @delete-record="deleteActiveMasterRecord"
           @edit-record="editActiveMasterRecord"
           @update-field="updateActiveMasterField"
+          @create-lookup="openMasterLookupMaintenance"
         />
         <SalesOrderForm
           v-else-if="isSalesOrderForm"
@@ -3015,9 +3016,22 @@ function updateActiveMasterField(name: string, value: string) {
     return;
   }
   record.form[name] = value;
+  if (record.type === "productName" && name === "name") {
+    record.form.code = value.trim();
+  }
   clearInactiveMasterFields(record);
   record.error = "";
   markActiveDirty();
+}
+
+function openMasterLookupMaintenance(listKey: string, _fieldName: string, value: string) {
+  if (listKey !== "product-name-list" || !canMaintainMasterList(listKey)) {
+    return;
+  }
+  openMasterRecord({ listKey, row: { code: value, name: value } }, {
+    mode: "create",
+    tabId: `${listKey}:create:${Date.now()}`
+  });
 }
 
 function masterFieldConditionMatches(

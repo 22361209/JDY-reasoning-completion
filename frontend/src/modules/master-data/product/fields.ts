@@ -22,7 +22,7 @@ export const unitSuggestions = ["PCS", "只", "件", "套", "个", "条", "箱",
 export const productMasterFields: MasterDataField[] = [
   { name: "systemNo", label: "系统编号", placeholder: "保存后自动生成", section: "基本信息", readonly: true, defaultValue: "保存后生成" },
   { name: "code", label: "物料编码", placeholder: "如 QD8029-1", section: "基本信息", required: true, readonlyWhenEditing: true },
-  { name: "name", label: "物料名称", placeholder: "输入关键字选择名称", section: "基本信息", required: true, suggestions: ["控制臂总成", "悬挂球头", "前下摆臂", "后桥支架", "衬套", "冲压件", "焊接总成", "球销"], strictSuggestions: true },
+  { name: "name", label: "物料名称", placeholder: "输入关键字选择名称", section: "基本信息", required: true, lookup: { listKey: "product-name-list", valueField: "name", displayFields: ["name"], strict: true, createListKey: "product-name-list" } },
   { name: "category", label: "物料类别", placeholder: "输入类别编码或名称", section: "基本信息", required: true, suggestions: productCategorySuggestions, lookup: { listKey: "product-category-list", valueField: "name", displayFields: ["code", "name"], searchFields: ["parentCode"] } },
   { name: "spec", label: "规格型号", placeholder: "规格/位置/颜色/处理方式", section: "基本信息" },
   { name: "unit", label: "计量单位", placeholder: "输入单位名称", section: "基本信息", required: true, defaultValue: "PCS", suggestions: unitSuggestions, lookup: { listKey: "unit-master-list", valueField: "code", displayFields: ["code", "decimalPlaces"], searchFields: ["name"] } },

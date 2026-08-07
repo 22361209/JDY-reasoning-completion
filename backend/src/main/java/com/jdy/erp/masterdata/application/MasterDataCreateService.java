@@ -21,6 +21,7 @@ public class MasterDataCreateService {
         "customer",
         "supplier",
         "warehouse",
+        "productName",
         "productCategory",
         "unit",
         "productionDepartment",
@@ -89,6 +90,7 @@ public class MasterDataCreateService {
             case "customer" -> customerValues(effectivePayload);
             case "supplier" -> supplierValues(effectivePayload);
             case "warehouse" -> warehouseValues(effectivePayload);
+            case "productName" -> Map.<String, Object>of();
             case "productCategory" -> productCategoryValues(effectivePayload);
             case "unit" -> unitValues(effectivePayload);
             case "productionDepartment" -> productionDepartmentValues(effectivePayload);
@@ -103,6 +105,9 @@ public class MasterDataCreateService {
         } else if ("financialAccount".equals(type)) {
             code = String.valueOf(values.get("code"));
             name = String.valueOf(values.get("name"));
+        }
+        if ("product".equals(type)) {
+            requireAuditedProductName(name, lockReferences);
         }
         assertCreateUnique(type, code, name);
         var normalizedPayload = immutablePayload(effectivePayload);
@@ -275,6 +280,7 @@ public class MasterDataCreateService {
             case "customer" -> insertCustomer(validated, prepared.values());
             case "supplier" -> insertSupplier(validated);
             case "warehouse" -> insertWarehouse(validated, prepared.values());
+            case "productName" -> insertProductName(validated);
             case "productCategory" -> insertProductCategory(validated, prepared.values());
             case "unit" -> insertUnit(validated, prepared.values());
             case "productionDepartment" -> insertProductionDepartment(validated);
@@ -353,6 +359,20 @@ public class MasterDataCreateService {
             optional(payload, "drawingFileData"),
             optional(payload, "imageFileNames"),
             optional(payload, "imageFileData"),
+            validated.enabled()
+        );
+    }
+
+    private Map<String, Object> insertProductName(ValidatedCreate validated) {
+        var payload = validated.normalizedPayload();
+        return jdbcTemplate.queryForMap("""
+            INSERT INTO md_product_name (code, name, remark, enabled)
+            VALUES (?, ?, ?, ?)
+            RETURNING id::text AS id, code, name
+            """,
+            validated.code(),
+            validated.name(),
+            optional(payload, "remark"),
             validated.enabled()
         );
     }
@@ -639,9 +659,24 @@ public class MasterDataCreateService {
 
     private boolean isSupportedReferenceTable(String table) {
         return switch (table) {
-            case "md_product_category", "md_unit", "md_warehouse", "md_supplier", "md_production_department" -> true;
+            case "md_product_category", "md_product_name", "md_unit", "md_warehouse", "md_supplier", "md_production_department" -> true;
             default -> false;
         };
+    }
+
+    private void requireAuditedProductName(String name, boolean lockReferences) {
+        var lockClause = lockReferences ? " FOR SHARE" : "";
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id
+            FROM md_product_name
+            WHERE name = ?
+              AND enabled = TRUE
+              AND audit_status = 'AUDITED'
+            %s
+            """.formatted(lockClause), name);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "物料名称不存在、未审核或已禁用");
+        }
     }
 
     private String tableName(String type) {
@@ -650,6 +685,7 @@ public class MasterDataCreateService {
             case "customer" -> "md_customer";
             case "supplier" -> "md_supplier";
             case "warehouse" -> "md_warehouse";
+            case "productName" -> "md_product_name";
             case "productCategory" -> "md_product_category";
             case "unit" -> "md_unit";
             case "productionDepartment" -> "md_production_department";

@@ -15,9 +15,9 @@
       <span class="master-lookup-control">
         <input
           :value="value"
-          :placeholder="field.placeholder"
+          :placeholder="lookupLoading ? '正在加载可选资料…' : field.placeholder"
           :readonly="field.readonly"
-          :disabled="disabled"
+          :disabled="controlDisabled"
           :data-testid="field.testId"
           autocomplete="off"
           @focus="emit('lookupOpen', field)"
@@ -36,7 +36,6 @@
           @mousedown.prevent
           @click="emit('lookupButtonClick', field)"
         >{{ lookupButtonLabel }}</button>
-        <span v-if="lookupLoading" class="master-lookup-loading">加载中</span>
         <span v-if="lookupOpen" :class="lookupMenuClasses">
           <button
             v-for="(option, optionIndex) in lookupOptions"
@@ -178,7 +177,7 @@ const usesSuggestionList = computed(() => {
 
 const suggestionListId = computed(() => `${props.idPrefix}-${props.field.name}-options`);
 
-const controlDisabled = computed(() => props.disabled || Boolean(props.field.readonly));
+const controlDisabled = computed(() => props.disabled || props.lookupLoading || Boolean(props.field.readonly));
 
 const labelClasses = computed(() => ({
   "field-wide": props.variant === "master" && props.field.span === 2,

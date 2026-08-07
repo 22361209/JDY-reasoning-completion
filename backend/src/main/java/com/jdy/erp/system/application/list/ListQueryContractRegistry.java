@@ -45,6 +45,7 @@ public class ListQueryContractRegistry {
 
     private static final Set<String> GENERIC_LIST_KEYS = Set.of(
         "product-category-list",
+        "product-name-list",
         "production-department-list",
         "purchase-requisition-list",
         "purchase-plan-list",

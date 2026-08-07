@@ -69,6 +69,7 @@ const props = defineProps<{
   title: string;
   label: string;
   keyword: string;
+  productSelection?: "all" | "produce";
 }>();
 
 const emit = defineEmits<{
@@ -189,6 +190,11 @@ async function loadRows() {
   if (props.type === "product" && selectedCategory.value) {
     filters.category = { operator: "等于", value: selectedCategory.value };
   }
+  if (props.type === "product" && props.productSelection === "produce") {
+    filters.isProduce = { operator: "等于", value: "是" };
+    filters.status = { operator: "等于", value: "启用" };
+    filters.auditStatus = { operator: "等于", value: "已审核" };
+  }
   const result = await fetchListRows(listKey.value, {
     keyword: draftKeyword.value,
     status: "",
@@ -206,7 +212,10 @@ async function loadRows() {
     message.value = result.message || "主数据列表加载失败。";
     return;
   }
-  rows.value = result.data.rows.map(masterRowToOption);
+  const eligibleRows = props.type === "product" && props.productSelection === "produce"
+    ? result.data.rows.filter((row) => row.status === "启用" && row.auditStatus === "已审核" && row.isProduce === "是")
+    : result.data.rows;
+  rows.value = eligibleRows.map(masterRowToOption);
   total.value = result.data.total;
 }
 

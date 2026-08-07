@@ -52,7 +52,7 @@ public class ProductionTaskAppService {
     @Transactional
     public Map<String, Object> saveBom(BomRequest request) {
         var productCode = validationService.required(request.productCode(), "母件编码");
-        var product = lookupAuditedMaterial(productCode, "母件");
+        var product = lookupAuditedMaterial(productCode, "母件", true);
         var productId = String.valueOf(product.get("id"));
         var requestedCode = validationService.required(request.code(), "BOM 编码");
         var bomQty = positive(request.qty(), "母件数量");
@@ -109,7 +109,7 @@ public class ProductionTaskAppService {
         jdbcTemplate.update("DELETE FROM prod_bom_line WHERE bom_id = ?::uuid", bomId);
         var lineNo = 1;
         for (var line : request.lines()) {
-            var material = lookupAuditedMaterial(line.materialCode(), "子件物料");
+            var material = lookupAuditedMaterial(line.materialCode(), "子件物料", false);
             var materialId = String.valueOf(material.get("id"));
             var productQty = positive(line.productQty() == null ? bomQty : line.productQty(), "产品产量");
             var materialQty = line.materialQty() == null
@@ -487,7 +487,7 @@ public class ProductionTaskAppService {
         return text == null ? "" : text;
     }
 
-    private Map<String, Object> lookupAuditedMaterial(String code, String label) {
+    private Map<String, Object> lookupAuditedMaterial(String code, String label, boolean requireProduce) {
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    code,
@@ -500,9 +500,10 @@ public class ProductionTaskAppService {
             WHERE code = ?
               AND enabled = TRUE
               AND audit_status = 'AUDITED'
-            """, validationService.required(code, label));
+              AND (? = FALSE OR is_produce = TRUE)
+            """, validationService.required(code, label), requireProduce);
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未启用或未审核");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + (requireProduce ? "不存在、未启用、未审核或不可自制" : "不存在、未启用或未审核"));
         }
         return rows.get(0);
     }

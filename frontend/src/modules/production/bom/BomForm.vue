@@ -72,7 +72,10 @@
         <div class="form-head-fields bom-product-fields">
           <label class="required">
             <span>母件物料编码</span>
-            <input v-model.trim="form.productCode" data-testid="bom-product-code" placeholder="录入已审核母件物料" :readonly="isAudited" @input="markDirty" />
+            <span class="bom-parent-selector">
+              <input :value="form.productCode" data-testid="bom-product-code" placeholder="请选择已审核可自制物料" readonly />
+              <button type="button" data-testid="bom-product-selector" :disabled="isAudited" @click="openParentMaterialSelector">选择</button>
+            </span>
           </label>
           <label>
             <span>母件名称</span>
@@ -122,6 +125,17 @@
     :keyword="materialSelectorKeyword"
     @close="closeMaterialSelector"
     @select="selectMaterialSelectorRow"
+  />
+
+  <MasterSelectorDialog
+    :open="parentMaterialSelectorOpen"
+    type="product"
+    product-selection="produce"
+    title="选择可自制母件物料"
+    label="母件物料"
+    :keyword="form.productCode"
+    @close="closeParentMaterialSelector"
+    @select="selectParentMaterialRow"
   />
 
   <div v-if="pendingCopiedAuditConfirm" class="modal-mask" data-testid="bom-copy-audit-confirm-dialog">
@@ -178,6 +192,7 @@ const pendingAuditBlockMessage = ref("");
 const materialSelectorDialogOpen = ref(false);
 const materialSelectorLineIndex = ref<number | null>(null);
 const materialSelectorKeyword = ref("");
+const parentMaterialSelectorOpen = ref(false);
 const form = reactive({
   code: "",
   bomCategory: "",
@@ -240,6 +255,7 @@ function startNew() {
   pendingAuditBlocked.value = false;
   pendingAuditBlockMessage.value = "";
   closeMaterialSelector();
+  closeParentMaterialSelector();
   form.code = "";
   form.bomCategory = "";
   form.productCode = "";
@@ -267,6 +283,7 @@ async function loadBom(code: string) {
   pendingAuditBlocked.value = false;
   pendingAuditBlockMessage.value = "";
   closeMaterialSelector();
+  closeParentMaterialSelector();
   const result = await fetchBomDetail(code);
   if (!result.ok || !result.data) {
     hasError.value = true;
@@ -287,6 +304,7 @@ async function copyFromBom(code: string) {
   pendingAuditBlocked.value = false;
   pendingAuditBlockMessage.value = "";
   closeMaterialSelector();
+  closeParentMaterialSelector();
   const result = await fetchBomDetail(code);
   if (!result.ok || !result.data) {
     hasError.value = true;
@@ -539,6 +557,27 @@ function openMaterialSelector(index: number, keyword: string) {
   materialSelectorDialogOpen.value = true;
 }
 
+function openParentMaterialSelector() {
+  if (isAudited.value) {
+    return;
+  }
+  parentMaterialSelectorOpen.value = true;
+}
+
+function closeParentMaterialSelector() {
+  parentMaterialSelectorOpen.value = false;
+}
+
+function selectParentMaterialRow(option: MasterOption) {
+  form.productCode = text(option.code);
+  form.productName = text(option.name);
+  form.spec = text(option.spec);
+  form.unit = text(option.unit);
+  form.warehouseCode = text(option.defaultWarehouseCode);
+  closeParentMaterialSelector();
+  markDirty();
+}
+
 function closeMaterialSelector() {
   materialSelectorDialogOpen.value = false;
   materialSelectorLineIndex.value = null;
@@ -620,6 +659,21 @@ defineExpose({ startNew, loadBom, copyFromBom });
   gap: 4px;
   color: #5d7188;
   font-size: 12px;
+}
+
+.bom-parent-selector {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+
+.bom-parent-selector input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.bom-parent-selector button {
+  flex: 0 0 auto;
 }
 
 .bom-fields label.required span::before,
