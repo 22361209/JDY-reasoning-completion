@@ -327,7 +327,6 @@ for run_dir in "$root"/*; do
       state_file="$lease_dir/state"
       cancel_file="$lease_dir/cancel"
       assert_private_file "$state_file" || exit 99
-      assert_private_file "$cancel_file" || exit 100
       for receipt_entry in "$lease_dir"/*; do
         [ -e "$receipt_entry" ] || continue
         receipt_name=$(/usr/bin/basename "$receipt_entry")
@@ -337,9 +336,22 @@ for run_dir in "$root"/*; do
         esac
       done
       IFS='|' read -r receipt_state _ _ _ receipt_lease < "$state_file" || exit 102
-      [ "$receipt_state" = "CLOSED" ] && [ "$receipt_lease" = "$lease_name" ] || exit 103
+      [ "$receipt_lease" = "$lease_name" ] || exit 103
       lease_process_exists "$lease_name" && exit 104
-      /usr/bin/rm -f "$state_file" "$cancel_file"
+      case "$receipt_state" in
+        CLOSED)
+          assert_private_file "$cancel_file" || exit 100
+          /usr/bin/rm -f "$state_file" "$cancel_file"
+          ;;
+        DONE)
+          # A successfully completed wrapper has no cancel tombstone. It is
+          # safe to scavenge only after the exact lease process is gone; any
+          # cancellation or nonterminal receipt remains fail-closed.
+          [ ! -e "$cancel_file" ] || exit 100
+          /usr/bin/rm -f "$state_file"
+          ;;
+        *) exit 103 ;;
+      esac
       /usr/bin/rmdir "$lease_dir"
     done
     /usr/bin/rmdir "$token_dir" 2>/dev/null || [ -n "$(/usr/bin/ls -A "$token_dir")" ] || exit 105
