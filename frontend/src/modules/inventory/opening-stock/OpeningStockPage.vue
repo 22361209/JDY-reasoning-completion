@@ -81,6 +81,8 @@ import { fetchOpeningStockRows, saveOpeningStockRows, type OpeningStockRow } fro
 
 const rows = ref<OpeningStockRow[]>([]);
 const message = ref("");
+const unsavedRowKeys = new WeakMap<object, string>();
+let unsavedRowSequence = 0;
 const openingStockNumberColumns = new Set(["qty", "unitCost", "amount"]);
 const openingStockColumns = ref<TableCoreColumn[]>([
   { key: "productCode", title: "物料编码", width: 150, minWidth: 96, filterable: false },
@@ -135,7 +137,16 @@ function resizeOpeningStockColumn(payload: { column: TableCoreColumn; width: num
 }
 
 function openingStockRowKey(row: OpeningStockRow, index: number) {
-  return row.id || `${row.productCode}-${row.warehouseCode}-${index}`;
+  if (row.id) {
+    return row.id;
+  }
+  const existingKey = unsavedRowKeys.get(row);
+  if (existingKey) {
+    return existingKey;
+  }
+  const key = `new-opening-stock-${++unsavedRowSequence}-${index}`;
+  unsavedRowKeys.set(row, key);
+  return key;
 }
 
 function openingStockCellTitle(row: OpeningStockRow, column: TableCoreColumn) {

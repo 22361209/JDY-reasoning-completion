@@ -106,6 +106,7 @@
                   <strong>{{ option.code }}</strong>
                   <span>{{ option.name }}</span>
                 </button>
+                <span v-if="parentMaterialLookupLoading" class="master-selector__loading">正在查询可自制母件…</span>
                 <em v-if="filteredParentMaterialOptions.length === 0">没有匹配的可自制母件</em>
               </span>
             </span>
@@ -228,6 +229,10 @@ const materialSelectorKeyword = ref("");
 const parentMaterialSelectorOpen = ref(false);
 const parentMaterialLookupOpen = ref(false);
 const parentMaterialLookupCursor = ref(0);
+const parentMaterialLookupOptions = ref<BomMaterialOption[]>([]);
+const parentMaterialLookupLoading = ref(false);
+let parentMaterialLookupRequestSeq = 0;
+let parentMaterialLookupTimer: number | undefined;
 const form = reactive({
   code: "",
   bomCategory: "",
@@ -248,9 +253,8 @@ const form = reactive({
 const isAudited = computed(() => form.auditStatus === "AUDITED");
 const parentMaterialOptions = computed(() => materialOptions.value.filter((option) => option.isProduce));
 const filteredParentMaterialOptions = computed(() => {
-  const keyword = normalizeLookupText(form.productCode);
-  const options = keyword
-    ? parentMaterialOptions.value.filter((option) => option.searchText.includes(keyword))
+  const options = form.productCode.trim()
+    ? parentMaterialLookupOptions.value
     : parentMaterialOptions.value;
   return options.slice(0, 24);
 });
@@ -299,6 +303,7 @@ function startNew() {
   pendingAuditBlockMessage.value = "";
   closeMaterialSelector();
   closeParentMaterialSelector();
+  resetParentMaterialLookup();
   form.code = "";
   form.bomCategory = "";
   form.productCode = "";
@@ -327,6 +332,7 @@ async function loadBom(code: string) {
   pendingAuditBlockMessage.value = "";
   closeMaterialSelector();
   closeParentMaterialSelector();
+  resetParentMaterialLookup();
   const result = await fetchBomDetail(code);
   if (!result.ok || !result.data) {
     hasError.value = true;
@@ -348,6 +354,7 @@ async function copyFromBom(code: string) {
   pendingAuditBlockMessage.value = "";
   closeMaterialSelector();
   closeParentMaterialSelector();
+  resetParentMaterialLookup();
   const result = await fetchBomDetail(code);
   if (!result.ok || !result.data) {
     hasError.value = true;
@@ -633,21 +640,87 @@ function closeParentMaterialLookupLater() {
   }, 120);
 }
 
-function handleParentMaterialInput() {
+function handleParentMaterialInput(event: Event) {
+  const keyword = (event.target as HTMLInputElement).value.trim();
+  form.productCode = keyword;
   openParentMaterialLookup();
-  const exact = parentMaterialOptions.value.find((option) => {
-    const value = normalizeLookupText(form.productCode);
-    return normalizeLookupText(option.code) === value || normalizeLookupText(option.name) === value;
-  });
-  if (exact) {
-    selectParentMaterialOption(exact);
-    return;
-  }
   form.productName = "";
   form.spec = "";
   form.unit = "";
   form.warehouseCode = "";
   markDirty();
+  scheduleParentMaterialLookup(keyword);
+}
+
+function scheduleParentMaterialLookup(keywordSource: string) {
+  if (parentMaterialLookupTimer != null) {
+    window.clearTimeout(parentMaterialLookupTimer);
+  }
+  const keyword = keywordSource.trim();
+  if (!keyword) {
+    parentMaterialLookupOptions.value = [];
+    parentMaterialLookupLoading.value = false;
+    return;
+  }
+  parentMaterialLookupTimer = window.setTimeout(() => {
+    parentMaterialLookupTimer = undefined;
+    void loadParentMaterialLookupOptions(keyword);
+  }, 180);
+}
+
+function resetParentMaterialLookup() {
+  if (parentMaterialLookupTimer != null) {
+    window.clearTimeout(parentMaterialLookupTimer);
+    parentMaterialLookupTimer = undefined;
+  }
+  parentMaterialLookupRequestSeq += 1;
+  parentMaterialLookupOptions.value = [];
+  parentMaterialLookupLoading.value = false;
+}
+
+async function loadParentMaterialLookupOptions(keywordSource: string) {
+  const keyword = keywordSource.trim();
+  const requestSeq = ++parentMaterialLookupRequestSeq;
+  if (!keyword) {
+    parentMaterialLookupOptions.value = [];
+    parentMaterialLookupLoading.value = false;
+    return;
+  }
+  parentMaterialLookupLoading.value = true;
+  const result = await fetchListRows("product-master-list", {
+    keyword,
+    status: "",
+    page: 1,
+    pageSize: 24,
+    columnFilters: {
+      isProduce: { operator: "等于", value: "是" },
+      status: { operator: "等于", value: "启用" },
+      auditStatus: { operator: "等于", value: "已审核" }
+    }
+  });
+  if (requestSeq !== parentMaterialLookupRequestSeq) {
+    return;
+  }
+  if (keyword !== form.productCode.trim()) {
+    parentMaterialLookupLoading.value = false;
+    return;
+  }
+  parentMaterialLookupLoading.value = false;
+  if (!result.ok || !result.data) {
+    parentMaterialLookupOptions.value = [];
+    return;
+  }
+  parentMaterialLookupOptions.value = result.data.rows
+    .filter((row) => String(row.auditStatus ?? "") === "已审核" && String(row.isProduce ?? "") === "是" && String(row.status ?? "") === "启用")
+    .map(materialOptionFromRow)
+    .filter((option) => option.code);
+  const exact = parentMaterialLookupOptions.value.find((option) => {
+    const value = normalizeLookupText(form.productCode);
+    return normalizeLookupText(option.code) === value || normalizeLookupText(option.name) === value;
+  });
+  if (exact) {
+    selectParentMaterialOption(exact);
+  }
 }
 
 function moveParentMaterialLookup(delta: number) {
@@ -674,7 +747,24 @@ function selectParentMaterialOption(option: Pick<BomMaterialOption, "code" | "na
   form.unit = text(option.unit);
   form.warehouseCode = text(option.defaultWarehouseCode);
   parentMaterialLookupOpen.value = false;
+  resetParentMaterialLookup();
   markDirty();
+}
+
+function materialOptionFromRow(row: Record<string, unknown>): BomMaterialOption {
+  const code = text(row.code);
+  const name = text(row.name);
+  const spec = text(row.spec);
+  const unit = text(row.unit);
+  return {
+    code,
+    name,
+    spec,
+    unit,
+    defaultWarehouseCode: text(row.defaultWarehouseCode),
+    isProduce: String(row.isProduce ?? "") === "是",
+    searchText: normalizeLookupText(`${code} ${name} ${spec} ${unit}`)
+  };
 }
 
 function closeMaterialSelector() {
