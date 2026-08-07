@@ -509,6 +509,23 @@ async function postPasswordReset(baseUrl, username, contactNote, forwardedFor = 
   };
 }
 
+async function postAlreadyRateLimitedPasswordReset(baseUrl, username, contactNote, label) {
+  try {
+    return await postPasswordReset(baseUrl, username, contactNote);
+  } catch (firstError) {
+    // The caller establishes the global limiter at its hard cap before this
+    // request. It is therefore a no-write rejection whether the first socket
+    // reset happened before or after the server observed it; one fresh
+    // connection is safe and distinguishes an idle pooled-connection reset
+    // from a limiter contract failure without retrying accepted submissions.
+    try {
+      return await postPasswordReset(baseUrl, username, contactNote);
+    } catch (retryError) {
+      throw new AggregateError([firstError, retryError], `${label} transport failed before and after the safe capped-request retry`);
+    }
+  }
+}
+
 function assertUniformPasswordResetResponse(response, label) {
   assert(response.status === 200, `${label} should return HTTP 200, got ${response.status}: ${response.text}`);
   assert(response.retryAfter == null, `${label} must not return Retry-After`);
@@ -1101,7 +1118,12 @@ async function runPasswordResetIsolation() {
       verifyResponse(response, `global request ${index + 1}`);
     }
     const globalBeforeLimit = redisSnapshot(mainPrefix);
-    const globalLimitResponse = await postPasswordReset(mainBackend.baseUrl, globalUnknowns[100], `A135 global probe ${token} 101`);
+    const globalLimitResponse = await postAlreadyRateLimitedPasswordReset(
+      mainBackend.baseUrl,
+      globalUnknowns[100],
+      `A135 global probe ${token} 101`,
+      "global request 101"
+    );
     verifyResponse(globalLimitResponse, "global request 101");
     const globalAfterLimit = redisSnapshot(mainPrefix);
     const globalKeys = redisRateKeys(mainPrefix, "127.0.0.1", globalUnknowns[0]);
