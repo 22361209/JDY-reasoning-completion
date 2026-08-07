@@ -318,6 +318,8 @@ class TenantProductionChainIsolationTest {
             "name", supplierName
         ));
         masterDataController.audit("supplier", SUPPLIER_CODE);
+        createAuditedProductName("PN-" + PARENT_CODE, parentName);
+        createAuditedProductName("PN-" + COMPONENT_CODE, componentName);
         masterDataController.create("product", Map.ofEntries(
             Map.entry("code", PARENT_CODE),
             Map.entry("name", parentName),
@@ -340,6 +342,14 @@ class TenantProductionChainIsolationTest {
             Map.entry("isPurchase", "true")
         ));
         masterDataController.audit("product", COMPONENT_CODE);
+    }
+
+    private void createAuditedProductName(String code, String name) {
+        masterDataController.create("productName", Map.of(
+            "code", code,
+            "name", name
+        ));
+        masterDataController.audit("productName", code);
     }
 
     private void saveComponentOpeningStock(BigDecimal qty) {

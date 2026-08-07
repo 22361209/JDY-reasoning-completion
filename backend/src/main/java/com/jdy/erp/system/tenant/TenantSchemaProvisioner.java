@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class TenantSchemaProvisioner {
-    private static final int EXPECTED_MANAGED_TABLE_COUNT = 89;
+    private static final int EXPECTED_MANAGED_TABLE_COUNT = 90;
     private final JdbcTemplate platformJdbcTemplate;
 
     public TenantSchemaProvisioner(@Qualifier("platformJdbcTemplate") JdbcTemplate platformJdbcTemplate) {

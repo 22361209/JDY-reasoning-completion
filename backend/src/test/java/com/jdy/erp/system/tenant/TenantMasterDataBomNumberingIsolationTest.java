@@ -142,6 +142,12 @@ class TenantMasterDataBomNumberingIsolationTest {
     }
 
     private void createAuditedMaterial(String code, String name) {
+        var nameCode = "PN-" + code;
+        masterDataController.create("productName", Map.of(
+            "code", nameCode,
+            "name", name
+        ));
+        masterDataController.audit("productName", nameCode);
         masterDataController.create("product", Map.of(
             "code", code,
             "name", name,
