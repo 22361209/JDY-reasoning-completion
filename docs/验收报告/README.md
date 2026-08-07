@@ -1,6 +1,6 @@
 ---
-reportCount: 181
-reportFileListSha256: 09a5782bbc51ddecfe796a5405a2d74d17cb52eff3267dfde3f44c35c32c0a96
+reportCount: 182
+reportFileListSha256: 7fcc2380c2199c4d3e86a9eb77b77f7d50a22bee1f172333926d727feb120602
 ---
 
 # 验收报告索引
@@ -29,5 +29,6 @@ reportFileListSha256: 09a5782bbc51ddecfe796a5405a2d74d17cb52eff3267dfde3f44c35c3
 - [A173 回归基线与历史夹具治理](验收报告-A173-回归基线与历史夹具治理-20260802.md)：可信 preflight/postflight、共享状态隔离、范围内历史夹具更新及唯一 full 141/143 的精确归因证据。
 - [A174 A173 回归会话与历史门禁复核修复](验收报告-A174-A173回归会话与历史门禁复核修复-20260802.md)：run-unique Redis 会话、低权限不升级、跨 schema 审计清理、固定迁移 checksum 与唯一 full 140/143 后 A146 定向收口证据。
 - [A174-2 Full 回归终局隔离](验收报告-A174-2-Full回归终局隔离-20260807.md)：终局 A43/A118 传输边界收口、有效 full 141/143 与 A175 移交证据。
+- [A175 历史夹具分页、日期与清理治理](验收报告-A175-历史夹具分页日期与清理治理-20260807.md)：A23/A25 稳定候选、A128 动态日期、精确 cleanup 与 full 143/143 证据。
 
 按需要通过文件名中的任务编号与日期查找其他历史报告；不要批量改写报告来修复现行文档问题。
