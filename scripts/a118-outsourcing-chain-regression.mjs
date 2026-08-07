@@ -374,7 +374,8 @@ async function http(pathname, options = {}, cookie = artifacts.session.cookie, {
   if (cookie) headers.set("Cookie", cookie);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
   let lastTransportError = null;
-  for (let attempt = 0; attempt < (retryTransientTransport ? 2 : 1); attempt += 1) {
+  const attempts = retryTransientTransport ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const response = await nativeFetch(`${apiBase}${pathname}`, {
         method,
@@ -396,7 +397,14 @@ async function http(pathname, options = {}, cookie = artifacts.session.cookie, {
       return { ok: response.ok, status: response.status, data, text };
     } catch (error) {
       lastTransportError = error;
-      if (!(retryTransientTransport && attempt === 0 && error instanceof TypeError)) throw error;
+      // This opt-in path is used only by the idempotent logout and the
+      // following unauthenticated session read.  Never apply it to business
+      // writes, whose server-side outcome could be ambiguous after a socket
+      // loss.  Native fetch may surface the same transport failure while
+      // opening the request or consuming its body and does not guarantee a
+      // stable error subclass across Node releases.
+      if (!retryTransientTransport || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
   throw lastTransportError ?? new Error(`A118 ${method} ${pathname} did not produce a response after retry`);

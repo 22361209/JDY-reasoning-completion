@@ -92,7 +92,21 @@ try {
   const focusAfterParty = await activeTestId(page);
   assertEqual("focus after party selector", focusAfterParty, "sales-bill-date");
 
+  // Selecting a product starts an asynchronous unit-price quote.  Await that
+  // exact read before entering the manual test price; otherwise a late quote
+  // can overwrite 19 and turn this keyboard-flow assertion into a zero-value
+  // sales order that the UI correctly refuses to save.
+  const unitPriceQuotePromise = page.waitForResponse((response) => {
+    if (response.request().method() !== "GET") return false;
+    const url = new URL(response.url());
+    // Browser traffic reaches the backend through the Vite proxy, so the
+    // observable response origin is the frontend rather than apiBase.
+    return url.pathname === "/api/sales-prices/unit-price"
+      && url.searchParams.get("customerCode") === "KH-001"
+      && url.searchParams.get("productCode") === product.code;
+  });
   await chooseByKeyboard(page, "sales-line-product", product.code, "Enter");
+  await (await unitPriceQuotePromise).finished();
   const focusAfterProduct = await activeTestId(page);
   assertEqual("focus after product selector", focusAfterProduct, "sales-line-warehouse");
   assertEqual("product code after selector", await page.getByTestId("sales-line-product").inputValue(), product.code);

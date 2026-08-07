@@ -1592,18 +1592,28 @@ async function browserParityChecks() {
   let uiRequest = null;
   let exportRequest = null;
   let renderedUi = null;
+  const listNetwork = { requests: [], responses: [], failures: [] };
   const exportNetwork = { requests: [], responses: [], failures: [] };
   page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list") {
+      listNetwork.requests.push({ method: request.method(), url: request.url() });
+    }
     if (new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv") {
       exportNetwork.requests.push({ method: request.method(), url: request.url() });
     }
   });
   page.on("response", (response) => {
+    if (new URL(response.url()).pathname === "/api/lists/operation-log-list") {
+      listNetwork.responses.push({ status: response.status(), url: response.url() });
+    }
     if (new URL(response.url()).pathname === "/api/lists/operation-log-list/export.csv") {
       exportNetwork.responses.push({ status: response.status(), url: response.url() });
     }
   });
   page.on("requestfailed", (request) => {
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list") {
+      listNetwork.failures.push({ url: request.url(), failure: request.failure()?.errorText || "unknown" });
+    }
     if (new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv") {
       exportNetwork.failures.push({ url: request.url(), failure: request.failure()?.errorText || "unknown" });
     }
@@ -1643,11 +1653,17 @@ async function browserParityChecks() {
     await page.getByTestId("column-filter-input").fill("成功");
     const listResponsePromise = page.waitForResponse(
       (response) => matchesExactOperationLogResponse(response, "/api/lists/operation-log-list", artifacts.documents.red.billNo),
-      { timeout: 10000 }
+      { timeout: 30000 }
     );
     await page.getByTestId("column-filter-ok").click();
+    await page.getByTestId("column-filter-dialog").waitFor({ state: "hidden" });
     await page.getByTestId("list-query").click();
-    const listResponse = await listResponsePromise;
+    let listResponse;
+    try {
+      listResponse = await listResponsePromise;
+    } catch (error) {
+      throw new Error(`A43 UI list did not produce the exact response: ${errorText(error)}; network=${JSON.stringify(listNetwork)}`);
+    }
     assert(listResponse.status() === 200, "A43 exact UI list response must return 200", listResponse.status());
     uiRequest = assertExactOperationLogQuery(listResponse.url(), artifacts.documents.red.billNo, "A43 UI list response");
     uiListBody = await listResponse.json();
