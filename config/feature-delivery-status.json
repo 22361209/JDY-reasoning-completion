@@ -265,6 +265,7 @@
       "surface": "catalog",
       "catalogEntryIds": [
         "product-master-list",
+        "product-name-list",
         "product-category-list"
       ],
       "evidence": [
