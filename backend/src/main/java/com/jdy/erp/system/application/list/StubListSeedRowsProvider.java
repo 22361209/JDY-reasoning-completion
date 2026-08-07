@@ -37,6 +37,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
         }
         var rows = switch (listKey) {
             case "product-master-list" -> realProductRows();
+            case "product-name-list" -> realProductNameRows();
             case "product-category-list" -> realProductCategoryRows();
             case "unit-master-list" -> realUnitRows();
             case "customer-master-list" -> realCustomerRows();
@@ -794,6 +795,21 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM md_product_category
             ORDER BY sort_no, code
+            """));
+    }
+
+    private List<Map<String, ?>> realProductNameRows() {
+        return List.copyOf(jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   code,
+                   name,
+                   COALESCE(remark, '') AS remark,
+                   version,
+                   CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                   CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus",
+                   to_char(updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
+            FROM md_product_name
+            ORDER BY name
             """));
     }
 

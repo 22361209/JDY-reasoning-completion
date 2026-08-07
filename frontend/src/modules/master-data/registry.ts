@@ -1,5 +1,6 @@
 import ProductMasterForm from "./product/ProductMasterForm.vue";
 import { productMasterFields } from "./product/fields";
+import { productNameFields } from "./product-name/fields";
 import { productCategoryFields } from "./product-category/fields";
 import { unitMasterFields } from "./unit/fields";
 import CustomerMasterForm from "./customer/CustomerMasterForm.vue";
@@ -78,6 +79,25 @@ const financialAccountDefinition: Omit<MasterDataDefinition, "listKey"> = {
 };
 
 export const masterDataDefinitions: Record<string, MasterDataDefinition> = {
+  "product-name-list": {
+    listKey: "product-name-list",
+    type: "productName",
+    maintainPermission: MASTER_DATA_MAINTAIN_PERMISSION,
+    title: "物料名称",
+    keywordPlaceholder: "物料名称",
+    statuses: ["启用", "禁用"],
+    listColumns: [
+      { field: "name", title: "物料名称", width: 240, fixed: "left", visible: true },
+      { field: "status", title: "状态", width: 90, visible: true },
+      { field: "auditStatus", title: "审核状态", width: 100, visible: true },
+      { field: "remark", title: "备注", width: 220, visible: true },
+      { field: "updatedAt", title: "最近更新时间", width: 160, visible: true }
+    ],
+    selectorColumns: [
+      { field: "name", title: "物料名称", width: 240, visible: true }
+    ],
+    fields: productNameFields
+  },
   "product-master-list": {
     listKey: "product-master-list",
     type: "product",

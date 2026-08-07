@@ -51,6 +51,17 @@
       <button class="primary-action" type="button" data-testid="master-record-bottom-save" :disabled="!canSave" @click="requestSave">保存</button>
       <button v-if="allowDelete" type="button" data-testid="master-record-bottom-delete" :disabled="!canEditSavedDraft" @click="emit('deleteRecord')">删除</button>
     </footer>
+
+    <div v-if="pendingLookupCreate" class="modal-mask" data-testid="master-record-lookup-create-dialog">
+      <div class="dialog risky-action-dialog">
+        <h3>未找到{{ pendingLookupCreate.label }}</h3>
+        <p>“{{ pendingLookupCreate.value }}”尚未维护。是否现在新建？</p>
+        <div class="dialog-actions">
+          <button type="button" data-testid="master-record-lookup-create-cancel" @click="cancelLookupCreate">否</button>
+          <button class="primary-action" type="button" data-testid="master-record-lookup-create-confirm" @click="confirmLookupCreate">是，新建</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -96,6 +107,7 @@ const emit = defineEmits<{
   deleteRecord: [];
   editRecord: [];
   updateField: [name: string, value: string];
+  createLookup: [listKey: string, fieldName: string, value: string];
 }>();
 
 const lookupOptions = reactive<Record<string, LookupOption[]>>({});
@@ -103,6 +115,7 @@ const lookupLoading = reactive<Record<string, boolean>>({});
 const activeLookupField = ref("");
 const lookupHighlightIndex = ref(0);
 const localError = ref("");
+const pendingLookupCreate = ref<{ listKey: string; fieldName: string; label: string; value: string } | null>(null);
 
 const statusText = computed(() => props.form.status || "启用");
 const auditStatusText = computed(() => props.form.auditStatus === "未审核" ? "草稿" : props.form.auditStatus || "草稿");
@@ -134,7 +147,7 @@ const recordActions = computed<ActionBarItem[]>(() => [
 const fieldSections = computed(() => {
   const groups: { title: string; fields: MasterDataField[] }[] = [];
   props.fields.forEach((field) => {
-    if (field.name === "status" || !isFieldVisible(field)) {
+    if (field.name === "status" || field.hidden || !isFieldVisible(field)) {
       return;
     }
     const title = field.section || "基本信息";
@@ -160,6 +173,7 @@ watch(() => props.recordId, () => {
   activeLookupField.value = "";
   lookupHighlightIndex.value = 0;
   localError.value = "";
+  pendingLookupCreate.value = null;
 });
 
 function sectionClasses(section: { title: string; fields: MasterDataField[] }) {
@@ -401,12 +415,37 @@ function closeLookupLater(field: MasterDataField) {
       emit("updateField", field.name, resolved.value);
       localError.value = "";
     } else if (isStrictLookup(field) && String(props.form[field.name] ?? "").trim()) {
-      localError.value = `${field.label}需要从已维护资料中选择。`;
+      const createListKey = field.lookup?.createListKey;
+      if (createListKey) {
+        pendingLookupCreate.value = {
+          listKey: createListKey,
+          fieldName: field.name,
+          label: field.label,
+          value: String(props.form[field.name] ?? "").trim()
+        };
+      } else {
+        localError.value = `${field.label}需要从已维护资料中选择。`;
+      }
     }
     if (activeLookupField.value === field.name) {
       activeLookupField.value = "";
     }
   }, 120);
+}
+
+function cancelLookupCreate() {
+  const pending = pendingLookupCreate.value;
+  pendingLookupCreate.value = null;
+  localError.value = `${pending?.label ?? "该资料"}需要从已维护资料中选择。`;
+}
+
+function confirmLookupCreate() {
+  const pending = pendingLookupCreate.value;
+  if (!pending) {
+    return;
+  }
+  pendingLookupCreate.value = null;
+  emit("createLookup", pending.listKey, pending.fieldName, pending.value);
 }
 
 function moveLookupHighlight(field: MasterDataField, offset: number) {

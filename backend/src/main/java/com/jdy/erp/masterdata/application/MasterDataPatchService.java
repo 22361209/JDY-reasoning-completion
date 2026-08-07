@@ -183,6 +183,9 @@ public class MasterDataPatchService {
         if ("financialAccount".equals(type)) {
             validateFinancialAccountShape(current, changes, definition);
         }
+        if ("product".equals(type) && changes.containsKey("name")) {
+            requireAuditedProductName(changes.get("name"));
+        }
 
         var assignments = new ArrayList<Assignment>();
         changes.forEach((field, node) -> addAssignment(
@@ -263,6 +266,21 @@ public class MasterDataPatchService {
         }
         if (bankName == null || accountNo == null || accountHolder == null) {
             throw badRequest("BANK/DEPOSIT 账户必须填写开户行、账号和户名");
+        }
+    }
+
+    private void requireAuditedProductName(JsonNode node) {
+        var name = normalizedText(node, DEFINITIONS.get("product").fields().get("name"), true);
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id
+            FROM md_product_name
+            WHERE name = ?
+              AND enabled = TRUE
+              AND audit_status = 'AUDITED'
+            FOR SHARE
+            """, name);
+        if (rows.isEmpty()) {
+            throw badRequest("物料名称不存在、未审核或已禁用");
         }
     }
 

@@ -102,14 +102,13 @@
       <span class="selected-count">已选中 {{ selectedRows.length }} 条</span>
       <span v-if="exportMessage" class="list-export-message" data-testid="list-export-message">{{ exportMessage }}</span>
       <span v-if="batchMessage" class="list-export-message" data-testid="list-batch-message">{{ batchMessage }}</span>
-    </div>
-
-    <div class="list-table-tools">
-      <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
-        {{ isDetailView ? "整单视图" : "明细视图" }}
-      </button>
-      <button type="button" data-testid="column-settings" @click="openColumnSettings">列设置</button>
-      <button v-if="!isOperationLogList" type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
+      <div class="list-toolbar-utilities">
+        <button v-if="supportsDetailView" type="button" class="view-switch-button" data-testid="list-detail-view-toggle" @click="toggleDetailView">
+          {{ isDetailView ? "整单视图" : "明细视图" }}
+        </button>
+        <button type="button" data-testid="column-settings" @click="openColumnSettings">列设置</button>
+        <button v-if="!isOperationLogList" type="button" data-testid="list-refresh-stock" @click="reload">更新库存</button>
+      </div>
     </div>
 
     <div class="data-list-content" :class="{ 'has-product-category-sidebar': isProductMasterList }">
@@ -269,7 +268,8 @@
         </TableCore>
 
         <footer class="list-pagination">
-          <span>共 {{ total }} 条</span>
+          <span v-if="loading" data-testid="list-total-loading">正在加载列表…</span>
+          <span v-else>共 {{ total }} 条</span>
           <select v-model.number="query.pageSize" @change="reload">
             <option :value="200">200条/页</option>
             <option :value="500">500条/页</option>
@@ -479,7 +479,7 @@ const emit = defineEmits<{
 }>();
 
 const tableVersion = ref(0);
-const loading = ref(false);
+const loading = ref(true);
 const listState = ref<"ready" | "empty" | "error" | "forbidden">("ready");
 const stateMessage = ref("");
 let reloadSerial = 0;
@@ -633,6 +633,7 @@ const auditPermissionByListKey: Partial<Record<string, string>> = {
 };
 const maintainPermissionByListKey: Partial<Record<string, string>> = {
   "product-master-list": "master.data.manage",
+  "product-name-list": "master.data.manage",
   "product-category-list": "master.data.manage",
   "unit-master-list": "master.data.manage",
   "customer-master-list": "master.data.manage",
@@ -1852,7 +1853,8 @@ function openDocument(row: Record<string, unknown>) {
 }
 
 function isOpenableMasterCodeColumn(columnKey: string) {
-  return (isMasterList.value || isBomList.value) && columnKey === "code";
+  return (isMasterList.value || isBomList.value)
+    && (columnKey === "code" || (props.listKey === "product-name-list" && columnKey === "name"));
 }
 
 function openMasterRecord(row: Record<string, unknown>) {

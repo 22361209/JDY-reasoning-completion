@@ -109,6 +109,7 @@ export const moduleCatalog = [
     groups: [
       { title: "资料维护", entries: [
         { id: "product-master-list", label: "物料资料", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
+        { id: "product-name-list", label: "物料名称", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "product-category-list", label: "物料类别", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "unit-master-list", label: "计量单位", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },
         { id: "customer-master-list", label: "客户", module: "基础资料", mode: "list", queryable: true, permission: "master.data.manage" },

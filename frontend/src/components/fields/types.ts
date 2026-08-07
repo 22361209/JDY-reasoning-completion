@@ -5,6 +5,7 @@ export interface FieldLookupDefinition {
   searchFields?: string[];
   strict?: boolean;
   pageSize?: number;
+  createListKey?: string;
 }
 
 export interface FieldOptionDefinition {
@@ -34,6 +35,7 @@ export interface FieldDefinition {
   readonly?: boolean;
   readonlyWhenEditing?: boolean;
   defaultValue?: string;
+  hidden?: boolean;
 }
 
 export interface FieldLookupOption {
