@@ -626,7 +626,11 @@ async function spawnIsolatedBackend({
     assert(Number.isInteger(globalMax) && globalMax > 0, `${name} requires an explicit positive globalMax`);
     assert(Number.isInteger(sourceMax) && sourceMax > 0, `${name} requires an explicit positive sourceMax`);
     Object.assign(env, {
-      JDY_PASSWORD_RESET_GLOBAL_WINDOW: "1m",
+      // The global-boundary probe deliberately performs 101 isolated HTTP
+      // requests.  Keep its test bucket alive for the full probe so it tests
+      // the configured count boundary rather than incidental wall-clock
+      // expiry; production defaults remain unchanged.
+      JDY_PASSWORD_RESET_GLOBAL_WINDOW: "10m",
       JDY_PASSWORD_RESET_GLOBAL_MAX_ATTEMPTS: String(globalMax),
       JDY_PASSWORD_RESET_SOURCE_WINDOW: "10m",
       JDY_PASSWORD_RESET_SOURCE_MAX_ATTEMPTS: String(sourceMax),
