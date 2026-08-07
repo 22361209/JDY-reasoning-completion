@@ -94,6 +94,7 @@ const props = defineProps<{
   fields: MasterDataField[];
   form: Record<string, string>;
   originalForm: Record<string, string>;
+  recentlyAuditedLookupValues?: Record<string, string>;
   error: string;
 }>();
 
@@ -281,6 +282,13 @@ function rowToLookupOption(field: MasterDataField, row: Record<string, unknown>)
 
 function allLookupOptions(field: MasterDataField) {
   const dynamicOptions = lookupOptions[field.name] ?? [];
+  const recentlyAuditedValue = props.recentlyAuditedLookupValues?.[field.name]?.trim();
+  const recentlyAuditedOption = recentlyAuditedValue ? [{
+    value: recentlyAuditedValue,
+    label: "",
+    secondary: "刚审核的新建资料",
+    searchText: normalizeLookupText(recentlyAuditedValue)
+  }] : [];
   const staticOptions = (field.suggestions ?? []).map((suggestion) => ({
     value: suggestion,
     label: "",
@@ -288,7 +296,7 @@ function allLookupOptions(field: MasterDataField) {
     searchText: normalizeLookupText(suggestion)
   }));
   const deduped = new Map<string, LookupOption>();
-  [...dynamicOptions, ...staticOptions].forEach((option) => {
+  [...recentlyAuditedOption, ...dynamicOptions, ...staticOptions].forEach((option) => {
     const key = normalizeLookupText(option.value);
     if (option.value && !deduped.has(key)) {
       deduped.set(key, option);

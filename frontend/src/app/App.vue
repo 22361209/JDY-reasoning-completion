@@ -394,6 +394,7 @@
           :fields="activeMasterRecord.fields"
           :form="activeMasterRecord.form"
           :original-form="activeMasterRecord.originalForm"
+          :recently-audited-lookup-values="activeMasterRecord.recentlyAuditedLookupValues"
           :error="activeMasterRecord.error"
           @cancel="cancelActiveMasterRecord"
           @new-record="openNewActiveMasterRecord"
@@ -1009,7 +1010,12 @@ interface MasterRecordState {
   fields: MasterDataField[];
   form: Record<string, string>;
   originalForm: Record<string, string>;
+  recentlyAuditedLookupValues: Record<string, string>;
   error: string;
+  lookupCreateReturn?: {
+    sourceRecordId: string;
+    fieldName: string;
+  };
 }
 const session = useSessionStore();
 const tabs = useTabStore();
@@ -2905,7 +2911,11 @@ function newMasterForm(listKey: string, row: Record<string, unknown> | null, opt
 
 function openMasterRecord(
   payload: { listKey: string; row: Record<string, unknown> | null },
-  options: { mode: "create" | "view" | "edit" | "copy"; tabId?: string } = { mode: "create" }
+  options: {
+    mode: "create" | "view" | "edit" | "copy";
+    tabId?: string;
+    lookupCreateReturn?: MasterRecordState["lookupCreateReturn"];
+  } = { mode: "create" }
 ) {
   const definition = masterDataDefinitions[payload.listKey];
   if (!definition) {
@@ -2957,7 +2967,9 @@ function openMasterRecord(
     fields: definition.fields,
     form,
     originalForm: { ...form },
-    error: persisted && requiresVersion && version === null ? "资料版本缺失，请返回列表刷新后重试。" : ""
+    recentlyAuditedLookupValues: {},
+    error: persisted && requiresVersion && version === null ? "资料版本缺失，请返回列表刷新后重试。" : "",
+    lookupCreateReturn: options.lookupCreateReturn
   };
   const actionTitle = options.mode === "view" ? title : options.mode === "edit" ? `编辑${title}` : `新增${title}`;
   tabs.openTab({
@@ -3024,13 +3036,21 @@ function updateActiveMasterField(name: string, value: string) {
   markActiveDirty();
 }
 
-function openMasterLookupMaintenance(listKey: string, _fieldName: string, value: string) {
+function openMasterLookupMaintenance(listKey: string, fieldName: string, value: string) {
   if (listKey !== "product-name-list" || !canMaintainMasterList(listKey)) {
+    return;
+  }
+  const sourceRecord = activeMasterRecord.value;
+  if (!sourceRecord) {
     return;
   }
   openMasterRecord({ listKey, row: { code: value, name: value } }, {
     mode: "create",
-    tabId: `${listKey}:create:${Date.now()}`
+    tabId: `${listKey}:create:${Date.now()}`,
+    lookupCreateReturn: {
+      sourceRecordId: sourceRecord.id,
+      fieldName
+    }
   });
 }
 
@@ -3183,6 +3203,28 @@ async function auditActiveMasterRecord() {
   record.originalForm = { ...record.form };
   record.error = "";
   clearActiveDirty();
+  returnToMasterLookupSource(record);
+}
+
+function returnToMasterLookupSource(record: MasterRecordState) {
+  const returnTarget = record.lookupCreateReturn;
+  if (!returnTarget || record.listKey !== "product-name-list") {
+    return;
+  }
+  record.lookupCreateReturn = undefined;
+  const sourceRecord = masterRecords[returnTarget.sourceRecordId];
+  const selectedValue = record.form.name.trim();
+  if (!sourceRecord || !selectedValue) {
+    return;
+  }
+  sourceRecord.form[returnTarget.fieldName] = selectedValue;
+  sourceRecord.recentlyAuditedLookupValues[returnTarget.fieldName] = selectedValue;
+  sourceRecord.error = "";
+  const sourceTab = tabs.tabs.value.find((tab) => tab.id === sourceRecord.id);
+  if (sourceTab) {
+    sourceTab.dirty = true;
+    tabs.activeTabId.value = sourceTab.id;
+  }
 }
 async function reverseAuditActiveMasterRecord() {
   const record = activeMasterRecord.value;
