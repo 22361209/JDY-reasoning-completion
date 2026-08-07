@@ -1718,8 +1718,19 @@ async function runScript(script, {
           this.dockerWatchdogOwnerControlClosed = true;
           // FD 9 belongs solely to the detached Docker watchdog.  Unlike the
           // bootstrap's parent-death FD 6, it remains open until the manifest
-          // process has exited and sealed its spawn ledger.
+          // process has exited and sealed its spawn ledger.  macOS can retain
+          // the final socket writer through an exited bootstrap; close that
+          // channel and send the same graceful, ledger-proven termination the
+          // watchdog handles for owner loss, so its signed ACK cannot orphan.
+          child.stdio[9]?.end();
           child.stdio[9]?.destroy();
+          try {
+            process.kill(dockerWatchdogPid(this), "SIGTERM");
+          } catch (error) {
+            if (error?.code !== "ESRCH") {
+              dockerWatchdogAckError = `regression Docker watchdog owner close failed: ${error instanceof Error ? error.message : String(error)}`;
+            }
+          }
         },
         forceClose(message) {
           if (!forcedCloseMessage) {
