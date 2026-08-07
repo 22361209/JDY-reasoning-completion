@@ -25,7 +25,7 @@ class TenantSchemaProvisionerTest {
             Integer.class,
             "tenant_a137",
             true
-        )).thenReturn(89);
+        )).thenReturn(90);
 
         provisioner.provisionNewSchema("tenant_a137");
 
