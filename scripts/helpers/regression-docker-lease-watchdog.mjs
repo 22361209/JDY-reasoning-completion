@@ -71,7 +71,11 @@ async function closeOwnedDockerLeases(trigger) {
       requireClosed: false
     });
     const cleanup = await cleanupRegressionDockerLeaseIntents({
-      intents: ledger.dockerIntents,
+      // A signed docker-completed record proves the guarded tool already
+      // returned; only an uncompleted intent can still own a live Docker-side
+      // resource.  Replaying all completed intents turns normal teardown into
+      // an unbounded N-by-N recovery delay.
+      intents: ledger.pendingDockerIntents,
       runId: reference.runId,
       guardToken: reference.guardToken
     });
@@ -85,7 +89,7 @@ async function closeOwnedDockerLeases(trigger) {
       partialLedgerRecord: ledger.hasPartialRecord,
       intentIds: ledger.dockerIntents.map(({ id }) => id).sort(),
       completedIds: ledger.completedDockerIntentIds,
-      cleanedIds: cleanup.cleaned.map(({ id }) => id).sort(),
+      cleanedIds: [...ledger.completedDockerIntentIds, ...cleanup.cleaned.map(({ id }) => id)].sort(),
       errors: cleanup.errors,
       ok: cleanup.ok,
       completedAt: new Date().toISOString()
