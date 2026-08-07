@@ -50,7 +50,10 @@ await mkdir(screenshotDir, { recursive: true });
 const identity = createIsolatedAdminSessionFixture(apiBase, {
   label: "a163",
   accountSetCodes: ["BLD-TEST", tenantCode],
-  defaultAccountSetCode: "BLD-TEST"
+  defaultAccountSetCode: "BLD-TEST",
+  // The fixture alone owns the cross-account-set sessions opened by this
+  // regression; its closer may safely release only those Redis sessions.
+  allowForcedRedisRelease: true
 });
 let warehouseCookie = "";
 let evidence = null;
