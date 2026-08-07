@@ -114,19 +114,18 @@ async function closeOwnedDockerLeases(trigger) {
     // same signed frame in the already-private suite directory so the runner
     // can recover it only when the pipe delivered no bytes at all.
     writeFileSync(watchdogAckPath, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    await new Promise((resolve, reject) => {
-      const onError = (error) => reject(error);
-      process.stdout.once("error", onError);
-      process.stdout.end(payload, () => {
-        process.stdout.off("error", onError);
-        resolve();
-      });
-    });
+    // The durable ACK is the authoritative completion proof.  The inherited
+    // pipe is only a latency optimisation: when its peer has already closed,
+    // waiting for Node's end callback can retain this detached watchdog after
+    // the bootstrap exits.  Best-effort the same frame, then terminate on the
+    // next turn; the runner reads the durable frame when this pipe is empty.
+    try { process.stdout.end(payload); } catch { /* Durable ACK remains valid. */ }
   } catch {
     process.exitCode = 1;
     return;
   }
   if (!result.ok) process.exitCode = 1;
+  setImmediate(() => process.exit(process.exitCode ?? 0));
 }
 
 process.once("SIGINT", () => { void closeOwnedDockerLeases("SIGINT"); });

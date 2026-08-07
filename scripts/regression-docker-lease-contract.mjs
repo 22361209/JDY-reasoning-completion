@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, closeSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { chmodSync, closeSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -31,6 +31,10 @@ import {
 const rootDir = path.resolve(import.meta.dirname, "..");
 const guardPath = path.join(rootDir, "scripts/helpers/regression-child-process-guard.mjs");
 const watchdogPath = path.join(rootDir, "scripts/helpers/regression-docker-lease-watchdog.mjs");
+const watchdogSource = readFileSync(watchdogPath, "utf8");
+assert.match(watchdogSource,
+  /writeFileSync\(watchdogAckPath[\s\S]{0,700}?process\.stdout\.end\(payload\)[\s\S]{0,300}?setImmediate\(\(\) => process\.exit/,
+  "watchdog must persist its ACK before best-effort pipe delivery and bounded exit");
 const secretDir = mkdtempSync(path.join(tmpdir(), "a174-docker-lease-contract-"));
 chmodSync(secretDir, 0o700);
 const runId = "9".repeat(32);
