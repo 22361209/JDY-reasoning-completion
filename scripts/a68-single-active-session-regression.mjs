@@ -35,10 +35,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
-}
-
 const browser = await chromium.launch({ headless: true });
 let beforeScreenshot = "";
 let afterScreenshot = "";
@@ -47,7 +43,7 @@ try {
   const adminContext = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const adminPage = await adminContext.newPage();
   await adminPage.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(adminPage, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(adminPage, "admin", "admin123", "系统管理员");
   const createUser = await browserFetch(adminPage, "/api/system/managed-users", {
     method: "POST",
     body: {
@@ -67,7 +63,7 @@ try {
   const firstContext = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const firstPage = await firstContext.newPage();
   await firstPage.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(firstPage, username, password, "仓库员");
+  await sharedLoginAs(firstPage, username, password, "仓库员");
   const firstSessionBefore = await browserFetch(firstPage, "/api/system/session");
   assert(firstSessionBefore.status === 200, `first session should load, got ${firstSessionBefore.status}`);
   const firstSessionPayload = JSON.parse(firstSessionBefore.text);
@@ -78,7 +74,7 @@ try {
   const secondContext = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const secondPage = await secondContext.newPage();
   await secondPage.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(secondPage, username, password, "仓库员");
+  await sharedLoginAs(secondPage, username, password, "仓库员");
   const secondSession = await browserFetch(secondPage, "/api/system/session");
   assert(secondSession.status === 200, `second session should load, got ${secondSession.status}`);
   const secondSessionPayload = JSON.parse(secondSession.text);
@@ -102,7 +98,7 @@ try {
   const auditContext = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const auditPage = await auditContext.newPage();
   await auditPage.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(auditPage, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(auditPage, "admin", "admin123", "系统管理员");
   await auditPage.getByTestId("module-系统设置").hover();
   await auditPage.getByTestId("entry-user-role-list").click();
   await auditPage.getByTestId(`managed-user-${username}`).click();

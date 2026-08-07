@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-16",
+  "updatedAt": "2026-08-02",
   "source": {
     "effectiveScope": "config/effective-feature-scope.json"
   },
@@ -9,11 +9,6 @@
       "catalogEntryId": "delivery-notice-form",
       "disposition": "pending_scope_decision",
       "reason": "发货通知已有实现但原审批表没有 scope ID；A130 不新增范围，待用户确认 addition 后再由正式 scope 认领。"
-    },
-    {
-      "catalogEntryId": "purchase-requisition-list",
-      "disposition": "excluded_scope_pending_decision",
-      "reason": "采购申请对应 F031，但原审批 decision=exclude 且当前已有入口；待用户确认保留或退役，不能临时映射到其他 scope。"
     },
     {
       "catalogEntryId": "opening-stock-settings",
@@ -693,6 +688,54 @@
       }
     },
     {
+      "id": "F031",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-requisition-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A170-多层生产任务与采购规划-20260802.md"
+      ],
+      "knownGaps": [
+        "采购申请成功操作日志尚未完成 A4 专项验收；失败审计由统一异常链保留。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "verified",
+        "browser": "verified"
+      }
+    },
+    {
+      "id": "F032",
+      "state": "verified",
+      "level": "A3",
+      "exposure": "published",
+      "surface": "catalog",
+      "catalogEntryIds": [
+        "purchase-plan-list"
+      ],
+      "evidence": [
+        "docs/验收报告/验收报告-A170-多层生产任务与采购规划-20260802.md"
+      ],
+      "knownGaps": [
+        "采购计划成功操作日志尚未完成 A4 专项验收；A170 明确止于采购计划，不自动生成采购订单。"
+      ],
+      "capabilityChecks": {
+        "entry": "verified",
+        "backend": "verified",
+        "permission": "verified",
+        "auditLog": "unverified",
+        "automation": "verified",
+        "browser": "verified"
+      }
+    },
+    {
       "id": "F033",
       "state": "verified",
       "level": "A3",
@@ -1142,10 +1185,11 @@
       ],
       "evidence": [
         "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
-        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md"
+        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md",
+        "docs/验收报告/验收报告-A167-生产计划多型号与生产执行闭环-20260802.md"
       ],
       "knownGaps": [
-        "生产计划、任务与用料快照有证据；当前全量基线恢复后再复核 A4。"
+        "A167 已验证多型号计划、稳定物料关联与逐行任务下推；唯一 full 在范围外 A112 表格滚动断言停止，仍保持 A3。"
       ],
       "capabilityChecks": {
         "entry": "verified",
@@ -1167,10 +1211,11 @@
       ],
       "evidence": [
         "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
-        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md"
+        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md",
+        "docs/验收报告/验收报告-A167-生产计划多型号与生产执行闭环-20260802.md"
       ],
       "knownGaps": [
-        "生产领料按任务快照扣库有证据；当前全量基线恢复后再复核 A4。"
+        "A167 已验证按任务/BOM 快照生成领料、审核扣库与已领套数回写；唯一 full 未完整通过，仍保持 A3。"
       ],
       "capabilityChecks": {
         "entry": "verified",
@@ -1212,10 +1257,11 @@
       ],
       "evidence": [
         "docs/验收报告/验收报告-A114-生产计划与用料快照-20260628.md",
-        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md"
+        "docs/验收报告/验收报告-A116B-生产采购闭环收口-20260629.md",
+        "docs/验收报告/验收报告-A167-生产计划多型号与生产执行闭环-20260802.md"
       ],
       "knownGaps": [
-        "产品入库与生产链闭环有证据；当前全量基线恢复后再复核 A4。"
+        "A167 已验证按生产任务/领料生成产品入库、审核入库与完工数量回写；唯一 full 未完整通过，仍保持 A3。"
       ],
       "capabilityChecks": {
         "entry": "verified",

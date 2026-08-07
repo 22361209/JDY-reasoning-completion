@@ -2,16 +2,21 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+import {
+  assertPublishedMigrationHistory,
+  currentMigrationHead
+} from "./helpers/current-migration-head.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const resultPath = path.join(rootDir, "verification/a146-numbering-rule-migration-regression.json");
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
-const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upgradeDatabase = `jdy_a146_mig_${token}`;
 const freshDatabase = `jdy_a146_fresh_${token}`;
@@ -27,7 +32,7 @@ const formalDocumentTables = [
   "purchase_return", "production_material_issue", "production_completion", "other_stock_in",
   "other_stock_out", "stock_transfer", "stock_count", "stock_count_gain", "stock_count_loss",
   "production_plan", "production_task", "production_material_scrap", "outsourcing_work_order", "outsourcing_material_issue",
-  "outsourcing_receipt", "outsourcing_return", "outsourcing_scrap", "cash_transfer"
+  "outsourcing_receipt", "outsourcing_return", "outsourcing_scrap", "cash_transfer", "purchase_plan"
 ];
 const result = {
   ok: false,
@@ -319,18 +324,10 @@ try {
   seedUpgradeFixture();
   result.upgrade.flyway = flyway(upgradeDatabase);
   const upgradeHistory = history(upgradeDatabase);
-  const v105Rows = upgradeHistory.filter((row) => row.version === "105");
-  const v106Rows = upgradeHistory.filter((row) => row.version === "106");
-  const v107Rows = upgradeHistory.filter((row) => row.version === "107");
-  const v108Rows = upgradeHistory.filter((row) => row.version === "108");
-  const v109Rows = upgradeHistory.filter((row) => row.version === "109");
-  assert(v105Rows.length === 1 && v105Rows[0].success === true, "upgrade must apply successful V105 exactly once", v105Rows);
-  assert(v106Rows.length === 1 && v106Rows[0].success === true, "upgrade must apply successful V106 exactly once", v106Rows);
-  assert(Number(v106Rows[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106Rows[0]);
-  assert(v107Rows.length === 1 && v107Rows[0].success === true, "upgrade must apply successful V107 exactly once", v107Rows);
-  assert(v108Rows.length === 1 && v108Rows[0].success === true, "upgrade must apply successful V108 exactly once", v108Rows);
-  assert(v109Rows.length === 1 && v109Rows[0].success === true, "upgrade must apply successful V109 exactly once", v109Rows);
-  assert(upgradeHistory.at(-1)?.version === "109", "repository latest upgrade must end at V109", upgradeHistory.at(-1));
+  const upgradeMigrations = assertPublishedMigrationHistory(upgradeHistory, "A146 upgrade history");
+  const currentHeadRows = upgradeHistory.filter((row) => row.version === migrationHead.version);
+  assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, "upgrade must apply the repository current head exactly once", { expected: migrationHead, actual: currentHeadRows });
+  assert(upgradeHistory.at(-1)?.version === migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`, upgradeHistory.at(-1));
   const shapes = {
     public: numberingShape(upgradeDatabase, "public"),
     tenant: numberingShape(upgradeDatabase, tenantSchema),
@@ -347,29 +344,30 @@ try {
     public: billNoIndexCoverage(upgradeDatabase, "public"),
     tenant: billNoIndexCoverage(upgradeDatabase, tenantSchema)
   };
-  assert(indexCoverage.public === 28 && indexCoverage.tenant === 28, "all 28 formal bill_no columns need a unique btree for indexed reverse high-water lookup", indexCoverage);
+  assert(indexCoverage.public === 29 && indexCoverage.tenant === 29, "all 29 formal bill_no columns need a unique btree for indexed reverse high-water lookup", indexCoverage);
   assert(
-    Number(topologies.public.tables) === 86
-      && Number(topologies.public.pk) === 86
-      && Number(topologies.public.uk) === 81
-      && Number(topologies.public.fk) === 184
-      && Number(topologies.public.check) === 105,
-    "public V109 topology mismatch",
+    Number(topologies.public.tables) === 89
+      && Number(topologies.public.pk) === 89
+      && Number(topologies.public.uk) === 85
+      && Number(topologies.public.fk) === 203
+      && Number(topologies.public.check) === 117,
+    "public V111 topology mismatch",
     topologies.public
   );
   assert(
-    Number(topologies.tenant.tables) === 86
-      && Number(topologies.tenant.pk) === 86
-      && Number(topologies.tenant.uk) === 81
-      && Number(topologies.tenant.fk) === 180
-      && Number(topologies.tenant.check) === 105,
-    "tenant V109 topology mismatch",
+    Number(topologies.tenant.tables) === 89
+      && Number(topologies.tenant.pk) === 89
+      && Number(topologies.tenant.uk) === 85
+      && Number(topologies.tenant.fk) === 199
+      && Number(topologies.tenant.check) === 117,
+    "tenant V111 topology mismatch",
     topologies.tenant
   );
   result.upgrade = {
     ...result.upgrade,
     history: upgradeHistory.at(-1),
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0] },
+    currentMigrationHead: migrationHead,
+    migrations: upgradeMigrations,
     shapes,
     topologies,
     indexCoverage
@@ -381,7 +379,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`)),
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
-  assert(syncCounts.every((count) => count === 86), "repeat tenant sync must return 86", syncCounts);
+  assert(syncCounts.every((count) => count === 89), "repeat tenant sync must return 89", syncCounts);
   const afterRepeat = JSON.stringify({
     history: history(upgradeDatabase),
     shapes: {
@@ -412,31 +410,22 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flyway = flyway(freshDatabase);
   const freshHistory = history(freshDatabase);
-  const sourceScripts = (await readdir(migrationDir))
-    .filter((name) => /^V\d+__.+\.sql$/.test(name))
-    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
-  const freshV105Rows = freshHistory.filter((row) => row.version === "105");
-  const freshV106Rows = freshHistory.filter((row) => row.version === "106");
-  const freshV107Rows = freshHistory.filter((row) => row.version === "107");
-  const freshV108Rows = freshHistory.filter((row) => row.version === "108");
-  const freshV109Rows = freshHistory.filter((row) => row.version === "109");
+  const sourceScripts = migrationHead.sourceScripts;
+  const freshMigrations = assertPublishedMigrationHistory(freshHistory, "A146 fresh history");
+  const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
   const freshShape = numberingShape(freshDatabase, "public");
   assert(freshHistory.every((row) => row.success === true), "fresh history must contain only successful migrations", freshHistory);
   assert(JSON.stringify(freshHistory.map((row) => row.script)) === JSON.stringify(sourceScripts), "fresh history must exactly equal the migration source set");
-  assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, "fresh migration must apply successful V105 exactly once", freshV105Rows);
-  assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, "fresh migration must apply successful V106 exactly once", freshV106Rows);
-  assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106Rows[0]);
-  assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, "fresh migration must apply successful V107 exactly once", freshV107Rows);
-  assert(freshV108Rows.length === 1 && freshV108Rows[0].success === true, "fresh migration must apply successful V108 exactly once", freshV108Rows);
-  assert(freshV109Rows.length === 1 && freshV109Rows[0].success === true, "fresh migration must apply successful V109 exactly once", freshV109Rows);
-  assert(freshHistory.at(-1)?.version === "109", "fresh migration must end at V109", freshHistory.at(-1));
+  assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, "fresh migration must apply the repository current head exactly once", { expected: migrationHead, actual: freshCurrentHeadRows });
+  assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration must end at V${migrationHead.version}`, freshHistory.at(-1));
   assertShape("fresh public", freshShape, 4, null);
   const freshIndexCoverage = billNoIndexCoverage(freshDatabase, "public");
-  assert(freshIndexCoverage === 28, "fresh public must retain unique btree coverage for all 28 formal bill_no columns", freshIndexCoverage);
+  assert(freshIndexCoverage === 29, "fresh public must retain unique btree coverage for all 29 formal bill_no columns", freshIndexCoverage);
   result.fresh = {
     ...result.fresh,
     history: freshHistory.at(-1),
-    migrations: { v105: freshV105Rows[0], v106: freshV106Rows[0], v107: freshV107Rows[0], v108: freshV108Rows[0], v109: freshV109Rows[0] },
+    currentMigrationHead: migrationHead,
+    migrations: freshMigrations,
     exactSourceHistory: true,
     shape: freshShape,
     indexCoverage: freshIndexCoverage

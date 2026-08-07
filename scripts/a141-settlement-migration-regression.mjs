@@ -1,21 +1,30 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
 import { loginApi } from "./helpers/regression-auth.mjs";
+import {
+  assertPublishedMigrationHistory,
+  currentMigrationHead
+} from "./helpers/current-migration-head.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const isolationDir = path.join(verificationDir, "a141-settlement-migration-isolation");
 const resultPath = path.join(verificationDir, "a141-settlement-migration-regression.json");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
-const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upperToken = token.toUpperCase();
 const upgradeDatabase = `jdy_a141_mig_${token}`;
@@ -630,21 +639,7 @@ async function tailFile(filePath, maximumLength = 12_000) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) {
-    return false;
-  }
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") {
-      return false;
-    }
-    if (error?.code === "EPERM") {
-      return true;
-    }
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function waitForProcessGroupExit(processInfo, timeoutMs) {
@@ -668,7 +663,7 @@ async function stopBackend(processInfo) {
       return;
     }
     try {
-      process.kill(-processInfo.child.pid, "SIGTERM");
+      signalRegressionProcessTree(processInfo, "SIGTERM");
     } catch (error) {
       if (error?.code !== "ESRCH") {
         throw error;
@@ -677,7 +672,7 @@ async function stopBackend(processInfo) {
     if (!await waitForProcessGroupExit(processInfo, 8_000)) {
       processInfo.forcedKill = true;
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
       } catch (error) {
         if (error?.code !== "ESRCH") {
           throw error;
@@ -716,7 +711,7 @@ async function startBackend() {
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(rootDir, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = {
@@ -733,7 +728,11 @@ async function startBackend() {
   child.once("error", (error) => {
     processInfo.spawnError = error;
   });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     if (processInfo.spawnError) {
       throw processInfo.spawnError;
@@ -797,7 +796,7 @@ function exitLastResort() {
       continue;
     }
     try {
-      process.kill(-processInfo.child.pid, "SIGKILL");
+      signalRegressionProcessTree(processInfo, "SIGKILL");
       processInfo.forcedKill = true;
     } catch (error) {
       if (error?.code !== "ESRCH") {
@@ -887,7 +886,7 @@ for (const [signal, exitCode] of signalExitCodes) {
       result.error = errorText(primaryError);
       await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`);
       removeLifecycleHandlers();
-      process.exit(exitCode);
+      process.exitCode = exitCode;
     });
   };
   signalHandlers.set(signal, handler);
@@ -1009,25 +1008,17 @@ try {
 
   result.upgrade.latest.flywayOutputTail = flywayMigrate(upgradeDatabase);
   const latestHistory = migrationHistory(upgradeDatabase);
-  const v105Rows = latestHistory.filter((row) => row.version === "105");
-  const v106Rows = latestHistory.filter((row) => row.version === "106");
-  const v107Rows = latestHistory.filter((row) => row.version === "107");
-  const v108Rows = latestHistory.filter((row) => row.version === "108");
-  const v109Rows = latestHistory.filter((row) => row.version === "109");
+  const latestMigrations = assertPublishedMigrationHistory(latestHistory, "A141 upgrade history");
+  const currentHeadRows = latestHistory.filter((row) => row.version === migrationHead.version);
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
-  assert(v105Rows.length === 1 && v105Rows[0].success === true, `V105 history mismatch: ${JSON.stringify(v105Rows)}`);
-  assert(v106Rows.length === 1 && v106Rows[0].success === true, `V106 history mismatch: ${JSON.stringify(v106Rows)}`);
-  assert(Number(v106Rows[0].checksum) === publishedV106Checksum, `published V106 checksum changed: ${JSON.stringify(v106Rows[0])}`);
-  assert(v107Rows.length === 1 && v107Rows[0].success === true, `V107 history mismatch: ${JSON.stringify(v107Rows)}`);
-  assert(v108Rows.length === 1 && v108Rows[0].success === true, `V108 history mismatch: ${JSON.stringify(v108Rows)}`);
-  assert(v109Rows.length === 1 && v109Rows[0].success === true, `V109 history mismatch: ${JSON.stringify(v109Rows)}`);
-  assert(latestHistory.at(-1)?.version === "109", `repository latest must be V109: ${JSON.stringify(latestHistory.at(-1))}`);
+  assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, `repository current head mismatch: ${JSON.stringify({ expected: migrationHead, actual: currentHeadRows })}`);
+  assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest must be V${migrationHead.version}: ${JSON.stringify(latestHistory.at(-1))}`);
   assert(
-    Number(latestNumbering.publicChecks) === 105
-      && Number(latestNumbering.tenantChecks) === 105
+    Number(latestNumbering.publicChecks) === 117
+      && Number(latestNumbering.tenantChecks) === 117
       && Number(latestNumbering.versionCopies) === 3
       && Number(latestNumbering.legacyRows) === 0,
-    `V109 managed topology / V105 numbering shape mismatch: ${JSON.stringify(latestNumbering)}`
+    `V111 managed topology / V105 numbering shape mismatch: ${JSON.stringify(latestNumbering)}`
   );
   assert(same(migratedSnapshots, {
     public: migratedSnapshot("public", fixtures.public),
@@ -1036,8 +1027,9 @@ try {
   }), "V105 must not change V102-V104 settlement semantics");
   result.upgrade.latest = {
     ...result.upgrade.latest,
-    history: v109Rows[0],
-    migrations: { v105: v105Rows[0], v106: v106Rows[0], v107: v107Rows[0], v108: v108Rows[0], v109: v109Rows[0] },
+    history: currentHeadRows[0],
+    currentMigrationHead: migrationHead,
+    migrations: latestMigrations,
     numbering: latestNumbering
   };
 
@@ -1075,7 +1067,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
   const tenantAfterSync = migratedSnapshot(tenantSchema, fixtures.tenant);
-  assert(same(syncCounts, [86, 86]), `repeat tenant sync counts should be 86/86, got ${JSON.stringify(syncCounts)}`);
+  assert(same(syncCounts, [89, 89]), `repeat tenant sync counts should be 89/89, got ${JSON.stringify(syncCounts)}`);
   assert(same(tenantBeforeSync, tenantAfterSync), "repeat tenant sync changed migrated settlement data");
   result.upgrade.repeatTenantSync = {
     managedCounts: syncCounts,
@@ -1205,23 +1197,13 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flywayOutputTail = flywayMigrate(freshDatabase);
   const freshHistory = migrationHistory(freshDatabase);
-  const sourceFiles = (await readdir(migrationDir))
-    .filter((name) => /^V\d+__.+\.sql$/.test(name))
-    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
+  const sourceFiles = migrationHead.sourceScripts;
   const historyScripts = freshHistory.map((row) => row.script);
-  const freshV105Rows = freshHistory.filter((row) => row.version === "105");
-  const freshV106Rows = freshHistory.filter((row) => row.version === "106");
-  const freshV107Rows = freshHistory.filter((row) => row.version === "107");
-  const freshV108Rows = freshHistory.filter((row) => row.version === "108");
-  const freshV109Rows = freshHistory.filter((row) => row.version === "109");
+  assertPublishedMigrationHistory(freshHistory, "A141 fresh history");
+  const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration");
   assert(same(historyScripts, sourceFiles), "fresh Flyway history does not exactly match the versioned migration source set");
-  assert(freshV105Rows.length === 1 && freshV105Rows[0].success === true, `fresh V105 history mismatch: ${JSON.stringify(freshV105Rows)}`);
-  assert(freshV106Rows.length === 1 && freshV106Rows[0].success === true, `fresh V106 history mismatch: ${JSON.stringify(freshV106Rows)}`);
-  assert(Number(freshV106Rows[0].checksum) === publishedV106Checksum, `fresh V106 checksum changed: ${JSON.stringify(freshV106Rows[0])}`);
-  assert(freshV107Rows.length === 1 && freshV107Rows[0].success === true, `fresh V107 history mismatch: ${JSON.stringify(freshV107Rows)}`);
-  assert(freshV108Rows.length === 1 && freshV108Rows[0].success === true, `fresh V108 history mismatch: ${JSON.stringify(freshV108Rows)}`);
-  assert(freshV109Rows.length === 1 && freshV109Rows[0].success === true, `fresh V109 history mismatch: ${JSON.stringify(freshV109Rows)}`);
+  assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, `fresh current head mismatch: ${JSON.stringify({ expected: migrationHead, actual: freshCurrentHeadRows })}`);
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1265,19 +1247,20 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "109", `fresh migration max version should be V109: ${JSON.stringify(freshHistory.at(-1))}`);
-  assert(Number(freshMetrics.managedTables) === 86, `fresh managed table count should be 86: ${JSON.stringify(freshMetrics)}`);
+  assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version should be V${migrationHead.version}: ${JSON.stringify(freshHistory.at(-1))}`);
+  assert(Number(freshMetrics.managedTables) === 89, `fresh managed table count should be 89: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.importBatchTables) === 1, `fresh import batch table count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
-  assert(Number(freshMetrics.managedChecks) === 105 && freshMetrics.numberingVersionType === "bigint", `fresh topology/numbering metrics mismatch after V109: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedChecks) === 117 && freshMetrics.numberingVersionType === "bigint", `fresh topology/numbering metrics mismatch after V111: ${JSON.stringify(freshMetrics)}`);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,
     sourceMigrationCount: sourceFiles.length,
+    currentMigrationHead: migrationHead,
     minVersion: freshHistory[0]?.version,
     maxVersion: freshHistory.at(-1)?.version,
     exactSourceHistory: true,

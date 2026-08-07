@@ -119,7 +119,7 @@ class NumberingServiceReliabilityIntegrationTest {
     void rulesAreReadOnlyUntilSaveAndIssuanceIsSerializedWithoutReuse() throws Exception {
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM document_number_sequence", Integer.class)).isZero();
         var defaults = numberingService.listRules();
-        assertThat(defaults).hasSize(28);
+        assertThat(defaults).hasSize(29);
         assertThat(defaults).extracting(row -> String.valueOf(row.get("documentType"))).doesNotHaveDuplicates();
         assertThat(defaults).anySatisfy(row -> assertThat(row)
             .containsEntry("documentType", "materialScrap")
@@ -145,7 +145,7 @@ class NumberingServiceReliabilityIntegrationTest {
             WHERE document_type = ?
             """, DOCUMENT_TYPE);
         var visible = numberingService.listRules();
-        assertThat(visible).hasSize(28);
+        assertThat(visible).hasSize(29);
         assertThat(visible).noneMatch(row -> "unknownLegacy".equals(row.get("documentType")));
 
         var generated = issueConcurrently(12);

@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { loginAs as sharedLoginAs, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
+import { loginAs as sharedLoginAs, loginAsAdmin, logout as sharedLogout, openPasswordChange } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -46,7 +46,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
 
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await loginAsAdmin(page);
   const createUser = await browserFetch(page, "/api/system/managed-users", {
     method: "POST",
     body: {
@@ -78,10 +78,7 @@ try {
   await page.getByTestId("login-submit").click();
   await page.getByTestId("login-message").filter({ hasText: "锁定" }).waitFor({ state: "visible" });
 
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
+  await loginAsAdmin(page);
   const logResponse = await browserFetch(page, `/api/lists/operation-log-list?scope=platform&keyword=${encodeURIComponent(createdUser.id)}&page=1&pageSize=200`);
   assert(logResponse.status === 200, `operation log list should load, got ${logResponse.status}`);
   const logPayload = JSON.parse(logResponse.text);

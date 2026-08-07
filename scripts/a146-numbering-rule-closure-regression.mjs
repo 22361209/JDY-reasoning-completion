@@ -20,13 +20,10 @@ const files = {
   catalog: "frontend/src/modules/catalog.ts",
   manifest: "config/regression-manifest.json",
   tenantIsolationTest: "backend/src/test/java/com/jdy/erp/system/tenant/TenantMasterDataBomNumberingIsolationTest.java",
-  a137: "scripts/a137-tenant-schema-constraint-regression.mjs",
-  a141Migration: "scripts/a141-settlement-migration-regression.mjs",
-  a142Migration: "scripts/a142-sales-return-migration-regression.mjs",
-  a143Migration: "scripts/a143-master-data-import-migration-regression.mjs",
   integrationTest: "backend/src/test/java/com/jdy/erp/shared/application/NumberingServiceReliabilityIntegrationTest.java",
   permissionTest: "backend/src/test/java/com/jdy/erp/shared/application/NumberingControllerPermissionIntegrationTest.java",
-  migrationTest: "scripts/a146-numbering-rule-migration-regression.mjs"
+  migrationTest: "scripts/a146-numbering-rule-migration-regression.mjs",
+  migrationHeadHelper: "scripts/helpers/current-migration-head.mjs"
 };
 const source = Object.fromEntries(await Promise.all(
   Object.entries(files).map(async ([key, relative]) => [key, await readFile(path.join(rootDir, relative), "utf8")])
@@ -63,8 +60,12 @@ function methodBody(text, signature) {
 assert(count(source.catalog, /id:\s*["']numbering-rule-settings["']/g) === 1, "numbering-rule-settings must remain the only catalog owner");
 assert(!source.catalog.includes("id: \"numbering-rule-list\""), "retired unknown numbering list must not return");
 
-assert(count(source.service, /new NumberingRule\(/g) === 28, "backend registry must contain exactly 28 formal document types");
-assert(source.service.includes("registry.size() != 28"), "backend registry must fail closed on count drift");
+const numberingRuleCount = count(source.service, /new NumberingRule\(/g);
+assert(numberingRuleCount > 0, "backend numbering registry must contain formal document members");
+assert(source.service.includes(`registry.size() != ${numberingRuleCount}`), "backend numbering registry fail-closed guard must match the actual member count");
+assert(source.integrationTest.includes(`hasSize(${numberingRuleCount})`), "numbering integration parity must match the actual registry member count");
+assert(source.service.includes('new NumberingRule("stockCountGain", "PY", "stock_count_gain", "盘盈单")'), "backend registry must retain the A146 numbering reliability fixture member");
+assert(source.service.includes('new NumberingRule("purchasePlan", "CGJH", "purchase_plan", "采购计划单")'), "backend registry must contain the current purchasePlan member");
 assert(!/synchronized\s+String\s+nextBillNo/.test(source.service), "single-JVM synchronized numbering guard must be removed");
 assert(count(source.service, /public Map<String, Object> saveRule\(/g) === 1, "NumberingService must expose only the versioned saveRule API");
 assert(source.tenantIsolationTest.includes('JSON.textNode("0")'), "tenant numbering isolation must call the versioned saveRule API");
@@ -188,7 +189,7 @@ assert(
                 ))))`),
   "permission integration test must exercise a PUT body with version omitted"
 );
-for (const fragment of ["upgradeDatabase", "freshDatabase", "invalidDatabase", "restoreDataOnlySnapshot", "real AccountSetMaintenanceService", "billNoIndexCoverage", "jdy_sync_tenant_schema", "zero residue"]) {
+for (const fragment of ["upgradeDatabase", "freshDatabase", "invalidDatabase", "restoreDataOnlySnapshot", "real AccountSetMaintenanceService", "billNoIndexCoverage", "jdy_sync_tenant_schema", "zero residue", "currentMigrationHead"]) {
   assert(source.migrationTest.includes(fragment), `migration regression must cover: ${fragment}`);
 }
 for (const tier of [manifest.areas.system, manifest.full]) {
@@ -196,31 +197,31 @@ for (const tier of [manifest.areas.system, manifest.full]) {
   assert(tier.includes("scripts/a146-numbering-rule-migration-regression.mjs"), "A146 migration gate must be registered in system and full");
 }
 assert(manifest.areas.security.includes("scripts/a146-numbering-rule-closure-regression.mjs"), "A146 permission/static gate must be registered in security");
-assert(
-  source.a137.includes("checkConstraints: 105")
-    && source.a137.includes("V105__numbering_rule_reliability.sql")
-    && source.a137.includes("V108__production_material_scrap.sql")
-    && source.a137.includes("V109__cash_transfer_document.sql"),
-  "A137 topology guard must preserve V105/V108 history and the current V109 105-CHECK topology"
-);
-for (const [name, migrationSource, historicalTarget] of [
-  ["A141", source.a141Migration, "flywayMigrate(upgradeDatabase, 104)"],
-  ["A142", source.a142Migration, "flyway(upgradeDatabase, 104)"],
-  ["A143", source.a143Migration, "flyway(upgradeDatabase, 104)"],
-  ["A146", source.migrationTest, "flyway(upgradeDatabase, 104)"]
+assert(source.migrationTest.includes("flyway(upgradeDatabase, 104)"), "A146 migration gate must preserve its historical target boundary");
+assert(source.migrationTest.includes('assertPublishedMigrationHistory(upgradeHistory, "A146 upgrade history")'), "A146 upgrade gate must validate the centralized published migration contract");
+assert(source.migrationTest.includes('assertPublishedMigrationHistory(freshHistory, "A146 fresh history")'), "A146 fresh gate must validate the centralized published migration contract");
+for (const { version, script, checksum } of [
+  { version: "105", script: "V105__numbering_rule_reliability.sql", checksum: -848130561 },
+  { version: "106", script: "V106__inventory_source_trace.sql", checksum: 1207842815 },
+  { version: "107", script: "V107__inventory_source_trace_reaudit_fix.sql", checksum: 1245463618 },
+  { version: "108", script: "V108__production_material_scrap.sql", checksum: 32021494 },
+  { version: "109", script: "V109__cash_transfer_document.sql", checksum: -1955046012 },
+  { version: "110", script: "V110__production_plan_multi_line.sql", checksum: 1117782105 },
+  { version: "111", script: "V111__multilevel_production_purchase_planning.sql", checksum: 1195966262 },
+  { version: "112", script: "V112__recalculate_purchase_plan_reservations.sql", checksum: -1613216154 },
+  { version: "113", script: "V113__recalculate_backup_purchase_plan_reservations.sql", checksum: -1592974444 }
 ]) {
-  assert(migrationSource.includes(historicalTarget), `${name} migration gate must preserve its historical target boundary`);
-  assert(migrationSource.includes('version === "105"') && migrationSource.includes("V105") && migrationSource.includes("numbering"), `${name} migration gate must preserve V105 numbering semantics`);
-  assert(migrationSource.includes('version === "106"') && migrationSource.includes("1207842815"), `${name} migration gate must enforce exactly one successful immutable V106`);
-  assert(migrationSource.includes('version === "107"'), `${name} migration gate must enforce exactly one successful V107`);
-  assert(migrationSource.includes('version === "108"'), `${name} migration gate must enforce exactly one successful V108`);
-  assert(migrationSource.includes("freshHistory") && migrationSource.includes("source"), `${name} migration gate must compare fresh history with migration sources`);
+  const contract = `{ version: "${version}", script: "${script}", checksum: ${checksum} }`;
+  assert(source.migrationHeadHelper.includes(contract), `published V${version} migration checksum contract must remain fixed`);
 }
+assert(source.migrationTest.includes("public V111 topology mismatch"), "A146 migration gate must preserve the fixed V111 topology contract");
+assert(source.migrationTest.includes("freshHistory") && source.migrationTest.includes("sourceScripts"), "A146 migration gate must compare fresh history with migration sources");
 
 const result = {
   ok: true,
   generatedAt: new Date().toISOString(),
   assertionCount: assertions.length,
+  numberingRuleCount,
   assertions,
   note: "Static source/contract gate only; it does not replace the isolated database integration, migration, permission, or browser runs."
 };

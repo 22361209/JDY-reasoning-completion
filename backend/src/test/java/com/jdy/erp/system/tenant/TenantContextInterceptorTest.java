@@ -65,6 +65,16 @@ class TenantContextInterceptorTest {
     }
 
     @Test
+    void regressionFenceControlUsesPlatformContextWithoutLogin() {
+        request.setRequestURI("/api/system/regression-request-fence");
+
+        tenantContextInterceptor.preHandle(request, response, handler);
+
+        assertThat(TenantContext.current()).isPresent();
+        assertThat(TenantContext.current().orElseThrow().scope()).isEqualTo(TenantContext.Scope.PLATFORM);
+    }
+
+    @Test
     void businessPathWithoutLoginIsRejectedBeforeTenantRouting() {
         request.setRequestURI("/api/sales-orders/draft");
 

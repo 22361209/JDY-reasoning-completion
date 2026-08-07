@@ -7,10 +7,20 @@ import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import {
+  assertPublishedMigrationHistory,
+  currentMigrationHead
+} from "./helpers/current-migration-head.mjs";
 import { loginApi } from "./helpers/regression-auth.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(root, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const migrationPath = path.join(migrationDir, "V108__production_material_scrap.sql");
 const resultPath = path.join(root, "verification/a151-material-scrap-migration-regression.json");
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
@@ -152,7 +162,7 @@ function topology(database, schema) {
 function assertTopology(label, actual, expectedFk) {
   assert.deepEqual(
     Object.fromEntries(Object.entries(actual).map(([key, value]) => [key, Number(value)])),
-    { tables: 86, pk: 86, uk: 81, fk: expectedFk, check: 105 },
+    { tables: 89, pk: 89, uk: 85, fk: expectedFk, check: 117 },
     `${label} topology mismatch`
   );
 }
@@ -403,24 +413,16 @@ async function tailFile(filePath, maximumLength = 12_000) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) return false;
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    if (error?.code === "EPERM") return true;
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function stopBackend(processInfo) {
   if (!processGroupIsAlive(processInfo)) return;
-  process.kill(-processInfo.child.pid, "SIGTERM");
+  signalRegressionProcessTree(processInfo, "SIGTERM");
   const deadline = Date.now() + 8_000;
   while (processGroupIsAlive(processInfo) && Date.now() < deadline) await sleep(100);
   if (processGroupIsAlive(processInfo)) {
-    process.kill(-processInfo.child.pid, "SIGKILL");
+    signalRegressionProcessTree(processInfo, "SIGKILL");
     const killDeadline = Date.now() + 3_000;
     while (processGroupIsAlive(processInfo) && Date.now() < killDeadline) await sleep(100);
   }
@@ -455,13 +457,17 @@ async function startBackend() {
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(root, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = { child, port, baseUrl: `http://127.0.0.1:${port}`, logPath, spawnError: null };
   backend = processInfo;
   child.once("error", (error) => { processInfo.spawnError = error; });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     if (processInfo.spawnError) throw processInfo.spawnError;
     if (child.exitCode != null) throw new Error(`isolated backend exited before health check:\n${await tailFile(logPath)}`);
@@ -538,23 +544,16 @@ if (!primaryError) {
 
     flyway(upgradeDatabase);
     const upgradeHistory = history(upgradeDatabase);
-    const v108 = upgradeHistory.filter((row) => row.version === "108");
-    const v109 = upgradeHistory.filter((row) => row.version === "109");
-    assert.equal(v108.length, 1, "upgrade must apply V108 exactly once");
-    assert.equal(v108[0].success, true, "V108 must be successful");
-    assert.equal(v109.length, 1, "upgrade must apply V109 exactly once");
-    assert.equal(v109[0].success, true, "V109 must be successful");
-    assert.equal(upgradeHistory.at(-1)?.version, "109", "repository latest upgrade must end at V109");
-    assert.equal(
-      upgradeHistory.find((row) => row.version === "106")?.checksum,
-      1207842815,
-      "published V106 checksum must remain immutable"
-    );
-
+    assertPublishedMigrationHistory(upgradeHistory, "A151 upgrade history");
+    const currentHeadRows = upgradeHistory.filter((row) => row.version === migrationHead.version);
+    assert.equal(currentHeadRows.length, 1, "upgrade must apply the repository current head exactly once");
+    assert.equal(currentHeadRows[0].success, true, "repository current head must be successful");
+    assert.equal(currentHeadRows[0].script, migrationHead.script, "repository current head script must match migration sources");
+    assert.equal(upgradeHistory.at(-1)?.version, migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`);
     const publicTopology = topology(upgradeDatabase, "public");
     const tenantTopology = topology(upgradeDatabase, tenantSchema);
-    assertTopology("upgrade public", publicTopology, 184);
-    assertTopology("upgrade tenant", tenantTopology, 180);
+    assertTopology("upgrade public", publicTopology, 203);
+    assertTopology("upgrade tenant", tenantTopology, 199);
     assertScrapShape(upgradeDatabase, "public");
     assertScrapShape(upgradeDatabase, tenantSchema);
     assertStockInMatrix(upgradeDatabase, "public");
@@ -567,14 +566,15 @@ if (!primaryError) {
       Number(scalar(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`)),
       Number(scalar(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`))
     ];
-    assert.deepEqual(syncCounts, [86, 86], "repeat existing-tenant sync must be stable");
+    assert.deepEqual(syncCounts, [89, 89], "repeat existing-tenant sync must be stable");
     insertAccountSet(upgradeDatabase, newTenantId, `A151-NEW-${token.toUpperCase()}`, newTenantSchema, true);
-    assertTopology("new tenant", topology(upgradeDatabase, newTenantSchema), 180);
+    assertTopology("new tenant", topology(upgradeDatabase, newTenantSchema), 199);
     assertScrapShape(upgradeDatabase, newTenantSchema);
     assertStockInMatrix(upgradeDatabase, newTenantSchema);
 
     result.upgrade = {
       history: upgradeHistory.at(-1),
+      currentMigrationHead: migrationHead,
       publicTopology,
       tenantTopology,
       syncCounts,
@@ -586,7 +586,12 @@ if (!primaryError) {
     const historyAfterRepeat = JSON.stringify(history(upgradeDatabase));
     assert.equal(historyAfterRepeat, historyBeforeRepeat, "repeat Flyway migrate must be a no-op");
     assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='109'"), "1", "V109 history must remain singular");
-    result.repeat = { noOp: true, v108Rows: 1, v109Rows: 1 };
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='110'"), "1", "V110 history must remain singular");
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='111'"), "1", "V111 history must remain singular");
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='112'"), "1", "V112 history must remain singular");
+    assert.equal(scalar(upgradeDatabase, "SELECT count(*) FROM public.flyway_schema_history WHERE version='113'"), "1", "V113 history must remain singular");
+    assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM public.flyway_schema_history WHERE version=${literal(migrationHead.version)}`), "1", "repository current head history must remain singular");
+    result.repeat = { noOp: true, v108Rows: 1, v109Rows: 1, v110Rows: 1, v111Rows: 1, v112Rows: 1, v113Rows: 1, currentHeadRows: 1 };
 
     psql(upgradeDatabase, `DELETE FROM ${identifier(tenantSchema)}.md_customer WHERE code=${literal(customerCode)}`);
     assert.equal(scalar(upgradeDatabase, `SELECT count(*) FROM ${identifier(tenantSchema)}.md_customer WHERE code=${literal(customerCode)}`), "0", "tenant mutation must remove historical customer before restore");
@@ -612,7 +617,7 @@ if (!primaryError) {
         restoredCustomer: customerCode,
         scrapRows: 0,
         backupMetadataTableCount: 82,
-        targetManagedTables: 86
+        targetManagedTables: 89
       };
       await apiRequest(backend.baseUrl, cookie, "/api/system/logout", { method: "POST", timeoutMs: 10_000 });
       cookie = null;
@@ -629,21 +634,27 @@ if (!primaryError) {
     freshCreated = true;
     flyway(freshDatabase);
     const freshHistory = history(freshDatabase);
-    assert.equal(freshHistory.at(-1)?.version, "109", "fresh V1-to-latest migration must end at V109");
-    assertTopology("fresh public", topology(freshDatabase, "public"), 184);
+    assertPublishedMigrationHistory(freshHistory, "A151 fresh history");
+    const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
+    assert.equal(freshCurrentHeadRows.length, 1, "fresh migration must apply the repository current head exactly once");
+    assert.equal(freshCurrentHeadRows[0].success, true, "fresh repository current head must be successful");
+    assert.equal(freshCurrentHeadRows[0].script, migrationHead.script, "fresh repository current head script must match migration sources");
+    assert.equal(freshHistory.at(-1)?.version, migrationHead.version, `fresh V1-to-latest migration must end at V${migrationHead.version}`);
+    assertTopology("fresh public", topology(freshDatabase, "public"), 203);
     assertScrapShape(freshDatabase, "public");
     insertAccountSet(freshDatabase, freshTenantId, `A151-FRESH-${token.toUpperCase()}`, freshTenantSchema, true);
     const freshTenantTopology = topology(freshDatabase, freshTenantSchema);
-    assertTopology("fresh tenant", freshTenantTopology, 180);
+    assertTopology("fresh tenant", freshTenantTopology, 199);
     assertScrapShape(freshDatabase, freshTenantSchema);
     assertStockInMatrix(freshDatabase, "public");
     assertStockInMatrix(freshDatabase, freshTenantSchema);
-    assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "86", "fresh tenant repeat sync must return 86");
+    assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "89", "fresh tenant repeat sync must return 89");
     const freshHistoryBeforeRepeat = JSON.stringify(freshHistory);
     flyway(freshDatabase);
     assert.equal(JSON.stringify(history(freshDatabase)), freshHistoryBeforeRepeat, "fresh repeat Flyway migrate must be a no-op");
     result.fresh = {
       history: freshHistory.at(-1),
+      currentMigrationHead: migrationHead,
       publicTopology: topology(freshDatabase, "public"),
       tenantTopology: freshTenantTopology
     };
@@ -702,5 +713,5 @@ console.log(JSON.stringify({
 
 if (primaryError) {
   console.error(primaryError?.stack ?? String(primaryError));
-  process.exit(1);
+  process.exitCode = 1;
 }

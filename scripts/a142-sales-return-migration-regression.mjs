@@ -2,22 +2,31 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
 import { loginApi } from "./helpers/regression-auth.mjs";
+import {
+  assertPublishedMigrationHistory,
+  currentMigrationHead
+} from "./helpers/current-migration-head.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const isolationDir = path.join(verificationDir, "a142-sales-return-migration-isolation");
 const resultPath = path.join(verificationDir, "a142-sales-return-migration-regression.json");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
+const migrationHead = await currentMigrationHead(migrationDir);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const redisContainer = process.env.JDY_REDIS_CONTAINER || "jdy-erp-redis";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const databasePassword = process.env.JDY_DATABASE_PASSWORD || "jdy_dev";
-const publishedV106Checksum = 1207842815;
 const token = randomBytes(6).toString("hex");
 const upperToken = token.toUpperCase();
 const upgradeDatabase = `jdy_a142_mig_${token}`;
@@ -679,17 +688,7 @@ async function tailFile(filePath, maximumLength = 12_000) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) {
-    return false;
-  }
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    if (error?.code === "EPERM") return true;
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function waitForProcessGroupExit(processInfo, timeoutMs) {
@@ -709,14 +708,14 @@ async function stopBackend(processInfo) {
       return;
     }
     try {
-      process.kill(-processInfo.child.pid, "SIGTERM");
+      signalRegressionProcessTree(processInfo, "SIGTERM");
     } catch (error) {
       if (error?.code !== "ESRCH") throw error;
     }
     if (!await waitForProcessGroupExit(processInfo, 8_000)) {
       processInfo.forcedKill = true;
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
       } catch (error) {
         if (error?.code !== "ESRCH") throw error;
       }
@@ -753,7 +752,7 @@ async function startBackend() {
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(rootDir, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = {
@@ -770,7 +769,11 @@ async function startBackend() {
   child.once("error", (error) => {
     processInfo.spawnError = error;
   });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     if (processInfo.spawnError) throw processInfo.spawnError;
     if (processInfo.child.exitCode != null) {
@@ -836,7 +839,7 @@ function exitLastResort() {
   for (const processInfo of [...processes].reverse()) {
     if (!processGroupIsAlive(processInfo)) continue;
     try {
-      process.kill(-processInfo.child.pid, "SIGKILL");
+      signalRegressionProcessTree(processInfo, "SIGKILL");
       processInfo.forcedKill = true;
     } catch (error) {
       if (error?.code !== "ESRCH") {
@@ -916,7 +919,7 @@ for (const [signal, exitCode] of signalExitCodes) {
       result.failure = errorText(primaryError);
       await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`);
       removeLifecycleHandlers();
-      process.exit(exitCode);
+      process.exitCode = exitCode;
     });
   };
   signalHandlers.set(signal, handler);
@@ -1004,25 +1007,17 @@ try {
 
   result.upgrade.latestFlywayOutput = flyway(upgradeDatabase);
   const latestHistory = history(upgradeDatabase);
-  const v105 = latestHistory.filter((row) => row.version === "105");
-  const v106 = latestHistory.filter((row) => row.version === "106");
-  const v107 = latestHistory.filter((row) => row.version === "107");
-  const v108 = latestHistory.filter((row) => row.version === "108");
-  const v109 = latestHistory.filter((row) => row.version === "109");
+  const latestMigrations = assertPublishedMigrationHistory(latestHistory, "A142 upgrade history");
+  const currentHeadRows = latestHistory.filter((row) => row.version === migrationHead.version);
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
-  assert(v105.length === 1 && v105[0].success === true, "V105 history row missing or failed", v105);
-  assert(v106.length === 1 && v106[0].success === true, "V106 history row missing or failed", v106);
-  assert(Number(v106[0].checksum) === publishedV106Checksum, "published V106 checksum must remain immutable", v106[0]);
-  assert(v107.length === 1 && v107[0].success === true, "V107 history row missing or failed", v107);
-  assert(v108.length === 1 && v108[0].success === true, "V108 history row missing or failed", v108);
-  assert(v109.length === 1 && v109[0].success === true, "V109 history row missing or failed", v109);
-  assert(latestHistory.at(-1)?.version === "109", "repository latest upgrade must end at V109", latestHistory.at(-1));
+  assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, "repository current head row missing or failed", { expected: migrationHead, actual: currentHeadRows });
+  assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`, latestHistory.at(-1));
   assert(
-    Number(latestNumbering.publicChecks) === 105
-      && Number(latestNumbering.tenantChecks) === 105
+    Number(latestNumbering.publicChecks) === 117
+      && Number(latestNumbering.tenantChecks) === 117
       && Number(latestNumbering.versionCopies) === 3
       && Number(latestNumbering.legacyRows) === 0,
-    "V109 managed topology / V105 numbering shape mismatch",
+    "V111 managed topology / V105 numbering shape mismatch",
     latestNumbering
   );
   assert(same(after, {
@@ -1030,8 +1025,9 @@ try {
     tenant: receivableSnapshot(tenantSchema, fixtures.tenant, true),
     backup: receivableSnapshot(backupSchema, fixtures.tenant, true)
   }), "V105 must preserve V103/V104 sales-return semantics");
-  result.upgrade.latestHistory = v109[0];
-  result.upgrade.latestMigrations = { v105: v105[0], v106: v106[0], v107: v107[0], v108: v108[0], v109: v109[0] };
+  result.upgrade.latestHistory = currentHeadRows[0];
+  result.upgrade.currentMigrationHead = migrationHead;
+  result.upgrade.latestMigrations = latestMigrations;
   result.upgrade.latestNumbering = latestNumbering;
 
   const repeatHistoryBefore = latestHistory;
@@ -1061,7 +1057,7 @@ try {
     numbering: numberingLatestMetrics(upgradeDatabase)
   };
   assert(same(repeatHistoryBefore, repeatHistoryAfter), "repeat Flyway changed migration history");
-  assert(same(syncCounts, [86, 86]), "repeat tenant sync did not return 86/86", syncCounts);
+  assert(same(syncCounts, [89, 89]), "repeat tenant sync did not return 89/89", syncCounts);
   assert(same(repeatSnapshotBefore, repeatSnapshotAfter), "repeat Flyway/sync changed V103/V104 semantics");
   result.repeat = { ...result.repeat, syncCounts, historyDigest: digest(repeatHistoryAfter), semanticDigest: digest(repeatSnapshotAfter) };
 
@@ -1105,7 +1101,7 @@ try {
     assert(backupResponse.status === 200 && backupResponse.data?.ok === true, `formal backup API failed ${backupResponse.status}: ${backupResponse.text}`);
     const formalBackup = backupResponse.data?.backup;
     assert(formalBackup?.id && formalBackup?.backupName && formalBackup?.backupSchemaName, `formal backup response incomplete: ${backupResponse.text}`);
-    assert(Number(formalBackup.tableCount) === 86, "formal backup did not copy all 86 managed tables", formalBackup);
+    assert(Number(formalBackup.tableCount) === 89, "formal backup did not copy all 89 managed tables", formalBackup);
     assert(/^[0-9a-f-]{36}$/i.test(String(formalBackup.id)), "formal backup id is not a UUID", formalBackup);
     quoteIdentifier(String(formalBackup.backupSchemaName));
 
@@ -1222,22 +1218,12 @@ try {
   createDatabase(freshDatabase);
   result.fresh.flywayOutput = flyway(freshDatabase);
   const freshHistory = history(freshDatabase);
-  const sourceScripts = (await readdir(migrationDir))
-    .filter((name) => /^V\d+__.+\.sql$/.test(name))
-    .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
-  const freshV105 = freshHistory.filter((row) => row.version === "105");
-  const freshV106 = freshHistory.filter((row) => row.version === "106");
-  const freshV107 = freshHistory.filter((row) => row.version === "107");
-  const freshV108 = freshHistory.filter((row) => row.version === "108");
-  const freshV109 = freshHistory.filter((row) => row.version === "109");
+  const sourceScripts = migrationHead.sourceScripts;
+  assertPublishedMigrationHistory(freshHistory, "A142 fresh history");
+  const freshCurrentHeadRows = freshHistory.filter((row) => row.version === migrationHead.version);
   assert(freshHistory.every((row) => row.success === true), "fresh history contains a failed migration", freshHistory);
   assert(same(freshHistory.map((row) => row.script), sourceScripts), "fresh history differs from migration source set");
-  assert(freshV105.length === 1 && freshV105[0].success === true, "fresh V105 history row missing or failed", freshV105);
-  assert(freshV106.length === 1 && freshV106[0].success === true, "fresh V106 history row missing or failed", freshV106);
-  assert(Number(freshV106[0].checksum) === publishedV106Checksum, "fresh V106 checksum must match the immutable published checksum", freshV106[0]);
-  assert(freshV107.length === 1 && freshV107[0].success === true, "fresh V107 history row missing or failed", freshV107);
-  assert(freshV108.length === 1 && freshV108[0].success === true, "fresh V108 history row missing or failed", freshV108);
-  assert(freshV109.length === 1 && freshV109[0].success === true, "fresh V109 history row missing or failed", freshV109);
+  assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, "fresh current head row missing or failed", { expected: migrationHead, actual: freshCurrentHeadRows });
   const freshMetrics = sqlJson(freshDatabase, `
     SELECT jsonb_build_object(
       'managedTables', (SELECT count(*) FROM public.sys_tenant_managed_table),
@@ -1258,19 +1244,19 @@ try {
       )
     )::text
   `);
-  assert(freshHistory.at(-1)?.version === "109", "fresh migration max version should be V109", freshHistory.at(-1));
+  assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version should be V${migrationHead.version}`, freshHistory.at(-1));
   assert(
-    freshMetrics.managedTables === 86
+    freshMetrics.managedTables === 89
       && freshMetrics.returnTables === 3
       && freshMetrics.offsetColumn === 1
       && freshMetrics.importBatchTables === 1
       && freshMetrics.returnRows === 0
-      && freshMetrics.managedChecks === 105
+      && freshMetrics.managedChecks === 117
       && freshMetrics.numberingVersionType === "bigint",
-    "fresh topology/numbering metrics mismatch after V109",
+    "fresh topology/numbering metrics mismatch after V111",
     freshMetrics
   );
-  result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, metrics: freshMetrics };
+  result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, currentMigrationHead: migrationHead, metrics: freshMetrics };
 } catch (error) {
   primaryError = error;
   result.failure = errorText(error);

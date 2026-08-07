@@ -11,6 +11,9 @@ const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-26";
+const tableViewport = { width: 1366, height: 710 };
+const overflowSafetyRowHeight = 30;
+const overflowSeedCount = Math.floor(tableViewport.height / overflowSafetyRowHeight) + 2;
 let orderNo = "";
 let noticeNo = "";
 const listKeyword = `A112 table core ${batch}`;
@@ -45,7 +48,7 @@ async function api(pathname, options = {}) {
 }
 
 async function seed() {
-  for (let index = 0; index < 17; index += 1) {
+  for (let index = 0; index < overflowSeedCount; index += 1) {
     const lines = index === 0
       ? [
           { productCode: "CP-001", warehouseCode: "CK-001", qty: 8, unitPrice: 86, taxRate: 13, lineRemark: "A112 line 1", planDeliveryDate: "2026-07-06" },
@@ -187,6 +190,9 @@ async function tableMetrics(page) {
       entryBodyRect: rect(".entry-table .table-core-body-wrapper"),
       entryFooterRect: rect(".entry-table .table-core-footer-wrapper"),
       listHeaders: text(".vxe-wrap .vxe-header--column").slice(0, 8),
+      listRowHeights: [...document.querySelectorAll(".vxe-wrap .vxe-body--row")]
+        .map((node) => Math.round(node.getBoundingClientRect().height))
+        .filter((height) => height > 0),
       entryHeaders: text(".entry-table thead th").slice(0, 8),
       listCoreHeaderCount: document.querySelectorAll(".vxe-wrap .table-core-header-cell").length,
       entryCoreHeaderCount: document.querySelectorAll(".entry-table .table-core-header-cell").length,
@@ -245,7 +251,7 @@ async function dragBillNoWidth(page, deltaX) {
 
 await seed();
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1366, height: 710 } });
+const page = await browser.newPage({ viewport: tableViewport });
 const screenshots = [];
 
 try {
@@ -337,11 +343,19 @@ try {
   const batchHeaderRowCount = await page.locator(".vxe-wrap .vxe-body--row").count();
   assert(batchHeaderRowCount === seededOrderNos.length, `batch keyword should isolate ${seededOrderNos.length} self-owned header rows, got ${batchHeaderRowCount}`);
   const denseHeaderMetrics = await tableMetrics(page);
+  const denseRowHeight = Math.min(...denseHeaderMetrics.listRowHeights);
+  assert(Number.isFinite(denseRowHeight) && denseRowHeight > 0, `dense fixture row height should be measurable: ${JSON.stringify(denseHeaderMetrics.listRowHeights)}`);
+  assert(denseRowHeight >= overflowSafetyRowHeight, `overflow fixture safety premise requires rows at least ${overflowSafetyRowHeight}px, got ${denseRowHeight}px`);
+  const requiredOverflowRows = Math.floor(denseHeaderMetrics.listBodyScroll.clientHeight / denseRowHeight) + 1;
+  assert(
+    batchHeaderRowCount >= requiredOverflowRows,
+    `deterministic overflow fixture requires at least ${requiredOverflowRows} rows at ${denseRowHeight}px, got ${batchHeaderRowCount}`
+  );
   assert(
     denseHeaderMetrics.listBodyScroll.scrollHeight > denseHeaderMetrics.listBodyScroll.clientHeight + 8,
-    `seventeen self-owned rows should create real vertical overflow: ${JSON.stringify(denseHeaderMetrics.listBodyScroll)}`
+    `${batchHeaderRowCount} self-owned rows should create real vertical overflow: ${JSON.stringify(denseHeaderMetrics.listBodyScroll)}`
   );
-  await screenshot(page, "a112b-header-seventeen-row-scroll", screenshots);
+  await screenshot(page, "a112b-header-deterministic-row-scroll", screenshots);
   const beforeResize = await headerWidths(page);
   await dragBillNoWidth(page, 44);
   const afterResize = await headerWidths(page);
@@ -456,6 +470,7 @@ try {
       isolatedHeaderRowCount,
       batchHeaderRowCount,
       seededOrderCount: seededOrderNos.length,
+      overflowFixture: { viewport: tableViewport, overflowSafetyRowHeight, overflowSeedCount, denseRowHeight, requiredOverflowRows },
       headerResize: { beforeResize, afterResize },
       tabState: { openedBillNo, restoredBillNo, restoredProduct },
       newLine,

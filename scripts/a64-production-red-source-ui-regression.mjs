@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -9,6 +10,7 @@ const resultPath = path.join(verificationDir, "a64-production-red-source-ui-regr
 const frontendUrl = "http://127.0.0.1:5173/";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const bomIssueMethod = `A64-${batch}`;
+const productionMotherProductCode = "CP-001";
 
 await mkdir(screenshotDir, { recursive: true });
 
@@ -55,15 +57,6 @@ async function auditBomAllowNewVersion(page, code) {
   return requireJson(page, `/api/production/boms/${encodeURIComponent(code)}/audit`, { method: "POST", body });
 }
 
-async function loginAsAdmin(page) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-account-set").selectOption("BLD-TEST");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
-}
-
 async function seedStock(page) {
   for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
     for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
@@ -89,7 +82,7 @@ async function createProductionPairs(page) {
     method: "POST",
     body: {
       code: bomCode,
-      productCode: "CP-001",
+      productCode: productionMotherProductCode,
       qty: 1,
       lines: [
         { materialCode: "CP-001", qty: 1, issueWarehouseCode: "CK-002" },
@@ -127,9 +120,9 @@ async function createProductionPairs(page) {
     method: "POST",
     body: {
       lines: [
-        { productCode: "CP-001", warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
-        { productCode: "PJ-014", warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
-        { productCode: "CP-T413874", warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
+        { productCode: productionMotherProductCode, warehouseCode: "CK-001", qty: 1, unitPrice: 10 },
+        { productCode: productionMotherProductCode, warehouseCode: "CK-002", qty: 2, unitPrice: 5 },
+        { productCode: productionMotherProductCode, warehouseCode: "CK-003", qty: 3, unitPrice: 20 }
       ]
     }
   }), "产品入库红冲 UI 来源");

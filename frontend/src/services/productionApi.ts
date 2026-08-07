@@ -39,15 +39,29 @@ export interface ProductionPlanPayload {
   productCode?: string;
   bomCode?: string;
   warehouseCode?: string;
-  qty: number;
+  qty?: number;
   sourceType?: string;
   departmentCode?: string;
   planDeliveryDate?: string;
+  lines?: ProductionPlanLinePayload[];
+}
+
+export interface ProductionPlanLinePayload {
+  productId: string;
+  productCode: string;
+  bomCode?: string;
+  warehouseCode?: string;
+  qty: number;
+  departmentCode?: string;
+  planDeliveryDate?: string;
+  expandMultilevelTasks?: boolean;
+  generatePurchaseRequisition?: boolean;
 }
 
 export interface ProductionTaskPayload {
   billNo?: string;
   planNo?: string;
+  planLineNo?: number;
   bomCode?: string;
   warehouseCode?: string;
   qty: number;
@@ -58,6 +72,7 @@ export interface SelectableProductionTaskLine {
   planNo?: string;
   billDate?: string;
   department?: string;
+  productId?: string;
   productCode?: string;
   productName?: string;
   spec?: string;
@@ -68,6 +83,8 @@ export interface SelectableProductionTaskLine {
   taskQty?: number | string;
   completedQty?: number | string;
   remainingProductQty?: number | string;
+  issuedSets?: number | string;
+  completableQty?: number | string;
   requiredQty?: number | string;
   issuedQty?: number | string;
   remainingQty?: number | string;
@@ -95,6 +112,11 @@ export interface MaterialIssuePreviewLine {
 export interface MaterialIssuePreview {
   document?: {
     sourceOrderNo?: string;
+    sourceKind?: string;
+    sourceLevel?: number | string;
+    parentTaskNo?: string;
+    rootTaskNo?: string;
+    bomPath?: string;
     billDate?: string;
     department?: string;
     status?: string;
@@ -284,6 +306,10 @@ export function createProductionPlan(payload: ProductionPlanPayload) {
   return postJson("/api/production/plans", compactPayload(payload as unknown as Record<string, unknown>));
 }
 
+export function fetchProductionPlanDetail(billNo: string) {
+  return requestJson(`/api/production/plans/${encodeURIComponent(billNo)}`, "GET");
+}
+
 export function auditProductionPlan(billNo: string) {
   return postJson(`/api/production/plans/${encodeURIComponent(billNo)}/audit`, {});
 }
@@ -379,6 +405,20 @@ export function createProductionTask(payload: ProductionTaskPayload) {
 export async function fetchSelectableProductionTasks(query: ProductionSourceSelectorQuery) {
   const result = await fetchSourceSelectorRows({
     listKey: "production-task-source-selector",
+    keyword: query.keyword,
+    columnFilters: query.columnFilters,
+    pageSize: 1000
+  });
+  return {
+    ok: result.ok,
+    message: result.message,
+    data: result.rows as SelectableProductionTaskLine[]
+  };
+}
+
+export async function fetchSelectableProductInTasks(query: ProductionSourceSelectorQuery) {
+  const result = await fetchSourceSelectorRows({
+    listKey: "product-in-task-source-selector",
     keyword: query.keyword,
     columnFilters: query.columnFilters,
     pageSize: 1000

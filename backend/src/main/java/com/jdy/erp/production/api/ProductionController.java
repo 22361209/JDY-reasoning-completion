@@ -133,6 +133,12 @@ public class ProductionController {
         return taskAppService.createPlan(request);
     }
 
+    @GetMapping("/plans/{billNo}")
+    @RequirePermission("production.task.audit")
+    public Map<String, Object> planDetail(@PathVariable String billNo) {
+        return taskAppService.planDetail(billNo);
+    }
+
     @PostMapping("/plans/{billNo}/audit")
     @RequirePermission("production.task.audit")
     public Map<String, Object> auditPlan(@PathVariable String billNo) {

@@ -6,7 +6,12 @@ import net from "node:net";
 import path from "node:path";
 
 import { chromium } from "playwright";
-import { loginApi, logout } from "./helpers/regression-auth.mjs";
+import { loginApi, logout, postPublicPasswordResetRequest } from "./helpers/regression-auth.mjs";
+import {
+  registerRegressionProcessTree,
+  regressionProcessTreeIsAlive,
+  signalRegressionProcessTree
+} from "./helpers/regression-process-tree.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -476,16 +481,19 @@ function canonicalJson(value) {
 }
 
 async function postPasswordReset(baseUrl, username, contactNote, forwardedFor = "") {
-  const headers = new Headers({ "Content-Type": "application/json" });
-  if (forwardedFor) {
-    headers.set("X-Forwarded-For", forwardedFor);
+  let response;
+  try {
+    response = await postPublicPasswordResetRequest(baseUrl, {
+      username,
+      contactNote,
+      forwardedFor
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.cause instanceof Error
+      ? `${error.name}: ${error.message}; cause=${error.cause.name}: ${error.cause.message}`
+      : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    throw new Error(`password-reset transport failed for isolated origin ${baseUrl}: ${reason}`, { cause: error });
   }
-  const response = await fetch(`${baseUrl}/api/system/password-reset-requests`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ username, contactNote }),
-    signal: AbortSignal.timeout(5_000)
-  });
   const text = await response.text();
   let data = null;
   try {
@@ -499,6 +507,23 @@ async function postPasswordReset(baseUrl, username, contactNote, forwardedFor = 
     text,
     retryAfter: response.headers.get("retry-after")
   };
+}
+
+async function postAlreadyRateLimitedPasswordReset(baseUrl, username, contactNote, label) {
+  try {
+    return await postPasswordReset(baseUrl, username, contactNote);
+  } catch (firstError) {
+    // The caller establishes the global limiter at its hard cap before this
+    // request. It is therefore a no-write rejection whether the first socket
+    // reset happened before or after the server observed it; one fresh
+    // connection is safe and distinguishes an idle pooled-connection reset
+    // from a limiter contract failure without retrying accepted submissions.
+    try {
+      return await postPasswordReset(baseUrl, username, contactNote);
+    } catch (retryError) {
+      throw new AggregateError([firstError, retryError], `${label} transport failed before and after the safe capped-request retry`);
+    }
+  }
 }
 
 function assertUniformPasswordResetResponse(response, label) {
@@ -601,7 +626,11 @@ async function spawnIsolatedBackend({
     assert(Number.isInteger(globalMax) && globalMax > 0, `${name} requires an explicit positive globalMax`);
     assert(Number.isInteger(sourceMax) && sourceMax > 0, `${name} requires an explicit positive sourceMax`);
     Object.assign(env, {
-      JDY_PASSWORD_RESET_GLOBAL_WINDOW: "1m",
+      // The global-boundary probe deliberately performs 101 isolated HTTP
+      // requests.  Keep its test bucket alive for the full probe so it tests
+      // the configured count boundary rather than incidental wall-clock
+      // expiry; production defaults remain unchanged.
+      JDY_PASSWORD_RESET_GLOBAL_WINDOW: "10m",
       JDY_PASSWORD_RESET_GLOBAL_MAX_ATTEMPTS: String(globalMax),
       JDY_PASSWORD_RESET_SOURCE_WINDOW: "10m",
       JDY_PASSWORD_RESET_SOURCE_MAX_ATTEMPTS: String(sourceMax),
@@ -637,7 +666,7 @@ async function spawnIsolatedBackend({
   const child = spawn("./mvnw", ["spring-boot:run"], {
     cwd: path.join(rootDir, "backend"),
     env,
-    detached: true,
+    detached: false,
     stdio: ["ignore", logFile.fd, logFile.fd]
   });
   const processInfo = {
@@ -654,7 +683,11 @@ async function spawnIsolatedBackend({
   child.once("error", (error) => {
     processInfo.spawnError = error;
   });
-  await logFile.close();
+  try {
+    registerRegressionProcessTree(processInfo);
+  } finally {
+    await logFile.close();
+  }
   return processInfo;
 }
 
@@ -713,21 +746,7 @@ async function expectProfileGuardStartupFailure(options) {
 }
 
 function processGroupIsAlive(processInfo) {
-  if (!Number.isInteger(processInfo?.child?.pid)) {
-    return false;
-  }
-  try {
-    process.kill(-processInfo.child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") {
-      return false;
-    }
-    if (error?.code === "EPERM") {
-      return true;
-    }
-    throw error;
-  }
+  return regressionProcessTreeIsAlive(processInfo);
 }
 
 async function waitForProcessGroupExit(processInfo, timeoutMs) {
@@ -755,7 +774,7 @@ async function stopIsolatedBackend(processInfo) {
       return;
     }
     try {
-      process.kill(-processInfo.child.pid, "SIGTERM");
+      signalRegressionProcessTree(processInfo, "SIGTERM");
     } catch (error) {
       if (error?.code === "ESRCH") {
         processInfo.stopped = true;
@@ -766,7 +785,7 @@ async function stopIsolatedBackend(processInfo) {
     if (!await waitForProcessGroupExit(processInfo, 8000)) {
       processInfo.forcedKill = true;
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
       } catch (error) {
         if (error?.code !== "ESRCH") {
           throw error;
@@ -893,7 +912,7 @@ async function runPasswordResetIsolation() {
         continue;
       }
       try {
-        process.kill(-processInfo.child.pid, "SIGKILL");
+        signalRegressionProcessTree(processInfo, "SIGKILL");
         processInfo.forcedKill = true;
         isolation.cleanup.exitLastResortKills.push(processInfo.name);
       } catch (error) {
@@ -982,7 +1001,7 @@ async function runPasswordResetIsolation() {
       process.exitCode = exitCode;
       void cleanupIsolation().finally(() => {
         removeSignalHandlers();
-        process.exit(exitCode);
+        process.exitCode = exitCode;
       });
     };
     signalHandlers.set(signal, handler);
@@ -1103,7 +1122,12 @@ async function runPasswordResetIsolation() {
       verifyResponse(response, `global request ${index + 1}`);
     }
     const globalBeforeLimit = redisSnapshot(mainPrefix);
-    const globalLimitResponse = await postPasswordReset(mainBackend.baseUrl, globalUnknowns[100], `A135 global probe ${token} 101`);
+    const globalLimitResponse = await postAlreadyRateLimitedPasswordReset(
+      mainBackend.baseUrl,
+      globalUnknowns[100],
+      `A135 global probe ${token} 101`,
+      "global request 101"
+    );
     verifyResponse(globalLimitResponse, "global request 101");
     const globalAfterLimit = redisSnapshot(mainPrefix);
     const globalKeys = redisRateKeys(mainPrefix, "127.0.0.1", globalUnknowns[0]);
@@ -1284,11 +1308,13 @@ try {
   result.management.anonymousStatus = anonymousManage.status;
 
   for (const [role, username, password] of [
-    ["ADMIN", "admin", "admin123"],
+    ["ADMIN", "", ""],
     ["WAREHOUSE", "warehouse", "warehouse123"],
     ["FINANCE", "finance", "finance123"]
   ]) {
-    const cookie = await loginApi(apiBase, username, password, "BLD-TEST");
+    const cookie = role === "ADMIN"
+      ? await loginApi(apiBase)
+      : await loginApi(apiBase, username, password, "BLD-TEST");
     apiCookies.set(role, cookie);
     const accountSetsResponse = await request(cookie, "/api/system/account-sets");
     expectStatus(`${role} account sets`, accountSetsResponse, 200);

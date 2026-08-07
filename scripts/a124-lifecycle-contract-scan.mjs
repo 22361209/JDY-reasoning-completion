@@ -257,5 +257,5 @@ const result = {
 console.log(JSON.stringify(result, null, 2));
 
 if (failures.length > 0) {
-  process.exit(1);
+  process.exitCode = 1;
 }

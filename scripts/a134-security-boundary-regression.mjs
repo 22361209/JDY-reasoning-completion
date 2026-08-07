@@ -3,12 +3,13 @@ import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { loginApi } from "./helpers/regression-auth.mjs";
+import { loginApi, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a134-security-boundary-regression.json");
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const token = randomBytes(6).toString("hex");
 const fixtureKey = `A134_SECURITY_${batch}_${token}`;
@@ -297,7 +298,8 @@ try {
   adminSession = adminSessionResponse.data;
   warehouseSession = warehouseSessionResponse.data;
   financeSession = financeSessionResponse.data;
-  assert(adminSession?.user?.roleCode === "ADMIN", "ADMIN session should expose ADMIN role");
+  assert(adminSession?.user?.roleCode === "ADMIN" && adminSession?.user?.username === adminIdentity.username,
+    "ADMIN session should expose the run-scoped ADMIN identity");
   assert(warehouseSession?.user?.roleCode === "WAREHOUSE", "WAREHOUSE session should expose WAREHOUSE role");
   assert(financeSession?.user?.roleCode === "FINANCE", "FINANCE session should expose FINANCE role");
   assert(adminSession?.tenant?.code === "BLD-TEST" && adminSession?.tenant?.schemaName === "public", "ADMIN must be in the BLD-TEST public schema");
@@ -355,7 +357,7 @@ try {
   });
   const existingReset = await request("", "/api/system/password-reset-requests", {
     method: "POST",
-    body: { username: "admin", contactNote: existingResetContact }
+    body: { username: adminIdentity.username, contactNote: existingResetContact }
   });
   const missingReset = await request("", "/api/system/password-reset-requests", {
     method: "POST",
@@ -371,12 +373,12 @@ try {
     WITH existing_user AS (
       SELECT id
       FROM public.sys_user
-      WHERE username = 'admin' AND enabled = TRUE
+      WHERE username = ${sqlLiteral(adminIdentity.username)} AND enabled = TRUE
     ), existing_requests AS (
       SELECT request_row.*
       FROM public.sys_password_reset_request request_row
       JOIN existing_user user_row ON user_row.id = request_row.requested_user_id
-      WHERE request_row.username = 'admin'
+      WHERE request_row.username = ${sqlLiteral(adminIdentity.username)}
         AND request_row.contact_note = ${sqlLiteral(existingResetContact)}
         AND request_row.status = 'PENDING'
     ), missing_requests AS (
@@ -516,11 +518,11 @@ try {
   expectStatus("ADMIN document-lock acquire", adminAcquire, 200);
   assert(adminAcquire.data?.readOnly === false, `ADMIN should acquire an editable lock: ${adminAcquire.text}`);
   const adminLock = lockSnapshot(salesBillNo);
-  assert(adminLock.length === 1 && adminLock[0].holder_username === "admin", `ADMIN lock DB state is invalid: ${JSON.stringify(adminLock)}`);
+  assert(adminLock.length === 1 && adminLock[0].holder_username === adminIdentity.username, `ADMIN lock DB state is invalid: ${JSON.stringify(adminLock)}`);
   const warehouseRelease = await request(warehouseCookie, `/api/document-locks/salesOrder/${encodeURIComponent(salesBillNo)}`, { method: "DELETE" });
   expectStatus("WAREHOUSE release ADMIN lock", warehouseRelease, 200);
   assert(warehouseRelease.data?.released === false, "WAREHOUSE must not release another user's lock");
-  assert(lockSnapshot(salesBillNo).length === 1 && lockSnapshot(salesBillNo)[0].holder_username === "admin", "WAREHOUSE release must leave the ADMIN lock unchanged");
+  assert(lockSnapshot(salesBillNo).length === 1 && lockSnapshot(salesBillNo)[0].holder_username === adminIdentity.username, "WAREHOUSE release must leave the ADMIN lock unchanged");
   const adminRelease = await request(adminCookie, `/api/document-locks/salesOrder/${encodeURIComponent(salesBillNo)}`, { method: "DELETE" });
   expectStatus("ADMIN document-lock release", adminRelease, 200);
   assert(adminRelease.data?.released === true && lockSnapshot(salesBillNo).length === 0, "ADMIN should release its own lock exactly once");

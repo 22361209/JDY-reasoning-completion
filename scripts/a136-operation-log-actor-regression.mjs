@@ -3,13 +3,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { loginApi } from "./helpers/regression-auth.mjs";
+import { loginApi, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
 const resultPath = path.join(verificationDir, "a136-operation-log-actor-regression.json");
 const baselinePath = path.join(verificationDir, "a136-operation-log-actor-baseline.json");
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const token = randomBytes(5).toString("hex");
 const fixtureKey = `A136_ACTOR_${batch}_${token}`;
@@ -84,8 +85,8 @@ const result = {
   restoreChecks: {},
   cleanup: {},
   intentionalArtifacts: {
-    retainedLoginAudits: ["admin", "warehouse", "finance"],
-    reason: "Formal logins of durable built-in users remain audit evidence; all temporary-user and temporary-object logs are removed."
+    retainedLoginAudits: [adminIdentity.username, "warehouse", "finance"],
+    reason: "Formal login audits remain until the owning suite removes its run-scoped ADMIN actor; all script-owned temporary-user and temporary-object logs are removed."
   }
 };
 
@@ -783,7 +784,7 @@ try {
   assertLegacySnapshot(legacyBefore);
   result.baseline = { source: baselineSource, migrationState, legacyBefore };
 
-  const adminCookie = await loginApi(apiBase, "admin", "admin123", "BLD-TEST");
+  const adminCookie = await loginApi(apiBase);
   const warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
   const financeCookie = await loginApi(apiBase, "finance", "finance123", "BLD-TEST");
   const adminSession = await request(adminCookie, "/api/system/session");
@@ -792,7 +793,7 @@ try {
   assert(adminSession.status === 200 && adminSession.data?.user?.roleCode === "ADMIN", "ADMIN session precondition failed");
   assert(warehouseSession.status === 200 && warehouseSession.data?.user?.roleCode === "WAREHOUSE", "WAREHOUSE session precondition failed");
   assert(financeSession.status === 200 && financeSession.data?.user?.roleCode === "FINANCE", "FINANCE session precondition failed");
-  const adminUserId = sqlScalar("SELECT id::text FROM public.sys_user WHERE username = 'admin'");
+  const adminUserId = sqlScalar(`SELECT id::text FROM public.sys_user WHERE username = ${sqlLiteral(adminIdentity.username)}`);
   const adminDisplayName = String(adminSession.data.user.name);
   assert(adminUserId && adminDisplayName, "ADMIN immutable actor fixture is incomplete");
   const accountSets = lifecycleAccountSets();
@@ -814,7 +815,7 @@ try {
   assert(fixtureUserId, "fixture user UUID was not persisted");
   const createLogs = auditRows("public", `action_code = 'CREATE_USER' AND target_id = ${sqlLiteral(fixtureUserId)}::uuid`);
   assert(createLogs.length === 1, `CREATE_USER should have one log: ${JSON.stringify(createLogs)}`);
-  assertUserActor(createLogs[0], adminUserId, "admin", adminDisplayName, "CREATE_USER");
+  assertUserActor(createLogs[0], adminUserId, adminIdentity.username, adminDisplayName, "CREATE_USER");
   assert(createLogs[0].accountSetCode === "platform" && createLogs[0].targetNo === username, `CREATE_USER provenance mismatch: ${JSON.stringify(createLogs[0])}`);
   assert(createLogs[0].beforeState == null, `CREATE_USER must truthfully have no pre-existing state: ${JSON.stringify(createLogs[0])}`);
   assert(
@@ -1076,7 +1077,7 @@ try {
   await logoutCookie("built-in WAREHOUSE BLD-TEST", warehouseCookie);
   await logoutCookie("built-in FINANCE BLD-TEST", financeCookie);
 
-  const tenantAdminCookie = await loginApi(apiBase, "admin", "admin123", restoreAccountSetCode);
+  const tenantAdminCookie = await loginApi(apiBase, undefined, undefined, restoreAccountSetCode);
   const tenantSession = await request(tenantAdminCookie, "/api/system/session");
   assert(tenantSession.status === 200 && tenantSession.data?.tenant?.code === restoreAccountSetCode, `tenant restore session failed: ${tenantSession.text}`);
   restoreAccountSet = {
@@ -1100,7 +1101,7 @@ try {
     AND operated_at >= ${sqlLiteral(startedAt)}::timestamptz
   `);
   assert(backupLogsBeforeRestore.length === 1, `backup should append one tenant log: ${JSON.stringify(backupLogsBeforeRestore)}`);
-  assertUserActor(backupLogsBeforeRestore[0], adminUserId, "admin", adminDisplayName, "BACKUP_ACCOUNT_SET");
+  assertUserActor(backupLogsBeforeRestore[0], adminUserId, adminIdentity.username, adminDisplayName, "BACKUP_ACCOUNT_SET");
   assert(backupLogsBeforeRestore[0].accountSetId === restoreAccountSet.id && backupLogsBeforeRestore[0].accountSetCode === restoreAccountSet.code && backupLogsBeforeRestore[0].accountSetName === restoreAccountSet.name, `backup tenant provenance mismatch: ${JSON.stringify(backupLogsBeforeRestore[0])}`);
   const backupLogId = backupLogsBeforeRestore[0].id;
   restoreFixtureLogIds.push(backupLogId);

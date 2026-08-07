@@ -7,7 +7,9 @@ import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
 import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +41,8 @@ class TenantSalesChainIsolationTest {
     private static final String PRODUCT_CODE = "A119-SALES";
     private static final String CUSTOMER_CODE = "A119-CUST";
     private static final String WAREHOUSE_CODE = "CK-001";
+    private static final String FIXTURE_PASSWORD = "A174-Tenant-Test!9";
+    private static final String SHARED_ADMIN_USERNAME = "admin";
 
     @Autowired
     private AccountSetManagementService accountSetManagementService;
@@ -82,26 +86,70 @@ class TenantSalesChainIsolationTest {
 
     private final List<String> createdCodes = new ArrayList<>();
     private final List<String> createdSchemas = new ArrayList<>();
+    private String fixtureUsername;
+    private String fixtureUserId;
+    private LocalDate databaseDate;
+    private LocalDate baseDate;
+    private SharedAdminSessionSnapshot sharedAdminSessionBefore;
 
     @BeforeEach
     void bindRequest() {
-        useTenant("BLD-TEST");
+        TenantContext.clear();
+        RequestContextHolder.resetRequestAttributes();
+        sharedAdminSessionBefore = sharedAdminSessionSnapshot();
+        databaseDate = platformJdbcTemplate.queryForObject("SELECT CURRENT_DATE", LocalDate.class);
+        assertThat(databaseDate).as("数据库当前日期").isNotNull();
+        baseDate = databaseDate.minusMonths(1).withDayOfMonth(1);
+        createFixtureIdentity();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        currentSessionService.login(fixtureUsername, FIXTURE_PASSWORD, "BLD-TEST");
+        TenantContext.setTenant(currentSessionService.currentAccountSet());
     }
 
     @AfterEach
     void cleanUp() {
-        TenantContext.clear();
-        RequestContextHolder.resetRequestAttributes();
-        tenantDataSourceRegistry.close();
-        for (var schema : createdSchemas) {
-            platformJdbcTemplate.execute("DROP SCHEMA IF EXISTS " + quoteIdentifier(schema) + " CASCADE");
+        var errors = new ArrayList<Throwable>();
+        try {
+            clean(errors, "logout fixture identity", currentSessionService::logout);
+            TenantContext.clear();
+            clean(errors, "close tenant data sources", tenantDataSourceRegistry::close);
+
+            var schemasToDrop = new LinkedHashSet<>(createdSchemas);
+            for (var code : createdCodes) {
+                clean(errors, "resolve schema for " + code, () -> schemasToDrop.addAll(platformJdbcTemplate.queryForList(
+                    "SELECT schema_name FROM sys_account_set WHERE code = ? AND schema_name IS NOT NULL",
+                    String.class,
+                    code
+                )));
+            }
+            for (var schema : schemasToDrop) {
+                clean(errors, "drop schema " + schema, () -> platformJdbcTemplate.execute(
+                    "DROP SCHEMA IF EXISTS " + quoteIdentifier(schema) + " CASCADE"
+                ));
+            }
+            var tenantActorSchemasRemoved = actorSchemasRemoved(schemasToDrop, errors);
+            for (var code : createdCodes) {
+                clean(errors, "delete account-set grants for " + code, () -> platformJdbcTemplate.update("""
+                    DELETE FROM sys_user_account_set
+                    WHERE account_set_id IN (SELECT id FROM sys_account_set WHERE code = ?)
+                    """, code));
+                clean(errors, "delete account set " + code, () ->
+                    platformJdbcTemplate.update("DELETE FROM sys_account_set WHERE code = ?", code));
+            }
+            deleteFixtureIdentity(errors, tenantActorSchemasRemoved);
+            clean(errors, "verify fixture residue", () -> assertFixtureRemoved(schemasToDrop));
+            if (sharedAdminSessionBefore != null) {
+                clean(errors, "verify shared admin session unchanged", () ->
+                    assertThat(sharedAdminSessionSnapshot()).isEqualTo(sharedAdminSessionBefore));
+            }
+        } finally {
+            TenantContext.clear();
+            RequestContextHolder.resetRequestAttributes();
         }
-        for (var code : createdCodes) {
-            platformJdbcTemplate.update("""
-                DELETE FROM sys_user_account_set
-                WHERE account_set_id IN (SELECT id FROM sys_account_set WHERE code = ?)
-                """, code);
-            platformJdbcTemplate.update("DELETE FROM sys_account_set WHERE code = ?", code);
+        if (!errors.isEmpty()) {
+            var failure = new AssertionError("tenant sales fixture cleanup failed");
+            errors.forEach(failure::addSuppressed);
+            throw failure;
         }
     }
 
@@ -274,6 +322,7 @@ class TenantSalesChainIsolationTest {
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         createdCodes.add(code);
+        var currentPeriod = baseDate.toString().substring(0, 7);
         var result = accountSetManagementService.createAccountSet(new AccountSetManagementService.AccountSetCreateRequest(
             code,
             code + " 账套",
@@ -282,8 +331,8 @@ class TenantSalesChainIsolationTest {
             null,
             null,
             null,
-            "2026-06",
-            "2026-06"
+            currentPeriod,
+            currentPeriod
         ));
         @SuppressWarnings("unchecked")
         var row = (Map<String, Object>) result.get("accountSet");
@@ -293,9 +342,173 @@ class TenantSalesChainIsolationTest {
 
     private void useTenant(String code) {
         TenantContext.clear();
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
-        currentSessionService.login("admin", "admin123", code);
+        currentSessionService.switchAccountSet(code);
         TenantContext.setTenant(currentSessionService.currentAccountSet());
+    }
+
+    private void createFixtureIdentity() {
+        fixtureUsername = "a174-sales-" + UUID.randomUUID().toString().substring(0, 8).toLowerCase();
+        fixtureUserId = platformJdbcTemplate.queryForObject("""
+            INSERT INTO sys_user (username, display_name, password_hash, enabled, default_account_set_id)
+            SELECT ?, 'A174 销售 tenant 测试', ?, TRUE, id
+            FROM sys_account_set
+            WHERE code = 'BLD-TEST'
+            RETURNING id::text
+            """, String.class, fixtureUsername, "{noop}" + FIXTURE_PASSWORD);
+        platformJdbcTemplate.update("""
+            INSERT INTO sys_user_role (user_id, role_id)
+            SELECT ?::uuid, id
+            FROM sys_role
+            WHERE code = 'ADMIN'
+            """, fixtureUserId);
+        platformJdbcTemplate.update("""
+            INSERT INTO sys_user_account_set (user_id, account_set_id, role_code, is_default, enabled)
+            SELECT ?::uuid, id, 'ADMIN', TRUE, TRUE
+            FROM sys_account_set
+            WHERE code = 'BLD-TEST'
+            """, fixtureUserId);
+    }
+
+    private boolean actorSchemasRemoved(LinkedHashSet<String> schemas, List<Throwable> errors) {
+        try {
+            for (var schema : schemas) {
+                var remaining = platformJdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM pg_namespace WHERE nspname = ?",
+                    Integer.class,
+                    schema
+                );
+                if (remaining == null || remaining != 0) {
+                    errors.add(new IllegalStateException("tenant actor schema was not removed: " + schema));
+                    return false;
+                }
+            }
+            return true;
+        } catch (Throwable error) {
+            errors.add(new IllegalStateException("verify tenant actor schemas removed", error));
+            return false;
+        }
+    }
+
+    private void deleteFixtureIdentity(List<Throwable> errors, boolean tenantActorSchemasRemoved) {
+        if (fixtureUsername == null) {
+            return;
+        }
+        var publicActorLogsCleared = false;
+        try {
+            platformJdbcTemplate.update("""
+                DELETE FROM sys_operation_log
+                WHERE actor_username = ? OR operated_by = ?::uuid
+                """, fixtureUsername, fixtureUserId);
+            var remaining = platformJdbcTemplate.queryForObject("""
+                SELECT count(*)
+                FROM sys_operation_log
+                WHERE actor_username = ? OR operated_by = ?::uuid
+                """, Integer.class, fixtureUsername, fixtureUserId);
+            if (remaining == null || remaining != 0) {
+                throw new IllegalStateException("public actor operation logs were not cleared");
+            }
+            publicActorLogsCleared = true;
+        } catch (Throwable error) {
+            errors.add(new IllegalStateException("delete and verify fixture operation logs", error));
+        }
+        clean(errors, "delete fixture session scopes", () -> platformJdbcTemplate.update("""
+            DELETE FROM sys_session_account_scope
+            WHERE user_id IN (SELECT id FROM sys_user WHERE username = ?)
+            """, fixtureUsername));
+        clean(errors, "delete fixture account-set grants", () -> platformJdbcTemplate.update("""
+            DELETE FROM sys_user_account_set
+            WHERE user_id IN (SELECT id FROM sys_user WHERE username = ?)
+            """, fixtureUsername));
+        clean(errors, "delete fixture roles", () -> platformJdbcTemplate.update("""
+            DELETE FROM sys_user_role
+            WHERE user_id IN (SELECT id FROM sys_user WHERE username = ?)
+            """, fixtureUsername));
+        if (tenantActorSchemasRemoved && publicActorLogsCleared) {
+            clean(errors, "delete fixture user", () ->
+                platformJdbcTemplate.update("DELETE FROM sys_user WHERE username = ?", fixtureUsername));
+        } else {
+            clean(errors, "disable retained fixture user", () -> platformJdbcTemplate.update(
+                "UPDATE sys_user SET enabled = FALSE WHERE username = ?",
+                fixtureUsername
+            ));
+            errors.add(new IllegalStateException(
+                "fixture identity retained because actor-bearing schema or operation-log cleanup was incomplete"
+            ));
+        }
+    }
+
+    private void assertFixtureRemoved(LinkedHashSet<String> schemasToDrop) {
+        assertThat(platformJdbcTemplate.queryForObject(
+            "SELECT count(*) FROM sys_user WHERE username = ?",
+            Integer.class,
+            fixtureUsername
+        )).isZero();
+        if (fixtureUserId != null) {
+            assertThat(platformJdbcTemplate.queryForObject(
+                "SELECT count(*) FROM sys_session_account_scope WHERE user_id = ?::uuid",
+                Integer.class,
+                fixtureUserId
+            )).isZero();
+            assertThat(platformJdbcTemplate.queryForObject("""
+                SELECT count(*)
+                FROM sys_operation_log
+                WHERE actor_username = ? OR operated_by = ?::uuid
+                """, Integer.class, fixtureUsername, fixtureUserId)).isZero();
+        }
+        for (var code : createdCodes) {
+            assertThat(platformJdbcTemplate.queryForObject(
+                "SELECT count(*) FROM sys_account_set WHERE code = ?",
+                Integer.class,
+                code
+            )).isZero();
+        }
+        for (var schema : schemasToDrop) {
+            assertThat(platformJdbcTemplate.queryForObject(
+                "SELECT count(*) FROM pg_namespace WHERE nspname = ?",
+                Integer.class,
+                schema
+            )).isZero();
+        }
+    }
+
+    private SharedAdminSessionSnapshot sharedAdminSessionSnapshot() {
+        var userState = platformJdbcTemplate.queryForObject("""
+            SELECT jsonb_build_object(
+                'activeSessionToken', active_session_token,
+                'activeSessionStartedAt', active_session_started_at,
+                'lastSessionReplacedAt', last_session_replaced_at,
+                'lastLoginAt', last_login_at,
+                'sessionGeneration', session_generation,
+                'version', version
+            )::text
+            FROM sys_user
+            WHERE username = ?
+            """, String.class, SHARED_ADMIN_USERNAME);
+        var scopeState = platformJdbcTemplate.queryForObject("""
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'sessionToken', scope.session_token::text,
+                'accountSetId', scope.account_set_id::text,
+                'scopeToken', scope.scope_token::text,
+                'version', scope.version,
+                'updatedAt', scope.updated_at
+            ) ORDER BY scope.session_token), '[]'::jsonb)::text
+            FROM sys_session_account_scope scope
+            JOIN sys_user user_row ON user_row.id = scope.user_id
+            WHERE user_row.username = ?
+            """, String.class, SHARED_ADMIN_USERNAME);
+        return new SharedAdminSessionSnapshot(userState, scopeState);
+    }
+
+    private void clean(List<Throwable> errors, String action, Runnable step) {
+        try {
+            step.run();
+        } catch (Throwable error) {
+            errors.add(new IllegalStateException(action, error));
+        }
+    }
+
+    private String businessDate(int daysAfterBase) {
+        return baseDate.plusDays(daysAfterBase).toString();
     }
 
     private void createAuditedCustomer(String name) {
@@ -332,11 +545,11 @@ class TenantSalesChainIsolationTest {
         var saved = salesQuoteAppService.saveDraft(new SalesQuoteAppService.SalesQuoteDraftRequest(
             null,
             CUSTOMER_CODE,
-            "2026-06-30",
+            businessDate(0),
             "销售部",
-            "admin",
+            fixtureUsername,
             remark,
-            "2026-07-30",
+            databaseDate.toString(),
             List.of(new SalesQuoteAppService.SalesQuoteLineRequest(
                 null,
                 PRODUCT_CODE,
@@ -347,7 +560,7 @@ class TenantSalesChainIsolationTest {
                 "CM-A119",
                 "CO-A119",
                 "A119 quote line",
-                "2026-07-05"
+                businessDate(5)
             ))
         ));
         var billNo = generatedBillNo(saved, "销售报价单");
@@ -359,9 +572,9 @@ class TenantSalesChainIsolationTest {
         var saved = salesOrderAppService.saveDraft(new SalesOrderAppService.SalesOrderDraftRequest(
             null,
             CUSTOMER_CODE,
-            "2026-06-30",
+            businessDate(1),
             "销售部",
-            "admin",
+            fixtureUsername,
             "A119 order",
             List.of(new SalesOrderAppService.SalesOrderLineRequest(
                 null,
@@ -375,7 +588,7 @@ class TenantSalesChainIsolationTest {
                 "CM-A119",
                 "CO-A119",
                 "A119 order line",
-                "2026-07-05"
+                businessDate(5)
             ))
         ));
         var billNo = generatedBillNo(saved, "销售订单");
@@ -388,9 +601,9 @@ class TenantSalesChainIsolationTest {
             null,
             orderNo,
             CUSTOMER_CODE,
-            "2026-06-30",
+            businessDate(2),
             "销售部",
-            "admin",
+            fixtureUsername,
             "A119 delivery notice",
             List.of(new DeliveryNoticeAppService.DeliveryNoticeLineRequest(
                 null,
@@ -404,7 +617,7 @@ class TenantSalesChainIsolationTest {
                 "CM-A119",
                 "CO-A119",
                 "A119 notice line",
-                "2026-07-05"
+                businessDate(5)
             ))
         ));
         var billNo = generatedBillNo(saved, "发货通知单");
@@ -417,9 +630,9 @@ class TenantSalesChainIsolationTest {
             null,
             noticeNo,
             CUSTOMER_CODE,
-            "2026-06-30",
+            businessDate(3),
             "销售部",
-            "admin",
+            fixtureUsername,
             "A119 sales out",
             List.of(new SalesOutAppService.SalesOutLineRequest(
                 null,
@@ -435,7 +648,7 @@ class TenantSalesChainIsolationTest {
                 "CM-A119",
                 "CO-A119",
                 "A119 out line",
-                "2026-07-05"
+                businessDate(5)
             ))
         ));
         var billNo = generatedBillNo(saved, "销售出库单");
@@ -447,7 +660,7 @@ class TenantSalesChainIsolationTest {
         var saved = salesReturnAppService.saveDraft(new SalesReturnAppService.SalesReturnDraftRequest(
             null,
             null,
-            "2026-06-30",
+            businessDate(4),
             remark,
             List.of(new SalesReturnAppService.SalesReturnLineRequest(
                 sourceOutNo,
@@ -625,5 +838,8 @@ class TenantSalesChainIsolationTest {
 
     private String quoteIdentifier(String identifier) {
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    private record SharedAdminSessionSnapshot(String userState, String scopeState) {
     }
 }

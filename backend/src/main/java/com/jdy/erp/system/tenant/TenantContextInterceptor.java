@@ -21,6 +21,7 @@ public class TenantContextInterceptor implements HandlerInterceptor {
         "/api/system/users",
         "/api/system/login",
         "/api/system/logout",
+        "/api/system/regression-request-fence",
         "/api/system/account-sets/current",
         "/api/system/account-sets"
     );

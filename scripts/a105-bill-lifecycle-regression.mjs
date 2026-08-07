@@ -1,7 +1,11 @@
 import { chromium } from "playwright";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import {
+  installApiSession,
+  loginAsAdmin,
+  requestWithRegressionAdminConfirmation
+} from "./helpers/regression-auth.mjs";
 import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -12,7 +16,7 @@ const apiBase = "http://127.0.0.1:8080";
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-26";
 
-await installApiSession(apiBase);
+const adminCookie = await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
 await mkdir(path.dirname(resultPath), { recursive: true });
 
@@ -60,11 +64,13 @@ async function verifyLifecycleCodeContracts() {
   const purchaseInService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseInAppService.java"), "utf8");
   const purchaseReturnService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseReturnAppService.java"), "utf8");
   const purchaseOrderService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java"), "utf8");
+  const purchasePlanService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchasePlanAppService.java"), "utf8");
   const salesOrderService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/SalesOrderAppService.java"), "utf8");
   const salesQuoteService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/sales/application/SalesQuoteAppService.java"), "utf8");
   const validationService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/shared/application/ValidationService.java"), "utf8");
   const outsourcingService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/outsourcing/application/OutsourcingDocumentAppService.java"), "utf8");
   const salesOrderForm = await readFile(path.join(rootDir, "frontend/src/modules/sales/sales-order/SalesOrderForm.vue"), "utf8");
+  const purchasePlanForm = await readFile(path.join(rootDir, "frontend/src/modules/purchase/purchase-plan/PurchasePlanForm.vue"), "utf8");
   const appVue = await readFile(path.join(rootDir, "frontend/src/app/App.vue"), "utf8");
   const salesOrderPushDownStart = appVue.indexOf("async function openDeliveryNoticeFromSalesOrder");
   const salesOrderPushDownEnd = appVue.indexOf("async function openOutboundFromDeliveryNotice");
@@ -102,7 +108,12 @@ async function verifyLifecycleCodeContracts() {
   assert(!purchaseOrderService.includes("transitionAny("), "purchase order audit must not transition from any status");
   assert(!purchaseOrderService.includes("markPurchaseRequisitionOrdered(line.sourceOrderNo()"), "purchase order draft save must not occupy purchase requisition lines");
   assert(purchaseOrderService.includes("guardPositiveLineQuantities(LIFECYCLE_TARGET"), "purchase order audit must reject non-positive persisted line quantities");
-  assert(purchaseOrderService.includes("guardPurchaseRequisitionQuantities"), "purchase order audit must guard purchase requisition quantities");
+  assert(purchaseOrderService.includes("lockPurchaseRequisitionSources(demands)"), "purchase order audit must lock purchase requisition sources before validating quantities");
+  assert(purchaseOrderService.includes("refreshAndGuardPurchaseRequisitionQuantities(lockedSources"), "purchase order audit must recompute and guard purchase requisition quantities after locking sources");
+  assert(purchaseOrderService.includes("WHERE purchase_order.status = 'DRAFT'"), "purchase order draft save must not revert an audited order to draft");
+  assert(purchasePlanService.includes('"DELETE_PURCHASE_PLAN_DRAFT"'), "purchase plan draft deletion must write an operation log");
+  assert(purchasePlanForm.includes("此操作不可恢复，原计划编号不复用"), "purchase plan deletion confirmation must warn that physical deletion is irreversible and the bill number is not reused");
+  assert(purchasePlanForm.includes("clearDocument();"), "purchase plan deletion success must clear the deleted document from the form");
   assert(/@Transactional\s+public Map<String, Object> audit\(String billNo\)/.test(salesOrderService), "sales order audit validation and lifecycle transition must be transactional");
   assert(/@Transactional\s+public Map<String, Object> audit\(String billNo\)/.test(salesQuoteService), "sales quote audit validation and lifecycle transition must be transactional");
   assert(!deliveryNoticeService.includes("guardSourceOrderNoticeQuantity"), "delivery notice must not keep private aggregate quantity guard");
@@ -267,22 +278,28 @@ async function verifyLifecycleApi() {
       lines: [{ productCode: "CP-001", warehouseCode: "CK-001", qty: 2, unitPrice: 86 }]
     }
   }), "A105作废草稿");
-  const wrongPassword = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
-    body: { reason: "A105 错密", username: "admin", password: "bad" },
-    expectFailure: true
-  });
+  const wrongPassword = await requestWithRegressionAdminConfirmation(
+    apiBase,
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`,
+    { sessionCookie: adminCookie, reason: "A105 错密", invalidPassword: true }
+  );
   assert(wrongPassword.status === 401, `wrong password void should be 401, got ${wrongPassword.status}`);
-  const voided = await requireApi(`/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`, {
-    body: { reason: "A105 草稿作废", username: "admin", password: "admin123" }
-  });
+  const voidedResponse = await requestWithRegressionAdminConfirmation(
+    apiBase,
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(voidNo)}/void`,
+    { sessionCookie: adminCookie, reason: "A105 草稿作废" }
+  );
+  assert(voidedResponse.ok, `draft void should succeed, got ${voidedResponse.status}`);
+  const voided = voidedResponse.data;
   assert(voided.status === "VOID", "draft void should set VOID");
 
   const downstreamNo = await createSalesOrder("DOWNSTREAM");
   await createSalesOutFromOrder(downstreamNo, "DOWNSTREAM");
-  const blockedVoid = await api(`/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`, {
-    body: { reason: "A105 有下游作废", username: "admin", password: "admin123" },
-    expectFailure: true
-  });
+  const blockedVoid = await requestWithRegressionAdminConfirmation(
+    apiBase,
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`,
+    { sessionCookie: adminCookie, reason: "A105 有下游作废" }
+  );
   assert(blockedVoid.status === 409, `void with downstream should be blocked with 409, got ${blockedVoid.status}`);
 
   return { closeNo, freezeNo, lineBlockNo, voidNo, downstreamNo, wrongPasswordStatus: wrongPassword.status, blockedVoidStatus: blockedVoid.status, frozenAuditStatus: frozenAudit.status };

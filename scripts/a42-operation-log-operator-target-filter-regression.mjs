@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginAsAdmin, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 import { createSalesOutDraftViaDeliveryNotice } from "./helpers/sales-delivery-notice-flow.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
@@ -13,7 +13,7 @@ await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const billDate = "2026-06-24";
 const logDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
-const actorUsername = "admin";
+const actorUsername = regressionAdminIdentity().username;
 const actorDisplayName = "本地管理员";
 const operatorLabel = `${actorDisplayName}（${actorUsername}）`;
 const lines = [
@@ -182,10 +182,11 @@ try {
   });
   await page.getByTestId("list-query").click();
   const listRequest = await listRequestPromise;
+  const listRequestUrl = new URL(listRequest.url());
   const uiColumnFilters = JSON.parse(new URL(listRequest.url()).searchParams.get("columnFilters") || "{}");
   assert(uiColumnFilters.status?.operator === "等于" && uiColumnFilters.status?.value === "成功", `UI status filter should preserve exact equality: ${JSON.stringify(uiColumnFilters.status)}`);
-  assert(new URL(listRequest.url()).searchParams.get("scope") === "current", "UI request should preserve current scope");
-  assert(new URL(listRequest.url()).searchParams.get("actorType") === "USER", "UI request should preserve USER actor type");
+  assert(listRequestUrl.searchParams.get("scope") === "current", `UI request should preserve current scope: ${listRequest.url()}`);
+  assert(listRequestUrl.searchParams.get("actorType") === "USER", `UI request should preserve USER actor type: ${listRequest.url()}`);
   const table = page.getByTestId("vxe-list-table");
   await table.getByText(sales.redBillNo).waitFor({ state: "visible" });
   await table.getByText("sales_out").first().waitFor({ state: "visible" });

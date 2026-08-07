@@ -17,15 +17,15 @@ owner: project-governance
 
 | 字段 | 默认上限 | 说明 |
 | --- | ---: | --- |
-| `timeBudgetMinutes` | 300 | 从开始实现到验收的墙钟预算 |
+| `timeBudgetMinutes` | `unbounded` | 墙钟时间不设上限 |
 | `goalTokenBudget` | 15000000 | 启用 Goal 模式时使用；不把 cached/raw 计数当成新的工作量 |
 | `maxCommits` | 10 | 超过后必须先复盘范围 |
 | `maxConcurrentSubagents` | 3 | 受 `.codex/config.toml` 同时限制 |
-| `maxTotalSubagents` | 6 | 累计创建数量，含 review worker |
-| `maxFullGateRuns` | 1 | 未改动时不得重复执行 |
+| `maxTotalSubagents` | `unbounded` | 累计数不设上限；仍受同时并发槽位约束 |
+| `maxFullGateRuns` | 1 | 默认一次；只有用户明确授权并在任务包记录范围、原因和不重复规则时才可提高或设为 `unbounded` |
 | `outOfScopePolicy` | `record-and-stop` | 范围外失败只登记，不顺手修复 |
 
-任务还必须写明业务目标、允许路径、明确不做事项、目标门禁和停止条件。预算需要提高时，先给出原因、已用量和替代方案，由用户确认。
+任务还必须写明业务目标、允许路径、明确不做事项、目标门禁和停止条件。墙钟时间与累计子代理不再作为停止预算；其他预算需要提高时，先给出原因、已用量和替代方案，由用户确认。
 
 ## 并行与上下文
 
@@ -46,11 +46,10 @@ owner: project-governance
 
 出现任一条件时停止继续实现：
 
-- 已用任一预算达到 70%；
-- 实际时间超过原估时两倍；
+- Goal token、提交或 full 任一有限预算达到 70%；
 - 出现 3 个范围外失败；
 - 同一任务经历 3 次上下文压缩；
-- 已创建 6 个子代理或已产生 10 个提交。
+- 已产生 10 个提交。
 
 汇报必须包含：完成项、未完成项、实际耗时和预算、工作区/提交状态、门禁结果、范围外失败及推荐决定。用户确认后才可扩大范围或开启下一批。
 
@@ -65,7 +64,7 @@ owner: project-governance
 ## 验收
 
 - `AGENTS.md`、本文件和当前任务包的预算一致。
-- 项目 `.codex/config.toml` 保持并发不超过 3、嵌套深度不超过 1。
+- 项目 `.codex/config.toml` 的并发槽位仍尊重当前运行时硬限制；累计子代理数不设上限。
 - 每次交付都有独立 review、相关门禁和干净工作区。
 - 历史报告与生成物保持可追溯；不因执行治理而批量重写历史。
 - `node scripts/docs-governance-check.mjs` 对现行链接、当前任务/交接一致性、预算、顶层编号、历史方案标记和报告索引保持 fail-closed。

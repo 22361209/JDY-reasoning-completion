@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { assertReportImportGraph } from "./helpers/report-import-graph.mjs";
+import { loadRegressionManifest } from "./validate-regression-manifest.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const checks = [];
@@ -166,10 +166,7 @@ for (const area of ["inventory", "reports", "table", "security"]) {
   check(manifest.areas?.[area]?.includes("scripts/a148-inventory-movement-report-regression.mjs"), `manifest area:${area} 必须登记 A148`);
 }
 check(manifest.full?.includes("scripts/a148-inventory-movement-report-regression.mjs"), "manifest full 必须登记 A148");
-execFileSync(process.execPath, [path.join(root, "scripts/validate-regression-manifest.mjs")], {
-  cwd: root,
-  stdio: ["ignore", "pipe", "pipe"]
-});
+await loadRegressionManifest(root);
 checks.push("regression manifest 必须通过全量路径验证");
 
 const verificationDir = path.join(root, "verification");

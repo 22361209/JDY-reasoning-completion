@@ -368,25 +368,46 @@ function cleanupRedisSession() {
   return { before, after };
 }
 
-async function http(pathname, options = {}, cookie = artifacts.session.cookie) {
+async function http(pathname, options = {}, cookie = artifacts.session.cookie, { retryTransientTransport = false } = {}) {
   const method = options.method ?? "GET";
   const headers = new Headers(options.headers ?? {});
   if (cookie) headers.set("Cookie", cookie);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await nativeFetch(`${apiBase}${pathname}`, {
-    method,
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { text };
+  let lastTransportError = null;
+  const attempts = retryTransientTransport ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await nativeFetch(`${apiBase}${pathname}`, {
+        method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      });
+      // A socket reset can surface while consuming the body rather than while
+      // opening the request.  Keep the opt-in retry boundary around the whole
+      // cleanup request so the caller never treats an unread response as a
+      // successful logout/session check.
+      const text = await response.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { text };
+      }
+      if (method !== "GET" && artifacts.identity.userId) captureActorLogIds();
+      return { ok: response.ok, status: response.status, data, text };
+    } catch (error) {
+      lastTransportError = error;
+      // This opt-in path is used only by the idempotent logout and the
+      // following unauthenticated session read.  Never apply it to business
+      // writes, whose server-side outcome could be ambiguous after a socket
+      // loss.  Native fetch may surface the same transport failure while
+      // opening the request or consuming its body and does not guarantee a
+      // stable error subclass across Node releases.
+      if (!retryTransientTransport || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
   }
-  if (method !== "GET" && artifacts.identity.userId) captureActorLogIds();
-  return { ok: response.ok, status: response.status, data, text };
+  throw lastTransportError ?? new Error(`A118 ${method} ${pathname} did not produce a response after retry`);
 }
 
 async function requireJson(pathname, options = {}, expected = [200, 201]) {
@@ -1724,12 +1745,26 @@ async function closeRunSession() {
       "A118 refuses to claim a response-loss Redis session; unknown session residue is preserved", redis);
     return;
   }
-  const logout = await http("/api/system/logout", { method: "POST" }, artifacts.session.cookie);
+  // Logout is idempotent: once the first request has invalidated the session, a
+  // duplicate call is a no-op that still returns { ok: true }. Limit the retry to
+  // this cleanup action and its following read; business writes must never be
+  // retried after an ambiguous transport loss.
+  const logout = await http(
+    "/api/system/logout",
+    { method: "POST" },
+    artifacts.session.cookie,
+    { retryTransientTransport: true }
+  );
   artifacts.session.logoutStatus = logout.status;
   result.cleanup.logout = { skipped: false, status: logout.status, body: logout.data };
   const redis = cleanupRedisSession();
   result.cleanup.redis = redis;
-  const sessionAfter = await http("/api/system/session", {}, artifacts.session.cookie);
+  const sessionAfter = await http(
+    "/api/system/session",
+    {},
+    artifacts.session.cookie,
+    { retryTransientTransport: true }
+  );
   artifacts.session.postLogoutAuthenticated = sessionAfter.data?.authenticated === true;
   result.cleanup.logout.postLogoutStatus = sessionAfter.status;
   result.cleanup.logout.postLogoutAuthenticated = artifacts.session.postLogoutAuthenticated;

@@ -54,21 +54,29 @@ const cashTransferMigrationPath = path.join(
   rootDir,
   "backend/src/main/resources/db/migration/V109__cash_transfer_document.sql"
 );
+const productionPlanMultiLineMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V110__production_plan_multi_line.sql"
+);
+const multilevelProductionPurchasePlanningMigrationPath = path.join(
+  rootDir,
+  "backend/src/main/resources/db/migration/V111__multilevel_production_purchase_planning.sql"
+);
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 86,
-  managedTables: 86,
-  primaryKeys: 86,
-  uniqueConstraints: 81,
-  foreignKeys: 180,
-  checkConstraints: 105,
+  baseTables: 89,
+  managedTables: 89,
+  primaryKeys: 89,
+  uniqueConstraints: 85,
+  foreignKeys: 199,
+  checkConstraints: 117,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
-  referenceForeignKeyCount: 180,
+  referenceForeignKeyCount: 199,
   referenceForeignKeyMismatchCount: 0,
   retiredTaxColumns: 0,
   forbiddenAccountSetForeignKeys: 0
@@ -156,6 +164,8 @@ try {
   const inventoryTraceCorrectionSource = await readFile(inventoryTraceCorrectionPath, "utf8");
   const materialScrapMigrationSource = await readFile(materialScrapMigrationPath, "utf8");
   const cashTransferMigrationSource = await readFile(cashTransferMigrationPath, "utf8");
+  const productionPlanMultiLineMigrationSource = await readFile(productionPlanMultiLineMigrationPath, "utf8");
+  const multilevelProductionPurchasePlanningMigrationSource = await readFile(multilevelProductionPurchasePlanningMigrationPath, "utf8");
   result.migrationGuards = {
     exactQuarantinedRows:
       quarantinedActorMarkers.every((marker) => migrationSource.includes(marker))
@@ -236,7 +246,22 @@ try {
       && cashTransferMigrationSource.includes("('cash_transfer', 723)")
       && cashTransferMigrationSource.includes("('cash_transfer_fact', 724)")
       && cashTransferMigrationSource.includes("currency IN ('CNY', 'USD')")
-      && cashTransferMigrationSource.includes("expected=86/81/180/105")
+      && cashTransferMigrationSource.includes("expected=86/81/180/105"),
+    productionPlanMultiLineManagedGuard:
+      productionPlanMultiLineMigrationSource.includes("CREATE TABLE production_plan_line")
+      && productionPlanMultiLineMigrationSource.includes("ADD COLUMN plan_line_id UUID")
+      && productionPlanMultiLineMigrationSource.includes("ADD COLUMN source_plan_line_id UUID")
+      && productionPlanMultiLineMigrationSource.includes("ADD COLUMN source_issue_id UUID")
+      && productionPlanMultiLineMigrationSource.includes("expected=87/82/187/108")
+      && productionPlanMultiLineMigrationSource.includes("expected=87/87/82/191/108"),
+    multilevelProductionPurchasePlanningManagedGuard:
+      multilevelProductionPurchasePlanningMigrationSource.includes("ADD COLUMN expand_multilevel_tasks BOOLEAN NOT NULL DEFAULT FALSE")
+      && multilevelProductionPurchasePlanningMigrationSource.includes("ADD COLUMN generate_purchase_requisition BOOLEAN NOT NULL DEFAULT TRUE")
+      && multilevelProductionPurchasePlanningMigrationSource.includes("CREATE TABLE purchase_plan")
+      && multilevelProductionPurchasePlanningMigrationSource.includes("CREATE TABLE purchase_plan_line")
+      && multilevelProductionPurchasePlanningMigrationSource.includes("expected=89/85/199/117")
+      && multilevelProductionPurchasePlanningMigrationSource.includes("expected=89/89/85/203/117")
+      && multilevelProductionPurchasePlanningMigrationSource.includes("INCLUDING ALL EXCLUDING INDEXES")
   };
   assert(result.migrationGuards.exactQuarantinedRows, "V98 must bind deletion to every quarantined row tuple");
   assert(result.migrationGuards.migrationTimeReservedNameGuard, "V98 must reject extra reserved FK names");
@@ -270,6 +295,8 @@ try {
     "V108 must register the exact 84-table material-scrap topology with a soft source-line reference"
   );
   assert(result.migrationGuards.cashTransferManagedGuard, "V109 must register the exact 86-table cash-transfer topology");
+  assert(result.migrationGuards.productionPlanMultiLineManagedGuard, "V110 must register the exact 87-table production-plan line topology");
+  assert(result.migrationGuards.multilevelProductionPurchasePlanningManagedGuard, "V111 must register the exact 89-table multilevel production and purchase-planning topology");
   const sourceChecksum = flywayChecksum(migrationSource);
   const runtimeGuardSourceChecksum = flywayChecksum(runtimeGuardMigrationSource);
   const employeeAccountSourceChecksum = flywayChecksum(employeeAccountMigrationSource);
@@ -282,6 +309,8 @@ try {
   const inventoryTraceCorrectionSourceChecksum = flywayChecksum(inventoryTraceCorrectionSource);
   const materialScrapSourceChecksum = flywayChecksum(materialScrapMigrationSource);
   const cashTransferSourceChecksum = flywayChecksum(cashTransferMigrationSource);
+  const productionPlanMultiLineSourceChecksum = flywayChecksum(productionPlanMultiLineMigrationSource);
+  const multilevelProductionPurchasePlanningSourceChecksum = flywayChecksum(multilevelProductionPurchasePlanningMigrationSource);
   const migrationRows = sqlJson(`
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'installedRank', installed_rank,
@@ -292,9 +321,9 @@ try {
       'success', success
     ) ORDER BY installed_rank), '[]'::jsonb)::text
     FROM public.flyway_schema_history
-    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105', '106', '107', '108', '109')
+    WHERE version IN ('98', '99', '100', '101', '102', '103', '104', '105', '106', '107', '108', '109', '110', '111')
   `);
-  assert(migrationRows.length === 12, `expected installed V98 through V109 rows, found ${migrationRows.length}`);
+  assert(migrationRows.length === 14, `expected installed V98 through V111 rows, found ${migrationRows.length}`);
   const migration = migrationRows.find((row) => row.version === "98");
   const runtimeGuardMigration = migrationRows.find((row) => row.version === "99");
   const employeeAccountMigration = migrationRows.find((row) => row.version === "100");
@@ -307,6 +336,8 @@ try {
   const inventoryTraceCorrection = migrationRows.find((row) => row.version === "107");
   const materialScrapMigration = migrationRows.find((row) => row.version === "108");
   const cashTransferMigration = migrationRows.find((row) => row.version === "109");
+  const productionPlanMultiLineMigration = migrationRows.find((row) => row.version === "110");
+  const multilevelProductionPurchasePlanningMigration = migrationRows.find((row) => row.version === "111");
   assert(migration, "installed V98 row is missing");
   assert(runtimeGuardMigration, "installed V99 row is missing");
   assert(employeeAccountMigration, "installed V100 row is missing");
@@ -319,6 +350,8 @@ try {
   assert(inventoryTraceCorrection, "installed V107 row is missing");
   assert(materialScrapMigration, "installed V108 row is missing");
   assert(cashTransferMigration, "installed V109 row is missing");
+  assert(productionPlanMultiLineMigration, "installed V110 row is missing");
+  assert(multilevelProductionPurchasePlanningMigration, "installed V111 row is missing");
   assert(migration.success === true, "V98 is not marked successful");
   assert(runtimeGuardMigration.success === true, "V99 is not marked successful");
   assert(employeeAccountMigration.success === true, "V100 is not marked successful");
@@ -331,6 +364,8 @@ try {
   assert(inventoryTraceCorrection.success === true, "V107 is not marked successful");
   assert(materialScrapMigration.success === true, "V108 is not marked successful");
   assert(cashTransferMigration.success === true, "V109 is not marked successful");
+  assert(productionPlanMultiLineMigration.success === true, "V110 is not marked successful");
+  assert(multilevelProductionPurchasePlanningMigration.success === true, "V111 is not marked successful");
   assert(Number.isInteger(migration.checksum), "V98 installed checksum is missing");
   assert(Number.isInteger(runtimeGuardMigration.checksum), "V99 installed checksum is missing");
   assert(Number.isInteger(employeeAccountMigration.checksum), "V100 installed checksum is missing");
@@ -343,6 +378,8 @@ try {
   assert(Number.isInteger(inventoryTraceCorrection.checksum), "V107 installed checksum is missing");
   assert(Number.isInteger(materialScrapMigration.checksum), "V108 installed checksum is missing");
   assert(Number.isInteger(cashTransferMigration.checksum), "V109 installed checksum is missing");
+  assert(Number.isInteger(productionPlanMultiLineMigration.checksum), "V110 installed checksum is missing");
+  assert(Number.isInteger(multilevelProductionPurchasePlanningMigration.checksum), "V111 installed checksum is missing");
   assert(
     migration.checksum === sourceChecksum,
     `V98 checksum drift: installed=${migration.checksum} source=${sourceChecksum}`
@@ -452,6 +489,18 @@ try {
     sourceChecksum: cashTransferSourceChecksum,
     sourceSha256: createHash("sha256").update(cashTransferMigrationSource).digest("hex")
   };
+  assert(productionPlanMultiLineMigration.checksum === productionPlanMultiLineSourceChecksum, `V110 checksum drift: installed=${productionPlanMultiLineMigration.checksum} source=${productionPlanMultiLineSourceChecksum}`);
+  result.productionPlanMultiLineMigration = {
+    ...productionPlanMultiLineMigration,
+    sourceChecksum: productionPlanMultiLineSourceChecksum,
+    sourceSha256: createHash("sha256").update(productionPlanMultiLineMigrationSource).digest("hex")
+  };
+  assert(multilevelProductionPurchasePlanningMigration.checksum === multilevelProductionPurchasePlanningSourceChecksum, `V111 checksum drift: installed=${multilevelProductionPurchasePlanningMigration.checksum} source=${multilevelProductionPurchasePlanningSourceChecksum}`);
+  result.multilevelProductionPurchasePlanningMigration = {
+    ...multilevelProductionPurchasePlanningMigration,
+    sourceChecksum: multilevelProductionPurchasePlanningSourceChecksum,
+    sourceSha256: createHash("sha256").update(multilevelProductionPurchasePlanningMigrationSource).digest("hex")
+  };
 
   const registeredSchemas = sqlJson(`
     SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)::text
@@ -475,7 +524,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 86, `${schema} first sync returned ${firstManagedCount}, expected 86`);
+    assert(firstManagedCount === 89, `${schema} first sync returned ${firstManagedCount}, expected 89`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -483,7 +532,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 86, `${schema} second sync returned ${secondManagedCount}, expected 86`);
+    assert(secondManagedCount === 89, `${schema} second sync returned ${secondManagedCount}, expected 89`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -552,7 +601,7 @@ console.log(JSON.stringify({
 
 if (primaryError) {
   console.error(errorText(primaryError));
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 function runEnforcementChecks() {
@@ -777,7 +826,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 86 OR second_count <> 86 THEN
+      IF first_count <> 89 OR second_count <> 89 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;

@@ -2,7 +2,12 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { loginApi, loginAs } from "./helpers/regression-auth.mjs";
+import {
+  loginApi,
+  loginAsAdmin,
+  regressionAdminIdentity,
+  requestWithRegressionAdminConfirmation
+} from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -15,11 +20,12 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const evidenceDir = path.join(rootDir, "verification");
 const screenshotDir = path.join(evidenceDir, "playwright");
 const resultPath = path.join(evidenceDir, `a126-sales-daily-usability-${batch}.json`);
+const adminIdentity = regressionAdminIdentity();
 
 await mkdir(evidenceDir, { recursive: true });
 await mkdir(screenshotDir, { recursive: true });
 
-const adminCookie = await loginApi(apiBase, "admin", "admin123");
+const adminCookie = await loginApi(apiBase);
 const warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123");
 const evidence = {
   batch,
@@ -94,6 +100,39 @@ async function expectApiFailure(cookie, pathname, expectedStatuses, options = {}
   return result;
 }
 
+async function requireAdminConfirmation(pathname, reason) {
+  const result = await requestWithRegressionAdminConfirmation(apiBase, pathname, {
+    sessionCookie: adminCookie,
+    reason
+  });
+  if (!result.ok) throw new Error(`POST ${pathname} failed ${result.status}: ${result.text}`);
+  return result.data;
+}
+
+async function expectAdminConfirmationFailure(pathname, expectedStatuses, {
+  reason,
+  invalidPassword = false,
+  expectedReason = ""
+}) {
+  const result = await requestWithRegressionAdminConfirmation(apiBase, pathname, {
+    sessionCookie: adminCookie,
+    reason,
+    invalidPassword
+  });
+  const expected = Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses];
+  assert(!result.ok && expected.includes(result.status), `POST ${pathname} should fail with ${expected.join("/")}`, {
+    actualStatus: result.status,
+    response: result.data
+  });
+  if (expectedReason) {
+    assert(result.text.includes(expectedReason), `POST ${pathname} should report the formal business reason`, {
+      expectedReason,
+      response: result.data
+    });
+  }
+  return result;
+}
+
 function generatedBillNo(row, prefix, label) {
   const value = String(row?.billNo ?? "");
   assert(new RegExp(`^${prefix}\\d{6}$`).test(value), `${label} should return a system bill number`, row);
@@ -145,18 +184,14 @@ function orderStats(orderNo) {
   };
 }
 
-function listRow(listKey, billNo, view = "header") {
+async function listRow(listKey, billNo, view = "header") {
   const encoded = encodeURIComponent(billNo);
-  const raw = execFileSync(
-    "node",
-    ["-e", `
-      const res = await fetch('${apiBase}/api/lists/${listKey}?keyword=${encoded}&view=${view}&pageSize=200', { headers: { Cookie: ${JSON.stringify(adminCookie)} } });
-      const json = await res.json();
-      console.log(JSON.stringify((json.rows || []).find(row => row.billNo === ${JSON.stringify(billNo)}) || null));
-    `],
-    { encoding: "utf8" }
-  ).trim();
-  return raw ? JSON.parse(raw) : null;
+  const json = await requireApi(
+    adminCookie,
+    `/api/lists/${listKey}?keyword=${encoded}&view=${view}&pageSize=200`,
+    { method: "GET" }
+  );
+  return (json.rows || []).find((row) => row.billNo === billNo) || null;
 }
 
 async function selectableSalesOrderLines(customerCodeValue = customerCode) {
@@ -328,8 +363,8 @@ async function runPartialFlow() {
   await expectApiFailure(warehouseCookie, `/api/sales-outs/${encodeURIComponent(overOutNo)}/audit`, 409, {
     expectedReason: "销售出库数量不能超过发货通知剩余可出数量"
   });
-  const headerRow = listRow("sales-order-form-list", orderNo, "header");
-  const detailRow = listRow("sales-order-form-list", orderNo, "detail");
+  const headerRow = await listRow("sales-order-form-list", orderNo, "header");
+  const detailRow = await listRow("sales-order-form-list", orderNo, "detail");
   assert(numberOf(headerRow?.shippedQty) === 80 && numberOf(headerRow?.remainingQty) === 20, "销售订单整单列表显示已出库/未出库数量", headerRow);
   assert(numberOf(detailRow?.shippedQty) === 80 && numberOf(detailRow?.remainingQty) === 20, "销售订单明细列表显示已出库/未出库数量", detailRow);
   evidence.data.partialFlow = { orderNo, notices: [n1, n2], outs: [o1, o2], afterFirst, afterSecond, headerRow, detailRow };
@@ -351,8 +386,8 @@ async function runFullyNoticedPendingShipmentFlow() {
   assert(numberOf(detailLine.remainingQty) === 100, "销售订单详情未出库数量不被发货通知扣减", detailLine);
   assert(numberOf(detailLine.availableNoticeQty) === 0, "销售订单详情可通知数量已被发货通知扣完", detailLine);
 
-  const headerRow = listRow("sales-order-form-list", orderNo, "header");
-  const detailRow = listRow("sales-order-form-list", orderNo, "detail");
+  const headerRow = await listRow("sales-order-form-list", orderNo, "header");
+  const detailRow = await listRow("sales-order-form-list", orderNo, "detail");
   assert(numberOf(headerRow?.shippedQty) === 0 && numberOf(headerRow?.remainingQty) === 100, "销售订单整单列表未出库数量不被发货通知扣减", headerRow);
   assert(numberOf(detailRow?.shippedQty) === 0 && numberOf(detailRow?.remainingQty) === 100, "销售订单明细列表未出库数量不被发货通知扣减", detailRow);
 
@@ -490,8 +525,8 @@ async function runFreezeFlow() {
 
 async function runVoidFlow() {
   const auditedNo = await createOrder(5);
-  await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(auditedNo)}/void`, 409, {
-    body: { username: "admin", password: "admin123", reason: "已审核不可作废" },
+  await expectAdminConfirmationFailure(`/api/document-lifecycle/salesOrder/${encodeURIComponent(auditedNo)}/void`, 409, {
+    reason: "已审核不可作废",
     expectedReason: "只有草稿且无下游影响的单据可以作废"
   });
   const draft = await requireApi(adminCookie, "/api/sales-orders/draft", {
@@ -505,19 +540,21 @@ async function runVoidFlow() {
     }
   });
   const draftNo = generatedBillNo(draft, "XSDD", "A126 voidable sales order");
-  await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`, [400, 401, 403, 409], {
-    body: { username: "admin", password: "bad-password", reason: "错误密码" },
+  await expectAdminConfirmationFailure(`/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`, [400, 401, 403, 409], {
+    reason: "错误密码",
+    invalidPassword: true,
     expectedReason: "当前密码不正确"
   });
-  await requireApi(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`, {
-    body: { username: "admin", password: "admin123", reason: "A126 草稿作废" }
-  });
+  await requireAdminConfirmation(
+    `/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`,
+    "A126 草稿作废"
+  );
   const voided = await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(draftNo)}`, { method: "GET" });
   assert(voided.order?.status === "VOID", "草稿销售订单经账号密码原因校验后可作废", voided.order);
   const downstreamNo = await createOrder(5);
   const downstreamNotice = await createNotice(downstreamNo, 1);
-  await expectApiFailure(adminCookie, `/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`, 409, {
-    body: { username: "admin", password: "admin123", reason: "已有下游不可作废" },
+  await expectAdminConfirmationFailure(`/api/document-lifecycle/salesOrder/${encodeURIComponent(downstreamNo)}/void`, 409, {
+    reason: "已有下游不可作废",
     expectedReason: "已有下游影响，禁止作废"
   });
   const { outDraftNo, noticeNo: outNotice } = await createSalesOutDraftForVoid();
@@ -558,23 +595,38 @@ async function runPermissionFlow() {
     expectedReason: "当前角色无权执行该操作：sales.order.audit"
   });
   evidence.data.permissions = {
-    salesOperator: "admin/系统管理员模拟销售人员",
+    salesOperator: `${adminIdentity.username}/系统管理员模拟销售人员`,
     warehouseOperator: "warehouse/仓库员",
     warehouseSalesOrderDraftBlocked: true,
     warehouseSalesOrderAuditBlocked: true
   };
-  evidence.notes.push("当前系统尚无独立 SALES 角色/账号，本轮以 admin 模拟销售人员，以 warehouse 模拟仓库人员。");
+  evidence.notes.push("当前系统尚无独立 SALES 角色/账号，本轮以 run-scoped ADMIN 模拟销售人员，以 warehouse 模拟仓库人员。");
 }
 
 async function runPageUsabilityFlow() {
   const main = evidence.data.mainFlow;
+  const [
+    salesOrderHeader,
+    salesOrderDetail,
+    deliveryNoticeHeader,
+    deliveryNoticeDetail,
+    salesOutHeader,
+    salesOutDetail
+  ] = await Promise.all([
+    listRow("sales-order-form-list", main.orderNo, "header"),
+    listRow("sales-order-form-list", main.orderNo, "detail"),
+    listRow("delivery-notice-form-list", main.noticeNo, "header"),
+    listRow("delivery-notice-form-list", main.noticeNo, "detail"),
+    listRow("sales-out-form-list", main.outNo, "header"),
+    listRow("sales-out-form-list", main.outNo, "detail")
+  ]);
   const lists = {
-    salesOrderHeader: listRow("sales-order-form-list", main.orderNo, "header"),
-    salesOrderDetail: listRow("sales-order-form-list", main.orderNo, "detail"),
-    deliveryNoticeHeader: listRow("delivery-notice-form-list", main.noticeNo, "header"),
-    deliveryNoticeDetail: listRow("delivery-notice-form-list", main.noticeNo, "detail"),
-    salesOutHeader: listRow("sales-out-form-list", main.outNo, "header"),
-    salesOutDetail: listRow("sales-out-form-list", main.outNo, "detail")
+    salesOrderHeader,
+    salesOrderDetail,
+    deliveryNoticeHeader,
+    deliveryNoticeDetail,
+    salesOutHeader,
+    salesOutDetail
   };
   assert(Boolean(lists.salesOrderHeader?.status && lists.salesOrderHeader?.customer && lists.salesOrderHeader?.qty), "销售订单列表可见状态、客户、数量", lists.salesOrderHeader);
   assert(Boolean(lists.salesOrderHeader?.shippedQty !== undefined && lists.salesOrderHeader?.remainingQty !== undefined), "销售订单列表可见已出库/未出库数量", lists.salesOrderHeader);
@@ -589,7 +641,7 @@ async function captureScreenshots(main) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     await page.goto(frontendUrl, { waitUntil: "domcontentloaded" });
-    await loginAs(page, "admin", "admin123", "系统管理员");
+    await loginAsAdmin(page);
     await openListAndScreenshot(page, "query-sales-order-form", "sales-order-form-list", main.orderNo, "sales-order-list");
     await openListAndScreenshot(page, "query-delivery-notice-form", "delivery-notice-form-list", main.noticeNo, "delivery-notice-list");
     await openListAndScreenshot(page, "query-sales-out-form", "sales-out-form-list", main.outNo, "sales-out-list");

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument, saveDocument } from "./helpers/document-actions.mjs";
-import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
+import { removeMasterDataFixture, upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -16,7 +16,7 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const conflictName = `A25键盘候选${batch}`;
 const products = [
   {
-    code: `A25-A-${batch}`,
+    code: `000-A25-A-${batch}`,
     name: conflictName,
     spec: "左旋 / 加长",
     category: "成品总成",
@@ -24,7 +24,7 @@ const products = [
     status: "启用"
   },
   {
-    code: `A25-B-${batch}`,
+    code: `000-A25-B-${batch}`,
     name: conflictName,
     spec: "右旋 / 短款",
     category: "成品总成",
@@ -61,6 +61,19 @@ async function requireApi(pathname, options = {}) {
 
 async function upsertProduct(product) {
   return upsertMasterDataFixture({ apiBase, type: "product", payload: product, audit: true });
+}
+
+async function removeSalesOrder(billNo) {
+  if (!billNo) return;
+  const detail = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+  if (detail.status === 404) return;
+  if (!detail.ok) throw new Error(`A25 cleanup could not read sales order ${billNo}`);
+  const status = detail.data?.order?.status ?? detail.data?.document?.status;
+  if (status === "AUDITED") await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/reverse`, { method: "POST" });
+  if (status !== "DRAFT" && status !== "AUDITED") throw new Error(`A25 cleanup refuses sales order ${billNo} in ${status}`);
+  await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`, { method: "DELETE" });
+  const residue = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+  if (residue.status !== 404) throw new Error(`A25 cleanup left sales order ${billNo}`);
 }
 
 async function dispatchPaste(page, testId, text) {
@@ -146,14 +159,14 @@ function assertDeepEqual(name, actual, expected) {
   }
 }
 
-for (const product of products) {
-  await upsertProduct(product);
-}
-
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+let billNo = "";
 
 try {
+  for (const product of products) {
+    await upsertProduct(product);
+  }
   await openSalesOrderForm(page);
 
   await dispatchPaste(page, "sales-line-product", pasteText);
@@ -203,7 +216,7 @@ try {
     const input = document.querySelector('[data-testid="sales-bill-no"]');
     return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
   });
-  const billNo = await page.getByTestId("sales-bill-no").inputValue();
+  billNo = await page.getByTestId("sales-bill-no").inputValue();
   if (!/^XSDD\d{6}$/.test(billNo)) {
     throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
   }
@@ -243,4 +256,8 @@ try {
   console.log(JSON.stringify(result, null, 2));
 } finally {
   await browser.close();
+  await removeSalesOrder(billNo);
+  for (const product of products) {
+    await removeMasterDataFixture({ apiBase, type: "product", code: product.code });
+  }
 }

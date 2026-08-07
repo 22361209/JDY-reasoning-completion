@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { installApiSession, loginAsAdmin, regressionAdminIdentity } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const faultPhase = process.env.A38_FAULT_PHASE ?? "";
@@ -14,6 +14,7 @@ const resultPath = path.join(rootDir, faultPhase
   : "verification/a38-document-pdf-output-regression.json");
 const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
+const adminIdentity = regressionAdminIdentity();
 const runId = randomUUID();
 const runToken = runId.replaceAll("-", "").slice(0, 12).toUpperCase();
 const fixtureKey = `A38-${runToken}`;
@@ -244,7 +245,7 @@ function captureSnapshot(phase) {
     assert(lock.document_type === "salesOrder"
       && lock.bill_no === artifact.billNo
       && lock.holder_user_id === artifact.actorId
-      && lock.holder_username === "admin",
+      && lock.holder_username === adminIdentity.username,
     "A38 refuses a document lock not owned by the exact authenticated run actor", lock);
   }
   if (phase === "after-create") {
@@ -427,7 +428,7 @@ async function run() {
   sessionInstalled = true;
   const session = await requireJson("/api/system/session");
   assert(session?.authenticated === true
-    && session.user?.username === "admin"
+    && session.user?.username === adminIdentity.username
     && session.user?.roleCode === "ADMIN"
     && session.tenant?.code === "BLD-TEST"
     && session.tenant?.schemaName === "public",
@@ -440,10 +441,10 @@ async function run() {
       AND account_set.code='BLD-TEST'
       AND account_set.schema_name='public'
       AND account_set.enabled=TRUE
-      AND actor.username='admin'
+      AND actor.username=${sqlLiteral(adminIdentity.username)}
       AND actor.enabled=TRUE
   `);
-  assert(route?.accountSet?.id === session.tenant.id && route.actor?.username === "admin",
+  assert(route?.accountSet?.id === session.tenant.id && route.actor?.username === adminIdentity.username,
     "A38 database route must match the authenticated BLD-TEST/public actor", route);
   assertUuid(route.actor.id, "A38 admin actor id");
   artifact.actorId = route.actor.id;

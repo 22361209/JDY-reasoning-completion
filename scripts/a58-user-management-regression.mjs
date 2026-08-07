@@ -36,10 +36,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAs(page, usernameValue, passwordValue, expectedRole) {
-  await sharedLoginAs(page, usernameValue, passwordValue, expectedRole);
-}
-
 async function logout(page) {
   await sharedLogout(page);
 }
@@ -49,7 +45,7 @@ let screenshot = "";
 try {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").click();
   await page.getByTestId("user-management-new").click();
@@ -63,7 +59,7 @@ try {
 
   await logout(page);
   await page.reload({ waitUntil: "networkidle" });
-  await loginAs(page, username, initialPassword, "仓库员");
+  await sharedLoginAs(page, username, initialPassword, "仓库员");
   await page.getByTestId("session-user-name").filter({ hasText: "A58 回归员工" }).waitFor({ state: "visible" });
   const warehouseManagedUsers = await browserFetch(page, "/api/system/managed-users");
   assert(warehouseManagedUsers.status === 403, `managed user should not manage users, got ${warehouseManagedUsers.status}`);
@@ -71,7 +67,7 @@ try {
   await page.getByTestId("entry-user-role-list").waitFor({ state: "detached" });
 
   await logout(page);
-  await loginAs(page, "admin", "admin123", "系统管理员");
+  await sharedLoginAs(page, "admin", "admin123", "系统管理员");
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-user-role-list").click();
   await page.getByTestId(`managed-user-${username}`).click();
@@ -81,7 +77,7 @@ try {
 
   await logout(page);
   await page.reload({ waitUntil: "networkidle" });
-  await loginAs(page, username, resetPassword, "仓库员");
+  await sharedLoginAs(page, username, resetPassword, "仓库员");
   await page.getByTestId("session-user-name").filter({ hasText: "A58 回归员工" }).waitFor({ state: "visible" });
   const switchedSession = await browserFetch(page, "/api/system/session");
   const sessionPayload = JSON.parse(switchedSession.text);

@@ -4,7 +4,11 @@ import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { installApiSession, loginApi } from "./helpers/regression-auth.mjs";
+import {
+  createIsolatedAdminSessionFixture,
+  loginApi,
+  logoutApiSession
+} from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -13,6 +17,7 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const resultPath = path.join(rootDir, "verification/a163-cash-transfer-regression.json");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const accountCodes = { cnySource: `A163-CNY-S-${batch}`, cnyTarget: `A163-CNY-T-${batch}`, usd: `A163-USD-${batch}` };
+const tenantCode = "A119OPS-49F5546B";
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 async function request(cookie, pathname, options = {}) {
@@ -41,12 +46,24 @@ async function lifecycleLog(cookie, billNo, action) {
   assert((response.rows ?? []).some((row) => row.targetNo === billNo && row.targetType === "cash_transfer" && row.action === action && row.status === "成功"), `operation log missing ${action} for ${billNo}`);
 }
 
-await installApiSession(apiBase);
 await mkdir(screenshotDir, { recursive: true });
+const identity = createIsolatedAdminSessionFixture(apiBase, {
+  label: "a163",
+  accountSetCodes: ["BLD-TEST", tenantCode],
+  defaultAccountSetCode: "BLD-TEST",
+  // The fixture alone owns the cross-account-set sessions opened by this
+  // regression; its closer may safely release only those Redis sessions.
+  allowForcedRedisRelease: true
+});
+let warehouseCookie = "";
+let evidence = null;
+let primaryError = null;
+try {
+await identity.installForApi("BLD-TEST");
 const controller = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/finance/api/CashTransferController.java"), "utf8");
 for (const action of ["saveDraft", "audit", "reverse"]) assert(new RegExp(`@RequirePermission\\(\\"finance\\.cash_transfer\\.audit\\"\\)[\\s\\S]{0,260}?\\b${action}\\s*\\(`).test(controller), `${action} must require finance.cash_transfer.audit`);
 
-const warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
+warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
 const deniedDraft = await request(warehouseCookie, "/api/cash-transfers/draft", { method: "POST", body: {} });
 const deniedAudit = await request(warehouseCookie, `/api/cash-transfers/A163-${batch}/audit`, { method: "POST" });
 for (const denied of [deniedDraft, deniedAudit]) assert(denied.status === 403 && denied.text.includes("finance.cash_transfer.audit"), `cash-transfer permission must fail closed: ${denied.status} ${denied.text}`);
@@ -81,8 +98,7 @@ assert(concurrentAudits.map((response) => response.status).sort((left, right) =>
 assert(scalar(`SELECT count(*) FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${concurrentBillNo}' AND posting_action='AUDIT'`) === "2", "concurrent audit must write exactly two facts once");
 await admin(`/api/cash-transfers/${encodeURIComponent(concurrentBillNo)}/reverse`, { method: "POST" });
 
-const tenantCode = "A119OPS-49F5546B";
-const tenantCookie = await loginApi(apiBase, "admin", "admin123", tenantCode);
+const tenantCookie = await identity.login(tenantCode);
 const tenantSession = await requireOk(tenantCookie, "/api/system/session");
 const tenantSchema = String(tenantSession.tenant?.schemaName ?? "");
 const tenantCodes = { source: `A163-T-S-${batch}`, target: `A163-T-T-${batch}` };
@@ -95,23 +111,70 @@ assert(tenantScalar(tenantSchema, `SELECT count(*) FROM cash_transfer_fact f JOI
 assert(scalar(`SELECT count(*) FROM public.cash_transfer WHERE id='${String(tenantTransfer.id)}'::uuid`) === "0", "tenant transfer must not leak into public schema");
 await requireOk(tenantCookie, `/api/cash-transfers/${encodeURIComponent(tenantBillNo)}/reverse`, { method: "POST" });
 
-const adminCookie = await loginApi(apiBase, "admin", "admin123", "BLD-TEST");
-const [cookieName, cookieValue] = adminCookie.split("=", 2);
 const browserEvidence = [];
 for (const viewport of [{ width: 1440, height: 900, name: "wide" }, { width: 390, height: 844, name: "narrow" }]) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-  await context.addCookies([{ name: cookieName, value: cookieValue, url: apiBase }]);
-  const page = await context.newPage();
+  let browserCookie = "";
+  let browserPrimaryError = null;
   try {
+    browserCookie = await identity.installInBrowser(context, "BLD-TEST");
+    const page = await context.newPage();
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
+    const browserSession = await page.evaluate(async () => {
+      const response = await fetch("/api/system/session");
+      return { status: response.status, body: await response.json() };
+    });
+    assert(
+      browserSession.status === 200
+        && browserSession.body?.authenticated === true
+        && browserSession.body?.user?.username === identity.username
+        && browserSession.body?.user?.roleCode === "ADMIN"
+        && browserSession.body?.tenant?.code === "BLD-TEST"
+        && browserSession.body?.tenant?.schemaName === "public",
+      `cash-transfer browser session mismatch: ${JSON.stringify(browserSession)}`
+    );
     await page.getByTestId("module-应收应付").hover().catch(() => page.getByTestId("module-应收应付").click());
     await page.getByTestId("entry-cash-transfer-form").click();
     await page.getByTestId("cash-transfer-form").waitFor({ state: "visible" });
     const screenshot = `a163-${viewport.name}-cash-transfer-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, screenshot) });
-    browserEvidence.push({ viewport: `${viewport.width}x${viewport.height}`, screenshot: `verification/playwright/${screenshot}` });
-  } finally { await browser.close(); }
+    browserEvidence.push({
+      viewport: `${viewport.width}x${viewport.height}`,
+      session: {
+        username: browserSession.body.user.username,
+        roleCode: browserSession.body.user.roleCode,
+        accountSetCode: browserSession.body.tenant.code,
+        schemaName: browserSession.body.tenant.schemaName
+      },
+      screenshot: `verification/playwright/${screenshot}`
+    });
+  } catch (error) {
+    browserPrimaryError = error;
+  }
+  const browserCleanupErrors = [];
+  if (browserCookie) {
+    try {
+      await identity.logout(browserCookie);
+    } catch (error) {
+      browserCleanupErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  try {
+    await browser.close();
+  } catch (error) {
+    browserCleanupErrors.push(error instanceof Error ? error.message : String(error));
+  }
+  if (browserPrimaryError) {
+    if (browserCleanupErrors.length > 0) {
+      throw new AggregateError(
+        [browserPrimaryError, ...browserCleanupErrors.map((message) => new Error(message))],
+        `A163 browser regression failed: ${browserPrimaryError instanceof Error ? browserPrimaryError.message : String(browserPrimaryError)}; cleanup failed: ${browserCleanupErrors.join("; ")}`
+      );
+    }
+    throw browserPrimaryError;
+  }
+  if (browserCleanupErrors.length > 0) throw new Error(`A163 browser session cleanup failed: ${browserCleanupErrors.join("; ")}`);
 }
 
 const disabledAccounts = [];
@@ -120,13 +183,41 @@ for (const code of Object.values(accountCodes)) {
   assert(scalar(`SELECT enabled::text FROM public.md_financial_account WHERE code='${code}'`) === "false", `fixture account must be disabled after regression: ${code}`);
   disabledAccounts.push(code);
 }
-const tenantCleanupCookie = await loginApi(apiBase, "admin", "admin123", tenantCode);
+const tenantCleanupCookie = await identity.login(tenantCode);
 for (const code of Object.values(tenantCodes)) {
   await requireOk(tenantCleanupCookie, `/api/master-data/financialAccount/${encodeURIComponent(code)}/status`, { method: "PATCH", body: { status: "禁用" } });
   assert(tenantScalar(tenantSchema, `SELECT enabled::text FROM md_financial_account WHERE code='${code}'`) === "false", `tenant fixture account must be disabled after regression: ${code}`);
   disabledAccounts.push(code);
 }
 
-const evidence = { ok: true, batch, billNo, accounts: accountCodes, deniedWrites: [deniedDraft.status, deniedAudit.status], facts: { audit: "-12.50,12.50", netAfterReverse: "0.00", concurrentAuditStatuses: concurrentAudits.map((response) => response.status).sort((left, right) => left - right) }, tenant: { code: tenantCode, billNo: tenantBillNo, schema: tenantSchema }, browser: browserEvidence, cleanup: { disabledAccounts } };
+evidence = { ok: true, batch, billNo, accounts: accountCodes, deniedWrites: [deniedDraft.status, deniedAudit.status], facts: { audit: "-12.50,12.50", netAfterReverse: "0.00", concurrentAuditStatuses: concurrentAudits.map((response) => response.status).sort((left, right) => left - right) }, tenant: { code: tenantCode, billNo: tenantBillNo, schema: tenantSchema }, browser: browserEvidence, cleanup: { disabledAccounts } };
+} catch (error) {
+  primaryError = error;
+}
+
+const cleanupErrors = [];
+if (warehouseCookie) {
+  try {
+    await logoutApiSession(apiBase, warehouseCookie);
+  } catch (error) {
+    cleanupErrors.push(error instanceof Error ? error.message : String(error));
+  }
+}
+try {
+  await identity.cleanup();
+} catch (error) {
+  cleanupErrors.push(error instanceof Error ? error.message : String(error));
+}
+if (primaryError) {
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [primaryError, ...cleanupErrors.map((message) => new Error(message))],
+      `A163 regression failed: ${primaryError instanceof Error ? primaryError.message : String(primaryError)}; cleanup failed: ${cleanupErrors.join("; ")}`
+    );
+  }
+  throw primaryError;
+}
+if (cleanupErrors.length > 0) throw new Error(`A163 session cleanup failed: ${cleanupErrors.join("; ")}`);
+assert(evidence, "A163 regression completed without result evidence");
 await writeFile(resultPath, `${JSON.stringify(evidence, null, 2)}\n`);
 console.log(JSON.stringify(evidence, null, 2));

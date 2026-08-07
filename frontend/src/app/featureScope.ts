@@ -311,6 +311,28 @@ export const featureScope: FeatureScopeItem[] = [
     "note": "先做明细/汇总/订单跟踪"
   },
   {
+    "id": "F031",
+    "module": "采购管理",
+    "feature": "采购申请",
+    "description": "内部申请采购",
+    "approval": "要（A170 用户明确要求）",
+    "decision": "build",
+    "priority": "P2",
+    "targetVersion": "第一版",
+    "note": "A170 明确要求生产计划按行生成采购申请，并允许逐行删除、修改数量和维护供应商。"
+  },
+  {
+    "id": "F032",
+    "module": "采购管理",
+    "feature": "采购计划",
+    "description": "计划采购",
+    "approval": "要（A170 用户明确要求）",
+    "decision": "build",
+    "priority": "P2",
+    "targetVersion": "第一版",
+    "note": "A170 明确要求采购申请按行供应商分组下推独立采购计划。"
+  },
+  {
     "id": "F033",
     "module": "采购管理",
     "feature": "采购订单",

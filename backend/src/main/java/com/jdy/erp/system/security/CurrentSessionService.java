@@ -43,17 +43,23 @@ public class CurrentSessionService {
     private final OperationLogService operationLogService;
     private final OperationLogFailureService operationLogFailureService;
     private final TransactionTemplate platformTransactions;
+    private final RegressionActiveRequestTracker regressionActiveRequestTracker;
+    private final RegressionSharedAdminLoginGuard regressionSharedAdminLoginGuard;
 
     public CurrentSessionService(
         @Qualifier("platformJdbcTemplate") JdbcTemplate jdbcTemplate,
         OperationLogService operationLogService,
         OperationLogFailureService operationLogFailureService,
-        @Qualifier("platformTransactionManager") PlatformTransactionManager platformTransactionManager
+        @Qualifier("platformTransactionManager") PlatformTransactionManager platformTransactionManager,
+        RegressionActiveRequestTracker regressionActiveRequestTracker,
+        RegressionSharedAdminLoginGuard regressionSharedAdminLoginGuard
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.operationLogService = operationLogService;
         this.operationLogFailureService = operationLogFailureService;
         this.platformTransactions = new TransactionTemplate(platformTransactionManager);
+        this.regressionActiveRequestTracker = regressionActiveRequestTracker;
+        this.regressionSharedAdminLoginGuard = regressionSharedAdminLoginGuard;
     }
 
     public String currentUsername() {
@@ -98,6 +104,19 @@ public class CurrentSessionService {
 
     public boolean isAuthenticated() {
         return optionalCurrentUsername() != null;
+    }
+
+    public int currentSessionGeneration() {
+        var username = currentUsername();
+        var request = currentRequest();
+        var session = request == null ? null : request.getSession(false);
+        var generation = session == null ? null : session.getAttribute(SESSION_GENERATION);
+        if (!(generation instanceof Number number)
+            || !isCurrentSessionGeneration(username, number.intValue())) {
+            invalidateCurrentRequestSession();
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "会话代际已失效，请重新登录");
+        }
+        return number.intValue();
     }
 
     public Map<String, Object> currentUser() {
@@ -253,6 +272,10 @@ public class CurrentSessionService {
         return String.valueOf(currentUser().get("name"));
     }
 
+    public boolean requiresRegressionFixtureFence(HttpServletRequest request) {
+        return regressionSharedAdminLoginGuard.isSharedAdminLoginGuardActive(request);
+    }
+
     public void login(String username) {
         login(username, null, null);
     }
@@ -263,6 +286,18 @@ public class CurrentSessionService {
 
     public void login(String username, String password, String accountSetCode) {
         var normalizedUsername = username == null ? "" : username.trim();
+        var request = currentRequest();
+        regressionSharedAdminLoginGuard.rejectSharedAdminSessionReplacement(
+            normalizedUsername,
+            request
+        );
+        var sharedAdminLoginLease = regressionSharedAdminLoginGuard.beginSharedAdminLogin(
+            normalizedUsername,
+            request
+        );
+        if (sharedAdminLoginLease != null) {
+            regressionActiveRequestTracker.trackRequiredLease(request, sharedAdminLoginLease);
+        }
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    username,
@@ -280,15 +315,39 @@ public class CurrentSessionService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户不存在或已停用");
         }
         var userId = String.valueOf(rows.get(0).get("id"));
-        if (isLocked(rows.get(0).get("lockedUntil"))) {
+        if (request != null) {
+            try {
+                regressionActiveRequestTracker.trackRegisteredIdentity(
+                    request,
+                    UUID.fromString(userId),
+                    RegressionActiveRequestTracker.isFixtureUsername(normalizedUsername)
+                        && regressionSharedAdminLoginGuard.isSharedAdminLoginGuardActive(request),
+                    Number.class.cast(rows.getFirst().get("sessionGeneration")).longValue()
+                );
+            } catch (RuntimeException | Error exception) {
+                invalidateCurrentRequestSessionIfFixture(normalizedUsername);
+                throw exception;
+            }
+        }
+        completeLogin(rows.getFirst(), normalizedUsername, password, accountSetCode, userId);
+    }
+
+    private void completeLogin(
+        Map<String, Object> user,
+        String normalizedUsername,
+        String password,
+        String accountSetCode,
+        String userId
+    ) {
+        if (isLocked(user.get("lockedUntil"))) {
             logAnonymousLogin("LOGIN_LOCKED", userId, "账号已锁定");
             throw new ResponseStatusException(HttpStatus.LOCKED, "账号已锁定，请稍后再试");
         }
-        var passwordHash = String.valueOf(rows.get(0).get("passwordHash"));
+        var passwordHash = String.valueOf(user.get("passwordHash"));
         if (!passwordHash.isBlank()) {
             var expected = passwordHash.startsWith("{noop}") ? passwordHash.substring("{noop}".length()) : passwordHash;
             if (password == null || !expected.equals(password)) {
-                var failedCount = Number.class.cast(rows.get(0).get("failedLoginCount")).intValue() + 1;
+                var failedCount = Number.class.cast(user.get("failedLoginCount")).intValue() + 1;
                 if (failedCount >= MAX_FAILED_LOGIN) {
                     jdbcTemplate.update("""
                         UPDATE sys_user
@@ -317,14 +376,14 @@ public class CurrentSessionService {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法创建本地会话");
         }
         var newSessionToken = UUID.randomUUID().toString();
-        var oldSessionToken = rows.get(0).get("activeSessionToken");
-        var sessionGeneration = Number.class.cast(rows.get(0).get("sessionGeneration")).intValue();
+        var oldSessionToken = user.get("activeSessionToken");
+        var sessionGeneration = Number.class.cast(user.get("sessionGeneration")).intValue();
         var singleActiveSession = isSingleActiveSessionPolicy();
         var accountSet = resolveLoginAccountSet(accountSetCode, userId);
         var scopeToken = UUID.randomUUID().toString();
         platformTransactions.executeWithoutResult(ignored -> {
             if (singleActiveSession) {
-                jdbcTemplate.update("""
+                var updated = jdbcTemplate.update("""
                     UPDATE sys_user
                     SET failed_login_count = 0,
                         locked_until = NULL,
@@ -338,10 +397,15 @@ public class CurrentSessionService {
                         updated_at = now(),
                         version = version + 1
                     WHERE id = ?::uuid
-                    """, newSessionToken, newSessionToken, userId);
+                      AND enabled = TRUE
+                      AND session_generation = ?
+                    """, newSessionToken, newSessionToken, userId, sessionGeneration);
+                if (updated != 1) {
+                    throw new ResponseStatusException(HttpStatus.LOCKED, "用户已停用或会话代际已失效");
+                }
                 jdbcTemplate.update("DELETE FROM sys_session_account_scope WHERE user_id = ?::uuid", userId);
             } else {
-                jdbcTemplate.update("""
+                var updated = jdbcTemplate.update("""
                     UPDATE sys_user
                     SET failed_login_count = 0,
                         locked_until = NULL,
@@ -351,7 +415,12 @@ public class CurrentSessionService {
                         updated_at = now(),
                         version = version + 1
                     WHERE id = ?::uuid
-                    """, newSessionToken, userId);
+                      AND enabled = TRUE
+                      AND session_generation = ?
+                    """, newSessionToken, userId, sessionGeneration);
+                if (updated != 1) {
+                    throw new ResponseStatusException(HttpStatus.LOCKED, "用户已停用或会话代际已失效");
+                }
             }
             jdbcTemplate.update("""
                 INSERT INTO sys_session_account_scope (
@@ -377,6 +446,11 @@ public class CurrentSessionService {
     }
 
     public void verifyPassword(String username, String password) {
+        var request = currentRequest();
+        var sharedAdminCredentialLease = regressionSharedAdminLoginGuard.beginSharedAdminLogin(username, request);
+        if (sharedAdminCredentialLease != null) {
+            regressionActiveRequestTracker.trackRequiredLease(request, sharedAdminCredentialLease);
+        }
         var rows = jdbcTemplate.queryForList("""
             SELECT COALESCE(password_hash, '') AS "passwordHash"
             FROM sys_user
@@ -491,6 +565,44 @@ public class CurrentSessionService {
                 deletePersistedAccountScope(String.valueOf(sessionToken));
             }
             session.invalidate();
+        }
+    }
+
+    void invalidateCurrentRequestSession() {
+        var request = currentRequest();
+        if (request == null) {
+            return;
+        }
+        try {
+            var session = request.getSession(false);
+            if (session != null) {
+                session.invalidate();
+            }
+        } catch (IllegalStateException ignored) {
+            // The session is already invalid and SessionRepositoryFilter will persist its deletion.
+        }
+    }
+
+    void invalidateCurrentRequestSessionIfFixture(String expectedUsername) {
+        if (!RegressionActiveRequestTracker.isFixtureUsername(expectedUsername)) {
+            return;
+        }
+        var request = currentRequest();
+        if (request == null) {
+            return;
+        }
+        try {
+            var session = request.getSession(false);
+            if (session == null) {
+                return;
+            }
+            var loadedUsername = session.getAttribute(SESSION_USERNAME);
+            if (loadedUsername != null
+                && expectedUsername.equalsIgnoreCase(String.valueOf(loadedUsername).trim())) {
+                session.invalidate();
+            }
+        } catch (IllegalStateException ignored) {
+            // The matching fixture session was already invalidated by the fence path.
         }
     }
 

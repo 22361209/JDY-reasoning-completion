@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fillRegressionAdminPassword, loginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -32,14 +33,6 @@ async function browserFetch(page, pathname, options = {}) {
   }, { pathname, options });
 }
 
-async function loginAsAdmin(page) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
-}
-
 async function openSecuritySettings(page) {
   await page.getByTestId("module-系统设置").hover();
   await page.getByTestId("entry-security-settings").click();
@@ -56,7 +49,7 @@ async function saveTimeout(page, minutes) {
   );
   const inputValue = await timeoutInput.inputValue();
   assert(inputValue === String(minutes), `timeout input should be ${minutes} before save, got ${inputValue}`);
-  await page.getByTestId("security-current-password").fill("admin123");
+  await fillRegressionAdminPassword(page.getByTestId("security-current-password"));
   const [response] = await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/system/security-settings") && response.request().method() === "PUT"),
     page.getByTestId("security-settings-save").click()

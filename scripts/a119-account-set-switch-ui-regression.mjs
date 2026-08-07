@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loginAsAdmin as sharedLoginAsAdmin } from "./helpers/regression-auth.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -34,12 +35,7 @@ async function browserFetch(page, pathname, options = {}) {
 }
 
 async function loginAsAdmin(page) {
-  await page.getByTestId("login-page").waitFor({ state: "visible" });
-  await page.getByTestId("login-username").fill("admin");
-  await page.getByTestId("login-password").fill("admin123");
-  await page.getByTestId("login-account-set").selectOption("BLD-TEST");
-  await page.getByTestId("login-submit").click();
-  await page.getByTestId("session-user-role").filter({ hasText: "系统管理员" }).waitFor({ state: "visible" });
+  await sharedLoginAsAdmin(page);
 }
 
 async function ensureTargetAccountSet(page) {

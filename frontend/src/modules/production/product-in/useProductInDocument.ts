@@ -15,6 +15,8 @@ export function useProductInDocument(options: Parameters<typeof useDocumentModul
     defaultDepartment: "生产部",
     defaultPartyCode: "",
     defaultUnitPrice: 1,
+    showPriceAmountColumns: false,
+    showProductInfoSection: true,
     reversible: true,
     initialForm: initialProductInForm,
     riskySummaryTitle: "产品入库单",

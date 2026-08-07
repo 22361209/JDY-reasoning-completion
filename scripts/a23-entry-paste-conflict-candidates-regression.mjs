@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
 import { clickNewDocument, saveDocument } from "./helpers/document-actions.mjs";
-import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
+import { removeMasterDataFixture, upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const screenshotDir = path.join(rootDir, "verification/playwright");
@@ -15,7 +15,7 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 
 const conflictName = `A23候选商品${batch}`;
 const productA = {
-  code: `A23-A-${batch}`,
+  code: `000-A23-A-${batch}`,
   name: conflictName,
   spec: "粗牙 / 左",
   category: "成品总成",
@@ -23,7 +23,7 @@ const productA = {
   status: "启用"
 };
 const productB = {
-  code: `A23-B-${batch}`,
+  code: `000-A23-B-${batch}`,
   name: conflictName,
   spec: "细牙 / 右",
   category: "成品总成",
@@ -60,6 +60,19 @@ async function requireApi(pathname, options = {}) {
 
 async function upsertProduct(product) {
   return upsertMasterDataFixture({ apiBase, type: "product", payload: product, audit: true });
+}
+
+async function removeSalesOrder(billNo) {
+  if (!billNo) return;
+  const detail = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+  if (detail.status === 404) return;
+  if (!detail.ok) throw new Error(`A23 cleanup could not read sales order ${billNo}`);
+  const status = detail.data?.order?.status ?? detail.data?.document?.status;
+  if (status === "AUDITED") await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}/reverse`, { method: "POST" });
+  if (status !== "DRAFT" && status !== "AUDITED") throw new Error(`A23 cleanup refuses sales order ${billNo} in ${status}`);
+  await requireApi(`/api/sales-orders/${encodeURIComponent(billNo)}`, { method: "DELETE" });
+  const residue = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`);
+  if (residue.status !== 404) throw new Error(`A23 cleanup left sales order ${billNo}`);
 }
 
 async function dispatchPaste(page, testId, text) {
@@ -118,13 +131,13 @@ function assertDeepEqual(name, actual, expected) {
   }
 }
 
-await upsertProduct(productA);
-await upsertProduct(productB);
-
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+let billNo = "";
 
 try {
+  await upsertProduct(productA);
+  await upsertProduct(productB);
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await page.getByTestId("module-销售管理").hover();
@@ -174,7 +187,7 @@ try {
     const input = document.querySelector('[data-testid="sales-bill-no"]');
     return input instanceof HTMLInputElement && /^XSDD\d{6}$/.test(input.value);
   });
-  const billNo = await billNoInput.inputValue();
+  billNo = await billNoInput.inputValue();
   if (!/^XSDD\d{6}$/.test(billNo)) {
     throw new Error(`saved sales order bill no should match XSDD######, got ${JSON.stringify(billNo)}`);
   }
@@ -210,4 +223,7 @@ try {
   console.log(JSON.stringify(result, null, 2));
 } finally {
   await browser.close();
+  await removeSalesOrder(billNo);
+  await removeMasterDataFixture({ apiBase, type: "product", code: productA.code });
+  await removeMasterDataFixture({ apiBase, type: "product", code: productB.code });
 }

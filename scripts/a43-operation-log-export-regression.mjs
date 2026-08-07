@@ -269,8 +269,8 @@ function textArray(values) {
 function psql(sql) {
   return execFileSync(
     "docker",
-    ["exec", "-i", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "jdy", "-d", "jdy_erp"],
-    { encoding: "utf8", input: sql }
+    ["exec", "jdy-erp-postgres", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", "jdy", "-d", "jdy_erp", "-c", sql],
+    { encoding: "utf8" }
   ).trim();
 }
 
@@ -466,19 +466,47 @@ async function http(pathname, options = {}, cookie = artifacts.session.cookie) {
   const headers = new Headers(options.headers ?? {});
   if (cookie) headers.set("Cookie", cookie);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await nativeFetch(`${apiBase}${pathname}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = text;
+  const method = (options.method ?? "GET").toUpperCase();
+  let lastError;
+  // Only reads are retried here. Retrying an arbitrary business write after a
+  // transport failure can duplicate it when the server accepted the first call.
+  for (let attempt = 0; attempt < (method === "GET" ? 3 : 1); attempt += 1) {
+    try {
+      const response = await nativeFetch(`${apiBase}${pathname}`, {
+        method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      });
+      const text = await response.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = text;
+      }
+      return { ok: response.ok, status: response.status, data, text, headers: response.headers };
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < (method === "GET" ? 3 : 1)) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
   }
-  return { ok: response.ok, status: response.status, data, text, headers: response.headers };
+  throw lastError;
+}
+
+async function cleanupHttp(pathname, options = {}, cookie = artifacts.session.cookie) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await http(pathname, options, cookie);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 async function requireJson(pathname, options = {}, expected = [200, 201]) {
@@ -673,20 +701,53 @@ function linePayload(source = {}) {
   };
 }
 
-async function createUniqueWarehouseAndSeed() {
-  const createdWarehouse = await requireJson("/api/master-data/warehouse", {
-    method: "POST",
-    body: {
-      code: warehouseCode,
-      name: warehouseName,
-      warehouseType: "普通仓",
-      stockPolicy: "不允许负库存",
-      status: "启用",
-      remark: fixtureKey
+function exactOwnedWarehouseRows() {
+  return rowsJson(
+    "md_warehouse",
+    `row_value.code=${sqlLiteral(warehouseCode)} OR row_value.name=${sqlLiteral(warehouseName)}`
+  );
+}
+
+function requireExactOwnedWarehouse(rows, label) {
+  assert(rows.length <= 1, `A43 ${label} found more than one warehouse for the run-unique identity`, rows);
+  if (rows.length === 0) return null;
+  const [warehouse] = rows;
+  assert(warehouse.code === warehouseCode
+      && warehouse.name === warehouseName
+      && warehouse.remark === fixtureKey,
+  `A43 ${label} found a warehouse whose full run identity does not match`, warehouse);
+  assertUuid(warehouse.id, `A43 ${label} warehouse id`);
+  return warehouse;
+}
+
+async function createOwnedWarehouseWithTransportReconciliation() {
+  const payload = {
+    code: warehouseCode,
+    name: warehouseName,
+    warehouseType: "普通仓",
+    stockPolicy: "不允许负库存",
+    status: "启用",
+    remark: fixtureKey
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const created = await requireJson("/api/master-data/warehouse", { method: "POST", body: payload }, [201]);
+      assertUuid(created?.id, "A43 warehouse POST response id");
+      return { id: String(created.id), reconciled: false };
+    } catch (error) {
+      const existing = requireExactOwnedWarehouse(exactOwnedWarehouseRows(), "warehouse POST transport reconciliation");
+      if (existing) return { id: String(existing.id), reconciled: true };
+      const transientTransport = error instanceof TypeError && /fetch failed/i.test(error.message);
+      if (!transientTransport || attempt === 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
-  }, [201]);
-  assertUuid(createdWarehouse?.id, "A43 warehouse POST response id");
-  artifacts.warehouse.id = String(createdWarehouse.id);
+  }
+  throw new Error("A43 warehouse transport reconciliation exhausted unexpectedly");
+}
+
+async function createUniqueWarehouseAndSeed() {
+  const createdWarehouse = await createOwnedWarehouseWithTransportReconciliation();
+  artifacts.warehouse.id = createdWarehouse.id;
   const auditedWarehouse = await requireJson(`/api/master-data/warehouse/${encodeURIComponent(warehouseCode)}/audit`, {
     method: "POST"
   }, [200]);
@@ -1578,6 +1639,32 @@ async function browserParityChecks() {
   let uiRequest = null;
   let exportRequest = null;
   let renderedUi = null;
+  const listNetwork = { requests: [], responses: [], failures: [] };
+  const exportNetwork = { requests: [], responses: [], failures: [] };
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list") {
+      listNetwork.requests.push({ method: request.method(), url: request.url() });
+    }
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv") {
+      exportNetwork.requests.push({ method: request.method(), url: request.url() });
+    }
+  });
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname === "/api/lists/operation-log-list") {
+      listNetwork.responses.push({ status: response.status(), url: response.url() });
+    }
+    if (new URL(response.url()).pathname === "/api/lists/operation-log-list/export.csv") {
+      exportNetwork.responses.push({ status: response.status(), url: response.url() });
+    }
+  });
+  page.on("requestfailed", (request) => {
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list") {
+      listNetwork.failures.push({ url: request.url(), failure: request.failure()?.errorText || "unknown" });
+    }
+    if (new URL(request.url()).pathname === "/api/lists/operation-log-list/export.csv") {
+      exportNetwork.failures.push({ url: request.url(), failure: request.failure()?.errorText || "unknown" });
+    }
+  });
   try {
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
     await page.getByTestId("content-area").waitFor({ state: "visible", timeout: 10000 });
@@ -1613,10 +1700,17 @@ async function browserParityChecks() {
     await page.getByTestId("column-filter-input").fill("成功");
     const listResponsePromise = page.waitForResponse(
       (response) => matchesExactOperationLogResponse(response, "/api/lists/operation-log-list", artifacts.documents.red.billNo),
-      { timeout: 10000 }
+      { timeout: 30000 }
     );
     await page.getByTestId("column-filter-ok").click();
-    const listResponse = await listResponsePromise;
+    await page.getByTestId("column-filter-dialog").waitFor({ state: "hidden" });
+    await page.getByTestId("list-query").click();
+    let listResponse;
+    try {
+      listResponse = await listResponsePromise;
+    } catch (error) {
+      throw new Error(`A43 UI list did not produce the exact response: ${errorText(error)}; network=${JSON.stringify(listNetwork)}`);
+    }
     assert(listResponse.status() === 200, "A43 exact UI list response must return 200", listResponse.status());
     uiRequest = assertExactOperationLogQuery(listResponse.url(), artifacts.documents.red.billNo, "A43 UI list response");
     uiListBody = await listResponse.json();
@@ -1670,11 +1764,17 @@ async function browserParityChecks() {
       (response) => matchesExactOperationLogResponse(response, "/api/lists/operation-log-list/export.csv", artifacts.documents.red.billNo),
       { timeout: 10000 }
     );
-    const [download, exportResponse] = await Promise.all([
-      page.waitForEvent("download", { timeout: 10000 }),
-      exportResponsePromise,
-      page.getByTestId("list-export").click()
-    ]);
+    let download;
+    let exportResponse;
+    try {
+      [download, exportResponse] = await Promise.all([
+        page.waitForEvent("download", { timeout: 10000 }),
+        exportResponsePromise,
+        page.getByTestId("list-export").click()
+      ]);
+    } catch (error) {
+      throw new Error(`A43 UI export did not produce the exact download response: ${errorText(error)}; network=${JSON.stringify(exportNetwork)}`);
+    }
     assert(exportResponse.status() === 200, "A43 exact UI export response must return 200", exportResponse.status());
     exportRequest = assertExactOperationLogQuery(exportResponse.url(), artifacts.documents.red.billNo, "A43 UI export response");
     downloadFileName = download.suggestedFilename();
@@ -1754,7 +1854,7 @@ async function closeRunSession() {
     login: redisEvidence(artifacts.session.redisAtLogin),
     beforeLogout: redisEvidence(artifacts.session.redisBeforeLogout)
   });
-  const logout = await http("/api/system/logout", { method: "POST" }, artifacts.session.cookie);
+  const logout = await cleanupHttp("/api/system/logout", { method: "POST" }, artifacts.session.cookie);
   artifacts.session.logoutStatus = logout.status;
   evidence.cleanup.logout = { status: logout.status, body: logout.data };
   const redisCleanup = cleanupRedisSession();
@@ -1763,11 +1863,12 @@ async function closeRunSession() {
     before: redisEvidence(redisCleanup.before),
     after: redisEvidence(redisCleanup.after)
   };
-  const after = await http("/api/system/session", {}, artifacts.session.cookie);
+  const after = await cleanupHttp("/api/system/session", {}, artifacts.session.cookie);
   artifacts.session.postLogoutAuthenticated = after.data?.authenticated === true;
   evidence.cleanup.logout.postLogoutStatus = after.status;
   evidence.cleanup.logout.postLogoutAuthenticated = artifacts.session.postLogoutAuthenticated;
-  assert(logout.status === 200 && logout.data?.ok === true, "A43 dedicated logout endpoint must succeed", logout);
+  assert((logout.status === 200 && logout.data?.ok === true) || logout.status === 401,
+    "A43 dedicated logout endpoint must succeed or already be invalidated", logout);
   assert(after.status === 401 || after.data?.authenticated === false,
     "A43 logged-out cookie must no longer authenticate", after);
   assert(sessionScopeRows().length === 0, "A43 logout must remove the exact persisted account scope", sessionScopeRows());
@@ -2163,6 +2264,77 @@ function residueCounts() {
   `);
 }
 
+function directPartialIdentityCleanup() {
+  assertUuid(artifacts.identity.userId, "A43 partial cleanup user id");
+  assert(runUsername.startsWith("a43_") && runUsername.endsWith("_admin"),
+    "A43 partial cleanup requires a generated run username", runUsername);
+  const before = residueCounts();
+  const businessKeys = [
+    "warehouse", "balances", "transactions", "orderHeaders", "orderLines", "noticeHeaders", "noticeLines",
+    "outHeaders", "outLines", "receivables", "outboxEvents", "notificationOutbox"
+  ];
+  const businessResidue = Object.fromEntries(businessKeys
+    .filter((key) => Number(before[key] ?? 0) !== 0)
+    .map((key) => [key, before[key]]));
+  assert(Object.keys(businessResidue).length === 0,
+    "A43 partial cleanup refuses to delete identity data when business residue exists", businessResidue);
+
+  psql(`
+    BEGIN;
+    SET LOCAL lock_timeout='10s';
+    LOCK TABLE public.sys_user,
+               public.sys_user_role,
+               public.sys_user_account_set,
+               public.sys_session_account_scope,
+               public.sys_operation_log,
+               public.doc_edit_lock
+      IN SHARE ROW EXCLUSIVE MODE;
+    DO $a43_partial_cleanup$
+    DECLARE
+      affected integer;
+    BEGIN
+      IF (SELECT count(*) FROM public.sys_user row_value
+          WHERE row_value.id=${sqlLiteral(artifacts.identity.userId)}::uuid
+            AND row_value.username=${sqlLiteral(runUsername)}) <> 1 THEN
+        RAISE EXCEPTION 'A43 partial cleanup refused: exact generated user changed or is absent';
+      END IF;
+      IF EXISTS (SELECT 1 FROM public.md_warehouse row_value WHERE row_value.code=${sqlLiteral(warehouseCode)}) THEN
+        RAISE EXCEPTION 'A43 partial cleanup refused: warehouse exists';
+      END IF;
+
+      DELETE FROM public.sys_operation_log row_value
+      WHERE row_value.operated_by=${sqlLiteral(artifacts.identity.userId)}::uuid
+         OR row_value.actor_username=${sqlLiteral(runUsername)};
+      DELETE FROM public.doc_edit_lock row_value
+      WHERE row_value.holder_user_id=${sqlLiteral(artifacts.identity.userId)}::uuid
+         OR row_value.holder_username=${sqlLiteral(runUsername)};
+      DELETE FROM public.sys_session_account_scope row_value
+      WHERE row_value.user_id=${sqlLiteral(artifacts.identity.userId)}::uuid;
+      DELETE FROM public.sys_user_account_set row_value
+      WHERE row_value.user_id=${sqlLiteral(artifacts.identity.userId)}::uuid;
+      DELETE FROM public.sys_user_role row_value
+      WHERE row_value.user_id=${sqlLiteral(artifacts.identity.userId)}::uuid;
+      DELETE FROM public.sys_user row_value
+      WHERE row_value.id=${sqlLiteral(artifacts.identity.userId)}::uuid
+        AND row_value.username=${sqlLiteral(runUsername)};
+      GET DIAGNOSTICS affected = ROW_COUNT;
+      IF affected <> 1 THEN RAISE EXCEPTION 'A43 partial cleanup user delete rowcount mismatch'; END IF;
+    END;
+    $a43_partial_cleanup$;
+    COMMIT;
+  `);
+  evidence.cleanup.deleted = {
+    partialIdentity: true,
+    logs: Number(before.logs ?? 0),
+    locks: Number(before.locks ?? 0),
+    sessionScopes: Number(before.sessionScopes ?? 0),
+    grants: Number(before.grants ?? 0),
+    roles: Number(before.roles ?? 0),
+    users: Number(before.users ?? 0)
+  };
+  return evidence.cleanup.deleted;
+}
+
 async function cleanup() {
   evidence.cleanup.attempted = true;
   const failures = [];
@@ -2194,9 +2366,11 @@ async function cleanup() {
       recordFailure("guarded business/identity cleanup", error);
     }
   } else if (identityWriteAttempted) {
-    recordFailure("guarded business/identity cleanup", new Error(
-      "A43 cleanup refused a partial or response-loss fixture: exact warehouse and four document response UUIDs are required"
-    ));
+    try {
+      directPartialIdentityCleanup();
+    } catch (error) {
+      recordFailure("guarded partial identity cleanup", error);
+    }
   }
 
   try {

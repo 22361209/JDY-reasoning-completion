@@ -73,6 +73,10 @@
 			<groupId>org.springframework.session</groupId>
 			<artifactId>spring-session-data-redis</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
 
 		<dependency>
 			<groupId>org.postgresql</groupId>
@@ -133,6 +137,15 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<spring.autoconfigure.exclude>org.springframework.boot.autoconfigure.session.SessionAutoConfiguration</spring.autoconfigure.exclude>
+					</systemPropertyVariables>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

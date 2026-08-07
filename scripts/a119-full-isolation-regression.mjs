@@ -58,9 +58,22 @@ const startedAt = new Date().toISOString();
 const started = Date.now();
 const testSelector = suites.map((suite) => suite.className).join(",");
 const command = ["./mvnw", "-q", `-Dtest=${testSelector}`, "test"];
-const run = await runCommand(command[0], command.slice(1), {
-  cwd: backendDir,
-  env: { ...process.env, JAVA_HOME: javaHome }
+const run = await new Promise((resolve) => {
+  const child = spawn("./mvnw", ["-q", `-Dtest=${testSelector}`, "test"], {
+    cwd: backendDir,
+    env: { ...process.env, JAVA_HOME: javaHome }
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+    process.stdout.write(chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+    process.stderr.write(chunk);
+  });
+  child.on("close", (status) => resolve({ status, stdout, stderr }));
 });
 const finished = Date.now();
 const ok = run.status === 0;
@@ -96,26 +109,7 @@ console.log(JSON.stringify({
 }, null, 2));
 
 if (!ok) {
-  process.exit(run.status ?? 1);
-}
-
-function runCommand(command, args, options) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, options);
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-      process.stdout.write(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-      process.stderr.write(chunk);
-    });
-    child.on("close", (status) => {
-      resolve({ status, stdout, stderr });
-    });
-  });
+  process.exitCode = result.status ?? 1;
 }
 
 function tail(value, max = 4000) {

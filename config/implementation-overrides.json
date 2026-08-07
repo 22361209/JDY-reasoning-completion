@@ -1,6 +1,18 @@
 {
   "source": "Manual implementation interpretation after architecture review",
   "overrides": {
+    "F031": {
+      "decision": "build",
+      "targetVersion": "第一版",
+      "approval": "要（A170 用户明确要求）",
+      "note": "A170 明确要求生产计划按行生成采购申请，并允许逐行删除、修改数量和维护供应商。"
+    },
+    "F032": {
+      "decision": "build",
+      "targetVersion": "第一版",
+      "approval": "要（A170 用户明确要求）",
+      "note": "A170 明确要求采购申请按行供应商分组下推独立采购计划。"
+    },
     "F063": {
       "decision": "later",
       "targetVersion": "第二版",

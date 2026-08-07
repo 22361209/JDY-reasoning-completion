@@ -59,6 +59,7 @@ public class ProductInAppService {
             SELECT c.id::text AS id,
                    c.bill_no AS "billNo",
                    t.bill_no AS "sourceOrderNo",
+                   source_issue.bill_no AS "sourceIssueNo",
                    'SC' AS "customerCode",
                    '生产车间' AS customer,
                    to_char(c.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS "billDate",
@@ -80,9 +81,10 @@ public class ProductInAppService {
                    ) AS "redSourceBillNo"
             FROM production_completion c
             JOIN production_task t ON t.id = c.task_id
+            LEFT JOIN production_material_issue source_issue ON source_issue.id = c.source_issue_id
             LEFT JOIN production_completion_line l ON l.completion_id = c.id
             WHERE c.bill_no = ?
-            GROUP BY c.id, t.bill_no
+            GROUP BY c.id, t.bill_no, source_issue.bill_no
             """, billNo);
         if (billRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "产品入库单不存在");
@@ -115,16 +117,18 @@ public class ProductInAppService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "产品入库单草稿不能为空");
         }
+        var productInBillNo = numberingService.assignBillNo("productIn", request.billNo());
+        lockExistingDraft(productInBillNo);
         var sourceTaskNo = validationService.required(request.sourceOrderNo(), "生产任务单号");
         var task = completionTask(sourceTaskNo);
-        var productInBillNo = numberingService.assignBillNo("productIn", request.billNo());
         redReverseGuardService.assertNotRedDraftForBillNo(BILL_TABLE, productInBillNo, "产品入库单");
         var defaultQty = request.qty() == null ? remainingCompletableQty(task) : positive(request.qty(), "完工数量");
         var completionRows = jdbcTemplate.queryForList("""
-            INSERT INTO production_completion (bill_no, task_id, qty, status)
-            VALUES (?, ?::uuid, ?, ?)
+            INSERT INTO production_completion (bill_no, task_id, source_issue_id, qty, status)
+            VALUES (?, ?::uuid, NULL, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET task_id = EXCLUDED.task_id,
+                source_issue_id = NULL,
                 qty = EXCLUDED.qty,
                 status = EXCLUDED.status,
                 updated_at = now()
@@ -138,6 +142,7 @@ public class ProductInAppService {
         inventoryTraceLifecycleService.prepareForLineReplacement("PRODUCTION_COMPLETION", completionId);
         jdbcTemplate.update("DELETE FROM production_completion_line WHERE completion_id = ?::uuid", completionId);
         var totalQty = insertDraftCompletionLines(completionId, task, defaultQty, request.lines());
+        validateCompletionLinesMatchTask(completionId, String.valueOf(task.get("id")), totalQty);
         validateCompletionQtyWithinTask(String.valueOf(task.get("id")), totalQty);
         jdbcTemplate.update("""
             UPDATE production_completion
@@ -158,13 +163,18 @@ public class ProductInAppService {
     @Transactional
     public Map<String, Object> completeFromIssue(String issueBillNo, CompleteRequest request) {
         var issueRows = jdbcTemplate.queryForList("""
-            SELECT i.bill_no AS "issueBillNo",
+            SELECT i.id::text AS "issueId",
+                   i.bill_no AS "issueBillNo",
                    t.bill_no AS "taskBillNo"
             FROM production_material_issue i
             JOIN production_task t ON t.id = i.task_id
             WHERE i.bill_no = ?
               AND i.status = ?
+              AND i.red_source_bill_id IS NULL
               AND t.status = 'AUDITED'
+              AND t.close_status = 'OPEN'
+              AND t.frozen_status = 'NORMAL'
+            FOR UPDATE OF i
             """, issueBillNo, BillStatus.AUDITED.name());
         if (issueRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产领料单不存在、未审核或来源任务不能完工入库");
@@ -177,6 +187,17 @@ public class ProductInAppService {
             request == null ? null : request.lines()
         );
         var result = new LinkedHashMap<String, Object>(saveDraft(completionRequest));
+        var linked = jdbcTemplate.update("""
+            UPDATE production_completion
+            SET source_issue_id = ?::uuid,
+                updated_at = now()
+            WHERE bill_no = ?
+              AND status = 'DRAFT'
+              AND (source_issue_id IS NULL OR source_issue_id = ?::uuid)
+            """, issue.get("issueId"), result.get("billNo"), issue.get("issueId"));
+        if (linked == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库草稿已关联其他生产领料单");
+        }
         result.put("sourceIssueNo", issueBillNo);
         return result;
     }
@@ -216,6 +237,7 @@ public class ProductInAppService {
 	        }
 	        requireExecutableTask(completion, "完工入库");
 	        var qty = (BigDecimal) completion.get("qty");
+	        validateCompletionLinesMatchTask(String.valueOf(completion.get("id")), String.valueOf(completion.get("taskId")), qty);
 	        validateCompletionQtyWithinTask(String.valueOf(completion.get("taskId")), qty);
         postCompletionLines(billNo, BigDecimal.ONE, "PRODUCTION_COMPLETE", PostingAction.AUDIT);
         var taskRows = jdbcTemplate.queryForList("""
@@ -429,11 +451,21 @@ public class ProductInAppService {
               AND t.status = 'AUDITED'
               AND t.close_status = 'OPEN'
               AND t.frozen_status = 'NORMAL'
+            FOR UPDATE OF t
             """, taskBillNo);
         if (taskRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务不存在或不能完工");
         }
         return taskRows.get(0);
+    }
+
+    private void lockExistingDraft(String billNo) {
+        jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM production_completion
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
     }
 
     private BigDecimal insertDraftCompletionLines(String completionId, Map<String, Object> task, BigDecimal defaultQty, List<CompleteLineRequest> requestLines) {
@@ -455,15 +487,52 @@ public class ProductInAppService {
         }
         var totalQty = BigDecimal.ZERO;
         for (var line : requestLines) {
+            if (line == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "产品入库分录不能为空");
+            }
             var product = productSnapshotService.resolve(line.productId(), line.productCode(), "完工商品");
+            if (!String.valueOf(task.get("product_id")).equals(product.id())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库分录必须与来源生产任务母件一致");
+            }
             var warehouseCode = validationService.required(line.warehouseCode(), "完工仓库");
             var lineQty = positive(line.qty(), "完工数量");
             var unitPrice = line.unitPrice() == null ? BigDecimal.ONE : line.unitPrice();
-            insertCompletionLine(completionId, lineNo, product.id(), product.code(), product.name(), product.spec(), lookupService.lookupEnabledId("md_warehouse", warehouseCode, "完工仓库"), lineQty, unitPrice);
+            insertCompletionLine(
+                completionId,
+                lineNo,
+                task.get("product_id"),
+                task.get("product_code"),
+                task.get("product_name"),
+                task.get("spec"),
+                lookupService.lookupEnabledId("md_warehouse", warehouseCode, "完工仓库"),
+                lineQty,
+                unitPrice
+            );
             totalQty = totalQty.add(lineQty);
             lineNo += 1;
         }
         return totalQty;
+    }
+
+    private void validateCompletionLinesMatchTask(String completionId, String taskId, BigDecimal headerQty) {
+        var summary = jdbcTemplate.queryForMap("""
+            SELECT COUNT(line.id) AS "lineCount",
+                   COUNT(line.id) FILTER (WHERE line.product_id <> task.product_id) AS "invalidProductCount",
+                   COALESCE(SUM(line.qty), 0) AS "lineQty"
+            FROM production_task task
+            LEFT JOIN production_completion_line line ON line.completion_id = ?::uuid
+            WHERE task.id = ?::uuid
+            GROUP BY task.id
+            """, completionId, taskId);
+        var lineCount = Number.class.cast(summary.get("lineCount")).longValue();
+        var invalidProductCount = Number.class.cast(summary.get("invalidProductCount")).longValue();
+        var lineQty = (BigDecimal) summary.get("lineQty");
+        if (lineCount == 0 || invalidProductCount > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库分录必须与来源生产任务母件一致");
+        }
+        if (lineQty.compareTo(headerQty) != 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库分录数量合计必须等于完工数量");
+        }
     }
 
     private BigDecimal remainingCompletableQty(Map<String, Object> task) {
