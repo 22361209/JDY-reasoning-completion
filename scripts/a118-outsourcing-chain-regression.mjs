@@ -373,29 +373,33 @@ async function http(pathname, options = {}, cookie = artifacts.session.cookie, {
   const headers = new Headers(options.headers ?? {});
   if (cookie) headers.set("Cookie", cookie);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  let response;
+  let lastTransportError = null;
   for (let attempt = 0; attempt < (retryTransientTransport ? 2 : 1); attempt += 1) {
     try {
-      response = await nativeFetch(`${apiBase}${pathname}`, {
+      const response = await nativeFetch(`${apiBase}${pathname}`, {
         method,
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body)
       });
-      break;
+      // A socket reset can surface while consuming the body rather than while
+      // opening the request.  Keep the opt-in retry boundary around the whole
+      // cleanup request so the caller never treats an unread response as a
+      // successful logout/session check.
+      const text = await response.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { text };
+      }
+      if (method !== "GET" && artifacts.identity.userId) captureActorLogIds();
+      return { ok: response.ok, status: response.status, data, text };
     } catch (error) {
+      lastTransportError = error;
       if (!(retryTransientTransport && attempt === 0 && error instanceof TypeError)) throw error;
     }
   }
-  assert(response, `A118 ${method} ${pathname} did not produce a response after retry`);
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { text };
-  }
-  if (method !== "GET" && artifacts.identity.userId) captureActorLogIds();
-  return { ok: response.ok, status: response.status, data, text };
+  throw lastTransportError ?? new Error(`A118 ${method} ${pathname} did not produce a response after retry`);
 }
 
 async function requireJson(pathname, options = {}, expected = [200, 201]) {
