@@ -176,6 +176,7 @@ export interface BomMaterialOption {
   spec: string;
   unit: string;
   defaultWarehouseCode: string;
+  isProduce: boolean;
   searchText: string;
 }
 

@@ -72,9 +72,42 @@
         <div class="form-head-fields bom-product-fields">
           <label class="required">
             <span>母件物料编码</span>
-            <span class="bom-parent-selector">
-              <input :value="form.productCode" data-testid="bom-product-code" placeholder="请选择已审核可自制物料" readonly />
-              <button type="button" data-testid="bom-product-selector" :disabled="isAudited" @click="openParentMaterialSelector">选择</button>
+            <span class="master-selector bom-parent-selector">
+              <input
+                v-model.trim="form.productCode"
+                data-testid="bom-product-code"
+                placeholder="输入编码或名称"
+                :disabled="isAudited"
+                @focus="openParentMaterialLookup"
+                @input="handleParentMaterialInput"
+                @keydown.down.prevent="moveParentMaterialLookup(1)"
+                @keydown.up.prevent="moveParentMaterialLookup(-1)"
+                @keydown.enter.prevent="confirmParentMaterialLookup"
+                @blur="closeParentMaterialLookupLater"
+              />
+              <button
+                class="master-selector__open"
+                type="button"
+                data-testid="bom-product-selector"
+                title="整列表选择"
+                aria-label="整列表选择"
+                :disabled="isAudited"
+                @mousedown.prevent
+                @click="openParentMaterialSelector"
+              >...</button>
+              <span v-if="parentMaterialLookupOpen" class="master-selector__menu">
+                <button
+                  v-for="(option, optionIndex) in filteredParentMaterialOptions"
+                  :key="option.code"
+                  type="button"
+                  :class="{ selected: optionIndex === parentMaterialLookupCursor }"
+                  @mousedown.prevent="selectParentMaterialOption(option)"
+                >
+                  <strong>{{ option.code }}</strong>
+                  <span>{{ option.name }}</span>
+                </button>
+                <em v-if="filteredParentMaterialOptions.length === 0">没有匹配的可自制母件</em>
+              </span>
             </span>
           </label>
           <label>
@@ -193,6 +226,8 @@ const materialSelectorDialogOpen = ref(false);
 const materialSelectorLineIndex = ref<number | null>(null);
 const materialSelectorKeyword = ref("");
 const parentMaterialSelectorOpen = ref(false);
+const parentMaterialLookupOpen = ref(false);
+const parentMaterialLookupCursor = ref(0);
 const form = reactive({
   code: "",
   bomCategory: "",
@@ -211,6 +246,14 @@ const form = reactive({
 });
 
 const isAudited = computed(() => form.auditStatus === "AUDITED");
+const parentMaterialOptions = computed(() => materialOptions.value.filter((option) => option.isProduce));
+const filteredParentMaterialOptions = computed(() => {
+  const keyword = normalizeLookupText(form.productCode);
+  const options = keyword
+    ? parentMaterialOptions.value.filter((option) => option.searchText.includes(keyword))
+    : parentMaterialOptions.value;
+  return options.slice(0, 24);
+});
 const statusClass = computed(() => isAudited.value ? "audited" : "draft");
 const statusText = computed(() => {
   const audit = isAudited.value ? "已审核" : "草稿";
@@ -359,6 +402,7 @@ async function loadMaterialOptions() {
         spec,
         unit,
         defaultWarehouseCode,
+        isProduce: String(row.isProduce ?? "") === "是",
         searchText: normalizeLookupText(`${code} ${name} ${spec} ${unit}`)
       };
     })
@@ -561,20 +605,75 @@ function openParentMaterialSelector() {
   if (isAudited.value) {
     return;
   }
+  parentMaterialLookupOpen.value = false;
   parentMaterialSelectorOpen.value = true;
 }
 
 function closeParentMaterialSelector() {
   parentMaterialSelectorOpen.value = false;
+  parentMaterialLookupOpen.value = false;
 }
 
 function selectParentMaterialRow(option: MasterOption) {
+  selectParentMaterialOption(option);
+  closeParentMaterialSelector();
+}
+
+function openParentMaterialLookup() {
+  if (isAudited.value) {
+    return;
+  }
+  parentMaterialLookupOpen.value = true;
+  parentMaterialLookupCursor.value = 0;
+}
+
+function closeParentMaterialLookupLater() {
+  window.setTimeout(() => {
+    parentMaterialLookupOpen.value = false;
+  }, 120);
+}
+
+function handleParentMaterialInput() {
+  openParentMaterialLookup();
+  const exact = parentMaterialOptions.value.find((option) => {
+    const value = normalizeLookupText(form.productCode);
+    return normalizeLookupText(option.code) === value || normalizeLookupText(option.name) === value;
+  });
+  if (exact) {
+    selectParentMaterialOption(exact);
+    return;
+  }
+  form.productName = "";
+  form.spec = "";
+  form.unit = "";
+  form.warehouseCode = "";
+  markDirty();
+}
+
+function moveParentMaterialLookup(delta: number) {
+  const options = filteredParentMaterialOptions.value;
+  if (!options.length) {
+    parentMaterialLookupCursor.value = 0;
+    return;
+  }
+  parentMaterialLookupCursor.value = (parentMaterialLookupCursor.value + delta + options.length) % options.length;
+}
+
+function confirmParentMaterialLookup() {
+  const option = filteredParentMaterialOptions.value[parentMaterialLookupCursor.value]
+    ?? filteredParentMaterialOptions.value[0];
+  if (option) {
+    selectParentMaterialOption(option);
+  }
+}
+
+function selectParentMaterialOption(option: Pick<BomMaterialOption, "code" | "name" | "spec" | "unit" | "defaultWarehouseCode"> | MasterOption) {
   form.productCode = text(option.code);
   form.productName = text(option.name);
   form.spec = text(option.spec);
   form.unit = text(option.unit);
   form.warehouseCode = text(option.defaultWarehouseCode);
-  closeParentMaterialSelector();
+  parentMaterialLookupOpen.value = false;
   markDirty();
 }
 
@@ -661,23 +760,8 @@ defineExpose({ startNew, loadBom, copyFromBom });
   font-size: 12px;
 }
 
-.bom-parent-selector {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
-}
-
-.bom-parent-selector input {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.bom-parent-selector button {
-  flex: 0 0 auto;
-}
-
-.bom-fields label.required span::before,
-.bom-product-fields label.required span::before {
+.bom-fields label.required > span:first-child::before,
+.bom-product-fields label.required > span:first-child::before {
   content: "*";
   margin-right: 2px;
   color: #d1412f;
