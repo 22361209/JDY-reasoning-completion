@@ -3363,7 +3363,11 @@ function closeChildDockerLeaseWatchdog(handle) {
   const streamedPayload = String(handle?.dockerWatchdogAckPayload || "");
   const durableAckPath = dockerWatchdogDurableAckPath(handle, groupId);
   const durablePayload = readDurableDockerWatchdogAck(durableAckPath);
-  const payload = streamedPayload || durablePayload;
+  // A forced/fast watchdog exit may leave a non-empty but truncated pipe
+  // frame.  Its private durable acknowledgement is authoritative; prefer it
+  // whenever it exists rather than letting an incomplete transport fragment
+  // mask a complete signed closure record.
+  const payload = durablePayload || streamedPayload;
   let result;
   try {
     result = readRegressionDockerWatchdogAck({
