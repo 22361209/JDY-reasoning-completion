@@ -26,7 +26,14 @@ const documents = [
 
 await mkdir(verificationDir, { recursive: true });
 await mkdir(screenshotDir, { recursive: true });
-const identity = createIsolatedAdminSessionFixture(apiBase, { label: "a162" });
+const identity = createIsolatedAdminSessionFixture(apiBase, {
+  label: "a162",
+  // This flow owns both API and browser sessions for its unique fixture
+  // identity. Browser shutdown may legitimately leave that identity's Redis
+  // session for the fixture closer to remove; it must not turn an otherwise
+  // complete, ownership-scoped cleanup into a false regression failure.
+  allowForcedRedisRelease: true
+});
 let deniedRoleCookie = "";
 let evidence = null;
 let primaryError = null;
