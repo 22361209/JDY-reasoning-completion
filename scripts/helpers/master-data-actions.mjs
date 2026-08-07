@@ -205,3 +205,28 @@ export async function upsertMasterDataFixture({ apiBase, type, payload, audit = 
   }
   return current;
 }
+
+export async function removeMasterDataFixture({ apiBase, type, code }) {
+  masterDataListKey(type);
+  const normalizedCode = String(code ?? "").trim();
+  if (!normalizedCode) {
+    throw new Error(`${type} fixture cleanup requires code`);
+  }
+  const query = new URLSearchParams({ keyword: normalizedCode, page: "1", pageSize: "200" });
+  const before = await requestMasterDataJson(apiBase, `/api/lists/${masterDataListKey(type)}?${query}`);
+  const rows = Array.isArray(before.rows) ? before.rows.filter((row) => String(row?.code ?? "") === normalizedCode) : [];
+  if (rows.length === 0) return false;
+  if (rows.length !== 1) {
+    throw new Error(`${type} ${normalizedCode} fixture cleanup expected one exact row, got ${rows.length}`);
+  }
+  if (isAudited(rows[0])) {
+    await requestMasterDataJson(apiBase, `/api/master-data/${type}/${encodeURIComponent(normalizedCode)}/reverse`, { method: "POST" });
+  }
+  await requestMasterDataJson(apiBase, `/api/master-data/${type}/${encodeURIComponent(normalizedCode)}`, { method: "DELETE" });
+  const after = await requestMasterDataJson(apiBase, `/api/lists/${masterDataListKey(type)}?${query}`);
+  const residue = Array.isArray(after.rows) ? after.rows.filter((row) => String(row?.code ?? "") === normalizedCode) : [];
+  if (residue.length !== 0) {
+    throw new Error(`${type} ${normalizedCode} fixture cleanup left ${residue.length} exact rows`);
+  }
+  return true;
+}

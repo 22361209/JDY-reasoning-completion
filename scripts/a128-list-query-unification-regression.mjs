@@ -24,6 +24,35 @@ const evidence = {
   screenshots: []
 };
 
+function shanghaiDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+}
+
+function monthRange(year, month) {
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 0));
+  const iso = (value) => value.toISOString().slice(0, 10);
+  return { from: iso(start), to: iso(end) };
+}
+
+function shiftMonth(year, month, offset) {
+  const date = new Date(Date.UTC(year, month - 1 + offset, 1));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 };
+}
+
+const shanghaiToday = shanghaiDateParts();
+const currentMonth = monthRange(shanghaiToday.year, shanghaiToday.month);
+const previousMonthParts = shiftMonth(shanghaiToday.year, shanghaiToday.month, -1);
+const previousMonth = monthRange(previousMonthParts.year, previousMonthParts.month);
+const previousQuarterEndMonth = Math.floor((shanghaiToday.month - 1) / 3) * 3;
+const previousQuarterStartMonth = previousQuarterEndMonth - 2;
+const previousQuarter = previousQuarterEndMonth === 0
+  ? { from: `${shanghaiToday.year - 1}-10-01`, to: `${shanghaiToday.year - 1}-12-31` }
+  : { from: monthRange(shanghaiToday.year, previousQuarterStartMonth).from, to: monthRange(shanghaiToday.year, previousQuarterEndMonth).to };
+
 function assert(condition, message, details = undefined) {
   if (!condition) {
     const suffix = details ? ` ${JSON.stringify(details)}` : "";
@@ -57,6 +86,20 @@ async function api(pathname, options = {}) {
     throw new Error(`${options.method ?? "POST"} ${pathname} failed ${response.status}: ${text}`);
   }
   return { ok: response.ok, status: response.status, data, text };
+}
+
+async function removeSalesOrder(billNo) {
+  if (!billNo) return;
+  const detail = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`, { method: "GET" });
+  if (detail.status === 404) return;
+  if (!detail.ok) throw new Error(`A128 cleanup could not read sales order ${billNo}`);
+  const status = detail.data?.order?.status ?? detail.data?.document?.status;
+  if (status === "AUDITED") await api(`/api/sales-orders/${encodeURIComponent(billNo)}/reverse`);
+  if (status !== "DRAFT" && status !== "AUDITED") throw new Error(`A128 cleanup refuses sales order ${billNo} in ${status}`);
+  const deleted = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`, { method: "DELETE" });
+  if (!deleted.ok) throw new Error(`A128 cleanup could not delete sales order ${billNo}`);
+  const residue = await api(`/api/sales-orders/${encodeURIComponent(billNo)}`, { method: "GET", expectFailure: true });
+  if (residue.status !== 404) throw new Error(`A128 cleanup left sales order ${billNo}`);
 }
 
 function salesOrderPayload(billNo, billDate, remark, qty = 1) {
@@ -112,18 +155,19 @@ async function buttonBox(page, testId) {
   });
 }
 
-const julyDraft = await api("/api/sales-orders/draft", { body: salesOrderPayload(null, "2026-07-01", `A128KEY ${batch} July`) });
-assert(julyDraft.ok, "A128 July sales order should be created", julyDraft.data);
-const julyBillNo = generatedSalesOrderNo(julyDraft.data, "A128 July sales order");
-const juneDraft = await api("/api/sales-orders/draft", { body: salesOrderPayload(null, "2026-06-15", `A128KEY ${batch} June`) });
-assert(juneDraft.ok, "A128 June sales order should be created", juneDraft.data);
-const juneBillNo = generatedSalesOrderNo(juneDraft.data, "A128 June sales order");
-
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 const screenshot = path.join(screenshotDir, `a128-list-query-unification-${batch}.png`);
+let julyBillNo = "";
+let juneBillNo = "";
 
 try {
+  const julyDraft = await api("/api/sales-orders/draft", { body: salesOrderPayload(null, currentMonth.from, `A128KEY ${batch} current month`) });
+  assert(julyDraft.ok, "A128 current-month sales order should be created", julyDraft.data);
+  julyBillNo = generatedSalesOrderNo(julyDraft.data, "A128 current-month sales order");
+  const juneDraft = await api("/api/sales-orders/draft", { body: salesOrderPayload(null, previousMonth.from, `A128KEY ${batch} previous month`) });
+  assert(juneDraft.ok, "A128 previous-month sales order should be created", juneDraft.data);
+  juneBillNo = generatedSalesOrderNo(juneDraft.data, "A128 previous-month sales order");
   await page.goto(frontendUrl, { waitUntil: "networkidle" });
   await loginAsAdmin(page);
   await page.getByTestId("module-销售管理").hover();
@@ -131,7 +175,7 @@ try {
   await page.getByTestId("tab-sales-order-form-list").waitFor({ state: "visible" });
 
   assert(await page.getByTestId("list-status").count() === 0, "普通列表顶部不再渲染状态下拉");
-  assert(await page.getByText("2026-06-01 至 2026-06-30").count() === 0, "普通列表不再渲染旧只读日期占位");
+  assert(await page.getByText(`${previousMonth.from} 至 ${previousMonth.to}`).count() === 0, "普通列表不再渲染旧只读日期占位");
 
   const queryButtonBox = await buttonBox(page, "list-reset");
   const quickDateButtonBox = await buttonBox(page, "list-quick-date");
@@ -151,7 +195,7 @@ try {
   await page.getByTestId("list-quick-date-menu").getByRole("button", { name: "上季度" }).click();
   await page.getByTestId("list-active-date-range").waitFor({ state: "visible", timeout: 10000 });
   const previousQuarterLabel = (await page.getByTestId("list-active-date-range").innerText()).trim();
-  assert(previousQuarterLabel === "2026-04-01 至 2026-06-30", "上季度快捷过滤落到 dateFrom/dateTo", { previousQuarterLabel });
+  assert(previousQuarterLabel === `${previousQuarter.from} 至 ${previousQuarter.to}`, "上季度快捷过滤落到 dateFrom/dateTo", { previousQuarterLabel, previousQuarter });
   await page.getByTestId("list-reset").click();
 
   await ensureHeaderView(page);
@@ -196,13 +240,13 @@ try {
   await page.getByTestId("list-quick-date-menu").getByRole("button", { name: "本月" }).click();
   await page.getByTestId("list-active-date-range").waitFor({ state: "visible", timeout: 10000 });
   const quickDateLabel = (await page.getByTestId("list-active-date-range").innerText()).trim();
-  assert(quickDateLabel === "2026-07-01 至 2026-07-31", "本月快捷过滤落到 dateFrom/dateTo", { quickDateLabel });
+  assert(quickDateLabel === `${currentMonth.from} 至 ${currentMonth.to}`, "本月快捷过滤落到 dateFrom/dateTo", { quickDateLabel, currentMonth, timeZone: "Asia/Shanghai" });
   await page.getByTestId(`open-document-${julyBillNo}`).waitFor({ state: "visible", timeout: 10000 });
   assert(await page.getByTestId(`open-document-${juneBillNo}`).count() === 0, "本月快捷过滤排除 2026-06 单据");
 
   await page.getByTestId("list-date-range").click();
-  await page.getByTestId("list-date-from").fill("2026-06-01");
-  await page.getByTestId("list-date-to").fill("2026-06-30");
+  await page.getByTestId("list-date-from").fill(previousMonth.from);
+  await page.getByTestId("list-date-to").fill(previousMonth.to);
   await page.getByTestId("list-date-range-apply").click();
   await page.getByTestId(`open-document-${juneBillNo}`).waitFor({ state: "visible", timeout: 10000 });
   assert(await page.getByTestId(`open-document-${julyBillNo}`).count() === 0, "任意日期范围过滤排除范围外单据");
@@ -259,6 +303,8 @@ try {
   evidence.screenshots.push(screenshot);
 } finally {
   await browser.close();
+  await removeSalesOrder(julyBillNo);
+  await removeSalesOrder(juneBillNo);
 }
 
 await writeFile(resultPath, JSON.stringify(evidence, null, 2));
