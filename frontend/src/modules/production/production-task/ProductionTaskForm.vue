@@ -236,7 +236,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   markDirty: [];
   clearDirty: [];
-  requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null; createdDraft?: boolean }];
 }>();
 
 interface TaskProductInfo {
@@ -443,7 +443,7 @@ async function pushDownMaterialIssue() {
   hasError.value = false;
   message.value = billNo ? `已下推生成生产领料单草稿 ${billNo}` : "已下推生成生产领料单草稿。";
   if (billNo) {
-    emit("requestOpenDocument", { type: "materialIssue", billNo });
+    emit("requestOpenDocument", { type: "materialIssue", billNo, createdDraft: true });
   }
 }
 

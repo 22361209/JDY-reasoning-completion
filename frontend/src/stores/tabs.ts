@@ -26,14 +26,14 @@ const beforeCloseHandlers: Array<(tab: WorkTab) => void> = [];
 export function useTabStore() {
   const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? tabs.value[0]);
 
-  function openTab(tab: WorkTab) {
+  function openTab(tab: WorkTab, overflowText?: string) {
     const existing = tabs.value.find((item) => item.id === tab.id);
     if (existing) {
       activeTabId.value = existing.id;
       return true;
     }
     if (tabs.value.length >= maxTabs) {
-      overflowMessage.value = "已打开太多页签了，请关闭部分页签后再试！";
+      overflowMessage.value = overflowText || "已打开太多页签了，请关闭部分页签后再试！";
       return false;
     }
     tabs.value.push(tab);

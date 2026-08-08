@@ -2455,7 +2455,7 @@ async function openDocumentFromList(payload: { type: OpenableDocumentType; row: 
   clearActiveDirty();
 }
 async function openDocumentFromModule(
-  payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null },
+  payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null; createdDraft?: boolean },
   options: DocumentOpenOptions = {}
 ) {
   if (payload.type === "materialScrap") {
@@ -2502,14 +2502,20 @@ async function openDocumentFromModule(
     return;
   }
   const target = openableDocumentTarget(payload.type);
-  tabs.openTab({
+  const opened = tabs.openTab({
     id: target.tabId,
     title: target.title,
     module: target.module,
     kind: "form",
     dirty: false,
     lockedObjectId: payload.billNo
-  });
+  }, payload.createdDraft ? createdDraftTabOverflowMessage(target.title, payload.billNo) : undefined);
+  if (!opened) {
+    if (payload.createdDraft) {
+      formMessage.value = createdDraftTabOverflowMessage(target.title, payload.billNo);
+    }
+    return false;
+  }
   await applyDocumentLock(target.tabId, payload.type, payload.billNo);
   activeModuleName.value = target.module;
   await nextTick();
@@ -2519,6 +2525,10 @@ async function openDocumentFromModule(
   scrollHighlightedSourceLineIntoView();
   formMessage.value = payload.sourceLineNo ? `已追踪打开${target.title} ${payload.billNo}，定位到第 ${payload.sourceLineNo} 行` : `已打开${target.title} ${payload.billNo}`;
   clearActiveDirty();
+}
+
+function createdDraftTabOverflowMessage(title: string, billNo: string) {
+  return `已生成${title}草稿 ${billNo}，但当前页签已满，未自动打开。请关闭非必要页签后，从${title}列表查询该单据。`;
 }
 
 function openSourceTraceWindow(type: OpenableDocumentType, detail: DocumentDetail, sourceLineNo: number | null) {

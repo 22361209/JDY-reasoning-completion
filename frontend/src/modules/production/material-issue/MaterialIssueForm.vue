@@ -186,7 +186,7 @@ const emit = defineEmits<{
   clearDirty: [];
   showExisting: [];
   overrideLock: [];
-  requestOpenDocument: [payload: { type: RoutableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestOpenDocument: [payload: { type: RoutableDocumentType; billNo: string; sourceLineNo?: number | null; createdDraft?: boolean }];
   requestPushMaterialScrap: [payload: { issueBillNo: string }];
 }>();
 
@@ -434,7 +434,7 @@ async function pushDownProductIn() {
     return;
   }
   document.message.value = `已下推生成产品入库单草稿 ${billNo}`;
-  emit("requestOpenDocument", { type: "productIn", billNo });
+  emit("requestOpenDocument", { type: "productIn", billNo, createdDraft: true });
 }
 
 function pushDownMaterialScrap() {
