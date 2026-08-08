@@ -395,6 +395,7 @@
           :form="activeMasterRecord.form"
           :original-form="activeMasterRecord.originalForm"
           :recently-audited-lookup-values="activeMasterRecord.recentlyAuditedLookupValues"
+          :save-label="activeMasterRecord.lookupCreateReturn ? '保存并审核' : '保存'"
           :error="activeMasterRecord.error"
           @cancel="cancelActiveMasterRecord"
           @new-record="openNewActiveMasterRecord"
@@ -3216,6 +3217,9 @@ async function saveActiveMasterRecord() {
     updateMasterTabTitle(record.id, `编辑${record.title}`);
   }
   clearActiveDirty();
+  if (record.lookupCreateReturn) {
+    await auditActiveMasterRecord();
+  }
 }
 
 function buildMasterDataCreatePayload(record: MasterRecordState) {

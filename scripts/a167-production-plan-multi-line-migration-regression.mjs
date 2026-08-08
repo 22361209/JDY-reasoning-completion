@@ -100,11 +100,17 @@ function flyway(database, target = null) {
     `-Dflyway.locations=filesystem:${migrationDir}`
   ];
   if (target != null) args.push(`-Dflyway.target=${target}`);
-  return execFileSync("./scripts/backend-test.sh", args, {
-    cwd: rootDir,
-    encoding: "utf8",
-    maxBuffer: 40 * 1024 * 1024
-  }).trim().split(/\r?\n/).slice(-12);
+  try {
+    return execFileSync("./scripts/backend-test.sh", args, {
+      cwd: rootDir,
+      encoding: "utf8",
+      maxBuffer: 40 * 1024 * 1024
+    }).trim().split(/\r?\n/).slice(-12);
+  } catch (error) {
+    const stdout = String(error?.stdout ?? "").trim().split(/\r?\n/).slice(-40).join("\n");
+    const stderr = String(error?.stderr ?? "").trim().split(/\r?\n/).slice(-40).join("\n");
+    throw new Error(`Flyway migration failed for ${safeDatabase(database)}${target == null ? "" : ` at target ${target}`}\nstdout:\n${stdout}\nstderr:\n${stderr}`, { cause: error });
+  }
 }
 
 function topology(database, schema) {
@@ -127,11 +133,11 @@ function topology(database, schema) {
 function assertTopology(label, actual, expectedFk) {
   const normalized = Object.fromEntries(Object.entries(actual).map(([key, value]) => [key, Number(value)]));
   assert(
-    normalized.tables === 89
-      && normalized.pk === 89
-      && normalized.uk === 85
+    normalized.tables === 90
+      && normalized.pk === 90
+      && normalized.uk === 87
       && normalized.fk === expectedFk
-      && normalized.check === 117,
+      && normalized.check === 118,
     `${label} topology mismatch`,
     normalized
   );
@@ -236,10 +242,15 @@ try {
     VALUES
       (${literal(draftPurchasePlanId)}::uuid, 'DRAFT'),
       (${literal(auditedPurchasePlanId)}::uuid, 'AUDITED');
-    INSERT INTO ${identifier(backupSchema)}.purchase_plan_line (id, plan_id, source_requisition_line_id, qty)
+    INSERT INTO ${identifier(backupSchema)}.purchase_plan_line (
+      id, plan_id, source_requisition_line_id, product_id,
+      product_code_snapshot, product_name_snapshot, qty
+    )
     VALUES
-      (gen_random_uuid(), ${literal(draftPurchasePlanId)}::uuid, ${literal(draftRequisitionLineId)}::uuid, 10),
-      (gen_random_uuid(), ${literal(auditedPurchasePlanId)}::uuid, ${literal(auditedRequisitionLineId)}::uuid, 7);
+      (gen_random_uuid(), ${literal(draftPurchasePlanId)}::uuid, ${literal(draftRequisitionLineId)}::uuid,
+       ${literal(productId)}::uuid, 'A167-FG', 'A167 migration product', 10),
+      (gen_random_uuid(), ${literal(auditedPurchasePlanId)}::uuid, ${literal(auditedRequisitionLineId)}::uuid,
+       ${literal(productId)}::uuid, 'A167-FG', 'A167 migration product', 7);
   `);
   const staleReservations = json(upgradeDatabase, `
     SELECT jsonb_build_object(
@@ -251,10 +262,10 @@ try {
 
   result.upgrade.flywayLatest = flyway(upgradeDatabase);
   const latestVersion = psql(upgradeDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success");
-  assert(latestVersion === "113", "upgrade must end at V113", latestVersion);
+  assert(latestVersion === "116", "upgrade must end at V116", latestVersion);
   assertTopology("upgrade public", topology(upgradeDatabase, "public"), 203);
   assertTopology("upgrade tenant", topology(upgradeDatabase, tenantSchema), 199);
-  assert(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`) === "89", "repeat tenant sync must return 89");
+  assert(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`) === "90", "repeat tenant sync must return 90");
 
   const reservationReconciliation = json(upgradeDatabase, `
     SELECT jsonb_build_object(
@@ -320,9 +331,9 @@ try {
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
   const historyScripts = json(freshDatabase, "SELECT COALESCE(jsonb_agg(script ORDER BY installed_rank), '[]'::jsonb)::text FROM public.flyway_schema_history WHERE type='SQL'");
   assert(JSON.stringify(historyScripts) === JSON.stringify(sourceScripts), "fresh Flyway history must equal the migration source set");
-  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "113", "fresh migration must end at V113");
+  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "116", "fresh migration must end at V116");
   assertTopology("fresh public", topology(freshDatabase, "public"), 203);
-  result.fresh = { ...result.fresh, latestVersion: 113, topology: topology(freshDatabase, "public") };
+  result.fresh = { ...result.fresh, latestVersion: 116, topology: topology(freshDatabase, "public") };
   result.ok = true;
 } catch (error) {
   primaryError = error;

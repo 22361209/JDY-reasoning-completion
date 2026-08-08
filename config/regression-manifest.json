@@ -10,7 +10,8 @@
     "scripts/a94-tax-amount-regression.mjs",
     "scripts/a105-bill-lifecycle-regression.mjs",
     "scripts/a108-delivery-notice-reservation-regression.mjs",
-    "scripts/a110-table-display-brand-regression.mjs"
+    "scripts/a110-table-display-brand-regression.mjs",
+    "scripts/a176-uat-defects-regression.mjs"
   ],
   "areas": {
     "sales": [
@@ -357,7 +358,8 @@
     "scripts/a169-list-density-alignment-regression.mjs",
     "scripts/a170-multilevel-production-procurement-regression.mjs",
     "scripts/a172-purchase-planning-concurrency-regression.mjs",
-    "scripts/a176-purchase-plan-order-closure-regression.mjs"
+    "scripts/a176-purchase-plan-order-closure-regression.mjs",
+    "scripts/a176-uat-defects-regression.mjs"
   ],
   "exemptions": [
     {

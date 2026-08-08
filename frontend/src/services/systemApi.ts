@@ -457,7 +457,7 @@ export async function changeSystemPassword(payload: { currentPassword: string; n
     });
     if (!response.ok) {
       const text = await response.text();
-      return { ok: false, status: response.status, message: text || "密码修改失败。" };
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "密码修改失败。" };
     }
     return { ok: true, status: response.status, message: "" };
   } catch {
@@ -571,7 +571,7 @@ export async function resetManagedUserPassword(username: string, password: strin
     });
     if (!response.ok) {
       const text = await response.text();
-      return { ok: false, status: response.status, message: text || "密码重置失败。" };
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "密码重置失败。" };
     }
     return { ok: true, status: response.status, message: "" };
   } catch {
@@ -643,7 +643,7 @@ async function writeManagedUser(pathname: string, method: "POST" | "PUT", payloa
     });
     if (!response.ok) {
       const text = await response.text();
-      return { ok: false, status: response.status, message: text || "用户保存失败。", data: null };
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "用户保存失败。", data: null };
     }
     return { ok: true, status: response.status, message: "", data: await response.json() as ManagedUsersPayload };
   } catch {
@@ -656,8 +656,8 @@ function parseErrorMessage(text: string) {
     return "";
   }
   try {
-    const payload = JSON.parse(text) as { message?: string; error?: string };
-    return payload.message || payload.error || text;
+    const payload = JSON.parse(text) as { message?: string; detail?: string; reason?: string; error?: string };
+    return payload.message || payload.detail || payload.reason || payload.error || text;
   } catch {
     return text;
   }

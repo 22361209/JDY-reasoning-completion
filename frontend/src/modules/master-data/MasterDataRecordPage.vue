@@ -48,7 +48,7 @@
     <p v-if="displayError" class="form-error" data-testid="master-record-error">{{ displayError }}</p>
     <p v-else-if="dirty" class="form-message" data-testid="master-record-dirty-hint">存在未保存修改，请先保存或放弃修改后再执行审核、反审核或启禁用。</p>
     <footer class="master-record-foot" aria-label="主数据底部动作">
-      <button class="primary-action" type="button" data-testid="master-record-bottom-save" :disabled="!canSave" @click="requestSave">保存</button>
+      <button class="primary-action" type="button" data-testid="master-record-bottom-save" :disabled="!canSave" @click="requestSave">{{ saveLabel || "保存" }}</button>
       <button v-if="allowDelete" type="button" data-testid="master-record-bottom-delete" :disabled="!canEditSavedDraft" @click="emit('deleteRecord')">删除</button>
     </footer>
 
@@ -95,6 +95,7 @@ const props = defineProps<{
   form: Record<string, string>;
   originalForm: Record<string, string>;
   recentlyAuditedLookupValues?: Record<string, string>;
+  saveLabel?: string;
   error: string;
 }>();
 
@@ -137,7 +138,7 @@ const recordActions = computed<ActionBarItem[]>(() => [
     enabled: props.canMaintain && (!props.protectAuditedEdit || auditStatusText.value !== "已审核"),
     testId: "master-record-edit"
   }),
-  defineAction("save", { enabled: canSave.value, testId: "master-record-save" }),
+  defineAction("save", { label: props.saveLabel || "保存", enabled: canSave.value, testId: "master-record-save" }),
   defineAction("audit", { enabled: props.canMaintain && !props.readOnly && !props.dirty && props.editing && auditStatusText.value !== "已审核", testId: "master-record-audit" }),
   defineAction("reverse", { enabled: props.canMaintain && props.persisted && !props.dirty && auditStatusText.value === "已审核", testId: "master-record-reverse-audit" }),
   defineAction(statusText.value === "禁用" ? "enable" : "disable", { enabled: canEditSavedDraft.value, label: statusActionLabel.value, testId: "master-record-toggle-status" }),
@@ -250,7 +251,7 @@ async function loadLookupOptions() {
         const auditStatus = String(row.auditStatus ?? "已审核");
         return auditStatus === "已审核";
       });
-      lookupOptions[field.name] = (auditedRows.length ? auditedRows : result.data.rows).map((row) => rowToLookupOption(field, row));
+      lookupOptions[field.name] = auditedRows.map((row) => rowToLookupOption(field, row));
     } finally {
       lookupLoading[field.name] = false;
     }

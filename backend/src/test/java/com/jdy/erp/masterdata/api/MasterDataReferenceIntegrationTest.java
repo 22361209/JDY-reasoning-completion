@@ -47,6 +47,8 @@ class MasterDataReferenceIntegrationTest {
     void productStoresAuditedEnabledMasterReferencesAndProtectsReferencedMasters() {
         var code = "CP-REF-" + System.nanoTime();
 
+        controller.create("productName", Map.of("code", code, "name", code));
+        controller.audit("productName", code);
         controller.create("product", Map.ofEntries(
             Map.entry("code", code),
             Map.entry("name", code),
