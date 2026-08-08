@@ -120,6 +120,8 @@ export interface PurchasePlanLine {
   qty: number | string;
   orderedQty?: number | string;
   remainingOrderQty?: number | string;
+  unitPrice?: number | string;
+  taxRate?: number | string;
   planDeliveryDate: string;
 }
 

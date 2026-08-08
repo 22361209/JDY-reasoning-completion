@@ -437,6 +437,8 @@ public class PurchaseRequisitionAppService {
                    line.qty,
                    COALESCE(line.ordered_qty, 0) AS "orderedQty",
                    COALESCE(line.planned_qty, 0) AS "plannedQty",
+                   COALESCE(product.purchase_price, 0) AS "unitPrice",
+                   COALESCE(product.tax_rate, 13) AS "taxRate",
                    line.plan_delivery_date AS "planDeliveryDateValue"
             FROM purchase_requisition_line line
             JOIN md_product product ON product.id = line.product_id
@@ -521,11 +523,11 @@ public class PurchaseRequisitionAppService {
                             product_id, product_code_snapshot, product_name_snapshot,
                             product_spec_snapshot, product_unit_snapshot,
                             net_weight_snapshot, gross_weight_snapshot, warehouse_id,
-                            qty, plan_delivery_date
+                            qty, unit_price_snapshot, tax_rate_snapshot, plan_delivery_date
                         )
                         VALUES (
                             ?::uuid, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?,
-                            ?::uuid, ?, ?::date
+                            ?::uuid, ?, ?, ?, ?::date
                         )
                         """,
                         planId,
@@ -542,6 +544,8 @@ public class PurchaseRequisitionAppService {
                         line.grossWeight(),
                         line.warehouseId(),
                         line.remainingQty(),
+                        line.unitPrice(),
+                        line.taxRate(),
                         line.planDeliveryDate()
                     );
                     totalQty = totalQty.add(line.remainingQty());
@@ -850,7 +854,7 @@ public class PurchaseRequisitionAppService {
         return value;
     }
 
-    private BigDecimal decimalValue(Object value) {
+    private static BigDecimal decimalValue(Object value) {
         if (value instanceof BigDecimal decimal) {
             return decimal;
         }
@@ -1007,6 +1011,14 @@ public class PurchaseRequisitionAppService {
 
         String supplierName() {
             return String.valueOf(row.get("supplierName"));
+        }
+
+        BigDecimal unitPrice() {
+            return decimalValue(row.get("unitPrice"));
+        }
+
+        BigDecimal taxRate() {
+            return decimalValue(row.get("taxRate"));
         }
 
         Object planDeliveryDate() {

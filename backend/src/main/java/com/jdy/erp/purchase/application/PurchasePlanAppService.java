@@ -80,6 +80,8 @@ public class PurchasePlanAppService {
                    line.qty,
                    COALESCE(line.ordered_qty, 0) AS "orderedQty",
                    GREATEST(line.qty - COALESCE(line.ordered_qty, 0), 0) AS "remainingOrderQty",
+                   line.unit_price_snapshot AS "unitPrice",
+                   line.tax_rate_snapshot AS "taxRate",
                    to_char(line.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_plan plan
             JOIN purchase_plan_line line ON line.plan_id = plan.id
@@ -142,21 +144,22 @@ public class PurchasePlanAppService {
         var rows = jdbcTemplate.queryForList("""
             SELECT plan.id::text AS "planId",
                    plan.bill_no AS "planNo",
-                   plan.supplier_code_snapshot AS "supplierCode",
+                   COALESCE(plan.supplier_code_snapshot, supplier.code) AS "supplierCode",
                    to_char(plan.bill_date, 'YYYY-MM-DD') AS "billDate",
                    COALESCE(plan.department, '采购部') AS department,
                    COALESCE(plan.owner_name, '') AS "ownerName",
                    line.id::text AS "planLineId",
                    line.line_no AS "planLineNo",
                    line.product_id::text AS "productId",
-                   line.product_code_snapshot AS "productCode",
+                   COALESCE(line.product_code_snapshot, product.code) AS "productCode",
                    warehouse.code AS "warehouseCode",
                    GREATEST(line.qty - COALESCE(line.ordered_qty, 0), 0) AS qty,
-                   COALESCE(product.purchase_price, 0) AS "unitPrice",
-                   COALESCE(product.tax_rate, 13) AS "taxRate",
+                   line.unit_price_snapshot AS "unitPrice",
+                   line.tax_rate_snapshot AS "taxRate",
                    to_char(line.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_plan plan
             JOIN purchase_plan_line line ON line.plan_id = plan.id
+            JOIN md_supplier supplier ON supplier.id = plan.supplier_id
             JOIN md_product product ON product.id = line.product_id
             LEFT JOIN md_warehouse warehouse ON warehouse.id = line.warehouse_id
             WHERE plan.id = ?::uuid

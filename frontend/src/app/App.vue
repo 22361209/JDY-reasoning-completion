@@ -517,6 +517,7 @@
           @show-existing="tabs.activeTabId.value = purchaseOrderTabId"
           @override-lock="overrideActiveDocumentLock"
           @request-open-document="openDocumentFromModule"
+          @request-open-purchase-plan="openPurchasePlanFromPurchaseOrder"
         />
         <PurchaseInForm
           v-else-if="tabs.activeTab.value.id === purchaseInTabId"
@@ -2804,6 +2805,25 @@ async function openPurchaseOrderFromPurchasePlan(billNo: string) {
   await nextTick();
   await purchaseOrderFormRef.value?.loadByBillNo(billNo);
   formMessage.value = `已打开由采购计划生成的采购订单草稿 ${billNo}`;
+}
+
+async function openPurchasePlanFromPurchaseOrder(billNo: string) {
+  if (!billNo) {
+    return;
+  }
+  tabs.openTab({
+    id: purchasePlanTabId,
+    title: "采购计划单",
+    module: "采购管理",
+    kind: "form",
+    dirty: false
+  });
+  activeModuleName.value = "采购管理";
+  await nextTick();
+  const opened = await purchasePlanFormRef.value?.loadDocument(billNo);
+  if (opened) {
+    formMessage.value = `已追溯打开来源采购计划 ${billNo}`;
+  }
 }
 
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {

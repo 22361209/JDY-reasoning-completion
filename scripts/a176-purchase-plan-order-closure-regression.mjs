@@ -13,8 +13,9 @@ function assert(condition, message) {
 }
 
 try {
-  const [migration, planService, orderService, planController, planForm, planningApi, documentApi, documentModule, purchaseOrderDocument, appVue] = await Promise.all([
+  const [migration, priceSnapshotMigration, planService, orderService, planController, planForm, planningApi, documentApi, documentModule, purchaseOrderForm, purchaseOrderDocument, requisitionService, appVue] = await Promise.all([
     readFile(path.join(rootDir, "backend/src/main/resources/db/migration/V115__purchase_plan_to_order_source_trace.sql"), "utf8"),
+    readFile(path.join(rootDir, "backend/src/main/resources/db/migration/V116__purchase_plan_price_snapshots.sql"), "utf8"),
     readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchasePlanAppService.java"), "utf8"),
     readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseOrderAppService.java"), "utf8"),
     readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/api/PurchasePlanController.java"), "utf8"),
@@ -22,7 +23,9 @@ try {
     readFile(path.join(rootDir, "frontend/src/services/purchasePlanningApi.ts"), "utf8"),
     readFile(path.join(rootDir, "frontend/src/services/documentApi.ts"), "utf8"),
     readFile(path.join(rootDir, "frontend/src/modules/documents/useDocumentModule.ts"), "utf8"),
+    readFile(path.join(rootDir, "frontend/src/modules/purchase/purchase-order/PurchaseOrderForm.vue"), "utf8"),
     readFile(path.join(rootDir, "frontend/src/modules/purchase/purchase-order/usePurchaseOrderDocument.ts"), "utf8"),
+    readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/purchase/application/PurchaseRequisitionAppService.java"), "utf8"),
     readFile(path.join(rootDir, "frontend/src/app/App.vue"), "utf8")
   ]);
 
@@ -32,6 +35,9 @@ try {
   assert(migration.includes("source_purchase_plan_no VARCHAR(80)"), "migration must store plan bill number trace");
   assert(migration.includes("source_purchase_plan_line_no INTEGER"), "migration must store plan line number trace");
   assert(migration.includes("idx_purchase_order_line_source_plan"), "migration must index purchase-plan order trace");
+  assert(priceSnapshotMigration.includes("unit_price_snapshot NUMERIC(18, 4)"), "migration must add purchase-plan unit-price snapshot");
+  assert(priceSnapshotMigration.includes("tax_rate_snapshot NUMERIC(8, 4)"), "migration must add purchase-plan tax-rate snapshot");
+  assert(priceSnapshotMigration.includes("FROM %1$I.md_product product"), "existing plan snapshot migration must backfill from product master data once");
   assert(planController.includes("/{billNo}/push-down-order"), "purchase-plan controller must expose push-down-order endpoint");
   assert(orderService.includes("public Map<String, Object> reverse(String billNo)"), "purchase-order service must support reverse audit");
   assert(orderService.includes("requireNoAuditedPurchaseIn"), "purchase-order reverse must block after audited purchase-in");
@@ -40,6 +46,10 @@ try {
   assert(planService.includes("public Map<String, Object> pushDownOrder(String billNo)"), "purchase-plan service must implement order pushdown");
   assert(planService.includes("只有已审核采购计划可以下推采购订单"), "pushdown must require audited plan");
   assert(planService.includes("line.qty - COALESCE(line.ordered_qty, 0) > 0"), "pushdown must only carry remaining plan quantity");
+  assert(planService.includes("COALESCE(plan.supplier_code_snapshot, supplier.code)"), "pushdown must support legacy plans without supplier snapshot");
+  assert(planService.includes("COALESCE(line.product_code_snapshot, product.code)"), "pushdown must support legacy plans without product snapshot");
+  assert(planService.includes("line.unit_price_snapshot AS \"unitPrice\""), "pushdown must use the stored plan unit-price snapshot");
+  assert(planService.includes("line.tax_rate_snapshot AS \"taxRate\""), "pushdown must use the stored plan tax-rate snapshot");
   assert(planService.includes("未指定有效仓库，不能下推采购订单"), "pushdown must reject plan rows without a warehouse");
   assert(planService.includes("purchaseOrderAppService.saveDraft"), "pushdown must create a purchase-order draft through the order service");
   assert(orderService.includes("source_purchase_plan_id"), "purchase-order persistence must retain plan source ids");
@@ -56,6 +66,10 @@ try {
   assert(appVue.includes("openPurchaseOrderFromPurchasePlan"), "application shell must open the generated purchase order");
   assert(documentApi.includes("sourcePurchasePlanNo"), "purchase-order API model must preserve plan trace on draft save");
   assert(documentModule.includes("sourcePurchasePlanLineId"), "purchase-order form model must round-trip plan source ids");
+  assert(purchaseOrderForm.includes("来源采购计划"), "purchase-order form must visibly expose the plan source");
+  assert(purchaseOrderForm.includes("requestOpenPurchasePlan"), "purchase-order form must open the plan source on demand");
+  assert(appVue.includes("openPurchasePlanFromPurchaseOrder"), "application shell must open the plan source from purchase order");
+  assert(requisitionService.includes("unit_price_snapshot, tax_rate_snapshot"), "new plans must save purchase price and tax snapshots");
   assert(purchaseOrderDocument.includes("reversible: true"), "purchase-order UI must expose reverse audit for a plan-derived order");
   result.ok = true;
 } catch (error) {

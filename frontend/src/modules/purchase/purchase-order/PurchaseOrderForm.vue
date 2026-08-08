@@ -100,6 +100,17 @@
     @add-line="document.addLine"
   >
     <template #sourceActions>
+      <span v-if="sourcePurchasePlanNos.length" class="purchase-order-plan-trace">
+        <span>来源采购计划</span>
+        <button
+          v-for="billNo in sourcePurchasePlanNos"
+          :key="billNo"
+          class="source-line-link"
+          type="button"
+          :data-testid="`purchase-order-open-source-plan-${billNo}`"
+          @click="emit('requestOpenPurchasePlan', billNo)"
+        >{{ billNo }}</button>
+      </span>
       <label class="currency-field">
         <span>币种</span>
         <select
@@ -170,6 +181,7 @@ const emit = defineEmits<{
   showExisting: [];
   overrideLock: [];
   requestOpenDocument: [payload: { type: OpenableDocumentType; billNo: string; sourceLineNo?: number | null }];
+  requestOpenPurchasePlan: [billNo: string];
 }>();
 
 const document = usePurchaseOrderDocument({
@@ -179,6 +191,12 @@ const document = usePurchaseOrderDocument({
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
 });
+
+const sourcePurchasePlanNos = computed(() => Array.from(new Set(
+  document.form.lines
+    .map((line) => String(line.sourcePurchasePlanNo ?? "").trim())
+    .filter(Boolean)
+)));
 
 const sourceSelectorColumns = ref<SourceSelectorColumn[]>([
   { key: "selection", title: "选", width: 42, visible: true, configurable: false },
@@ -438,3 +456,17 @@ function applyDetail(detail: DocumentDetail, message = "", sourceLineNo: number 
 
 defineExpose({ loadByBillNo, startNew, applyDetail });
 </script>
+
+<style scoped>
+.purchase-order-plan-trace {
+  display: inline-flex;
+  align-items: end;
+  gap: 6px;
+  min-height: 26px;
+  white-space: nowrap;
+}
+
+.purchase-order-plan-trace > span {
+  color: var(--text-muted, #667085);
+}
+</style>
