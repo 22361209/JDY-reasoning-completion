@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 
+import com.jdy.erp.purchase.application.PurchaseOrderAppService.PurchaseOrderDraftRequest;
+import com.jdy.erp.purchase.application.PurchaseOrderAppService.PurchaseOrderLineRequest;
 import com.jdy.erp.shared.application.OperationLogCommand;
 import com.jdy.erp.shared.application.OperationLogService;
 import com.jdy.erp.shared.application.ValidationService;
@@ -22,15 +24,18 @@ public class PurchasePlanAppService {
     private final JdbcTemplate jdbcTemplate;
     private final ValidationService validationService;
     private final OperationLogService operationLogService;
+    private final PurchaseOrderAppService purchaseOrderAppService;
 
     public PurchasePlanAppService(
         JdbcTemplate jdbcTemplate,
         ValidationService validationService,
-        OperationLogService operationLogService
+        OperationLogService operationLogService,
+        PurchaseOrderAppService purchaseOrderAppService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.validationService = validationService;
         this.operationLogService = operationLogService;
+        this.purchaseOrderAppService = purchaseOrderAppService;
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -73,6 +78,8 @@ public class PurchasePlanAppService {
                    line.warehouse_id::text AS "warehouseId",
                    warehouse.code AS "warehouseCode",
                    line.qty,
+                   COALESCE(line.ordered_qty, 0) AS "orderedQty",
+                   GREATEST(line.qty - COALESCE(line.ordered_qty, 0), 0) AS "remainingOrderQty",
                    to_char(line.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
             FROM purchase_plan plan
             JOIN purchase_plan_line line ON line.plan_id = plan.id
@@ -121,9 +128,63 @@ public class PurchasePlanAppService {
         var plan = lockPlan(normalizedBillNo);
         requireSameSourceRequisition(plan, sourceRequisitionId);
         requireStatus(plan, BillStatus.AUDITED, "只有已审核采购计划可以反审核");
+        requireNoAuditedPurchaseOrders(String.valueOf(plan.get("id")));
         releaseSourceRequisitionLines(sourceRequisitionId, lines);
         transitionLocked(plan, BillStatus.AUDITED, BillStatus.DRAFT, "采购计划状态已变化，本次反审核已回滚");
         return detail(normalizedBillNo);
+    }
+
+    @Transactional
+    public Map<String, Object> pushDownOrder(String billNo) {
+        var normalizedBillNo = validationService.required(billNo, "采购计划单号");
+        var plan = lockPlan(normalizedBillNo);
+        requireStatus(plan, BillStatus.AUDITED, "只有已审核采购计划可以下推采购订单");
+        var rows = jdbcTemplate.queryForList("""
+            SELECT plan.id::text AS "planId",
+                   plan.bill_no AS "planNo",
+                   plan.supplier_code_snapshot AS "supplierCode",
+                   to_char(plan.bill_date, 'YYYY-MM-DD') AS "billDate",
+                   COALESCE(plan.department, '采购部') AS department,
+                   COALESCE(plan.owner_name, '') AS "ownerName",
+                   line.id::text AS "planLineId",
+                   line.line_no AS "planLineNo",
+                   line.product_id::text AS "productId",
+                   line.product_code_snapshot AS "productCode",
+                   warehouse.code AS "warehouseCode",
+                   GREATEST(line.qty - COALESCE(line.ordered_qty, 0), 0) AS qty,
+                   COALESCE(product.purchase_price, 0) AS "unitPrice",
+                   COALESCE(product.tax_rate, 13) AS "taxRate",
+                   to_char(line.plan_delivery_date, 'YYYY-MM-DD') AS "planDeliveryDate"
+            FROM purchase_plan plan
+            JOIN purchase_plan_line line ON line.plan_id = plan.id
+            JOIN md_product product ON product.id = line.product_id
+            LEFT JOIN md_warehouse warehouse ON warehouse.id = line.warehouse_id
+            WHERE plan.id = ?::uuid
+              AND line.qty - COALESCE(line.ordered_qty, 0) > 0
+            ORDER BY line.line_no
+            """, plan.get("id"));
+        if (rows.isEmpty()) {
+            throw conflict("采购计划没有剩余可下单数量");
+        }
+        for (var row : rows) {
+            if (row.get("warehouseCode") == null) {
+                throw conflict("采购计划第 " + row.get("planLineNo") + " 行未指定有效仓库，不能下推采购订单");
+            }
+        }
+        var first = rows.get(0);
+        var lines = rows.stream().map(row -> new PurchaseOrderLineRequest(
+            String.valueOf(row.get("productId")), String.valueOf(row.get("productCode")),
+            String.valueOf(row.get("warehouseCode")), (BigDecimal) row.get("qty"),
+            (BigDecimal) row.get("unitPrice"), (BigDecimal) row.get("taxRate"), "", "",
+            null, null, row.get("planDeliveryDate") == null ? null : String.valueOf(row.get("planDeliveryDate")),
+            String.valueOf(row.get("planId")), String.valueOf(row.get("planLineId")),
+            String.valueOf(row.get("planNo")), ((Number) row.get("planLineNo")).intValue()
+        )).toList();
+        var order = purchaseOrderAppService.saveDraft(new PurchaseOrderDraftRequest(
+            "", String.valueOf(first.get("supplierCode")), String.valueOf(first.get("billDate")),
+            String.valueOf(first.get("department")), String.valueOf(first.get("ownerName")), "CNY", lines
+        ));
+        return Map.of("purchaseOrderBillNo", order.get("billNo"));
     }
 
     @Transactional
@@ -252,6 +313,19 @@ public class PurchasePlanAppService {
             if (updated != 1) {
                 throw conflict("采购计划来源占用已变化，不能反审核");
             }
+        }
+    }
+
+    private void requireNoAuditedPurchaseOrders(String planId) {
+        var ordered = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM purchase_order_line line
+            JOIN purchase_order purchase_order ON purchase_order.id = line.order_id
+            WHERE line.source_purchase_plan_id = ?::uuid
+              AND purchase_order.status = 'AUDITED'
+            """, Long.class, planId);
+        if (ordered != null && ordered > 0) {
+            throw conflict("采购计划已有已审核采购订单，不能反审核");
         }
     }
 

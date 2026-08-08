@@ -57,4 +57,10 @@ public class PurchaseOrderController {
     public Map<String, Object> audit(@PathVariable String billNo) {
         return appService.audit(billNo);
     }
+
+    @PostMapping("/{billNo}/reverse")
+    @RequirePermission("purchase.order.audit")
+    public Map<String, Object> reverse(@PathVariable String billNo) {
+        return appService.reverse(billNo);
+    }
 }

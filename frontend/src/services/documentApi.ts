@@ -18,6 +18,10 @@ interface DocumentDraftPayload {
     warehouseCode: string;
     targetWarehouseCode?: string;
     sourceOrderNo?: string;
+    sourcePurchasePlanId?: string;
+    sourcePurchasePlanLineId?: string;
+    sourcePurchasePlanNo?: string;
+    sourcePurchasePlanLineNo?: number;
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number;
 	    sourceLineNo?: number;
@@ -197,6 +201,10 @@ export interface DocumentDetail {
     sourceOrderNo?: string;
     sourceOutNo?: string;
     sourceLineNo?: number | string;
+    sourcePurchasePlanId?: string;
+    sourcePurchasePlanLineId?: string;
+    sourcePurchasePlanNo?: string;
+    sourcePurchasePlanLineNo?: number | string;
     sourceDeliveryNoticeNo?: string;
     sourceDeliveryLineNo?: number | string;
     customerMaterialCode?: string;

@@ -38,6 +38,12 @@ public class PurchasePlanController {
         return appService.reverse(billNo);
     }
 
+    @PostMapping("/{billNo}/push-down-order")
+    @RequirePermission("purchase.order.audit")
+    public Map<String, Object> pushDownOrder(@PathVariable String billNo) {
+        return appService.pushDownOrder(billNo);
+    }
+
     @DeleteMapping("/{billNo}")
     @RequirePermission("purchase.order.audit")
     public Map<String, Object> deleteDraft(@PathVariable String billNo) {

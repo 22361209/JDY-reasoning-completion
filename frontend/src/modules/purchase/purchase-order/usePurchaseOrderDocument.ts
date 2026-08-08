@@ -15,6 +15,7 @@ export function usePurchaseOrderDocument(options: Parameters<typeof useDocumentM
     defaultDepartment: "采购部",
     defaultPartyCode: "",
     defaultUnitPrice: 72,
+    reversible: true,
     showSupplierMaterialCodeColumn: true,
     showTaxColumns: true,
     executionQtyLabel: "已入库数量",

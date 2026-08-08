@@ -95,6 +95,10 @@ public class PurchaseOrderAppService {
                    COALESCE(l.supplier_material_code, '') AS "supplierMaterialCode",
                    COALESCE(l.source_requisition_no, '') AS "sourceOrderNo",
                    l.source_requisition_line_no AS "sourceLineNo",
+                   COALESCE(l.source_purchase_plan_id::text, '') AS "sourcePurchasePlanId",
+                   COALESCE(l.source_purchase_plan_line_id::text, '') AS "sourcePurchasePlanLineId",
+                   COALESCE(l.source_purchase_plan_no, '') AS "sourcePurchasePlanNo",
+                   l.source_purchase_plan_line_no AS "sourcePurchasePlanLineNo",
                    l.unit_price AS "unitPrice",
                    round(l.unit_price * (1 + COALESCE(l.tax_rate, 0) / 100), 2) AS "taxInclusiveUnitPrice",
                    l.amount,
@@ -304,8 +308,8 @@ public class PurchaseOrderAppService {
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""
-                INSERT INTO purchase_order_line (order_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, supplier_material_code, source_requisition_no, source_requisition_line_no, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date)
-                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_order_line (order_id, line_no, product_id, product_code_snapshot, product_name_snapshot, product_spec_snapshot, warehouse_id, supplier_material_code, source_requisition_no, source_requisition_line_no, qty, unit_price, amount, tax_rate, tax_amount, price_tax_total, line_remark, plan_delivery_date, source_purchase_plan_id, source_purchase_plan_line_id, source_purchase_plan_no, source_purchase_plan_line_no)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?, ?)
                 """,
                 orderId,
                 lineNo,
@@ -324,7 +328,11 @@ public class PurchaseOrderAppService {
                 amounts.taxAmount(),
                 amounts.priceTaxTotal(),
                 validationService.optionalText(line.lineRemark()),
-                parseOptionalDate(line.planDeliveryDate())
+                parseOptionalDate(line.planDeliveryDate()),
+                validationService.optionalText(line.sourcePurchasePlanId()),
+                validationService.optionalText(line.sourcePurchasePlanLineId()),
+                validationService.optionalText(line.sourcePurchasePlanNo()),
+                line.sourcePurchasePlanLineNo()
             );
             lineNo += 1;
         }
@@ -334,11 +342,12 @@ public class PurchaseOrderAppService {
     @Transactional
     public Map<String, Object> audit(String billNo) {
         var normalizedBillNo = validationService.required(billNo, "采购订单单号");
-        lockPurchaseOrderForAudit(normalizedBillNo);
+        var order = lockPurchaseOrderForAudit(normalizedBillNo);
         lifecycleService.guardPositiveLineQuantities(LIFECYCLE_TARGET, normalizedBillNo, "采购订单数量必须大于 0");
         var demands = purchaseRequisitionDemands(normalizedBillNo);
         var lockedSources = lockPurchaseRequisitionSources(demands);
         refreshAndGuardPurchaseRequisitionQuantities(lockedSources, normalizedBillNo);
+        var planSources = lockPurchasePlanSources(normalizedBillNo, String.valueOf(order.get("supplierId")));
         var row = lifecycleService.transition(
             BILL_TABLE,
             normalizedBillNo,
@@ -351,6 +360,30 @@ public class PurchaseOrderAppService {
             "采购订单不存在或已审核"
         );
         markPurchaseRequisitionOrdered(lockedSources);
+        markPurchasePlanOrdered(planSources);
+        return row;
+    }
+
+    @Transactional
+    public Map<String, Object> reverse(String billNo) {
+        var normalizedBillNo = validationService.required(billNo, "采购订单单号");
+        var order = lockPurchaseOrderForReverse(normalizedBillNo);
+        requireNoAuditedPurchaseIn(normalizedBillNo);
+        var requisitionSources = lockPurchaseRequisitionSources(purchaseRequisitionDemands(normalizedBillNo));
+        var planSources = lockPurchasePlanSourcesForRelease(normalizedBillNo, String.valueOf(order.get("supplierId")));
+        var row = lifecycleService.transition(
+            BILL_TABLE,
+            normalizedBillNo,
+            BillStatus.AUDITED,
+            BillStatus.DRAFT,
+            "id::text AS id, bill_no AS \"billNo\", status",
+            "PURCHASE",
+            "REVERSE",
+            "purchase_order",
+            "采购订单不存在、已关闭/冻结或状态已变化"
+        );
+        refreshPurchaseRequisitionQuantities(requisitionSources, normalizedBillNo);
+        releasePurchasePlanOrdered(planSources);
         return row;
     }
 
@@ -392,8 +425,22 @@ public class PurchaseOrderAppService {
         String supplierMaterialCode,
         String sourceOrderNo,
         Integer sourceLineNo,
-        String planDeliveryDate
+        String planDeliveryDate,
+        String sourcePurchasePlanId,
+        String sourcePurchasePlanLineId,
+        String sourcePurchasePlanNo,
+        Integer sourcePurchasePlanLineNo
     ) {
+        public PurchaseOrderLineRequest(
+            String productId, String productCode, String warehouseCode, BigDecimal qty,
+            BigDecimal unitPrice, BigDecimal taxRate, String lineRemark,
+            String supplierMaterialCode, String sourceOrderNo, Integer sourceLineNo,
+            String planDeliveryDate
+        ) {
+            this(productId, productCode, warehouseCode, qty, unitPrice, taxRate, lineRemark,
+                supplierMaterialCode, sourceOrderNo, sourceLineNo, planDeliveryDate,
+                null, null, null, null);
+        }
     }
 
     private String normalizeCurrency(String value) {
@@ -418,6 +465,7 @@ public class PurchaseOrderAppService {
             FROM purchase_order_line line
             JOIN purchase_order po ON po.id = line.order_id
             WHERE po.bill_no = ?
+              AND line.source_purchase_plan_no IS NULL
             ORDER BY line.line_no
             """, billNo);
         var grouped = new HashMap<String, PurchaseRequisitionDemand>();
@@ -450,15 +498,185 @@ public class PurchaseOrderAppService {
             .toList();
     }
 
-    private void lockPurchaseOrderForAudit(String billNo) {
+    private List<LockedPurchasePlanLine> lockPurchasePlanSources(String billNo, String supplierId) {
+        var demands = purchasePlanDemands(billNo);
+        var locked = new java.util.ArrayList<LockedPurchasePlanLine>();
+        for (var demand : demands) {
+            var rows = jdbcTemplate.queryForList("""
+                SELECT plan.id::text AS "planId",
+                       plan.status,
+                       plan.supplier_id::text AS "supplierId",
+                       plan_line.id::text AS "lineId",
+                       plan_line.qty,
+                       COALESCE(plan_line.ordered_qty, 0) AS "orderedQty"
+                FROM purchase_plan plan
+                JOIN purchase_plan_line plan_line ON plan_line.plan_id = plan.id
+                WHERE plan.bill_no = ?
+                  AND plan_line.line_no = ?
+                FOR UPDATE OF plan, plan_line
+                """, demand.planNo(), demand.planLineNo());
+            if (rows.size() != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划源明细不存在");
+            }
+            var row = rows.get(0);
+            if (!demand.planId().equals(String.valueOf(row.get("planId")))
+                || !demand.planLineId().equals(String.valueOf(row.get("lineId")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划来源标识与源单行不一致");
+            }
+            if (!BillStatus.AUDITED.name().equals(String.valueOf(row.get("status")))
+                || !supplierId.equals(String.valueOf(row.get("supplierId")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划源单未审核或供应商不一致");
+            }
+            var qty = demand.qty();
+            var remaining = ((BigDecimal) row.get("qty")).subtract((BigDecimal) row.get("orderedQty"));
+            if (remaining.compareTo(qty) < 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单数量不能超过采购计划剩余可订数量");
+            }
+            locked.add(new LockedPurchasePlanLine(String.valueOf(row.get("lineId")), qty));
+        }
+        return locked;
+    }
+
+    private void markPurchasePlanOrdered(List<LockedPurchasePlanLine> sources) {
+        for (var source : sources) {
+            var updated = jdbcTemplate.update("""
+                UPDATE purchase_plan_line
+                SET ordered_qty = COALESCE(ordered_qty, 0) + ?
+                WHERE id = ?::uuid
+                """, source.qty(), source.id());
+            if (updated != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划来源占用已变化，本次审核已回滚");
+            }
+        }
+    }
+
+    private List<LockedPurchasePlanLine> lockPurchasePlanSourcesForRelease(String billNo, String supplierId) {
+        var demands = purchasePlanDemands(billNo);
+        var locked = new java.util.ArrayList<LockedPurchasePlanLine>();
+        for (var demand : demands) {
+            var rows = jdbcTemplate.queryForList("""
+                SELECT plan.id::text AS "planId",
+                       plan.status,
+                       plan.supplier_id::text AS "supplierId",
+                       plan_line.id::text AS "lineId",
+                       COALESCE(plan_line.ordered_qty, 0) AS "orderedQty"
+                FROM purchase_plan plan
+                JOIN purchase_plan_line plan_line ON plan_line.plan_id = plan.id
+                WHERE plan.bill_no = ?
+                  AND plan_line.line_no = ?
+                FOR UPDATE OF plan, plan_line
+                """, demand.planNo(), demand.planLineNo());
+            if (rows.size() != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划源明细不存在");
+            }
+            var row = rows.get(0);
+            if (!demand.planId().equals(String.valueOf(row.get("planId")))
+                || !demand.planLineId().equals(String.valueOf(row.get("lineId")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划来源标识与源单行不一致");
+            }
+            if (!BillStatus.AUDITED.name().equals(String.valueOf(row.get("status")))
+                || !supplierId.equals(String.valueOf(row.get("supplierId")))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划源单未审核或供应商不一致");
+            }
+            if (((BigDecimal) row.get("orderedQty")).compareTo(demand.qty()) < 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划已订数量不足，不能反审核采购订单");
+            }
+            locked.add(new LockedPurchasePlanLine(String.valueOf(row.get("lineId")), demand.qty()));
+        }
+        return locked;
+    }
+
+    private void releasePurchasePlanOrdered(List<LockedPurchasePlanLine> sources) {
+        for (var source : sources) {
+            var updated = jdbcTemplate.update("""
+                UPDATE purchase_plan_line
+                SET ordered_qty = COALESCE(ordered_qty, 0) - ?
+                WHERE id = ?::uuid
+                  AND COALESCE(ordered_qty, 0) >= ?
+                """, source.qty(), source.id(), source.qty());
+            if (updated != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划来源占用已变化，本次反审核已回滚");
+            }
+        }
+    }
+
+    private List<PurchasePlanDemand> purchasePlanDemands(String billNo) {
         var rows = jdbcTemplate.queryForList("""
-            SELECT status
+            SELECT line.source_purchase_plan_id::text AS "planId",
+                   line.source_purchase_plan_line_id::text AS "planLineId",
+                   line.source_purchase_plan_no AS "planNo",
+                   line.source_purchase_plan_line_no AS "planLineNo",
+                   line.qty
+            FROM purchase_order_line line
+            JOIN purchase_order purchase_order ON purchase_order.id = line.order_id
+            WHERE purchase_order.bill_no = ?
+              AND line.source_purchase_plan_no IS NOT NULL
+            ORDER BY line.source_purchase_plan_no, line.source_purchase_plan_line_no
+            """, billNo);
+        var grouped = new HashMap<String, PurchasePlanDemand>();
+        for (var row : rows) {
+            var planId = validationService.optionalText((String) row.get("planId"));
+            var planLineId = validationService.optionalText((String) row.get("planLineId"));
+            var planNo = validationService.optionalText((String) row.get("planNo"));
+            var planLineNo = row.get("planLineNo");
+            if (planId == null || planLineId == null || planNo == null || !(planLineNo instanceof Number number)
+                || number.intValue() <= 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划源单行不能为空");
+            }
+            var qty = validationService.positive((BigDecimal) row.get("qty"), "采购订单数量");
+            var key = sourceKey(planNo, number.intValue());
+            var existing = grouped.get(key);
+            if (existing != null && (!existing.planId().equals(planId) || !existing.planLineId().equals(planLineId))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购计划来源标识与源单行不一致");
+            }
+            grouped.put(key, existing == null
+                ? new PurchasePlanDemand(planId, planLineId, planNo, number.intValue(), qty)
+                : new PurchasePlanDemand(planId, planLineId, planNo, number.intValue(), existing.qty().add(qty)));
+        }
+        return grouped.values().stream()
+            .sorted(Comparator.comparing(PurchasePlanDemand::planNo).thenComparingInt(PurchasePlanDemand::planLineNo))
+            .toList();
+    }
+
+    private Map<String, Object> lockPurchaseOrderForAudit(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT status, supplier_id::text AS "supplierId"
             FROM purchase_order
             WHERE bill_no = ?
             FOR UPDATE
             """, billNo);
         if (rows.isEmpty() || !BillStatus.DRAFT.name().equals(String.valueOf(rows.get(0).get("status")))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单不存在或已审核");
+        }
+        return rows.get(0);
+    }
+
+    private Map<String, Object> lockPurchaseOrderForReverse(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT status, supplier_id::text AS "supplierId", close_status AS "closeStatus", frozen_status AS "frozenStatus"
+            FROM purchase_order
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+        if (rows.isEmpty()
+            || !BillStatus.AUDITED.name().equals(String.valueOf(rows.get(0).get("status")))
+            || !"OPEN".equals(String.valueOf(rows.get(0).get("closeStatus")))
+            || !"NORMAL".equals(String.valueOf(rows.get(0).get("frozenStatus")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单不存在、已关闭/冻结或状态已变化");
+        }
+        return rows.get(0);
+    }
+
+    private void requireNoAuditedPurchaseIn(String billNo) {
+        var count = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM purchase_in_line line
+            JOIN purchase_in purchase_in ON purchase_in.id = line.bill_id
+            WHERE line.source_order_no = ?
+              AND purchase_in.status = 'AUDITED'
+            """, Integer.class, billNo);
+        if (count != null && count > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "已有已审核采购入库，不能反审核采购订单");
         }
     }
 
@@ -566,25 +784,7 @@ public class PurchaseOrderAppService {
     ) {
         for (var source : sources) {
             var demand = source.demand();
-            var authoritativeOrderedQty = jdbcTemplate.queryForObject("""
-                SELECT COALESCE(SUM(po_line.qty), 0)
-                FROM purchase_order_line po_line
-                JOIN purchase_order po ON po.id = po_line.order_id
-                WHERE po.status = 'AUDITED'
-                  AND po.bill_no <> ?
-                  AND po_line.source_requisition_no = ?
-                  AND po_line.source_requisition_line_no = ?
-                """, BigDecimal.class, currentBillNo, demand.sourceBillNo(), demand.sourceLineNo());
-            var orderedQty = authoritativeOrderedQty == null ? BigDecimal.ZERO : authoritativeOrderedQty;
-            var refreshed = jdbcTemplate.update("""
-                UPDATE purchase_requisition_line
-                SET ordered_qty = ?,
-                    updated_at = now()
-                WHERE id = ?::uuid
-                """, orderedQty, source.id());
-            if (refreshed != 1) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源占用已变化，本次审核已回滚");
-            }
+            var orderedQty = refreshPurchaseRequisitionQuantity(source, currentBillNo);
             var remaining = source.qty().subtract(orderedQty).subtract(source.plannedQty());
             if (!"OPEN".equals(source.lineCloseStatus())
                 || !"NORMAL".equals(source.lineFrozenStatus())
@@ -592,6 +792,42 @@ public class PurchaseOrderAppService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "采购订单数量不能超过采购申请剩余可订数量");
             }
         }
+    }
+
+    private void refreshPurchaseRequisitionQuantities(
+        List<LockedPurchaseRequisitionLine> sources,
+        String currentBillNo
+    ) {
+        for (var source : sources) {
+            refreshPurchaseRequisitionQuantity(source, currentBillNo);
+        }
+    }
+
+    private BigDecimal refreshPurchaseRequisitionQuantity(
+        LockedPurchaseRequisitionLine source,
+        String currentBillNo
+    ) {
+        var demand = source.demand();
+        var authoritativeOrderedQty = jdbcTemplate.queryForObject("""
+            SELECT COALESCE(SUM(po_line.qty), 0)
+            FROM purchase_order_line po_line
+            JOIN purchase_order po ON po.id = po_line.order_id
+            WHERE po.status = 'AUDITED'
+              AND po.bill_no <> ?
+              AND po_line.source_requisition_no = ?
+              AND po_line.source_requisition_line_no = ?
+            """, BigDecimal.class, currentBillNo, demand.sourceBillNo(), demand.sourceLineNo());
+        var orderedQty = authoritativeOrderedQty == null ? BigDecimal.ZERO : authoritativeOrderedQty;
+        var refreshed = jdbcTemplate.update("""
+            UPDATE purchase_requisition_line
+            SET ordered_qty = ?,
+                updated_at = now()
+            WHERE id = ?::uuid
+            """, orderedQty, source.id());
+        if (refreshed != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "采购申请源占用已变化，本次操作已回滚");
+        }
+        return orderedQty;
     }
 
     private void markPurchaseRequisitionOrdered(List<LockedPurchaseRequisitionLine> sources) {
@@ -642,6 +878,18 @@ public class PurchaseOrderAppService {
         BigDecimal plannedQty,
         String lineCloseStatus,
         String lineFrozenStatus
+    ) {
+    }
+
+    private record LockedPurchasePlanLine(String id, BigDecimal qty) {
+    }
+
+    private record PurchasePlanDemand(
+        String planId,
+        String planLineId,
+        String planNo,
+        int planLineNo,
+        BigDecimal qty
     ) {
     }
 }

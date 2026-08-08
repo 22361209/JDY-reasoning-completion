@@ -118,6 +118,8 @@ export interface PurchasePlanLine {
   warehouseId?: string;
   warehouseCode: string;
   qty: number | string;
+  orderedQty?: number | string;
+  remainingOrderQty?: number | string;
   planDeliveryDate: string;
 }
 
@@ -180,6 +182,14 @@ export function auditPurchasePlan(billNo: string) {
 export function reversePurchasePlan(billNo: string) {
   return requestJson<PurchasePlanDetail>(
     `/api/purchase-plans/${encodeURIComponent(billNo)}/reverse`,
+    "POST",
+    {}
+  );
+}
+
+export function pushDownPurchaseOrder(billNo: string) {
+  return requestJson<{ purchaseOrderBillNo: string }>(
+    `/api/purchase-plans/${encodeURIComponent(billNo)}/push-down-order`,
     "POST",
     {}
   );

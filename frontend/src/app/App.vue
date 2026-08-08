@@ -554,6 +554,7 @@
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"
           @show-existing="tabs.activeTabId.value = 'purchase-plan-list'"
+          @push-down-purchase-order="openPurchaseOrderFromPurchasePlan"
         />
         <SettlementDocumentForm
           v-else-if="tabs.activeTab.value.id === receiptTabId"
@@ -2788,6 +2789,23 @@ async function openOutboundFromDeliveryNotice(row: Record<string, unknown>) {
   });
   formMessage.value = `已由发货通知单 ${sourceBillNo} 生成销售出库单草稿`;
 }
+async function openPurchaseOrderFromPurchasePlan(billNo: string) {
+  if (!billNo) {
+    return;
+  }
+  tabs.openTab({
+    id: purchaseOrderTabId,
+    title: "采购订单",
+    module: "采购管理",
+    kind: "form",
+    dirty: false
+  });
+  activeModuleName.value = "采购管理";
+  await nextTick();
+  await purchaseOrderFormRef.value?.loadByBillNo(billNo);
+  formMessage.value = `已打开由采购计划生成的采购订单草稿 ${billNo}`;
+}
+
 async function openPurchaseInFromPurchaseOrder(row: Record<string, unknown>) {
   const sourceBillNo = String(row.billNo ?? "");
   if (!sourceBillNo) {

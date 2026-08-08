@@ -27,11 +27,15 @@
     :show-delete="true"
     :show-export="false"
     :show-print="false"
-    :show-push-down="false"
+    :show-push-down="true"
+    :can-push-down="canPushDown"
+    push-down-label="下推采购订单"
+    push-down-test-id="purchase-plan-push-down-order"
     data-testid="purchase-plan-form"
     @audit="audit"
     @reverse="reverse"
     @delete-document="remove"
+    @push-down="pushDownOrder"
   >
     <div class="form-layout purchase-plan-form">
       <section class="form-head-fields purchase-plan-fields">
@@ -88,6 +92,7 @@ import {
   auditPurchasePlan,
   deletePurchasePlanDraft,
   fetchPurchasePlanDetail,
+  pushDownPurchaseOrder,
   reversePurchasePlan,
   type PurchasePlanDetail,
   type PurchasePlanLine
@@ -103,10 +108,12 @@ const emit = defineEmits<{
   markDirty: [];
   clearDirty: [];
   showExisting: [];
+  pushDownPurchaseOrder: [billNo: string];
 }>();
 
 const message = ref("");
 const status = ref("DRAFT");
+const hasRemainingOrderQty = ref(false);
 let detailRequestSeq = 0;
 const form = reactive({
   billNo: "",
@@ -123,6 +130,7 @@ const statusLabel = computed(() => backendStatusLabel(status.value));
 const canAudit = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "DRAFT");
 const canReverse = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "AUDITED");
 const canDelete = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "DRAFT");
+const canPushDown = computed(() => Boolean(form.billNo) && !props.dirty && status.value === "AUDITED" && hasRemainingOrderQty.value);
 
 function startNew() {
   message.value = "采购计划由已审核采购申请按供应商下推生成，不支持手工新增。";
@@ -178,6 +186,19 @@ async function remove() {
   message.value = `采购计划草稿 ${deletedBillNo} 已永久删除，原编号不复用；可从采购申请重新下推。`;
 }
 
+async function pushDownOrder() {
+  if (!canPushDown.value) {
+    return;
+  }
+  const result = await pushDownPurchaseOrder(form.billNo);
+  if (!result.ok || !result.data?.purchaseOrderBillNo) {
+    message.value = result.message || "采购计划下推采购订单失败。";
+    return;
+  }
+  message.value = `已由采购计划 ${form.billNo} 生成采购订单草稿 ${result.data.purchaseOrderBillNo}`;
+  emit("pushDownPurchaseOrder", result.data.purchaseOrderBillNo);
+}
+
 function applyLifecycleResult(
   result: { ok: boolean; message: string; data?: PurchasePlanDetail },
   successMessage: string
@@ -201,7 +222,9 @@ function applyDetail(detail: PurchasePlanDetail) {
   form.department = text(document.department);
   form.version = text(document.version);
   status.value = text(document.status) || "DRAFT";
-  const lines = Array.isArray(detail.lines) ? detail.lines.map(lineFromData) : [];
+  const detailLines = Array.isArray(detail.lines) ? detail.lines : [];
+  hasRemainingOrderQty.value = detailLines.some(line => numberValue(line.remainingOrderQty) > 0);
+  const lines = detailLines.map(lineFromData);
   entryLines.value.splice(0, entryLines.value.length, ...lines);
 }
 
@@ -215,6 +238,7 @@ function clearDocument() {
   form.department = "";
   form.version = "";
   status.value = "DRAFT";
+  hasRemainingOrderQty.value = false;
   entryLines.value.splice(0, entryLines.value.length);
   emit("clearDirty");
 }

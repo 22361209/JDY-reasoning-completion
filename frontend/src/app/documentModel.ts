@@ -38,6 +38,10 @@ export interface OrderLineForm {
   targetWarehouseCode?: string;
   sourceOrderNo?: string;
   sourceLineNo?: number;
+  sourcePurchasePlanId?: string;
+  sourcePurchasePlanLineId?: string;
+  sourcePurchasePlanNo?: string;
+  sourcePurchasePlanLineNo?: number;
   sourceDeliveryNoticeNo?: string;
   sourceDeliveryLineNo?: number;
   customerMaterialCode?: string;

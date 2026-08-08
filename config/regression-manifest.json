@@ -41,7 +41,8 @@
       "scripts/a162-purchase-publication-regression.mjs",
       "scripts/a167-production-plan-multi-line-migration-regression.mjs",
       "scripts/a170-multilevel-production-procurement-regression.mjs",
-      "scripts/a172-purchase-planning-concurrency-regression.mjs"
+      "scripts/a172-purchase-planning-concurrency-regression.mjs",
+      "scripts/a176-purchase-plan-order-closure-regression.mjs"
     ],
     "inventory": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -84,7 +85,8 @@
       "scripts/a147-inventory-source-trace-regression.mjs",
       "scripts/a151-material-scrap-backend-regression.mjs",
       "scripts/a152-material-scrap-ui-regression.mjs",
-      "scripts/a172-purchase-planning-concurrency-regression.mjs"
+      "scripts/a172-purchase-planning-concurrency-regression.mjs",
+      "scripts/a176-purchase-plan-order-closure-regression.mjs"
     ],
     "table": [
       "scripts/a91-frontend-ux-regression.mjs",
@@ -354,7 +356,8 @@
     "scripts/a168-production-plan-entry-ux-regression.mjs",
     "scripts/a169-list-density-alignment-regression.mjs",
     "scripts/a170-multilevel-production-procurement-regression.mjs",
-    "scripts/a172-purchase-planning-concurrency-regression.mjs"
+    "scripts/a172-purchase-planning-concurrency-regression.mjs",
+    "scripts/a176-purchase-plan-order-closure-regression.mjs"
   ],
   "exemptions": [
     {
