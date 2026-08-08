@@ -204,6 +204,89 @@ class MaterialIssueInventoryTraceIntegrationTest {
         assertBalanceAndLedger("6");
     }
 
+    @Test
+    void taskPushDownKeepsEachMaterialSnapshotWarehouseWhenNoGlobalOverrideIsProvided() {
+        var runId = "A176" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        var secondProductCode = "CP-" + runId + "-B";
+        var secondWarehouseCode = "CK-" + runId + "-B";
+        String issueBillNo = null;
+        String secondProductId = null;
+        String secondWarehouseId = null;
+        try {
+            var taskId = jdbcTemplate.queryForObject("""
+                SELECT id::text
+                FROM production_task
+                WHERE product_id = ?::uuid
+                """, String.class, productId);
+            var taskBillNo = jdbcTemplate.queryForObject("""
+                SELECT bill_no
+                FROM production_task
+                WHERE id = ?::uuid
+                """, String.class, taskId);
+            jdbcTemplate.update("""
+                UPDATE production_task_material_snapshot
+                SET issue_warehouse_id = ?::uuid
+                WHERE task_id = ?::uuid
+                  AND line_no = 1
+                """, warehouseId, taskId);
+            secondProductId = jdbcTemplate.queryForObject("""
+                INSERT INTO md_product (
+                    code, name, spec, unit, product_category_id, unit_id, enabled, audit_status
+                )
+                SELECT ?, ?, '', unit.code, category.id, unit.id, TRUE, 'AUDITED'
+                FROM md_product_category category
+                CROSS JOIN md_unit unit
+                WHERE category.code = 'YCL' AND unit.code = 'PCS'
+                RETURNING id::text
+                """, String.class, secondProductCode, runId + " 第二物料");
+            secondWarehouseId = jdbcTemplate.queryForObject("""
+                INSERT INTO md_warehouse (code, name, warehouse_type, enabled, audit_status)
+                VALUES (?, ?, '原料仓', TRUE, 'AUDITED')
+                RETURNING id::text
+                """, String.class, secondWarehouseCode, runId + " 第二仓库");
+            jdbcTemplate.update("""
+                INSERT INTO production_task_material_snapshot (
+                    task_id, line_no, product_id, unit_qty, required_qty, issued_qty, issue_warehouse_id
+                )
+                VALUES (?::uuid, 2, ?::uuid, 1, 3, 0, ?::uuid)
+                """, taskId, secondProductId, secondWarehouseId);
+
+            var issue = materialIssueAppService.issue(
+                taskBillNo,
+                new MaterialIssueAppService.IssueRequest(null, null)
+            );
+            issueBillNo = String.valueOf(issue.get("billNo"));
+
+            var issueWarehouses = jdbcTemplate.queryForList("""
+                SELECT l.line_no AS "lineNo", w.code AS "warehouseCode"
+                FROM production_material_issue_line l
+                JOIN production_material_issue i ON i.id = l.issue_id
+                JOIN md_warehouse w ON w.id = l.warehouse_id
+                WHERE i.bill_no = ?
+                ORDER BY l.line_no
+                """, issueBillNo);
+            assertThat(issueWarehouses).extracting(row -> row.get("warehouseCode"))
+                .containsExactly(warehouseCode, secondWarehouseCode);
+        } finally {
+            if (issueBillNo != null) {
+                jdbcTemplate.update("DELETE FROM sys_operation_log WHERE target_no = ?", issueBillNo);
+                jdbcTemplate.update("DELETE FROM production_material_issue WHERE bill_no = ?", issueBillNo);
+            }
+            jdbcTemplate.update("""
+                DELETE FROM production_task_material_snapshot
+                WHERE task_id IN (SELECT id FROM production_task WHERE product_id = ?::uuid)
+                  AND line_no = 2
+                """, productId);
+            if (secondProductId != null) {
+                jdbcTemplate.update("DELETE FROM inv_stock_balance WHERE product_id = ?::uuid", secondProductId);
+                jdbcTemplate.update("DELETE FROM md_product WHERE id = ?::uuid", secondProductId);
+            }
+            if (secondWarehouseId != null) {
+                jdbcTemplate.update("DELETE FROM md_warehouse WHERE id = ?::uuid", secondWarehouseId);
+            }
+        }
+    }
+
     private Object auditAfter(CountDownLatch start, String billNo) {
         bindTenant();
         try {

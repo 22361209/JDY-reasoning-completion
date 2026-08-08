@@ -74,10 +74,6 @@
           <span>生产车间</span>
           <input :value="taskHead.department || ''" data-testid="production-task-department" disabled />
         </label>
-        <label>
-          <span>领料仓库</span>
-          <input v-model.trim="form.materialWarehouseCode" data-testid="production-task-material-warehouse-code" placeholder="下推领料单仓库" @input="markDirty" />
-        </label>
       </section>
 
       <section class="master-record-section">
@@ -287,7 +283,6 @@ const form = reactive({
   planLineNo: undefined as number | undefined,
   bomCode: "",
   warehouseCode: "CK-001",
-  materialWarehouseCode: "CK-001",
   qty: 1,
   status: "DRAFT",
   closeStatus: "OPEN",
@@ -342,7 +337,6 @@ function startNew() {
   form.planLineNo = undefined;
   form.bomCode = "";
   form.warehouseCode = "CK-001";
-  form.materialWarehouseCode = "CK-001";
   form.qty = 1;
   form.status = "DRAFT";
   form.closeStatus = "OPEN";
@@ -419,10 +413,6 @@ function applyPreview(preview: MaterialIssuePreview | undefined) {
   form.qty = Number(productInfo.taskQty ?? form.qty) || form.qty;
   const previewLines = preview?.lines ?? [];
   materialLines.value = previewLines.map((line) => ({ ...line }));
-  const firstWarehouseCode = materialLines.value.find((line) => String(line.warehouseCode ?? "").trim())?.warehouseCode;
-  if (firstWarehouseCode) {
-    form.materialWarehouseCode = String(firstWarehouseCode);
-  }
 }
 
 async function loadByBillNo(billNo: string) {
@@ -444,9 +434,7 @@ async function pushDownMaterialIssue() {
   if (!canPushDown.value) {
     return;
   }
-  const result = await pushDownProductionTaskMaterialIssue(form.billNo, {
-    materialWarehouseCode: form.materialWarehouseCode.trim()
-  });
+  const result = await pushDownProductionTaskMaterialIssue(form.billNo);
   if (!result.ok) {
     applyError(result.message || "生产任务单下推生产领料单失败。");
     return;

@@ -369,7 +369,7 @@ export function fetchMaterialIssuePreviewFromTask(taskBillNo: string) {
   return requestJson(`/api/production/tasks/${encodeURIComponent(taskBillNo)}/material-issue-preview`, "GET");
 }
 
-export function pushDownProductionTaskMaterialIssue(taskBillNo: string, payload: { billNo?: string; materialWarehouseCode: string }) {
+export function pushDownProductionTaskMaterialIssue(taskBillNo: string, payload: { billNo?: string } = {}) {
   return postJson(`/api/production/tasks/${encodeURIComponent(taskBillNo)}/issue`, compactPayload(payload));
 }
 

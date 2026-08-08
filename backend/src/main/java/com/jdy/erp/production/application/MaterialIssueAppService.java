@@ -359,7 +359,10 @@ public class MaterialIssueAppService {
                 }
             }
         }
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "领料仓库不能为空");
+        // A task push-down has no global warehouse override.  Its material
+        // snapshot is the authoritative, line-level source of issue
+        // warehouses, including BOMs that consume from several warehouses.
+        return null;
     }
 
     private void insertSnapshotIssueLines(String issueId, Object taskId, String fallbackWarehouseCode, List<IssueLineRequest> requestedLines) {
@@ -369,9 +372,11 @@ public class MaterialIssueAppService {
                    COALESCE(s.product_code_snapshot, p.code) AS "materialCode",
                    COALESCE(s.product_name_snapshot, p.name) AS "materialName",
                    COALESCE(s.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(snapshot_warehouse.code, '') AS "snapshotWarehouseCode",
                    s.required_qty - s.issued_qty AS "remainingQty"
             FROM production_task_material_snapshot s
             JOIN md_product p ON p.id = s.product_id
+            LEFT JOIN md_warehouse snapshot_warehouse ON snapshot_warehouse.id = s.issue_warehouse_id
             WHERE s.task_id = ?::uuid
             ORDER BY s.line_no
             """, taskId);
@@ -384,8 +389,17 @@ public class MaterialIssueAppService {
             var requestLine = matchingRequestLine(requestedLines, line, index);
             var requestedQty = requestedIssueQty(requestLine, remainingQty);
             if (requestedQty.compareTo(BigDecimal.ZERO) > 0) {
-                var warehouseCode = requestLine == null ? fallbackWarehouseCode : validationService.optionalText(requestLine.warehouseCode());
-                var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode == null ? fallbackWarehouseCode : warehouseCode, "领料仓库");
+                var warehouseCode = requestLine == null ? null : validationService.optionalText(requestLine.warehouseCode());
+                if (warehouseCode == null) {
+                    warehouseCode = fallbackWarehouseCode;
+                }
+                if (warehouseCode == null) {
+                    warehouseCode = validationService.optionalText(String.valueOf(line.get("snapshotWarehouseCode")));
+                }
+                if (warehouseCode == null) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "子件发料仓库未配置");
+                }
+                var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "领料仓库");
                 insertIssueLine(issueId, line.get("lineNo"), line.get("productId"), line.get("materialCode"), line.get("materialName"), line.get("spec"), warehouseId, requestedQty, BigDecimal.ONE);
             }
         }
