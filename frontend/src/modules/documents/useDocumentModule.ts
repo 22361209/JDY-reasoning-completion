@@ -902,7 +902,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     masterSelectorDialogOpen.value = true;
     masterSelectorDialogType.value = type;
     masterSelectorDialogSelectorId.value = selectorId;
-    masterSelectorDialogKeyword.value = keywordValue;
+    masterSelectorDialogKeyword.value = type === "warehouse" ? "" : keywordValue;
   }
 
   function closeMasterSelectorDialog() {
