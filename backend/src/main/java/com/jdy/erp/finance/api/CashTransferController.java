@@ -27,6 +27,7 @@ public class CashTransferController {
     }
 
     @GetMapping("/{billNo}")
+    @RequirePermission("finance.cash_transfer.audit")
     public Map<String, Object> detail(@PathVariable String billNo) {
         return appService.detail(billNo);
     }

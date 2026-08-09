@@ -124,7 +124,7 @@ assert(/^[0-9a-f-]{36}$/i.test(fixtureRoleId) && /^[0-9a-f-]{36}$/i.test(fixture
 transferOnlyOwnership = { roleId: fixtureRoleId, userId: fixtureUserId };
 transferOnlyCookie = await loginApi(apiBase, transferOnlyFixture.username, transferOnlyFixture.password, "BLD-TEST");
 const controller = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/finance/api/CashTransferController.java"), "utf8");
-for (const action of ["saveDraft", "audit", "reverse"]) assert(new RegExp(`@RequirePermission\\(\\"finance\\.cash_transfer\\.audit\\"\\)[\\s\\S]{0,260}?\\b${action}\\s*\\(`).test(controller), `${action} must require finance.cash_transfer.audit`);
+for (const action of ["detail", "saveDraft", "audit", "reverse"]) assert(new RegExp(`@RequirePermission\\(\\"finance\\.cash_transfer\\.audit\\"\\)[\\s\\S]{0,260}?\\b${action}\\s*\\(`).test(controller), `${action} must require finance.cash_transfer.audit`);
 const cashTransferService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/finance/application/CashTransferAppService.java"), "utf8");
 const cashTransferForm = await readFile(path.join(rootDir, "frontend/src/modules/finance/CashTransferForm.vue"), "utf8");
 assert(cashTransferService.includes("catch (DataIntegrityViolationException exception)") && cashTransferService.includes("资金转账事实已发生变化"), "cash-transfer fact conflicts must become a safe business 409");
@@ -133,7 +133,8 @@ assert(/response\.status >= 500[\s\S]{0,180}?资金转账处理失败，请刷�
 warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
 const deniedDraft = await request(warehouseCookie, "/api/cash-transfers/draft", { method: "POST", body: {} });
 const deniedAudit = await request(warehouseCookie, `/api/cash-transfers/A163-${batch}/audit`, { method: "POST" });
-for (const denied of [deniedDraft, deniedAudit]) assert(denied.status === 403 && denied.text.includes("finance.cash_transfer.audit"), `cash-transfer permission must fail closed: ${denied.status} ${denied.text}`);
+const deniedDetail = await request(warehouseCookie, `/api/cash-transfers/A163-${batch}`);
+for (const denied of [deniedDraft, deniedAudit, deniedDetail]) assert(denied.status === 403 && denied.text.includes("finance.cash_transfer.audit"), `cash-transfer permission must fail closed: ${denied.status} ${denied.text}`);
 const warehouseSelector = await request(warehouseCookie, "/api/lists/financial-account-settlement-selector?keyword=&page=1&pageSize=200&view=header");
 assert(warehouseSelector.status === 403, `role without settle/transfer permission must not read account candidates: ${warehouseSelector.status}`);
 
@@ -163,6 +164,10 @@ const transferOnlyBillNo = String(transferOnlyDraft.billNo);
 await requireOk(transferOnlyCookie, `/api/cash-transfers/${encodeURIComponent(transferOnlyBillNo)}/audit`, { method: "POST" });
 const transferOnlyDetail = await request(transferOnlyCookie, `/api/cash-transfers/${encodeURIComponent(transferOnlyBillNo)}`);
 assert(transferOnlyDetail.status === 200 && transferOnlyDetail.data?.document?.billNo === transferOnlyBillNo, "transfer-only role must retain its own document lifecycle detail");
+const deniedExistingDetail = await request(warehouseCookie, `/api/cash-transfers/${encodeURIComponent(transferOnlyBillNo)}`);
+assert(deniedExistingDetail.status === 403 && deniedExistingDetail.text.includes("finance.cash_transfer.audit"), "role without cash-transfer permission must not read an existing same-tenant transfer");
+const authorizedMissingDetail = await request(transferOnlyCookie, `/api/cash-transfers/A184-MISSING-${encodeURIComponent(batch)}`);
+assert(authorizedMissingDetail.status === 404 && authorizedMissingDetail.text.includes("资金转账单不存在"), "authorized detail lookup must preserve the not-found contract");
 await requireOk(transferOnlyCookie, `/api/cash-transfers/${encodeURIComponent(transferOnlyBillNo)}/reverse`, { method: "POST" });
 assert(scalar(`SELECT coalesce(sum(amount_delta), 0)::text FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no=${sqlLiteral(transferOnlyBillNo)}`) === "0.00", "transfer-only lifecycle must reverse to exact zero");
 permissionEvidence = {
@@ -172,6 +177,8 @@ permissionEvidence = {
   masterSelector: deniedMasterSelector.status,
   masterWrites: [deniedAccountCreate.status, deniedAccountPatch.status, deniedAccountAudit.status, deniedAccountStatus.status],
   neitherSelector: warehouseSelector.status,
+  neitherDetail: deniedExistingDetail.status,
+  authorizedMissingDetail: authorizedMissingDetail.status,
   lifecycleBillNo: transferOnlyBillNo
 };
 const zeroDraft = await admin("/api/cash-transfers/draft", { method: "POST", body: { billDate: "2026-07-16", sourceAccountId: sourceId, targetAccountId: targetId, amount: 0, remark: `A163 zero ${batch}` } });
