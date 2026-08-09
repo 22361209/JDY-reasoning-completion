@@ -1013,11 +1013,11 @@ try {
   assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, "repository current head row missing or failed", { expected: migrationHead, actual: currentHeadRows });
   assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest upgrade must end at V${migrationHead.version}`, latestHistory.at(-1));
   assert(
-    Number(latestNumbering.publicChecks) === 117
-      && Number(latestNumbering.tenantChecks) === 117
+    Number(latestNumbering.publicChecks) === 119
+      && Number(latestNumbering.tenantChecks) === 119
       && Number(latestNumbering.versionCopies) === 3
       && Number(latestNumbering.legacyRows) === 0,
-    "V111 managed topology / V105 numbering shape mismatch",
+    "Current-head managed topology / V105 numbering shape mismatch",
     latestNumbering
   );
   assert(same(after, {
@@ -1057,7 +1057,7 @@ try {
     numbering: numberingLatestMetrics(upgradeDatabase)
   };
   assert(same(repeatHistoryBefore, repeatHistoryAfter), "repeat Flyway changed migration history");
-  assert(same(syncCounts, [89, 89]), "repeat tenant sync did not return 89/89", syncCounts);
+  assert(same(syncCounts, [90, 90]), "repeat tenant sync did not return 90/90", syncCounts);
   assert(same(repeatSnapshotBefore, repeatSnapshotAfter), "repeat Flyway/sync changed V103/V104 semantics");
   result.repeat = { ...result.repeat, syncCounts, historyDigest: digest(repeatHistoryAfter), semanticDigest: digest(repeatSnapshotAfter) };
 
@@ -1101,7 +1101,7 @@ try {
     assert(backupResponse.status === 200 && backupResponse.data?.ok === true, `formal backup API failed ${backupResponse.status}: ${backupResponse.text}`);
     const formalBackup = backupResponse.data?.backup;
     assert(formalBackup?.id && formalBackup?.backupName && formalBackup?.backupSchemaName, `formal backup response incomplete: ${backupResponse.text}`);
-    assert(Number(formalBackup.tableCount) === 89, "formal backup did not copy all 89 managed tables", formalBackup);
+    assert(Number(formalBackup.tableCount) === 90, "formal backup did not copy all 90 managed tables", formalBackup);
     assert(/^[0-9a-f-]{36}$/i.test(String(formalBackup.id)), "formal backup id is not a UUID", formalBackup);
     quoteIdentifier(String(formalBackup.backupSchemaName));
 
@@ -1246,14 +1246,14 @@ try {
   `);
   assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version should be V${migrationHead.version}`, freshHistory.at(-1));
   assert(
-    freshMetrics.managedTables === 89
+    freshMetrics.managedTables === 90
       && freshMetrics.returnTables === 3
       && freshMetrics.offsetColumn === 1
       && freshMetrics.importBatchTables === 1
       && freshMetrics.returnRows === 0
-      && freshMetrics.managedChecks === 117
+      && freshMetrics.managedChecks === 119
       && freshMetrics.numberingVersionType === "bigint",
-    "fresh topology/numbering metrics mismatch after V111",
+    "fresh current-head topology/numbering metrics mismatch",
     freshMetrics
   );
   result.fresh = { ...result.fresh, historyCount: freshHistory.length, maxVersion: freshHistory.at(-1)?.version, currentMigrationHead: migrationHead, metrics: freshMetrics };

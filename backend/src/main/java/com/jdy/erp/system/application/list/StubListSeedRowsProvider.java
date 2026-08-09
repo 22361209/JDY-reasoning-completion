@@ -1604,6 +1604,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    END AS status
             FROM ap_payable ap
             JOIN md_supplier s ON s.id = ap.supplier_id
+            WHERE ap.status IN ('OPEN', 'PART_SETTLED', 'SETTLED')
             ORDER BY ap.updated_at DESC
             """));
     }

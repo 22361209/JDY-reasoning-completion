@@ -1,6 +1,7 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static com.jdy.erp.testsupport.InventoryTraceAssertions.assertExactLifecycle;
 import static com.jdy.erp.testsupport.InventoryTraceAssertions.fact;
 import static com.jdy.erp.testsupport.InventoryTraceAssertions.reversal;
@@ -11,6 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.jdy.erp.finance.application.FinanceSettlementAppService;
+import com.jdy.erp.finance.application.FinanceSettlementAppService.AllocationRequest;
+import com.jdy.erp.finance.application.FinanceSettlementAppService.FundLineRequest;
+import com.jdy.erp.finance.application.FinanceSettlementAppService.SettlementDraftRequest;
+import com.jdy.erp.finance.application.FinanceSettlementAppService.SettlementKind;
 import com.jdy.erp.masterdata.api.MasterDataController;
 import com.jdy.erp.purchase.application.PurchaseInAppService;
 import com.jdy.erp.purchase.application.PurchaseOrderAppService;
@@ -30,6 +36,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest
 class TenantPurchaseChainIsolationTest {
@@ -55,6 +62,9 @@ class TenantPurchaseChainIsolationTest {
 
     @Autowired
     private PurchaseReturnAppService purchaseReturnAppService;
+
+    @Autowired
+    private FinanceSettlementAppService financeSettlementAppService;
 
     @Autowired
     private ListStubController listStubController;
@@ -118,6 +128,7 @@ class TenantPurchaseChainIsolationTest {
             fact("PURCHASE_IN", "AUDIT", "5", "5")
         );
         purchaseInAppService.reverse(inNoA);
+        assertPayableFact("YF-CX-" + inNoA, "-56.50", "0", "OPEN");
         assertExactLifecycle(
             jdbcTemplate,
             sourceDocument("purchase_in", "purchase_in_line", inNoA),
@@ -126,6 +137,8 @@ class TenantPurchaseChainIsolationTest {
             reversal("PURCHASE_IN_REVERSE", "REVERSE", "-5", "0", 0)
         );
         purchaseInAppService.audit(inNoA);
+        assertPayableFact("YF-CX-" + inNoA, "-56.50", "0", "REVERSED");
+        assertPayableFactCount(inNoA, 2);
         assertExactLifecycle(
             jdbcTemplate,
             sourceDocument("purchase_in", "purchase_in_line", inNoA),
@@ -145,6 +158,7 @@ class TenantPurchaseChainIsolationTest {
             fact("PURCHASE_RETURN", "AUDIT", "-2", "3")
         );
         purchaseReturnAppService.reverse(returnNoA);
+        assertPayableFact("YF-TH-CX-" + returnNoA, "22.60", "0", "OPEN");
         assertExactLifecycle(
             jdbcTemplate,
             sourceDocument("purchase_return", "purchase_return_line", returnNoA),
@@ -153,6 +167,8 @@ class TenantPurchaseChainIsolationTest {
             reversal("PURCHASE_RETURN_REVERSE", "REVERSE", "2", "5", 0)
         );
         purchaseReturnAppService.audit(returnNoA);
+        assertPayableFact("YF-TH-CX-" + returnNoA, "22.60", "0", "REVERSED");
+        assertPayableFactCount(returnNoA, 2);
         assertExactLifecycle(
             jdbcTemplate,
             sourceDocument("purchase_return", "purchase_return_line", returnNoA),
@@ -201,6 +217,88 @@ class TenantPurchaseChainIsolationTest {
         assertPurchaseSummary("A119 账套A供应商", "A119 账套A采购物料", "8", "5", "2", "5");
     }
 
+    @Test
+    void paidPurchaseReturnReversalBlocksReauditAndRollsBackAllRuntimeEffects() {
+        var tenant = createManagedAccountSet("A181PAID");
+        useTenant(tenant);
+        createAuditedSupplier("A181 已核销退货供应商");
+        createAuditedMaterial("A181 已核销退货物料");
+        createAuditedPurchaseRequisition(new BigDecimal("5"));
+        var orderNo = saveAndAuditPurchaseOrder(new BigDecimal("5"));
+        var purchaseInNo = saveAndAuditPurchaseIn(new BigDecimal("5"), orderNo);
+        var returnNo = saveAndAuditPurchaseReturn(new BigDecimal("2"), purchaseInNo);
+        purchaseReturnAppService.reverse(returnNo);
+
+        var reversalBillNo = "YF-TH-CX-" + returnNo;
+        var reversal = jdbcTemplate.queryForMap("""
+            SELECT id::text AS id,
+                   supplier_id::text AS "supplierId"
+            FROM ap_payable
+            WHERE bill_no = ?
+            """, reversalBillNo);
+        var accountId = jdbcTemplate.queryForObject("""
+            INSERT INTO md_financial_account (
+                code, name, account_type, currency, enabled, audit_status
+            )
+            VALUES ('ZH-A181-PAID-REV', 'A181 已核销反审核事实', 'CASH', 'CNY', TRUE, 'AUDITED')
+            RETURNING id::text
+            """, String.class);
+        var payment = financeSettlementAppService.createDraft(
+            SettlementKind.PAYMENT,
+            new SettlementDraftRequest(
+                null,
+                null,
+                String.valueOf(reversal.get("supplierId")),
+                "2026-06-30",
+                "CNY",
+                BigDecimal.ONE,
+                "A181 已核销反审核事实",
+                List.of(new FundLineRequest(
+                    1, accountId, "CASH", BigDecimal.ONE, BigDecimal.ZERO, null, "A181"
+                )),
+                List.of(new AllocationRequest(
+                    1, String.valueOf(reversal.get("id")), BigDecimal.ONE, "A181"
+                ))
+            )
+        );
+        var paymentBillNo = String.valueOf(payment.get("billNo"));
+        financeSettlementAppService.audit(SettlementKind.PAYMENT, paymentBillNo);
+        assertPayableFact(reversalBillNo, "22.60", "1", "PART_SETTLED");
+
+        assertThatThrownBy(() -> purchaseReturnAppService.audit(returnNo))
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                assertThat(exception.getStatusCode().value()).isEqualTo(409);
+                assertThat(exception.getReason()).contains("应付反审核事实已发生核销，来源单据不能重新审核");
+            });
+
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT status FROM purchase_return WHERE bill_no = ?",
+            String.class,
+            returnNo
+        )).isEqualTo("DRAFT");
+        assertBalance("5.0000", "0.0000", "5.0000");
+        assertReturnSelectable("A181 已核销退货物料", purchaseInNo, "0.0000", "5.0000");
+        assertPayableFact(reversalBillNo, "22.60", "1", "PART_SETTLED");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT status FROM ap_payment WHERE bill_no = ?",
+            String.class,
+            paymentBillNo
+        )).isEqualTo("AUDITED");
+        assertThat(jdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM ap_payment_allocation allocation
+            JOIN ap_payment payment ON payment.id = allocation.payment_id
+            WHERE payment.bill_no = ?
+            """, Integer.class, paymentBillNo)).isEqualTo(1);
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_return", "purchase_return_line", returnNo),
+            "PURCHASE_RETURN", PRODUCT_CODE, WAREHOUSE_CODE,
+            fact("PURCHASE_RETURN", "AUDIT", "-2", "3"),
+            reversal("PURCHASE_RETURN_REVERSE", "REVERSE", "2", "5", 0)
+        );
+    }
+
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         createdCodes.add(code);
@@ -237,6 +335,12 @@ class TenantPurchaseChainIsolationTest {
     }
 
     private void createAuditedMaterial(String name) {
+        var nameCode = "PN-" + PRODUCT_CODE;
+        masterDataController.create("productName", Map.of(
+            "code", nameCode,
+            "name", name
+        ));
+        masterDataController.audit("productName", nameCode);
         masterDataController.create("product", Map.of(
             "code", PRODUCT_CODE,
             "name", name,
@@ -392,6 +496,27 @@ class TenantPurchaseChainIsolationTest {
         assertDecimal(row.get("onHand"), onHand);
         assertDecimal(row.get("reserved"), reserved);
         assertDecimal(row.get("available"), available);
+    }
+
+    private void assertPayableFact(String billNo, String amount, String paidAmount, String expectedStatus) {
+        var fact = jdbcTemplate.queryForMap("""
+            SELECT amount,
+                   paid_amount AS "paidAmount",
+                   status
+            FROM ap_payable
+            WHERE bill_no = ?
+            """, billNo);
+        assertDecimal(fact.get("amount"), amount);
+        assertDecimal(fact.get("paidAmount"), paidAmount);
+        assertThat(fact.get("status")).isEqualTo(expectedStatus);
+    }
+
+    private void assertPayableFactCount(String sourceBillNo, int expectedCount) {
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM ap_payable WHERE source_bill_no = ?",
+            Integer.class,
+            sourceBillNo
+        )).isEqualTo(expectedCount);
     }
 
     private void assertListContainsOnlyTenantSupplier(String listKey, String view, String supplierName, String billNo) {

@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession } from "./helpers/regression-auth.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -12,6 +13,7 @@ await mkdir(verificationDir, { recursive: true });
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const bomCode = `BOM-A114-${batch}`;
 const bomIssueMethod = `A114-${batch}`;
+const productionFixtureMaterialCode = `A114-RM-${batch}`;
 
 function assert(condition, message) {
   if (!condition) {
@@ -57,7 +59,7 @@ async function auditBomAllowNewVersion(code) {
 }
 
 async function seedStock() {
-  for (const productCode of ["CP-001", "PJ-014"]) {
+  for (const productCode of [productionFixtureMaterialCode, "PJ-014"]) {
     await requireJson("/api/inventory/adjustments", {
       method: "POST",
       body: {
@@ -71,6 +73,24 @@ async function seedStock() {
   }
 }
 
+await upsertMasterDataFixture({
+  apiBase,
+  type: "product",
+  audit: true,
+  payload: {
+    code: productionFixtureMaterialCode,
+    name: `A114快照回归子件-${batch}`,
+    spec: "A114 / 独立子件",
+    category: "零配件",
+    unit: "件",
+    defaultWarehouseCode: "CK-002",
+    isPurchase: false,
+    isSale: false,
+    isInventory: true,
+    isProduce: false,
+    status: "启用"
+  }
+});
 await seedStock();
 
 await requireJson("/api/production/boms", {
@@ -80,7 +100,7 @@ await requireJson("/api/production/boms", {
     productCode: "CP-001",
     qty: 1,
     lines: [
-      { materialCode: "CP-001", qty: 1, issueWarehouseCode: "CK-002", issueMethod: bomIssueMethod },
+      { materialCode: productionFixtureMaterialCode, qty: 1, issueWarehouseCode: "CK-002", issueMethod: bomIssueMethod },
       { materialCode: "PJ-014", qty: 2 }
     ]
   }
@@ -109,7 +129,7 @@ await requireJson("/api/production/boms", {
     productCode: "CP-001",
     qty: 1,
     lines: [
-      { materialCode: "CP-001", qty: 1 },
+      { materialCode: productionFixtureMaterialCode, qty: 1 },
       { materialCode: "PJ-014", qty: 9 }
     ]
   }

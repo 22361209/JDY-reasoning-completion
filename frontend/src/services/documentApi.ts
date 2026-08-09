@@ -286,6 +286,13 @@ export interface SalesUnitPriceSourcesResponse {
   products: Record<string, SalesUnitPriceSourcesByProduct>;
 }
 
+export interface StockCountBookQuantity {
+  productId: string;
+  productCode: string;
+  warehouseCode: string;
+  bookQuantity: number | string;
+}
+
 export async function saveDocumentDraft(type: DocumentType, payload: DocumentDraftPayload) {
   const body = toBackendPayload(type, payload);
   return callDocument(`${endpointByType[type]}/draft`, "POST", body);
@@ -311,6 +318,25 @@ export async function fetchSalesUnitPriceSources(customerCode: string, productCo
     return { ok: false, message: result.message || "销售价格来源查询失败。" };
   }
   return { ok: true, message: "", data: result.data as SalesUnitPriceSourcesResponse };
+}
+
+export async function fetchStockCountBookQuantity(
+  productId: string | undefined,
+  productCode: string,
+  warehouseCode: string
+): Promise<{ ok: boolean; message: string; data?: StockCountBookQuantity }> {
+  if (!productCode.trim() || !warehouseCode.trim()) {
+    return { ok: false, message: "请先选择商品和仓库。" };
+  }
+  const search = new URLSearchParams({ productCode: productCode.trim(), warehouseCode: warehouseCode.trim() });
+  if (productId?.trim()) {
+    search.set("productId", productId.trim());
+  }
+  const result = await callDocument(`/api/stock-counts/book-quantity?${search.toString()}`, "GET");
+  if (!result.ok || !result.data) {
+    return { ok: false, message: result.message || "盘点账面数量查询失败。" };
+  }
+  return { ok: true, message: "", data: result.data as StockCountBookQuantity };
 }
 
 export async function auditDocument(type: DocumentType, billNo: string) {

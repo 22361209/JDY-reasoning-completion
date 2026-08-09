@@ -377,6 +377,7 @@ function formatCell(row: ReportRow, key: string) {
   if (key === "qtyOnHandAfter" && (value === null || value === "")) return "历史结存不可精确还原";
   if (key === "postingAction") return postingActionLabel(value);
   if (key === "traceQuality") return traceQualityLabel(value);
+  if (key === "eventType") return filterSummaryValue(key, value ?? null);
   return displayText(value);
 }
 

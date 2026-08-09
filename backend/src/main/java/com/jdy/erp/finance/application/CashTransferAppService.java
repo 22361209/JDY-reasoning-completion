@@ -10,6 +10,7 @@ import com.jdy.erp.shared.application.BillLifecycleService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -110,7 +111,10 @@ public class CashTransferAppService {
             "id::text AS id, bill_no AS \"billNo\", status, version",
             "FINANCE", "AUDIT", "cash_transfer", "资金转账单不存在或已审核"
         );
-        writeFacts(String.valueOf(transfer.get("id")), source.id(), target.id(), currency, amount, "AUDIT", false);
+        writeFacts(
+            String.valueOf(transfer.get("id")), source.id(), target.id(), currency, amount,
+            "AUDIT", postingVersion(result), false
+        );
         return result;
     }
 
@@ -126,7 +130,10 @@ public class CashTransferAppService {
             "id::text AS id, bill_no AS \"billNo\", status, version",
             "FINANCE", "REVERSE", "cash_transfer", "资金转账单不存在或不能反审核"
         );
-        writeFacts(String.valueOf(transfer.get("id")), source.id(), target.id(), currency, amount, "REVERSE", true);
+        writeFacts(
+            String.valueOf(transfer.get("id")), source.id(), target.id(), currency, amount,
+            "REVERSE", postingVersion(result), true
+        );
         return result;
     }
 
@@ -173,15 +180,38 @@ public class CashTransferAppService {
         return source.currency();
     }
 
-    private void writeFacts(String transferId, String sourceAccountId, String targetAccountId, String currency, BigDecimal amount, String action, boolean reverse) {
+    private void writeFacts(
+        String transferId,
+        String sourceAccountId,
+        String targetAccountId,
+        String currency,
+        BigDecimal amount,
+        String action,
+        long postingVersion,
+        boolean reverse
+    ) {
         var sourceDelta = reverse ? amount : amount.negate();
         var targetDelta = sourceDelta.negate();
-        jdbcTemplate.update("""
-            INSERT INTO cash_transfer_fact (cash_transfer_id, account_id, currency, amount_delta, posting_action)
-            VALUES (?::uuid, ?::uuid, ?, ?, ?), (?::uuid, ?::uuid, ?, ?, ?)
-            """,
-            transferId, sourceAccountId, currency, sourceDelta, action,
-            transferId, targetAccountId, currency, targetDelta, action);
+        try {
+            jdbcTemplate.update("""
+                INSERT INTO cash_transfer_fact (
+                    cash_transfer_id, account_id, currency, amount_delta, posting_action, posting_version
+                )
+                VALUES (?::uuid, ?::uuid, ?, ?, ?, ?), (?::uuid, ?::uuid, ?, ?, ?, ?)
+                """,
+                transferId, sourceAccountId, currency, sourceDelta, action, postingVersion,
+                transferId, targetAccountId, currency, targetDelta, action, postingVersion);
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("资金转账事实已发生变化，请刷新单据后重试");
+        }
+    }
+
+    private long postingVersion(Map<String, Object> transition) {
+        var value = transition.get("version");
+        if (!(value instanceof Number number) || number.longValue() <= 0) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "资金转账生命周期版本无效");
+        }
+        return number.longValue();
     }
 
     private BigDecimal nonNegative(BigDecimal value) {

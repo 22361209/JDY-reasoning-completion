@@ -111,6 +111,9 @@ public class ProductionTaskAppService {
         for (var line : request.lines()) {
             var material = lookupAuditedMaterial(line.materialCode(), "子件物料", false);
             var materialId = String.valueOf(material.get("id"));
+            if (productId.equals(materialId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, directBomSelfReferenceMessage(lineNo));
+            }
             var productQty = positive(line.productQty() == null ? bomQty : line.productQty(), "产品产量");
             var materialQty = line.materialQty() == null
                 ? positive(line.qty(), "材料用量")
@@ -173,6 +176,7 @@ public class ProductionTaskAppService {
     }
 
     private Map<String, Object> bomAuditPreviewForBom(Map<String, Object> bom, String bomId) {
+        ensureBomHasNoDirectSelfReference(bomId);
         var latestAuditedRows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    code,
@@ -210,6 +214,28 @@ public class ProductionTaskAppService {
         result.put("latestVersionNo", latestBom.get("versionNo"));
         result.put("message", "该母件已有已审核 BOM，当前草稿的子件物料编码与当前版本不同。审核后会新增该母件的新版本，并禁用旧版本。");
         return result;
+    }
+
+    private void ensureBomHasNoDirectSelfReference(String bomId) {
+        var selfReferencedLines = jdbcTemplate.queryForList("""
+            SELECT line.line_no AS "lineNo"
+            FROM prod_bom_line line
+            JOIN prod_bom bom ON bom.id = line.bom_id
+            WHERE line.bom_id = ?::uuid
+              AND line.material_id = bom.product_id
+            ORDER BY line.line_no
+            LIMIT 1
+            """, bomId);
+        if (!selfReferencedLines.isEmpty()) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                directBomSelfReferenceMessage(selfReferencedLines.get(0).get("lineNo"))
+            );
+        }
+    }
+
+    private String directBomSelfReferenceMessage(Object lineNo) {
+        return "第 " + lineNo + " 行子件物料不能与母件相同";
     }
 
     @Transactional

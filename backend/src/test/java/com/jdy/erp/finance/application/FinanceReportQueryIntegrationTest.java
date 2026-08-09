@@ -302,6 +302,16 @@ class FinanceReportQueryIntegrationTest {
             .containsEntry("periodNetAmount", "-50")
             .containsEntry("closingBalance", "450"));
 
+        var payableDetail = service.query(
+            "payable-detail",
+            query(fixture.usdSupplierId(), "USD")
+        );
+        assertThat(payableDetail.total()).isEqualTo(2L);
+        assertThat(payableDetail.rows()).extracting(row -> row.get("eventType"))
+            .containsExactlyInAnyOrder("AP_FACT", "PAYMENT_ALLOCATION");
+        assertThat(payableDetail.rows()).extracting(row -> row.get("billNo"))
+            .doesNotContain("YF-USD-RETIRED-REVERSAL");
+
         platformJdbc.update(
             "UPDATE " + quote(schema) + ".ar_receipt SET status = 'AUDITED' WHERE id = ?::uuid",
             fixture.draftReceiptId()
@@ -474,6 +484,10 @@ class FinanceReportQueryIntegrationTest {
         insertPayable(
             jdbc, schema, usdSupplier, "YF-USD-RETURN", LocalDate.of(2026, 7, 4),
             "-10.00", "USD", "OPEN", "222.22"
+        );
+        insertPayable(
+            jdbc, schema, usdSupplier, "YF-USD-RETIRED-REVERSAL", LocalDate.of(2026, 7, 4),
+            "99999.00", "USD", "REVERSED", "0"
         );
         insertPaymentAllocation(
             jdbc, schema, usdAp, usdSupplier, "FK-USD", LocalDate.of(2026, 7, 5),

@@ -209,6 +209,7 @@
         :title="masterSelectorDialogTitle"
         :label="masterSelectorDialogLabel"
         :keyword="masterSelectorDialogKeyword"
+        :options="masterSelectorDialogOptions"
         @close="emit('closeMasterSelectorDialog')"
         @select="emit('selectMasterSelectorDialogRow', $event)"
       />
@@ -347,6 +348,7 @@ const props = withDefaults(defineProps<{
   masterSelectorDialogTitle: string;
   masterSelectorDialogLabel: string;
   masterSelectorDialogKeyword: string;
+  masterSelectorDialogOptions?: MasterOption[];
   knownProductOptions: MasterOption[];
   draggingLineIndex: number | null;
   highlightedSourceBillNo: string;

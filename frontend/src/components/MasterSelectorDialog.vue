@@ -69,6 +69,7 @@ const props = defineProps<{
   title: string;
   label: string;
   keyword: string;
+  options?: MasterOption[];
   productSelection?: "all" | "produce";
 }>();
 
@@ -96,10 +97,14 @@ const {
 let requestSeq = 0;
 
 const selectorDefinition = computed(() => masterSelectorDefinition(props.type));
+const usesInjectedOptions = computed(() => props.options !== undefined);
 const listKey = computed(() => selectorDefinition.value?.listKey ?? "");
 const selectorColumns = computed<SourceSelectorColumn[]>(() => [
   { key: "selection", title: "", width: 48, visible: true, configurable: false, filterable: false, resizable: false },
-  ...(selectorDefinition.value?.selectorColumns ?? [])
+  ...(selectorDefinition.value?.selectorColumns ?? (usesInjectedOptions.value ? [
+    { field: "code", title: "编码", width: 180, visible: true, fixed: "" as const, align: "left" as const },
+    { field: "name", title: "名称", width: 240, visible: true, fixed: "" as const, align: "left" as const }
+  ] : []))
     .filter((column) => column.visible !== false)
     .map((column) => ({
       key: column.field,
@@ -172,6 +177,18 @@ async function loadCategories() {
 
 async function loadRows() {
   if (!props.open || !props.type) {
+    return;
+  }
+  if (usesInjectedOptions.value) {
+    requestSeq += 1;
+    loading.value = false;
+    message.value = "";
+    const keyword = draftKeyword.value.trim().toLowerCase();
+    const matchedRows = (props.options ?? []).filter((option) => !keyword
+      || Object.values(option).some((value) => String(value ?? "").toLowerCase().includes(keyword)));
+    total.value = matchedRows.length;
+    const start = (page.value - 1) * pageSize.value;
+    rows.value = matchedRows.slice(start, start + pageSize.value).map((option) => ({ ...option }));
     return;
   }
   if (!selectorDefinition.value || !listKey.value) {
@@ -263,4 +280,11 @@ watch(() => props.type, () => {
     void loadRows();
   }
 });
+
+watch(() => props.options, () => {
+  if (props.open && usesInjectedOptions.value) {
+    page.value = 1;
+    void loadRows();
+  }
+}, { deep: true });
 </script>

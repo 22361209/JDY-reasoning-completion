@@ -46,8 +46,26 @@ assert(
   "UAT-DEF-002: a successfully audited product name must return to the source material form"
 );
 assert(
-  masterRecordPage.includes("lookupOptions[field.name] = auditedRows.map"),
+  /filter\(\(row\) => String\(row\.auditStatus \?\? "已审核"\) === "已审核"\)/.test(masterRecordPage),
   "UAT-DEF-002: lookup options must never fall back to unaudited rows"
+);
+assert(
+  /fetchListRows\(lookup\.listKey, \{\s*keyword,\s*status: "启用"/.test(masterRecordPage),
+  "A181-006: lookup input must send its keyword to the server and request enabled rows"
+);
+assert(
+  masterRecordPage.includes("lookupRequestSeq")
+    && masterRecordPage.includes("requestSeq !== lookupRequestSeq[field.name]"),
+  "A181-006: stale lookup responses must not replace newer keyword results"
+);
+assert(
+  masterRecordPage.includes("resolveLookupOptionExactly")
+    && /for \(const field of strictFields\)[\s\S]*await resolveLookupOptionExactly\(field, value\)/.test(masterRecordPage),
+  "A181-006: strict lookup save must verify the exact value with the server before rejecting it"
+);
+assert(
+  /const cachedOption = resolveLookupOption\(field, rawValue\);\s*if \(cachedOption\) \{\s*return \{ option: cachedOption, error: "", stale: false \};\s*\}\s*const result = await queryLookupOptions/.test(masterRecordPage),
+  "A181-006: audited enabled cache matches must remain case-insensitive before the server fallback"
 );
 assert(
   masterRecordPage.includes('{{ saveLabel || "保存" }}')
@@ -55,4 +73,4 @@ assert(
   "UAT-DEF-002: top and bottom save actions must share the explicit save label"
 );
 
-console.log(JSON.stringify({ ok: true, defects: ["UAT-DEF-001", "UAT-DEF-002"] }));
+console.log(JSON.stringify({ ok: true, defects: ["UAT-DEF-001", "UAT-DEF-002", "A181-006"] }));

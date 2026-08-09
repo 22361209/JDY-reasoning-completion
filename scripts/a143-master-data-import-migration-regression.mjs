@@ -827,9 +827,9 @@ try {
     tenant: schemaTopology(upgradeDatabase, tenantSchema),
     otherTenant: schemaTopology(upgradeDatabase, otherTenantSchema)
   };
-  assertTopology("latest public", latestTopologies.public, 203, 102, 117, 89, 85);
-  assertTopology("latest tenant", latestTopologies.tenant, 199, 89, 117, 89, 85);
-  assertTopology("latest other tenant", latestTopologies.otherTenant, 199, 89, 117, 89, 85);
+  assertTopology("latest public", latestTopologies.public, 203, 103, 119, 90, 87);
+  assertTopology("latest tenant", latestTopologies.tenant, 199, 90, 119, 90, 87);
+  assertTopology("latest other tenant", latestTopologies.otherTenant, 199, 90, 119, 90, 87);
   const latestNumbering = numberingLatestMetrics(upgradeDatabase);
   assert(
     Number(latestNumbering.versionCopies) === 4 && Number(latestNumbering.legacyRows) === 0,
@@ -866,7 +866,7 @@ try {
     historicalBackup: backupShape(upgradeDatabase, historicalBackupSchema),
     numbering: numberingLatestMetrics(upgradeDatabase)
   };
-  assert(same(syncCounts, [89, 89, 89]), "repeat tenant sync must return 89 every time", syncCounts);
+  assert(same(syncCounts, [90, 90, 90]), "repeat tenant sync must return 90 every time", syncCounts);
   assert(same(repeatBefore, repeatAfter), "repeat Flyway/sync must be a no-op for exact repository-latest topology and history");
   result.repeat = {
     ...result.repeat,
@@ -899,15 +899,15 @@ try {
     assert(backupResponse.status === 200 && backupResponse.data?.ok === true, `formal backup API failed: ${backupResponse.text}`);
     const formalBackup = backupResponse.data?.backup;
     assert(formalBackup?.backupName && formalBackup?.backupSchemaName, "formal backup response incomplete", formalBackup);
-    assert(Number(formalBackup.tableCount) === 89, "formal backup must copy all 89 managed tables", formalBackup);
+    assert(Number(formalBackup.tableCount) === 90, "formal backup must copy all 90 managed tables", formalBackup);
     quoteIdentifier(String(formalBackup.backupSchemaName));
     const formalBackupShape = backupShape(upgradeDatabase, String(formalBackup.backupSchemaName));
     assert(
-      Number(formalBackupShape.baseTables) === 89
-        && Number(formalBackupShape.managedTables) === 89
+      Number(formalBackupShape.baseTables) === 90
+        && Number(formalBackupShape.managedTables) === 90
         && Number(formalBackupShape.constraints) === 0
         && Number(formalBackupShape.importRows) === 6,
-      "formal backup must be a complete data-only 89-table snapshot",
+      "formal backup must be a complete data-only 90-table snapshot",
       formalBackupShape
     );
     const batchesInBackup = batchSnapshot(String(formalBackup.backupSchemaName));
@@ -1019,7 +1019,7 @@ try {
   assert(freshCurrentHeadRows.length === 1 && freshCurrentHeadRows[0].success === true && freshCurrentHeadRows[0].script === migrationHead.script, "fresh current head row missing or failed", { expected: migrationHead, actual: freshCurrentHeadRows });
   assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version must be V${migrationHead.version}`, freshHistory.at(-1));
   const freshPublicTopology = schemaTopology(freshDatabase, "public");
-  assertTopology("fresh public", freshPublicTopology, 203, 102, 117, 89, 85);
+  assertTopology("fresh public", freshPublicTopology, 203, 103, 119, 90, 87);
   psql(freshDatabase, `
     INSERT INTO public.sys_account_set (
       id, code, name, environment, database_name, schema_name,
@@ -1041,9 +1041,9 @@ try {
     Number(psql(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(freshTenantSchema)}, TRUE)`)),
     Number(psql(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(freshTenantSchema)}, FALSE)`))
   ];
-  assert(same(freshSyncCounts, [89, 89]), "fresh tenant create/repeat sync must return 89/89", freshSyncCounts);
+  assert(same(freshSyncCounts, [90, 90]), "fresh tenant create/repeat sync must return 90/90", freshSyncCounts);
   const freshTenantTopology = schemaTopology(freshDatabase, freshTenantSchema);
-  assertTopology("fresh tenant", freshTenantTopology, 199, 89, 117, 89, 85);
+  assertTopology("fresh tenant", freshTenantTopology, 199, 90, 119, 90, 87);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,

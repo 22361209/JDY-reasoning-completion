@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession } from "./helpers/regression-auth.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -12,8 +13,28 @@ const apiCookie = await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const bomIssueMethod = `A53-${batch}`;
 const productionMotherProductCode = "CP-001";
+const productionFixtureMaterialCode = `A53-RM-${batch}`;
 
 await mkdir(screenshotDir, { recursive: true });
+
+await upsertMasterDataFixture({
+  apiBase,
+  type: "product",
+  audit: true,
+  payload: {
+    code: productionFixtureMaterialCode,
+    name: `A53红冲打印回归子件-${batch}`,
+    spec: "A53 / 独立子件",
+    category: "零配件",
+    unit: "件",
+    defaultWarehouseCode: "CK-002",
+    isPurchase: false,
+    isSale: false,
+    isInventory: true,
+    isProduce: false,
+    status: "启用"
+  }
+});
 
 function assert(condition, message) {
   if (!condition) {
@@ -74,7 +95,7 @@ function utf16beHex(value) {
 }
 
 async function seedStock() {
-  for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
+  for (const productCode of ["CP-001", "PJ-014", "CP-T413874", productionFixtureMaterialCode]) {
     for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireJson("/api/inventory/adjustments", {
         method: "POST",
@@ -101,7 +122,7 @@ async function createProductionPairs() {
       productCode: productionMotherProductCode,
       qty: 1,
       lines: [
-        { materialCode: "CP-001", qty: 1 },
+        { materialCode: productionFixtureMaterialCode, qty: 1 },
         { materialCode: "PJ-014", qty: 2 },
         { materialCode: "CP-T413874", qty: 3, issueWarehouseCode: "CK-001", issueMethod: bomIssueMethod }
       ]

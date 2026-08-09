@@ -538,6 +538,33 @@ async function createAndAuditInFrontend() {
     const billNoInput = page.getByTestId("stock-transfer-bill-no");
     assert(await billNoInput.inputValue() === "", "new stock transfer bill number should be blank");
     assert(!(await billNoInput.isEditable()), "new stock transfer bill number should be readonly");
+    const accountSetName = String(result.environment.tenant?.name ?? "");
+    assert(await page.getByTestId("stock-transfer-party-code").inputValue() === "BLD-TEST",
+      "stock transfer organization code must be the current account set");
+    assert(accountSetName && await page.getByTestId("stock-transfer-party-name").inputValue() === accountSetName,
+      "stock transfer organization name must be the current account-set name", accountSetName);
+    await page.getByTestId("stock-transfer-party-code").fill(sourceWarehouseCode);
+    assert(await page.getByTestId("stock-transfer-party-code").inputValue() === "BLD-TEST",
+      "stock transfer organization must reject arbitrary warehouse or free-text values");
+    await page.getByTestId("stock-transfer-party-open-selector").click();
+    await page.getByTestId("master-selector-source-selector-dialog").waitFor({ state: "visible" });
+    await page.getByTestId("master-selector-source-selector-table-core").filter({ hasText: "BLD-TEST" }).waitFor({ state: "visible" });
+    assert(await page.locator('[data-testid^="master-selector-source-line-"]').count() === 1,
+      "stock transfer organization selector must expose exactly one current-account-set candidate");
+    const organizationSelectorText = await page.getByTestId("master-selector-source-selector-table-core").innerText();
+    assert(organizationSelectorText.includes("BLD-TEST") && organizationSelectorText.includes(accountSetName),
+      "stock transfer organization candidate must identify the current account set", organizationSelectorText);
+    assert(!organizationSelectorText.includes(sourceWarehouseCode) && !organizationSelectorText.includes(targetWarehouseCode),
+      "stock transfer organization candidates must not be warehouse records", organizationSelectorText);
+    await page.getByTestId("master-selector-source-selector-cancel").click();
+    await page.getByTestId("stock-transfer-line-warehouse-open-selector").click();
+    await page.getByTestId("master-selector-source-selector-dialog").waitFor({ state: "visible" });
+    await page.getByTestId("master-selector-source-selector-table-core").filter({ hasText: sourceWarehouseCode }).waitFor({ state: "visible" });
+    await page.getByTestId("master-selector-source-selector-table-core").filter({ hasText: targetWarehouseCode }).waitFor({ state: "visible" });
+    const warehouseSelectorText = await page.getByTestId("master-selector-source-selector-table-core").innerText();
+    assert(warehouseSelectorText.includes(sourceWarehouseCode) && warehouseSelectorText.includes(targetWarehouseCode),
+      "stock transfer line warehouse selector must retain warehouse-master candidates", warehouseSelectorText);
+    await page.getByTestId("master-selector-source-selector-cancel").click();
     await page.getByTestId("stock-transfer-bill-date").fill(billDate);
     await page.getByTestId("stock-transfer-department").fill(fixtureTag);
     await page.getByTestId("stock-transfer-line-product").fill(productCode);

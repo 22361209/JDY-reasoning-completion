@@ -67,12 +67,12 @@ const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
 const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
 const expectedMetrics = {
-  baseTables: 89,
-  managedTables: 89,
-  primaryKeys: 89,
-  uniqueConstraints: 85,
+  baseTables: 90,
+  managedTables: 90,
+  primaryKeys: 90,
+  uniqueConstraints: 87,
   foreignKeys: 199,
-  checkConstraints: 117,
+  checkConstraints: 119,
   unvalidatedForeignKeys: 0,
   columnMismatchCount: 0,
   referenceConstraintMismatchCount: 0,
@@ -524,7 +524,7 @@ try {
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(firstManagedCount === 89, `${schema} first sync returned ${firstManagedCount}, expected 89`);
+    assert(firstManagedCount === 90, `${schema} first sync returned ${firstManagedCount}, expected 90`);
     const afterFirstMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after first sync`, afterFirstMetrics);
     const afterFirst = tenantFingerprints(schema);
@@ -532,7 +532,7 @@ try {
     const secondManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
     ));
-    assert(secondManagedCount === 89, `${schema} second sync returned ${secondManagedCount}, expected 89`);
+    assert(secondManagedCount === 90, `${schema} second sync returned ${secondManagedCount}, expected 90`);
     const afterSecondMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
@@ -826,7 +826,7 @@ function runTopologyChecks() {
     BEGIN
       first_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
       second_count := public.jdy_sync_tenant_schema(${sqlLiteral(topology.schema)}, FALSE);
-      IF first_count <> 89 OR second_count <> 89 THEN
+      IF first_count <> 90 OR second_count <> 90 THEN
         RAISE EXCEPTION 'A137 repeated create_missing=FALSE returned unexpected counts: first=% second=%',
           first_count, second_count;
       END IF;

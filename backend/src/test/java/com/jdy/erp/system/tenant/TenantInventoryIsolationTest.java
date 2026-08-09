@@ -14,6 +14,7 @@ import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
 import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.inventory.application.OpeningStockService;
 import com.jdy.erp.inventory.application.OtherStockInAppService;
+import com.jdy.erp.inventory.application.StockCountAppService;
 import com.jdy.erp.masterdata.api.MasterDataController;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
@@ -57,6 +58,9 @@ class TenantInventoryIsolationTest {
 
     @Autowired
     private OtherStockInAppService otherStockInAppService;
+
+    @Autowired
+    private StockCountAppService stockCountAppService;
 
     @Autowired
     private ListStubController listStubController;
@@ -135,6 +139,7 @@ class TenantInventoryIsolationTest {
             INVENTORY_FIXTURE_DATE, PostingAction.RELEASE
         ));
         assertBalance("A119-INV", "16.0000", "0.0000", "16.0000");
+        assertStockCountBookQuantity("A119-INV", "16.0000");
         assertThat(openingStockService.rows()).hasSize(1);
         assertThat(txnCount()).isEqualTo(6);
         assertInventoryListRow("A119 账套A库存物料", "16");
@@ -155,6 +160,7 @@ class TenantInventoryIsolationTest {
             INVENTORY_FIXTURE_DATE, PostingAction.AUDIT
         ));
         assertBalance("A119-INV", "5.0000", "0.0000", "5.0000");
+        assertStockCountBookQuantity("A119-INV", "5.0000");
         assertThat(openingStockService.rows()).hasSize(1);
         assertThat(txnCount()).isEqualTo(3);
         assertThat(countProductsNamed("A119 账套A库存物料")).isZero();
@@ -162,6 +168,7 @@ class TenantInventoryIsolationTest {
 
         useTenant(tenantA);
         assertBalance("A119-INV", "16.0000", "0.0000", "16.0000");
+        assertStockCountBookQuantity("A119-INV", "16.0000");
         assertThat(txnCount()).isEqualTo(6);
         assertThat(countProductsNamed("A119 账套B库存物料")).isZero();
         assertInventoryListRow("A119 账套A库存物料", "16");
@@ -195,6 +202,12 @@ class TenantInventoryIsolationTest {
     }
 
     private void createAuditedMaterial(String code, String name) {
+        var nameCode = "PN-" + code;
+        masterDataController.create("productName", Map.of(
+            "code", nameCode,
+            "name", name
+        ));
+        masterDataController.audit("productName", nameCode);
         masterDataController.create("product", Map.of(
             "code", code,
             "name", name,
@@ -265,6 +278,11 @@ class TenantInventoryIsolationTest {
             .filteredOn(row -> productName.equals(row.get("name")))
             .singleElement()
             .satisfies(row -> assertThat(String.valueOf(row.get("onHand"))).isEqualTo(onHand));
+    }
+
+    private void assertStockCountBookQuantity(String productCode, String expectedQuantity) {
+        var result = stockCountAppService.bookQuantity(null, productCode, "CK-001");
+        assertThat((BigDecimal) result.get("bookQuantity")).isEqualByComparingTo(expectedQuantity);
     }
 
     private int txnCount() {

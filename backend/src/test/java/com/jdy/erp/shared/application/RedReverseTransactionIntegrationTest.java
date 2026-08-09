@@ -252,6 +252,8 @@ class RedReverseTransactionIntegrationTest {
         assertThat(financeCount("ap_payable", purchaseRedBillNo)).isEqualTo(1);
 
         purchaseInAppService.reverse(purchaseRedBillNo);
+        var reversalBillNo = purchaseRedReversalBillNo();
+        assertPayableFact(reversalBillNo, "22.60", "0", "OPEN");
         assertExactLifecycle(
             jdbcTemplate,
             sourceDocument("purchase_in", "purchase_in_line", purchaseRedBillNo),
@@ -260,6 +262,8 @@ class RedReverseTransactionIntegrationTest {
             reversal("PURCHASE_IN_RED_REVERSE", "RED_REVERSE", "2", "12", 0)
         );
         purchaseInAppService.audit(purchaseRedBillNo);
+        assertPayableFact(reversalBillNo, "22.60", "0", "REVERSED");
+        assertThat(financeCount("ap_payable", purchaseRedBillNo)).isEqualTo(2);
         assertExactLifecycle(
             jdbcTemplate,
             sourceDocument("purchase_in", "purchase_in_line", purchaseRedBillNo),
@@ -267,6 +271,37 @@ class RedReverseTransactionIntegrationTest {
             fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10"),
             reversal("PURCHASE_IN_RED_REVERSE", "RED_REVERSE", "2", "12", 0),
             fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10")
+        );
+    }
+
+    @Test
+    void purchaseRedReauditRollsBackWhenTheReversalFactHasBeenSettled() {
+        preparePurchaseFacts();
+        createPurchaseRedDraft();
+        purchaseInAppService.audit(purchaseRedBillNo);
+        purchaseInAppService.reverse(purchaseRedBillNo);
+
+        var reversalBillNo = purchaseRedReversalBillNo();
+        jdbcTemplate.update(
+            "UPDATE ap_payable SET paid_amount = 1, status = 'PART_SETTLED' WHERE bill_no = ?",
+            reversalBillNo
+        );
+
+        assertThatThrownBy(() -> purchaseInAppService.audit(purchaseRedBillNo))
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                assertThat(exception.getStatusCode().value()).isEqualTo(409);
+                assertThat(exception.getReason()).contains("应付反审核事实已发生核销");
+        });
+
+        assertThat(statusOf("purchase_in", purchaseRedBillNo)).isEqualTo("DRAFT");
+        assertPayableFact(reversalBillNo, "22.60", "1", "PART_SETTLED");
+        assertStock("12", "0", "12");
+        assertExactLifecycle(
+            jdbcTemplate,
+            sourceDocument("purchase_in", "purchase_in_line", purchaseRedBillNo),
+            "PURCHASE_IN", productCode, warehouseCode,
+            fact("PURCHASE_IN_RED", "RED_AUDIT", "-2", "10"),
+            reversal("PURCHASE_IN_RED_REVERSE", "RED_REVERSE", "2", "12", 0)
         );
     }
 
@@ -342,6 +377,28 @@ class RedReverseTransactionIntegrationTest {
         assertThat(statusOf("purchase_in", purchaseRedBillNo)).isEqualTo("DRAFT");
         assertThat(operationCounts(redBillId)).containsExactlyInAnyOrderEntriesOf(Map.of("CREATE_RED_DRAFT", 1L));
         return redBillId;
+    }
+
+    private String purchaseRedReversalBillNo() {
+        return jdbcTemplate.queryForObject("""
+            SELECT bill_no
+            FROM ap_payable
+            WHERE source_bill_no = ?
+              AND bill_no LIKE 'YF-HC-CX-%'
+            """, String.class, purchaseRedBillNo);
+    }
+
+    private void assertPayableFact(String billNo, String amount, String paidAmount, String status) {
+        var fact = jdbcTemplate.queryForMap("""
+            SELECT amount,
+                   paid_amount AS "paidAmount",
+                   status
+            FROM ap_payable
+            WHERE bill_no = ?
+            """, billNo);
+        assertThat((BigDecimal) fact.get("amount")).isEqualByComparingTo(amount);
+        assertThat((BigDecimal) fact.get("paidAmount")).isEqualByComparingTo(paidAmount);
+        assertThat(fact.get("status")).isEqualTo(status);
     }
 
     private void prepareSalesFacts() {

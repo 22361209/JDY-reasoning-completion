@@ -162,7 +162,7 @@ function topology(database, schema) {
 function assertTopology(label, actual, expectedFk) {
   assert.deepEqual(
     Object.fromEntries(Object.entries(actual).map(([key, value]) => [key, Number(value)])),
-    { tables: 89, pk: 89, uk: 85, fk: expectedFk, check: 117 },
+    { tables: 90, pk: 90, uk: 87, fk: expectedFk, check: 119 },
     `${label} topology mismatch`
   );
 }
@@ -566,7 +566,7 @@ if (!primaryError) {
       Number(scalar(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`)),
       Number(scalar(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(tenantSchema)}, FALSE)`))
     ];
-    assert.deepEqual(syncCounts, [89, 89], "repeat existing-tenant sync must be stable");
+    assert.deepEqual(syncCounts, [90, 90], "repeat existing-tenant sync must be stable");
     insertAccountSet(upgradeDatabase, newTenantId, `A151-NEW-${token.toUpperCase()}`, newTenantSchema, true);
     assertTopology("new tenant", topology(upgradeDatabase, newTenantSchema), 199);
     assertScrapShape(upgradeDatabase, newTenantSchema);
@@ -617,7 +617,7 @@ if (!primaryError) {
         restoredCustomer: customerCode,
         scrapRows: 0,
         backupMetadataTableCount: 82,
-        targetManagedTables: 89
+        targetManagedTables: 90
       };
       await apiRequest(backend.baseUrl, cookie, "/api/system/logout", { method: "POST", timeoutMs: 10_000 });
       cookie = null;
@@ -648,7 +648,7 @@ if (!primaryError) {
     assertScrapShape(freshDatabase, freshTenantSchema);
     assertStockInMatrix(freshDatabase, "public");
     assertStockInMatrix(freshDatabase, freshTenantSchema);
-    assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "89", "fresh tenant repeat sync must return 89");
+    assert.equal(scalar(freshDatabase, `SELECT public.jdy_sync_tenant_schema(${literal(freshTenantSchema)}, FALSE)`), "90", "fresh tenant repeat sync must return 90");
     const freshHistoryBeforeRepeat = JSON.stringify(freshHistory);
     flyway(freshDatabase);
     assert.equal(JSON.stringify(history(freshDatabase)), freshHistoryBeforeRepeat, "fresh repeat Flyway migrate must be a no-op");

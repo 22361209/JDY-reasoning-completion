@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +26,16 @@ public class StockCountController {
     public StockCountController(StockCountAppService appService, DocumentLockService lockService) {
         this.appService = appService;
         this.lockService = lockService;
+    }
+
+    @GetMapping("/book-quantity")
+    @RequirePermission("inventory.stock_count.audit")
+    public Map<String, Object> bookQuantity(
+        @RequestParam(required = false) String productId,
+        @RequestParam(required = false) String productCode,
+        @RequestParam String warehouseCode
+    ) {
+        return appService.bookQuantity(productId, productCode, warehouseCode);
     }
 
     @GetMapping("/{billNo}")

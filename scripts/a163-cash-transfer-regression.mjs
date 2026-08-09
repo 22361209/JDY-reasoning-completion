@@ -62,6 +62,10 @@ try {
 await identity.installForApi("BLD-TEST");
 const controller = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/finance/api/CashTransferController.java"), "utf8");
 for (const action of ["saveDraft", "audit", "reverse"]) assert(new RegExp(`@RequirePermission\\(\\"finance\\.cash_transfer\\.audit\\"\\)[\\s\\S]{0,260}?\\b${action}\\s*\\(`).test(controller), `${action} must require finance.cash_transfer.audit`);
+const cashTransferService = await readFile(path.join(rootDir, "backend/src/main/java/com/jdy/erp/finance/application/CashTransferAppService.java"), "utf8");
+const cashTransferForm = await readFile(path.join(rootDir, "frontend/src/modules/finance/CashTransferForm.vue"), "utf8");
+assert(cashTransferService.includes("catch (DataIntegrityViolationException exception)") && cashTransferService.includes("资金转账事实已发生变化"), "cash-transfer fact conflicts must become a safe business 409");
+assert(/response\.status >= 500[\s\S]{0,180}?资金转账处理失败，请刷新单据后重试。/.test(cashTransferForm), "cash-transfer UI must not render unknown 5xx database details");
 
 warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123", "BLD-TEST");
 const deniedDraft = await request(warehouseCookie, "/api/cash-transfers/draft", { method: "POST", body: {} });
@@ -86,6 +90,13 @@ const repeatAudit = await request("", `/api/cash-transfers/${encodeURIComponent(
 assert(repeatAudit.status === 409, "repeated audit must be rejected");
 await admin(`/api/cash-transfers/${encodeURIComponent(billNo)}/reverse`, { method: "POST" });
 assert(scalar(`SELECT coalesce(sum(amount_delta), 0)::text FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${billNo}'`) === "0.00", "reverse must restore the exact two-account net facts");
+await admin(`/api/cash-transfers/${encodeURIComponent(billNo)}/audit`, { method: "POST" });
+assert(scalar(`SELECT string_agg(DISTINCT posting_action || ':' || posting_version::text, ',' ORDER BY posting_action || ':' || posting_version::text) FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${billNo}'`) === "AUDIT:1,AUDIT:3,REVERSE:2", "reaudit must append lifecycle-versioned facts");
+assert(scalar(`SELECT coalesce(sum(amount_delta), 0)::text FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${billNo}' AND f.account_id='${sourceId}'::uuid`) === "-12.50", "reaudit must restore the source account delta exactly once");
+assert(scalar(`SELECT coalesce(sum(amount_delta), 0)::text FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${billNo}' AND f.account_id='${targetId}'::uuid`) === "12.50", "reaudit must restore the target account delta exactly once");
+await admin(`/api/cash-transfers/${encodeURIComponent(billNo)}/reverse`, { method: "POST" });
+assert(scalar(`SELECT string_agg(DISTINCT posting_action || ':' || posting_version::text, ',' ORDER BY posting_action || ':' || posting_version::text) FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${billNo}'`) === "AUDIT:1,AUDIT:3,REVERSE:2,REVERSE:4", "second reverse must append lifecycle version 4");
+assert(scalar(`SELECT coalesce(sum(amount_delta), 0)::text FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${billNo}'`) === "0.00", "second reverse must return both accounts to net zero");
 await lifecycleLog("", billNo, "AUDIT"); await lifecycleLog("", billNo, "REVERSE");
 
 const concurrent = await admin("/api/cash-transfers/draft", { method: "POST", body: { billDate: "2026-07-16", sourceAccountId: sourceId, targetAccountId: targetId, amount: 7, remark: `A163 concurrent ${batch}` } });
@@ -190,7 +201,7 @@ for (const code of Object.values(tenantCodes)) {
   disabledAccounts.push(code);
 }
 
-evidence = { ok: true, batch, billNo, accounts: accountCodes, deniedWrites: [deniedDraft.status, deniedAudit.status], facts: { audit: "-12.50,12.50", netAfterReverse: "0.00", concurrentAuditStatuses: concurrentAudits.map((response) => response.status).sort((left, right) => left - right) }, tenant: { code: tenantCode, billNo: tenantBillNo, schema: tenantSchema }, browser: browserEvidence, cleanup: { disabledAccounts } };
+evidence = { ok: true, batch, billNo, accounts: accountCodes, deniedWrites: [deniedDraft.status, deniedAudit.status], facts: { audit: "-12.50,12.50", lifecycleVersions: [1, 2, 3, 4], netAfterSecondReverse: "0.00", concurrentAuditStatuses: concurrentAudits.map((response) => response.status).sort((left, right) => left - right) }, tenant: { code: tenantCode, billNo: tenantBillNo, schema: tenantSchema }, browser: browserEvidence, cleanup: { disabledAccounts } };
 } catch (error) {
   primaryError = error;
 }

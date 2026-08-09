@@ -1,6 +1,7 @@
 package com.jdy.erp.system.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -23,6 +24,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -114,6 +116,41 @@ class TenantMasterDataBomNumberingIsolationTest {
         assertThat(countProductsNamed("A119 账套B母件")).isZero();
     }
 
+    @Test
+    void bomDirectSelfReferenceIsRejectedOnSavePreviewAndEveryAudit() {
+        var tenant = createManagedAccountSet("A181BOM");
+        useTenant(tenant);
+        createAuditedMaterial("A181-M", "A181 BOM 母件");
+        createAuditedMaterial("A181-C", "A181 BOM 子件");
+
+        assertDirectSelfReferenceRejected(() -> productionTaskAppService.saveBom(
+            bomRequest("BOM-A181-SAVE", "A181-M", "A181-M")
+        ));
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM prod_bom WHERE code = ?",
+            Integer.class,
+            "BOM-A181-SAVE"
+        )).isZero();
+
+        productionTaskAppService.saveBom(bomRequest("BOM-A181-AUDIT", "A181-M", "A181-C"));
+        replaceBomLineMaterial("BOM-A181-AUDIT", "A181-M");
+
+        assertDirectSelfReferenceRejected(() -> productionTaskAppService.bomAuditPreview("BOM-A181-AUDIT"));
+        assertDirectSelfReferenceRejected(() -> productionTaskAppService.auditBom("BOM-A181-AUDIT"));
+        assertThat(bomAuditStatus("BOM-A181-AUDIT")).isEqualTo("DRAFT");
+
+        replaceBomLineMaterial("BOM-A181-AUDIT", "A181-C");
+        productionTaskAppService.auditBom("BOM-A181-AUDIT");
+        assertThat(bomAuditStatus("BOM-A181-AUDIT")).isEqualTo("AUDITED");
+
+        productionTaskAppService.reverseBom("BOM-A181-AUDIT");
+        assertThat(bomAuditStatus("BOM-A181-AUDIT")).isEqualTo("DRAFT");
+        replaceBomLineMaterial("BOM-A181-AUDIT", "A181-M");
+
+        assertDirectSelfReferenceRejected(() -> productionTaskAppService.auditBom("BOM-A181-AUDIT"));
+        assertThat(bomAuditStatus("BOM-A181-AUDIT")).isEqualTo("DRAFT");
+    }
+
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         createdCodes.add(code);
@@ -180,6 +217,55 @@ class TenantMasterDataBomNumberingIsolationTest {
             ))
         ));
         productionTaskAppService.auditBom("BOM-A119");
+    }
+
+    private ProductionTaskAppService.BomRequest bomRequest(String bomCode, String parentCode, String materialCode) {
+        return new ProductionTaskAppService.BomRequest(
+            bomCode,
+            parentCode,
+            BigDecimal.ONE,
+            "自制BOM",
+            "",
+            List.of(new ProductionTaskAppService.BomLineRequest(
+                materialCode,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                "手工领料",
+                null,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                null
+            ))
+        );
+    }
+
+    private void replaceBomLineMaterial(String bomCode, String materialCode) {
+        jdbcTemplate.update("""
+            UPDATE prod_bom_line line
+            SET material_id = material.id
+            FROM prod_bom bom, md_product material
+            WHERE line.bom_id = bom.id
+              AND bom.code = ?
+              AND material.code = ?
+            """, bomCode, materialCode);
+    }
+
+    private String bomAuditStatus(String bomCode) {
+        return jdbcTemplate.queryForObject(
+            "SELECT audit_status FROM prod_bom WHERE code = ?",
+            String.class,
+            bomCode
+        );
+    }
+
+    private void assertDirectSelfReferenceRejected(Runnable action) {
+        assertThatThrownBy(action::run)
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                assertThat(exception.getStatusCode().value()).isEqualTo(400);
+                assertThat(exception.getReason()).contains("子件物料不能与母件相同");
+            });
     }
 
     private String productName(String code) {

@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { installApiSession, loginApi, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -202,6 +203,19 @@ for (const fixture of cases) {
   evidence.operationLogs[fixture.type] = [...actions].filter((action) => action.includes("MASTER_DATA"));
   evidence.api.push({ type: fixture.type, code: fixture.code, version: enabled.version, status: enabled.status, auditStatus: enabled.auditStatus });
 }
+
+const narrowProductFixture = narrowCases.find((fixture) => fixture.type === "product");
+assert(narrowProductFixture, "A160 narrow product fixture is required");
+await upsertMasterDataFixture({
+  apiBase,
+  type: "productName",
+  payload: {
+    code: `A160-NPN-${batch}`,
+    name: narrowProductFixture.payload.name,
+    status: "启用"
+  },
+  audit: true
+});
 
 for (const fixture of narrowCases.slice(cases.length)) {
   const created = await request(`/api/master-data/${fixture.type}`, { method: "POST", body: fixture.payload });

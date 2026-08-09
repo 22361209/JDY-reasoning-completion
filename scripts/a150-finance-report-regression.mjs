@@ -10,11 +10,13 @@ const resultPath = path.join(verificationDir, "a150-finance-report-regression.js
 const backendPath = "backend/src/main/java/com/jdy/erp/finance/application/FinanceReportQuerySpec.java";
 const testPath = "backend/src/test/java/com/jdy/erp/finance/application/FinanceReportQueryIntegrationTest.java";
 const frontendPath = "frontend/src/modules/reports/financeReports.ts";
+const reportPagePath = "frontend/src/components/report/ReportQueryPage.vue";
 const registryPath = "frontend/src/modules/reports/reportRegistry.ts";
 const catalogPath = "frontend/src/modules/catalog.ts";
 const backend = read(backendPath);
 const test = read(testPath);
 const frontend = read(frontendPath);
+const reportPage = read(reportPagePath);
 const registry = read(registryPath);
 const catalog = read(catalogPath);
 const checks = [];
@@ -108,6 +110,20 @@ assert(importGraph.checked, "A150 必须通过 A144 共享 report import graph �
 assert(importGraph.domainConfigs.includes(frontendPath), "共享 import graph 必须识别财务领域 definition");
 contains(frontend, /待退款金额/, "前端必须单独展示待退款金额");
 contains(frontend, /options: \[[\s\S]*\{ value: "CNY", label: "CNY" \}[\s\S]*\{ value: "USD", label: "USD" \}/, "前端必须提供 CNY/USD 分币种筛选");
+for (const [value, label] of [
+  ["AR_FACT", "应收发生"],
+  ["RECEIPT_ALLOCATION", "收款核销"],
+  ["RETURN_ALLOCATION", "退货冲减"],
+  ["AP_FACT", "应付发生"],
+  ["PAYMENT_ALLOCATION", "付款核销"]
+]) {
+  contains(frontend, new RegExp(`value: "${value}", label: "${label}"`), `财务事件 ${value} 必须登记中文文案 ${label}`);
+}
+contains(
+  reportPage,
+  /key === "eventType"\) return filterSummaryValue\(key, value \?\? null\)/,
+  "报表 eventType 单元格必须复用 definition filter options 的中文映射"
+);
 assert(occurrences(frontend, 'groupKeys: ["currency"]') === 4, "四个财务报表 footer 必须只按 currency 显示独立合计行");
 for (const [key, label] of [
   ["receivable-detail", "应收明细"],
@@ -132,7 +148,7 @@ writeFileSync(
     status: "PASS",
     assertions: checks.length,
     checks,
-    files: [backendPath, testPath, frontendPath, registryPath, catalogPath],
+    files: [backendPath, testPath, frontendPath, reportPagePath, registryPath, catalogPath],
   }, null, 2)}\n`,
   "utf8",
 );

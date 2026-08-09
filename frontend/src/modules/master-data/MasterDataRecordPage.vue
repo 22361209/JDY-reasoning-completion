@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import ActionBar from "../../components/ActionBar.vue";
 import { defineAction, type ActionBarItem } from "../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../components/DocumentCommandHeader.vue";
@@ -118,6 +118,10 @@ const activeLookupField = ref("");
 const lookupHighlightIndex = ref(0);
 const localError = ref("");
 const pendingLookupCreate = ref<{ listKey: string; fieldName: string; label: string; value: string } | null>(null);
+const lookupRequestSeq: Record<string, number> = {};
+const lookupValidationSeq: Record<string, number> = {};
+const lookupQueryTimers: Record<string, number | undefined> = {};
+let saveValidationSeq = 0;
 
 const statusText = computed(() => props.form.status || "启用");
 const auditStatusText = computed(() => props.form.auditStatus === "未审核" ? "草稿" : props.form.auditStatus || "草稿");
@@ -172,6 +176,7 @@ watch(
 );
 
 watch(() => props.recordId, () => {
+  cancelPendingLookupQueries();
   activeLookupField.value = "";
   lookupHighlightIndex.value = 0;
   localError.value = "";
@@ -230,32 +235,54 @@ function isLookupField(field: MasterDataField) {
 
 async function loadLookupOptions() {
   const lookupFields = props.fields.filter((field) => field.lookup);
-  await Promise.all(lookupFields.map(async (field) => {
-    const lookup = field.lookup;
-    if (!lookup) {
-      return;
-    }
+  await Promise.all(lookupFields.map((field) => queryLookupOptions(field, "", {
+    showLoading: true,
+    updateCache: true
+  })));
+}
+
+async function queryLookupOptions(
+  field: MasterDataField,
+  keyword: string,
+  options: { showLoading: boolean; updateCache: boolean }
+): Promise<{ options: LookupOption[]; error: string; stale: boolean }> {
+  const lookup = field.lookup;
+  if (!lookup) {
+    return { options: [], error: "", stale: false };
+  }
+  const requestSeq = (lookupRequestSeq[field.name] ?? 0) + 1;
+  lookupRequestSeq[field.name] = requestSeq;
+  if (options.showLoading) {
     lookupLoading[field.name] = true;
-    try {
-      const result = await fetchListRows(lookup.listKey, {
-        keyword: "",
-        status: "启用",
-        page: 1,
-        pageSize: lookup.pageSize ?? 300
-      });
-      if (!result.ok || !result.data) {
+  }
+  try {
+    const result = await fetchListRows(lookup.listKey, {
+      keyword,
+      status: "启用",
+      page: 1,
+      pageSize: lookup.pageSize ?? 300
+    });
+    if (requestSeq !== lookupRequestSeq[field.name]) {
+      return { options: [], error: "", stale: true };
+    }
+    if (!result.ok || !result.data) {
+      if (options.updateCache) {
         lookupOptions[field.name] = [];
-        return;
       }
-      const auditedRows = result.data.rows.filter((row) => {
-        const auditStatus = String(row.auditStatus ?? "已审核");
-        return auditStatus === "已审核";
-      });
-      lookupOptions[field.name] = auditedRows.map((row) => rowToLookupOption(field, row));
-    } finally {
+      return { options: [], error: result.message || `${field.label}资料加载失败。`, stale: false };
+    }
+    const fetchedOptions = result.data.rows
+      .filter((row) => String(row.auditStatus ?? "已审核") === "已审核")
+      .map((row) => rowToLookupOption(field, row));
+    if (options.updateCache) {
+      lookupOptions[field.name] = fetchedOptions;
+    }
+    return { options: fetchedOptions, error: "", stale: false };
+  } finally {
+    if (options.showLoading) {
       lookupLoading[field.name] = false;
     }
-  }));
+  }
 }
 
 function rowToLookupOption(field: MasterDataField, row: Record<string, unknown>): LookupOption {
@@ -332,6 +359,7 @@ function openLookup(field: MasterDataField) {
     return;
   }
   activeLookupField.value = field.name;
+  lookupValidationSeq[field.name] = (lookupValidationSeq[field.name] ?? 0) + 1;
   lookupHighlightIndex.value = 0;
   localError.value = "";
 }
@@ -341,7 +369,35 @@ function handleLookupInput(field: MasterDataField, value: string) {
     return;
   }
   emit("updateField", field.name, value);
+  saveValidationSeq += 1;
   openLookup(field);
+  scheduleLookupQuery(field, value);
+}
+
+function scheduleLookupQuery(field: MasterDataField, keyword: string) {
+  if (!field.lookup) {
+    return;
+  }
+  const pendingTimer = lookupQueryTimers[field.name];
+  if (pendingTimer !== undefined) {
+    window.clearTimeout(pendingTimer);
+  }
+  lookupQueryTimers[field.name] = window.setTimeout(async () => {
+    lookupQueryTimers[field.name] = undefined;
+    const result = await queryLookupOptions(field, keyword, {
+      showLoading: false,
+      updateCache: true
+    });
+    if (result.stale) {
+      return;
+    }
+    if (activeLookupField.value === field.name) {
+      lookupHighlightIndex.value = result.options.length > 0 ? 0 : -1;
+      if (result.error) {
+        localError.value = result.error;
+      }
+    }
+  }, 180);
 }
 
 async function handleFileInput(field: MasterDataField, event: Event) {
@@ -418,11 +474,29 @@ function fileFieldText(field: MasterDataField) {
 }
 
 function closeLookupLater(field: MasterDataField) {
-  window.setTimeout(() => {
-    const resolved = resolveLookupOption(field, props.form[field.name] ?? "");
+  cancelLookupQueryTimer(field.name);
+  const rawValue = String(props.form[field.name] ?? "");
+  const validationSeq = (lookupValidationSeq[field.name] ?? 0) + 1;
+  lookupValidationSeq[field.name] = validationSeq;
+  window.setTimeout(async () => {
+    if (validationSeq !== lookupValidationSeq[field.name]
+      || normalizeLookupText(props.form[field.name] ?? "") !== normalizeLookupText(rawValue)) {
+      return;
+    }
+    const result = await resolveLookupOptionExactly(field, rawValue);
+    if (validationSeq !== lookupValidationSeq[field.name]
+      || normalizeLookupText(props.form[field.name] ?? "") !== normalizeLookupText(rawValue)) {
+      return;
+    }
+    if (result.stale) {
+      return;
+    }
+    const resolved = result.option;
     if (resolved) {
       emit("updateField", field.name, resolved.value);
       localError.value = "";
+    } else if (result.error) {
+      localError.value = result.error;
     } else if (isStrictLookup(field) && String(props.form[field.name] ?? "").trim()) {
       const createListKey = field.lookup?.createListKey;
       if (createListKey) {
@@ -479,6 +553,8 @@ function confirmLookupHighlight(field: MasterDataField) {
 }
 
 function selectLookupOption(field: MasterDataField, option: LookupOption) {
+  lookupValidationSeq[field.name] = (lookupValidationSeq[field.name] ?? 0) + 1;
+  saveValidationSeq += 1;
   emit("updateField", field.name, option.value);
   activeLookupField.value = "";
   lookupHighlightIndex.value = 0;
@@ -490,12 +566,46 @@ function resolveLookupOption(field: MasterDataField, rawValue: string) {
   if (!value) {
     return null;
   }
-  return allLookupOptions(field).find((option) => {
-    const labelParts = option.label.split(" / ").map(normalizeLookupText);
-    return normalizeLookupText(option.value) === value
-      || labelParts.includes(value)
-      || normalizeLookupText(option.secondary) === value;
-  }) ?? null;
+  return allLookupOptions(field).find((option) => lookupOptionMatchesExactly(option, value)) ?? null;
+}
+
+async function resolveLookupOptionExactly(field: MasterDataField, rawValue: string) {
+  const value = normalizeLookupText(rawValue);
+  if (!value) {
+    return { option: null, error: "", stale: false };
+  }
+  if (!field.lookup) {
+    return { option: resolveLookupOption(field, rawValue), error: "", stale: false };
+  }
+  const cachedOption = resolveLookupOption(field, rawValue);
+  if (cachedOption) {
+    return { option: cachedOption, error: "", stale: false };
+  }
+  const result = await queryLookupOptions(field, rawValue.trim(), {
+    showLoading: false,
+    updateCache: false
+  });
+  if (result.stale) {
+    return { option: null, error: "", stale: true };
+  }
+  if (result.error) {
+    return { option: null, error: result.error, stale: false };
+  }
+  const option = result.options.find((candidate) => lookupOptionMatchesExactly(candidate, value)) ?? null;
+  if (option) {
+    lookupOptions[field.name] = [
+      option,
+      ...(lookupOptions[field.name] ?? []).filter((candidate) => normalizeLookupText(candidate.value) !== normalizeLookupText(option.value))
+    ];
+  }
+  return { option, error: "", stale: false };
+}
+
+function lookupOptionMatchesExactly(option: LookupOption, normalizedValue: string) {
+  const labelParts = option.label.split(" / ").map(normalizeLookupText);
+  return normalizeLookupText(option.value) === normalizedValue
+    || labelParts.includes(normalizedValue)
+    || normalizeLookupText(option.secondary) === normalizedValue;
 }
 
 function isStrictLookup(field: MasterDataField) {
@@ -505,7 +615,7 @@ function isStrictLookup(field: MasterDataField) {
   return Boolean(field.strictSuggestions);
 }
 
-function requestSave() {
+async function requestSave() {
   if (!canSave.value) {
     return;
   }
@@ -518,7 +628,9 @@ function requestSave() {
     localError.value = `${missingField.label}不能为空。`;
     return;
   }
-  const invalidField = props.fields.find((field) => {
+  const validationSeq = saveValidationSeq + 1;
+  saveValidationSeq = validationSeq;
+  const strictFields = props.fields.filter((field) => {
     if (field.name === "status" || !isFieldVisible(field) || !isStrictLookup(field)) {
       return false;
     }
@@ -529,20 +641,62 @@ function requestSave() {
     if (normalizeLookupText(props.originalForm[field.name] ?? "") === normalizeLookupText(value)) {
       return false;
     }
-    const resolved = resolveLookupOption(field, value);
-    if (resolved) {
-      emit("updateField", field.name, resolved.value);
-      return false;
-    }
     return true;
   });
-  if (invalidField) {
-    localError.value = `${invalidField.label}需要从已维护资料中选择。`;
-    activeLookupField.value = invalidField.name;
-    return;
+  for (const field of strictFields) {
+    cancelLookupQueryTimer(field.name);
+    lookupValidationSeq[field.name] = (lookupValidationSeq[field.name] ?? 0) + 1;
+    const value = String(props.form[field.name] ?? "").trim();
+    const result = await resolveLookupOptionExactly(field, value);
+    if (validationSeq !== saveValidationSeq) {
+      return;
+    }
+    if (result.stale) {
+      return;
+    }
+    if (result.error) {
+      localError.value = result.error;
+      activeLookupField.value = field.name;
+      return;
+    }
+    if (!result.option) {
+      localError.value = `${field.label}需要从已维护资料中选择。`;
+      activeLookupField.value = field.name;
+      return;
+    }
+    emit("updateField", field.name, result.option.value);
   }
   emit("save");
 }
+
+function cancelPendingLookupQueries() {
+  const fieldNames = new Set([
+    ...Object.keys(lookupQueryTimers),
+    ...Object.keys(lookupRequestSeq),
+    ...Object.keys(lookupValidationSeq)
+  ]);
+  fieldNames.forEach((fieldName) => {
+    const timer = lookupQueryTimers[fieldName];
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      lookupQueryTimers[fieldName] = undefined;
+    }
+    lookupRequestSeq[fieldName] = (lookupRequestSeq[fieldName] ?? 0) + 1;
+    lookupValidationSeq[fieldName] = (lookupValidationSeq[fieldName] ?? 0) + 1;
+    lookupLoading[fieldName] = false;
+  });
+  saveValidationSeq += 1;
+}
+
+function cancelLookupQueryTimer(fieldName: string) {
+  const timer = lookupQueryTimers[fieldName];
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    lookupQueryTimers[fieldName] = undefined;
+  }
+}
+
+onBeforeUnmount(cancelPendingLookupQueries);
 
 watch(
   () => props.fields

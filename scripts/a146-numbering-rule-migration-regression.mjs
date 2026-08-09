@@ -346,21 +346,21 @@ try {
   };
   assert(indexCoverage.public === 29 && indexCoverage.tenant === 29, "all 29 formal bill_no columns need a unique btree for indexed reverse high-water lookup", indexCoverage);
   assert(
-    Number(topologies.public.tables) === 89
-      && Number(topologies.public.pk) === 89
-      && Number(topologies.public.uk) === 85
+    Number(topologies.public.tables) === 90
+      && Number(topologies.public.pk) === 90
+      && Number(topologies.public.uk) === 87
       && Number(topologies.public.fk) === 203
-      && Number(topologies.public.check) === 117,
-    "public V111 topology mismatch",
+      && Number(topologies.public.check) === 119,
+    "public current-head topology mismatch",
     topologies.public
   );
   assert(
-    Number(topologies.tenant.tables) === 89
-      && Number(topologies.tenant.pk) === 89
-      && Number(topologies.tenant.uk) === 85
+    Number(topologies.tenant.tables) === 90
+      && Number(topologies.tenant.pk) === 90
+      && Number(topologies.tenant.uk) === 87
       && Number(topologies.tenant.fk) === 199
-      && Number(topologies.tenant.check) === 117,
-    "tenant V111 topology mismatch",
+      && Number(topologies.tenant.check) === 119,
+    "tenant current-head topology mismatch",
     topologies.tenant
   );
   result.upgrade = {
@@ -379,7 +379,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`)),
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
-  assert(syncCounts.every((count) => count === 89), "repeat tenant sync must return 89", syncCounts);
+  assert(syncCounts.every((count) => count === 90), "repeat tenant sync must return 90", syncCounts);
   const afterRepeat = JSON.stringify({
     history: history(upgradeDatabase),
     shapes: {

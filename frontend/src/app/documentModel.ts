@@ -50,6 +50,9 @@ export interface OrderLineForm {
   qty: number;
   executedQty?: number;
   remainingQty?: number;
+  /** Frontend-only stock-count lookup state; excluded from document save payloads. */
+  stockCountBookQuantityPending?: boolean;
+  stockCountBookQuantityError?: string;
   availableNoticeQty?: number;
   lineCloseStatus?: "OPEN" | "CLOSED" | string;
   lineFrozenStatus?: "NORMAL" | "FROZEN" | string;

@@ -15,6 +15,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class FinancePostingService implements FinancePosting {
+    private static final String RETIRED_FACT_STATUS = "REVERSED";
+
     private final JdbcTemplate jdbcTemplate;
     private final OperationLogService operationLogService;
 
@@ -36,11 +38,20 @@ public class FinancePostingService implements FinancePosting {
 	            case "SALES_OUT_REVERSE" -> postReceivable(context, "YS-CX-" + context.sourceBillNo(), context.amount().negate());
 	            case "SALES_OUT_RED" -> postReceivable(context, "YS-HC-" + shortHash(context.sourceBillNo()), context.amount());
 	            case "SALES_OUT_RED_REVERSE" -> postReceivable(context, "YS-HC-CX-" + shortHash(context.sourceBillNo()), context.amount().negate());
-	            case "PURCHASE_IN" -> postPayable(context, "YF-" + context.sourceBillNo(), context.amount());
+            case "PURCHASE_IN" -> {
+                retirePayableReversal("YF-CX-" + context.sourceBillNo());
+                postPayable(context, "YF-" + context.sourceBillNo(), context.amount());
+            }
 	            case "PURCHASE_IN_REVERSE" -> postPayable(context, "YF-CX-" + context.sourceBillNo(), context.amount().negate());
-	            case "PURCHASE_IN_RED" -> postPayable(context, "YF-HC-" + shortHash(context.sourceBillNo()), context.amount());
+	            case "PURCHASE_IN_RED" -> {
+                retirePayableReversal("YF-HC-CX-" + shortHash(context.sourceBillNo()));
+                postPayable(context, "YF-HC-" + shortHash(context.sourceBillNo()), context.amount());
+            }
 	            case "PURCHASE_IN_RED_REVERSE" -> postPayable(context, "YF-HC-CX-" + shortHash(context.sourceBillNo()), context.amount().negate());
-            case "PURCHASE_RETURN" -> postPayable(context, "YF-TH-" + context.sourceBillNo(), context.amount());
+            case "PURCHASE_RETURN" -> {
+                retirePayableReversal("YF-TH-CX-" + context.sourceBillNo());
+                postPayable(context, "YF-TH-" + context.sourceBillNo(), context.amount());
+            }
             case "PURCHASE_RETURN_REVERSE" -> postPayable(context, "YF-TH-CX-" + context.sourceBillNo(), context.amount());
             default -> throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "不支持的财务过账类型");
         }
@@ -157,6 +168,33 @@ public class FinancePostingService implements FinancePosting {
                 OperationLogCommand.StateField.CURRENCY, row.get("currency")
             )
         ));
+    }
+
+    private void retirePayableReversal(String billNo) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id,
+                   paid_amount AS "paidAmount"
+            FROM ap_payable
+            WHERE bill_no = ?
+            FOR UPDATE
+            """, billNo);
+        if (rows.isEmpty()) {
+            return;
+        }
+        var reversal = rows.getFirst();
+        var paidAmount = (BigDecimal) reversal.get("paidAmount");
+        if (paidAmount.compareTo(BigDecimal.ZERO) != 0) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "应付反审核事实已发生核销，来源单据不能重新审核"
+            );
+        }
+        jdbcTemplate.update("""
+            UPDATE ap_payable
+            SET status = ?,
+                updated_at = now()
+            WHERE id = ?::uuid
+            """, RETIRED_FACT_STATUS, reversal.get("id"));
     }
 
     private void validate(PostingContext context) {

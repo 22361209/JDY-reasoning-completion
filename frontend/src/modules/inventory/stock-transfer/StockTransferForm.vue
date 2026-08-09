@@ -12,7 +12,7 @@
     :form="document.form"
     test-prefix="stock-transfer"
     party-label="调拨组织"
-    party-type="warehouse"
+    party-type="organization"
     :is-document-form="true"
     :is-stock-document-form="false"
     :is-draft="document.isDraft.value"
@@ -45,6 +45,7 @@
     :master-selector-dialog-title="document.masterSelectorDialogTitle.value"
     :master-selector-dialog-label="document.masterSelectorDialogLabel.value"
     :master-selector-dialog-keyword="document.masterSelectorDialogKeyword.value"
+    :master-selector-dialog-options="document.masterSelectorDialogOptions.value"
     :known-product-options="document.knownProductOptions"
     :dragging-line-index="document.draggingLineIndex.value"
     :highlighted-source-bill-no="document.highlightedSourceBillNo.value"
@@ -111,6 +112,8 @@ const props = defineProps<{
   canOverrideLock?: boolean;
   dirty: boolean;
   userName: string;
+  accountSetCode: string;
+  accountSetName: string;
   hasPermission: (permission: string) => boolean;
 }>();
 
@@ -128,7 +131,7 @@ const document = useStockTransferDocument({
   markDirty: () => emit("markDirty"),
   clearDirty: () => emit("clearDirty"),
   requestOpenDocument: (payload) => emit("requestOpenDocument", payload)
-});
+}, () => [{ code: props.accountSetCode, name: props.accountSetName }].filter((option) => option.code));
 
 const dialogBindings = computed(() => ({
   pendingZeroEntrySave: document.pendingZeroEntrySave.value,

@@ -1014,11 +1014,11 @@ try {
   assert(currentHeadRows.length === 1 && currentHeadRows[0].success === true && currentHeadRows[0].script === migrationHead.script, `repository current head mismatch: ${JSON.stringify({ expected: migrationHead, actual: currentHeadRows })}`);
   assert(latestHistory.at(-1)?.version === migrationHead.version, `repository latest must be V${migrationHead.version}: ${JSON.stringify(latestHistory.at(-1))}`);
   assert(
-    Number(latestNumbering.publicChecks) === 117
-      && Number(latestNumbering.tenantChecks) === 117
+    Number(latestNumbering.publicChecks) === 119
+      && Number(latestNumbering.tenantChecks) === 119
       && Number(latestNumbering.versionCopies) === 3
       && Number(latestNumbering.legacyRows) === 0,
-    `V111 managed topology / V105 numbering shape mismatch: ${JSON.stringify(latestNumbering)}`
+    `Current-head managed topology / V105 numbering shape mismatch: ${JSON.stringify(latestNumbering)}`
   );
   assert(same(migratedSnapshots, {
     public: migratedSnapshot("public", fixtures.public),
@@ -1067,7 +1067,7 @@ try {
     Number(psql(upgradeDatabase, `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(tenantSchema)}, FALSE)`))
   ];
   const tenantAfterSync = migratedSnapshot(tenantSchema, fixtures.tenant);
-  assert(same(syncCounts, [89, 89]), `repeat tenant sync counts should be 89/89, got ${JSON.stringify(syncCounts)}`);
+  assert(same(syncCounts, [90, 90]), `repeat tenant sync counts should be 90/90, got ${JSON.stringify(syncCounts)}`);
   assert(same(tenantBeforeSync, tenantAfterSync), "repeat tenant sync changed migrated settlement data");
   result.upgrade.repeatTenantSync = {
     managedCounts: syncCounts,
@@ -1248,14 +1248,14 @@ try {
     )::text
   `);
   assert(freshHistory.at(-1)?.version === migrationHead.version, `fresh migration max version should be V${migrationHead.version}: ${JSON.stringify(freshHistory.at(-1))}`);
-  assert(Number(freshMetrics.managedTables) === 89, `fresh managed table count should be 89: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedTables) === 90, `fresh managed table count should be 90: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.formalTables) === 4, `fresh formal settlement table count should be four: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.salesReturnTables) === 3, `fresh sales return table count should be three: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.importBatchTables) === 1, `fresh import batch table count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.receivableOffsetColumns) === 1, `fresh AR return offset column count should be one: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.legacyReceipts) === 0 && Number(freshMetrics.legacyPayments) === 0, `fresh database unexpectedly contains legacy settlements: ${JSON.stringify(freshMetrics)}`);
   assert(Number(freshMetrics.nonPublicRegisteredTenants) === 0, `fresh database unexpectedly registered tenant schemas: ${JSON.stringify(freshMetrics)}`);
-  assert(Number(freshMetrics.managedChecks) === 117 && freshMetrics.numberingVersionType === "bigint", `fresh topology/numbering metrics mismatch after V111: ${JSON.stringify(freshMetrics)}`);
+  assert(Number(freshMetrics.managedChecks) === 119 && freshMetrics.numberingVersionType === "bigint", `fresh current-head topology/numbering metrics mismatch: ${JSON.stringify(freshMetrics)}`);
   result.fresh = {
     ...result.fresh,
     historyCount: freshHistory.length,

@@ -1,15 +1,20 @@
 import { initialStockTransferForm } from "../../../app/documentModel";
+import type { MasterOption } from "../../../app/documentModel";
 import { useDocumentModule } from "../../documents/useDocumentModule";
 
-export function useStockTransferDocument(options: Parameters<typeof useDocumentModule>[1]) {
+export function useStockTransferDocument(
+  options: Parameters<typeof useDocumentModule>[1],
+  organizationOptions: () => MasterOption[]
+) {
   return useDocumentModule({
     documentType: "stockTransfer",
     saveType: "stockTransfer",
     outputType: "stockTransfer",
     title: "调拨单",
     testPrefix: "stock-transfer",
-    partyKind: "supplier",
+    partyKind: "organization",
     partyLabel: "调拨组织",
+    partyOptions: organizationOptions,
     auditPermission: "inventory.stock_transfer.audit",
     billPrefix: "ZJDB",
     defaultDepartment: "仓储部",

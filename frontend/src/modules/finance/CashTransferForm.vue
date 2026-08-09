@@ -116,7 +116,18 @@ async function loadByBillNo(billNo: string) {
   emit("clearDirty");
 }
 async function call(url: string, method: string, body?: unknown): Promise<{ ok: boolean; data?: any; message: string }> {
-  try { const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }); const data = await response.json().catch(() => null); return { ok: response.ok, data, message: String(data?.message ?? data?.error ?? (response.ok ? "" : "请求失败")) }; } catch { return { ok: false, message: "网络异常，请稍后重试。" }; }
+  try {
+    const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+    const data = await response.json().catch(() => null);
+    const message = response.ok
+      ? ""
+      : response.status >= 500
+        ? "资金转账处理失败，请刷新单据后重试。"
+        : String(data?.message ?? data?.error ?? "资金转账处理失败，请刷新单据后重试。");
+    return { ok: response.ok, data, message };
+  } catch {
+    return { ok: false, message: "网络异常，请稍后重试。" };
+  }
 }
 function today() { return new Date().toISOString().slice(0, 10); }
 defineExpose({ startNew, loadByBillNo });

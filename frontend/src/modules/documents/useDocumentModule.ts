@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from "vue";
 import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "../../app/entryPaste";
 import {
   documentLifecycleStatusLabel,
@@ -48,8 +48,9 @@ export interface DocumentModuleOptions {
   outputType: OutputDocumentType;
   title: string;
   testPrefix: string;
-  partyKind: "customer" | "supplier";
+  partyKind: "customer" | "supplier" | "organization";
   partyLabel: string;
+  partyOptions?: () => MasterOption[];
   auditPermission: string;
   billPrefix: string;
   defaultDepartment: string;
@@ -214,6 +215,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const totalAmount = computed(() => form.lines.reduce((sum, line) => sum + taxAmounts(line.qty, line.unitPrice, line.taxRate).priceTaxTotal, 0).toFixed(2));
   const masterSelectorDialogLabel = computed(() => masterSelectorLabel(masterSelectorDialogType.value));
   const masterSelectorDialogTitle = computed(() => `选择${masterSelectorDialogLabel.value}`);
+  const masterSelectorDialogOptions = computed(() => masterOptionsForType(masterSelectorDialogType.value));
   const statusLabel = computed(() => documentLifecycleStatusLabel(form.status, form.closeStatus, form.frozenStatus, form.closeMode));
   const redReverseBillNo = computed(() => "系统自动生成");
   const riskyActionVerb = computed(() => pendingRiskyDocumentAction.value === "redReverse" ? "红冲" : "反审核");
@@ -227,14 +229,22 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   onMounted(() => {
     const snapshot = documentModuleSnapshots.get(config.documentType);
     if (!snapshot) {
+      applyConfiguredParty();
       return;
     }
     restoreSnapshot(snapshot);
+    applyConfiguredParty();
   });
 
   onBeforeUnmount(() => {
     documentModuleSnapshots.set(config.documentType, snapshotState());
   });
+
+  watch(
+    () => config.partyOptions?.().map((option) => `${option.code}:${option.name}`).join("|") ?? "",
+    () => applyConfiguredParty(),
+    { immediate: true }
+  );
 
   async function startNew() {
     form.billDate = todayText();
@@ -246,6 +256,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.redSourceBillNo = undefined;
     form.partyCode = "";
     form.partyName = "";
+    applyConfiguredParty();
     form.department = config.defaultDepartment;
     form.ownerName = runtime.userName() || "本地管理员";
     form.remark = "";
@@ -271,12 +282,16 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.sourceOrderNo = document.sourceOrderNo || undefined;
     form.redReverseBillNo = document.redReverseBillNo || undefined;
     form.redSourceBillNo = document.redSourceBillNo || undefined;
-    form.partyCode = document.sourceOrderNo && (document.customerCode === "SC" || document.supplierCode === "SC")
-      ? document.sourceOrderNo
-      : config.partyKind === "supplier"
-      ? document.supplierCode || config.defaultPartyCode
-      : document.customerCode || config.defaultPartyCode;
-    form.partyName = config.partyKind === "supplier" ? document.supplier || "" : document.customer || "";
+    if (config.partyKind === "organization") {
+      applyConfiguredParty();
+    } else {
+      form.partyCode = document.sourceOrderNo && (document.customerCode === "SC" || document.supplierCode === "SC")
+        ? document.sourceOrderNo
+        : config.partyKind === "supplier"
+          ? document.supplierCode || config.defaultPartyCode
+          : document.customerCode || config.defaultPartyCode;
+      form.partyName = config.partyKind === "supplier" ? document.supplier || "" : document.customer || "";
+    }
     form.billDate = document.billDate;
     form.currency = document.currency === "USD"
       ? "USD"
@@ -548,10 +563,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       return;
     }
     const result = await reverseDocument(config.saveType, form.billNo);
-    message.value = result.ok ? "反审核成功，状态回到草稿；库存流水已冲销" : result.message;
+    const successMessage = `反审核成功，${config.title}已退回草稿`;
+    message.value = result.ok ? successMessage : result.message;
     if (result.ok) {
       if (config.reloadAfterLifecycle && form.billNo) {
-        await loadByBillNo(form.billNo, "反审核成功，状态回到草稿；库存流水已冲销");
+        await loadByBillNo(form.billNo, successMessage);
         return;
       }
       const reversed = result.data as { status?: unknown } | undefined;
@@ -872,6 +888,17 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
+    if (type === "organization" && config.partyKind === "organization") {
+      applyConfiguredParty();
+      void searchMasterOptions(type, "", selectorId);
+      return;
+    }
+    if (type === "product") {
+      const line = form.lines[lineIndexFromSelector(selectorId)];
+      if (line) {
+        line.productId = "";
+      }
+    }
     runtime.markDirty();
     void searchMasterOptions(type, keywordValue, selectorId);
   }
@@ -880,9 +907,22 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     activeSelector.value = selectorId;
     selectorOptions.value = [];
     selectorCursorIndex.value = 0;
+    const configuredOptions = masterOptionsForType(type);
+    if (configuredOptions !== undefined) {
+      const keyword = keywordValue.trim().toLowerCase();
+      selectorOptions.value = configuredOptions.filter((option) => !keyword
+        || `${option.code} ${option.name}`.toLowerCase().includes(keyword));
+      selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
+      return;
+    }
+    const listKey = masterSelectorListKey(type);
+    if (!listKey) {
+      selectorCursorIndex.value = -1;
+      return;
+    }
     const requestSeq = selectorRequestSeq + 1;
     selectorRequestSeq = requestSeq;
-    const result = await fetchListRows(masterSelectorListKey(type), {
+    const result = await fetchListRows(listKey, {
       keyword: keywordValue,
       status: "",
       page: 1,
@@ -967,12 +1007,31 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function selectPartyOption(option: MasterOption, selectorId = selectorIdForParty(config.testPrefix)) {
-    form.partyCode = option.code;
-    form.partyName = option.name;
+    const selectedOption = config.partyKind === "organization"
+      ? config.partyOptions?.()[0] ?? option
+      : option;
+    form.partyCode = selectedOption.code;
+    form.partyName = selectedOption.name;
     activeSelector.value = "";
     runtime.markDirty();
     void refreshSalesLinePrices();
     focusNextAfterSelector(selectorId);
+  }
+
+  function masterOptionsForType(type: string): MasterOption[] | undefined {
+    if (type !== config.partyKind || !config.partyOptions) {
+      return undefined;
+    }
+    return config.partyOptions().map((option) => ({ ...option }));
+  }
+
+  function applyConfiguredParty() {
+    if (config.partyKind !== "organization") {
+      return;
+    }
+    const option = config.partyOptions?.()[0];
+    form.partyCode = option?.code ?? config.defaultPartyCode;
+    form.partyName = option?.name ?? "";
   }
 
   function selectWarehouseOption(option: MasterOption, lineIndex = 0, selectorId = selectorIdForLine(lineIndex, "warehouse", config.testPrefix)) {
@@ -1292,6 +1351,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     masterSelectorDialogTitle,
     masterSelectorDialogLabel,
     masterSelectorDialogKeyword,
+    masterSelectorDialogOptions,
     draggingLineIndex,
     highlightedSourceBillNo,
     highlightedSourceLineNo,
@@ -1794,7 +1854,7 @@ function masterSelectorListKey(type: string) {
     product: "product-master-list",
     warehouse: "warehouse-master-selector"
   };
-  return listKeyByType[type] ?? "product-master-list";
+  return listKeyByType[type] ?? "";
 }
 
 function masterSelectorLabel(type: string) {
@@ -1802,7 +1862,8 @@ function masterSelectorLabel(type: string) {
     customer: "客户",
     supplier: "供应商",
     product: "商品",
-    warehouse: "仓库"
+    warehouse: "仓库",
+    organization: "调拨组织"
   };
   return labelByType[type] ?? "资料";
 }

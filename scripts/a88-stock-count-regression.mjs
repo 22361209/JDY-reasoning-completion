@@ -14,6 +14,8 @@ const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 let billNo = "";
 let gainBillNo = "";
 let lossBillNo = "";
+let tabSwitchLookupCount = 0;
+let multiLineErrorVerified = false;
 const billDate = "2026-06-26";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
@@ -25,6 +27,27 @@ await mkdir(path.dirname(resultPath), { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function assertNumericText(page, testId, expected, label) {
+  await page.waitForFunction(({ targetTestId, targetValue }) => {
+    const element = document.querySelector(`[data-testid="${targetTestId}"]`);
+    if (!(element instanceof HTMLElement)) return false;
+    const value = Number(element.innerText.replaceAll(",", "").trim());
+    return Number.isFinite(value) && value === targetValue;
+  }, { targetTestId: testId, targetValue: expected });
+  const actualText = await page.getByTestId(testId).innerText();
+  const actual = Number(actualText.replaceAll(",", "").trim());
+  assert(Number.isFinite(actual) && actual === expected, `${label} expected ${expected}, got ${JSON.stringify(actualText)}`);
+}
+
+function isBookQuantityResponse(response, expectedStatus) {
+  const url = new URL(response.url());
+  return response.request().method() === "GET"
+    && url.pathname === "/api/stock-counts/book-quantity"
+    && url.searchParams.get("productCode") === productCode
+    && url.searchParams.get("warehouseCode") === warehouseCode
+    && (expectedStatus === undefined || response.status() === expectedStatus);
 }
 
 async function api(pathname, options = {}) {
@@ -80,7 +103,7 @@ async function ensureStockAtLeast(minQty) {
   await api(`/api/other-stock-ins/${encodeURIComponent(seedBillNo)}/audit`);
 }
 
-async function createAndAuditInFrontend(countedQty) {
+async function createAndAuditInFrontend(countedQty, expectedBookQty) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   const screenshots = [];
@@ -96,10 +119,74 @@ async function createAndAuditInFrontend(countedQty) {
     await page.getByTestId("stock-count-bill-date").fill(billDate);
     await page.getByTestId("stock-count-department").fill("仓储部");
     await page.getByTestId("stock-count-line-product").fill(productCode);
-    await page.getByTestId("stock-count-line-warehouse").fill(warehouseCode);
-    await page.locator(".master-selector__menu button").filter({ hasText: warehouseCode }).first().click();
+    await page.getByTestId("stock-count-line-warehouse").fill("");
+    await page.getByTestId("stock-count-line-warehouse-open-selector").click();
+    await page.getByTestId("master-selector-source-selector-dialog").waitFor({ state: "visible" });
+    assert(await page.getByTestId("master-selector-source-selector-search").inputValue() === "", "stock-count warehouse dialog must open without reusing the current line value as a filter");
+    await page.getByTestId(`master-selector-source-line-${warehouseCode}`).waitFor({ state: "visible" });
+    const bookQuantityResponse = page.waitForResponse((response) => isBookQuantityResponse(response));
+    await page.getByTestId(`master-selector-source-line-${warehouseCode}`).click();
+    const bookQuantityResult = await (await bookQuantityResponse).json();
+    assert(Number(bookQuantityResult.bookQuantity) === expectedBookQty, `book quantity endpoint expected ${expectedBookQty}, got ${bookQuantityResult.bookQuantity}`);
+    await assertNumericText(page, "stock-count-line-executed-qty", expectedBookQty, "visible book quantity");
     await page.getByTestId("stock-count-line-qty").fill(String(countedQty));
+    await assertNumericText(page, "stock-count-line-remaining-qty", countedQty - expectedBookQty, "visible count difference");
     await page.getByTestId("stock-count-line-price").fill(String(unitPrice));
+
+    let lookupMode = "pass";
+    let delayedLookupOrdinal = 0;
+    const lookupPattern = "**/api/stock-counts/book-quantity?**";
+    const lookupRoute = async (route) => {
+      if (lookupMode === "fail") {
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ message: "A181账面数量模拟查询失败" })
+        });
+        return;
+      }
+      if (lookupMode === "delay") {
+        delayedLookupOrdinal += 1;
+        tabSwitchLookupCount += 1;
+        if (delayedLookupOrdinal === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+        }
+      }
+      await route.continue();
+    };
+    await page.route(lookupPattern, lookupRoute);
+
+    lookupMode = "fail";
+    const firstFailure = page.waitForResponse((response) => isBookQuantityResponse(response, 500));
+    await page.getByTestId("stock-count-line-warehouse").fill("");
+    await page.getByTestId("stock-count-line-warehouse").fill(warehouseCode);
+    await firstFailure;
+    await page.getByTestId("stock-count-line-insert").click();
+    await page.getByTestId("stock-count-line-product-2").fill(productCode);
+    const secondFailure = page.waitForResponse((response) => isBookQuantityResponse(response, 500));
+    await page.getByTestId("stock-count-line-warehouse-2").fill(warehouseCode);
+    await secondFailure;
+    await page.getByTestId("form-message").filter({ hasText: "另有 1 行账面数量查询失败" }).waitFor({ state: "visible" });
+
+    lookupMode = "pass";
+    const secondRecovery = page.waitForResponse((response) => isBookQuantityResponse(response, 200));
+    await page.getByTestId("stock-count-line-product-2").fill("");
+    await page.getByTestId("stock-count-line-product-2").fill(productCode);
+    await secondRecovery;
+    await assertNumericText(page, "stock-count-line-executed-qty-2", expectedBookQty, "second-line recovered book quantity");
+    const remainingError = await page.getByTestId("form-message").textContent();
+    assert(remainingError?.includes("A181账面数量模拟查询失败") && !remainingError.includes("另有"), `resolving one row must retain the other row error, got ${JSON.stringify(remainingError)}`);
+
+    const firstRecovery = page.waitForResponse((response) => isBookQuantityResponse(response, 200));
+    await page.getByTestId("stock-count-line-product").fill("");
+    await page.getByTestId("stock-count-line-product").fill(productCode);
+    await firstRecovery;
+    await assertNumericText(page, "stock-count-line-executed-qty", expectedBookQty, "first-line recovered book quantity");
+    await page.getByTestId("form-message").waitFor({ state: "hidden" });
+    multiLineErrorVerified = true;
+    await page.getByTestId("stock-count-entry-row").nth(1).hover();
+    await page.getByTestId("stock-count-line-delete-2").click();
+
     await page.keyboard.press("Escape");
     await saveDocument(page);
     await page.waitForFunction(() => {
@@ -108,6 +195,23 @@ async function createAndAuditInFrontend(countedQty) {
     });
     billNo = await billNoInput.inputValue();
     assert(/^PD\d{6}$/.test(billNo), `saved stock count bill no should match PD######, got ${JSON.stringify(billNo)}`);
+
+    lookupMode = "delay";
+    delayedLookupOrdinal = 0;
+    const pendingTabSwitchLookup = page.waitForRequest((request) =>
+      request.method() === "GET" && request.url().includes("/api/stock-counts/book-quantity?")
+    );
+    await page.getByTestId("stock-count-line-warehouse").fill("");
+    await page.getByTestId("stock-count-line-warehouse").fill(warehouseCode);
+    await pendingTabSwitchLookup;
+    await page.getByTestId("tab-home").click();
+    await page.getByTestId("tab-stock-count-form").click();
+    await assertNumericText(page, "stock-count-line-executed-qty", expectedBookQty, "remounted book quantity");
+    assert(tabSwitchLookupCount >= 2, `pending lookup must retry after tab remount, got ${tabSwitchLookupCount} requests`);
+    lookupMode = "pass";
+    await saveDocument(page);
+    assert(await billNoInput.inputValue() === billNo, "race-regression resave must preserve the stock count bill number");
+
     const auditResponsePromise = page.waitForResponse((response) =>
       response.request().method() === "POST"
       && response.url().endsWith(`/api/stock-counts/${encodeURIComponent(billNo)}/audit`)
@@ -131,6 +235,7 @@ async function createAndAuditInFrontend(countedQty) {
     const listShot = `a88-stock-count-list-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, listShot), fullPage: true });
     screenshots.push(`verification/playwright/${listShot}`);
+    await page.unroute(lookupPattern, lookupRoute);
   } finally {
     await browser.close();
   }
@@ -140,7 +245,7 @@ async function createAndAuditInFrontend(countedQty) {
 await ensureStockAtLeast(5);
 const beforeQty = stockQty();
 const countedQty = beforeQty + 2;
-const screenshots = await createAndAuditInFrontend(countedQty);
+const screenshots = await createAndAuditInFrontend(countedQty, beforeQty);
 const afterAuditQty = stockQty();
 const detail = await api(`/api/stock-counts/${encodeURIComponent(billNo)}`, { method: "GET" });
 const gainDetail = await api(`/api/stock-count-gains/${encodeURIComponent(gainBillNo)}`, { method: "GET" });
@@ -170,6 +275,8 @@ const result = {
   gainQty: Number(gainDetail.lines[0].qty),
   lossExists,
   financeCount,
+  tabSwitchLookupCount,
+  multiLineErrorVerified,
   screenshots
 };
 

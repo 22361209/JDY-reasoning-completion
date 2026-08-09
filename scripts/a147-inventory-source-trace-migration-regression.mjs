@@ -548,8 +548,10 @@ try {
       );
 
     CREATE SCHEMA ${identifier(backupSchema)};
+    CREATE TABLE ${identifier(backupSchema)}.ap_payable (LIKE public.ap_payable INCLUDING ALL);
     CREATE TABLE ${identifier(backupSchema)}.document_number_sequence (LIKE public.document_number_sequence INCLUDING ALL);
     CREATE TABLE ${identifier(backupSchema)}.purchase_in (LIKE public.purchase_in INCLUDING ALL);
+    CREATE TABLE ${identifier(backupSchema)}.purchase_return (LIKE public.purchase_return INCLUDING ALL);
     CREATE TABLE ${identifier(backupSchema)}.production_completion (LIKE public.production_completion INCLUDING ALL);
     CREATE TABLE ${identifier(backupSchema)}.inv_stock_txn (LIKE public.inv_stock_txn INCLUDING ALL);
     INSERT INTO ${identifier(backupSchema)}.purchase_in
@@ -572,7 +574,7 @@ try {
     ) VALUES (
       ${literal(backupId)}::uuid, ${literal(tenantId)}::uuid,
       ${literal(`A147-MIG-${token.toUpperCase()}`)}, 'A147 migration tenant',
-      ${literal(`BK-A147-${token.toUpperCase()}`)}, ${literal(backupSchema)}, 4, 6
+      ${literal(`BK-A147-${token.toUpperCase()}`)}, ${literal(backupSchema)}, 6, 6
     );
   `);
 

@@ -783,6 +783,8 @@
           :can-override-lock="activeLockCanOverride"
           :dirty="Boolean(tabs.activeTab.value.dirty)"
           :user-name="session.userName.value"
+          :account-set-code="session.accountSetCode.value"
+          :account-set-name="currentAccountSet?.name || session.tenantName.value"
           :has-permission="session.hasPermission"
           @mark-dirty="markActiveDirty"
           @clear-dirty="clearActiveDirty"

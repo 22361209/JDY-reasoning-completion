@@ -32,6 +32,7 @@
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="variant === 'count' || document.showExecutionColumns.value"
+    :show-executed-qty-column="document.showExecutedQtyColumn"
     :execution-qty-label="config.executionQtyLabel"
     :remaining-qty-label="config.remainingQtyLabel"
     :entry-table-colspan="document.entryTableColspan.value"

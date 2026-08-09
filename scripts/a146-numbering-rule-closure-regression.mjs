@@ -214,7 +214,7 @@ for (const { version, script, checksum } of [
   const contract = `{ version: "${version}", script: "${script}", checksum: ${checksum} }`;
   assert(source.migrationHeadHelper.includes(contract), `published V${version} migration checksum contract must remain fixed`);
 }
-assert(source.migrationTest.includes("public V111 topology mismatch"), "A146 migration gate must preserve the fixed V111 topology contract");
+assert(source.migrationTest.includes("public current-head topology mismatch"), "A146 migration gate must validate the repository current-head topology contract");
 assert(source.migrationTest.includes("freshHistory") && source.migrationTest.includes("sourceScripts"), "A146 migration gate must compare fresh history with migration sources");
 
 const result = {

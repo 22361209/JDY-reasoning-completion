@@ -14,6 +14,7 @@ import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.shared.application.ProductSnapshotService;
 import com.jdy.erp.shared.application.ValidationService;
 import com.jdy.erp.shared.domain.BillStatus;
+import com.jdy.erp.system.tenant.TenantDataScopeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class StockCountAppService {
     private final NumberingService numberingService;
     private final ConversionService conversionService;
     private final ProductSnapshotService productSnapshotService;
+    private final TenantDataScopeService tenantDataScopeService;
 
     public StockCountAppService(
         JdbcTemplate jdbcTemplate,
@@ -40,7 +42,8 @@ public class StockCountAppService {
         BillLifecycleService lifecycleService,
         NumberingService numberingService,
         ConversionService conversionService,
-        ProductSnapshotService productSnapshotService
+        ProductSnapshotService productSnapshotService,
+        TenantDataScopeService tenantDataScopeService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.lookupService = lookupService;
@@ -49,6 +52,20 @@ public class StockCountAppService {
         this.numberingService = numberingService;
         this.conversionService = conversionService;
         this.productSnapshotService = productSnapshotService;
+        this.tenantDataScopeService = tenantDataScopeService;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> bookQuantity(String productId, String productCode, String warehouseCode) {
+        var product = productSnapshotService.resolve(productId, productCode, "商品");
+        var resolvedWarehouseCode = validationService.required(warehouseCode, "仓库编码");
+        var warehouseId = lookupService.lookupEnabledId("md_warehouse", resolvedWarehouseCode, "仓库");
+        return Map.of(
+            "productId", product.id(),
+            "productCode", product.code(),
+            "warehouseCode", resolvedWarehouseCode,
+            "bookQuantity", currentStockQty(product.id(), warehouseId)
+        );
     }
 
     public Map<String, Object> detail(String billNo) {
@@ -183,9 +200,11 @@ public class StockCountAppService {
             SELECT COALESCE((
                 SELECT qty_on_hand
                 FROM inv_stock_balance
-                WHERE product_id = ?::uuid AND warehouse_id = ?::uuid
+                WHERE account_set_id = ?::uuid
+                  AND product_id = ?::uuid
+                  AND warehouse_id = ?::uuid
             ), 0)
-            """, BigDecimal.class, productId, warehouseId);
+            """, BigDecimal.class, tenantDataScopeService.currentScopeId("inventory"), productId, warehouseId);
     }
 
     private BigDecimal nonNegative(BigDecimal value, String label) {

@@ -69,7 +69,8 @@ public class PurchaseOrderAppService {
                    po.in_status AS "inStatus",
                    po.total_amount AS "totalAmount",
                    po.currency,
-                   po.owner_name AS "ownerName"
+                   po.owner_name AS "ownerName",
+                   COALESCE(po.remark, '') AS remark
             FROM purchase_order po
             JOIN md_supplier s ON s.id = po.supplier_id
             WHERE po.bill_no = ?
@@ -263,8 +264,8 @@ public class PurchaseOrderAppService {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         var currency = normalizeCurrency(request.currency());
         var orders = jdbcTemplate.queryForList("""
-            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, currency, owner_name)
-            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?, ?)
+            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, department, status, in_status, total_amount, currency, owner_name, remark)
+            VALUES (?, ?::uuid, ?, ?, ?, 'NOT_IN', ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET supplier_id = EXCLUDED.supplier_id,
                 bill_date = EXCLUDED.bill_date,
@@ -282,6 +283,7 @@ public class PurchaseOrderAppService {
                 total_amount = EXCLUDED.total_amount,
                 currency = EXCLUDED.currency,
                 owner_name = EXCLUDED.owner_name,
+                remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = purchase_order.version + 1
             WHERE purchase_order.status = 'DRAFT'
@@ -294,7 +296,8 @@ public class PurchaseOrderAppService {
             BillStatus.DRAFT.name(),
             totalAmount,
             currency,
-            request.ownerName()
+            request.ownerName(),
+            validationService.optionalText(request.remark())
         );
         if (orders.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿采购订单可以保存");
@@ -394,6 +397,7 @@ public class PurchaseOrderAppService {
         String department,
         String ownerName,
         String currency,
+        String remark,
         List<PurchaseOrderLineRequest> lines
     ) {
         public PurchaseOrderDraftRequest(
@@ -402,9 +406,21 @@ public class PurchaseOrderAppService {
             String billDate,
             String department,
             String ownerName,
+            String currency,
             List<PurchaseOrderLineRequest> lines
         ) {
-            this(billNo, supplierCode, billDate, department, ownerName, "CNY", lines);
+            this(billNo, supplierCode, billDate, department, ownerName, currency, null, lines);
+        }
+
+        public PurchaseOrderDraftRequest(
+            String billNo,
+            String supplierCode,
+            String billDate,
+            String department,
+            String ownerName,
+            List<PurchaseOrderLineRequest> lines
+        ) {
+            this(billNo, supplierCode, billDate, department, ownerName, "CNY", null, lines);
         }
 
         public PurchaseOrderDraftRequest {

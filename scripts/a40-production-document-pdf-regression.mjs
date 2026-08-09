@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { installApiSession, loginAsAdmin } from "./helpers/regression-auth.mjs";
+import { upsertMasterDataFixture } from "./helpers/master-data-actions.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const verificationDir = path.join(rootDir, "verification");
@@ -13,11 +14,31 @@ await installApiSession(apiBase);
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 const bomIssueMethod = `A40-${batch}`;
 const productionMotherProductCode = "CP-001";
+const productionFixtureMaterialCode = `A40-RM-${batch}`;
 
 const materialIssueTotal = "18.00";
 const productInTotal = "80.00";
 
 await mkdir(screenshotDir, { recursive: true });
+
+await upsertMasterDataFixture({
+  apiBase,
+  type: "product",
+  audit: true,
+  payload: {
+    code: productionFixtureMaterialCode,
+    name: `A40打印回归子件-${batch}`,
+    spec: "A40 / 独立子件",
+    category: "零配件",
+    unit: "件",
+    defaultWarehouseCode: "CK-002",
+    isPurchase: false,
+    isSale: false,
+    isInventory: true,
+    isProduce: false,
+    status: "启用"
+  }
+});
 
 async function request(pathname, options = {}) {
   return fetch(`${apiBase}${pathname}`, {
@@ -78,7 +99,7 @@ function utf16beHex(value) {
 }
 
 async function seedStock() {
-  for (const productCode of ["CP-001", "PJ-014", "CP-T413874"]) {
+  for (const productCode of ["CP-001", "PJ-014", "CP-T413874", productionFixtureMaterialCode]) {
     for (const warehouseCode of ["CK-001", "CK-002", "CK-003"]) {
       await requireJson("/api/inventory/adjustments", {
         method: "POST",
@@ -105,7 +126,7 @@ async function createDocuments() {
       productCode: productionMotherProductCode,
       qty: 1,
       lines: [
-        { materialCode: "CP-001", qty: 1, issueWarehouseCode: "CK-002" },
+        { materialCode: productionFixtureMaterialCode, qty: 1, issueWarehouseCode: "CK-002" },
         { materialCode: "PJ-014", qty: 2 },
         { materialCode: "CP-T413874", qty: 3, issueMethod: bomIssueMethod }
       ]
