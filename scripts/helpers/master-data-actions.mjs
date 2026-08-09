@@ -193,13 +193,25 @@ export async function upsertMasterDataFixture({ apiBase, type, payload, audit = 
   }
 
   let current = await queryExactMasterData(apiBase, type, code);
+  const desiredStatus = payload.status;
+  if (type === "productName"
+    && isAudited(current) === audit
+    && current.name === payload.name
+    && (desiredStatus === undefined || current.status === desiredStatus)) {
+    return current;
+  }
   if (isAudited(current)) {
     await requestMasterDataJson(apiBase, `/api/master-data/${type}/${encodeURIComponent(code)}/reverse`, { method: "POST" });
     current = await queryExactMasterData(apiBase, type, code);
   }
 
-  const desiredStatus = payload.status;
-  if (desiredStatus !== undefined && current.status !== desiredStatus) {
+  if (type === "productName") {
+    await requestMasterDataJson(apiBase, `/api/master-data/${type}/${encodeURIComponent(code)}`, {
+      method: "PUT",
+      body: payload
+    });
+    current = await queryExactMasterData(apiBase, type, code);
+  } else if (desiredStatus !== undefined && current.status !== desiredStatus) {
     await requestMasterDataJson(apiBase, `/api/master-data/${type}/${encodeURIComponent(code)}/status`, {
       method: "PATCH",
       body: { status: desiredStatus }
@@ -207,7 +219,7 @@ export async function upsertMasterDataFixture({ apiBase, type, payload, audit = 
     current = await queryExactMasterData(apiBase, type, code);
   }
 
-  const changes = fixturePatchChanges(type, payload);
+  const changes = type === "productName" ? {} : fixturePatchChanges(type, payload);
   if (Object.keys(changes).length > 0) {
     await patchMasterDataRecord(apiBase, type, code, current.version, changes);
     current = await queryExactMasterData(apiBase, type, code);
