@@ -647,7 +647,7 @@ function handleMasterInput(type: string, keyword: string, selectorId: string) {
 
 async function searchMasterOptions(type: string, keyword: string, selectorId: string) {
   activeSelector.value = selectorId;
-  const result = await fetchListRows(type === "warehouse" ? "warehouse-master-list" : "product-master-list", {
+  const result = await fetchListRows(type === "warehouse" ? "warehouse-master-selector" : "product-master-list", {
     keyword,
     status: "",
     page: 1,

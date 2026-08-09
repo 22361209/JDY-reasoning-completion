@@ -11,7 +11,8 @@
     "scripts/a105-bill-lifecycle-regression.mjs",
     "scripts/a108-delivery-notice-reservation-regression.mjs",
     "scripts/a110-table-display-brand-regression.mjs",
-    "scripts/a176-uat-defects-regression.mjs"
+    "scripts/a176-uat-defects-regression.mjs",
+    "scripts/a179-warehouse-selector-regression.mjs"
   ],
   "areas": {
     "sales": [
@@ -28,7 +29,8 @@
       "scripts/a141-formal-settlement-regression.mjs",
       "scripts/a142-sales-return-regression.mjs",
       "scripts/a147-inventory-source-trace-regression.mjs",
-      "scripts/a149-sales-report-regression.mjs"
+      "scripts/a149-sales-report-regression.mjs",
+      "scripts/a179-warehouse-selector-regression.mjs"
     ],
     "purchase": [
       "scripts/a92-sales-document-fields-regression.mjs",
@@ -43,7 +45,8 @@
       "scripts/a167-production-plan-multi-line-migration-regression.mjs",
       "scripts/a170-multilevel-production-procurement-regression.mjs",
       "scripts/a172-purchase-planning-concurrency-regression.mjs",
-      "scripts/a176-purchase-plan-order-closure-regression.mjs"
+      "scripts/a176-purchase-plan-order-closure-regression.mjs",
+      "scripts/a179-warehouse-selector-regression.mjs"
     ],
     "inventory": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -61,7 +64,8 @@
       "scripts/a147-inventory-source-trace-regression.mjs",
       "scripts/a147-inventory-source-trace-migration-regression.mjs",
       "scripts/a148-inventory-movement-report-regression.mjs",
-      "scripts/a151-material-scrap-backend-regression.mjs"
+      "scripts/a151-material-scrap-backend-regression.mjs",
+      "scripts/a179-warehouse-selector-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -203,7 +207,8 @@
       "scripts/a160-master-data-publication-regression.mjs",
       "scripts/a140-employee-financial-account-regression.mjs",
       "scripts/a143-master-data-import-regression.mjs",
-      "scripts/a143-master-data-import-migration-regression.mjs"
+      "scripts/a143-master-data-import-migration-regression.mjs",
+      "scripts/a179-warehouse-selector-regression.mjs"
     ],
     "reports": [
       "scripts/a145-report-query-foundation-regression.mjs",
@@ -359,7 +364,8 @@
     "scripts/a170-multilevel-production-procurement-regression.mjs",
     "scripts/a172-purchase-planning-concurrency-regression.mjs",
     "scripts/a176-purchase-plan-order-closure-regression.mjs",
-    "scripts/a176-uat-defects-regression.mjs"
+    "scripts/a176-uat-defects-regression.mjs",
+    "scripts/a179-warehouse-selector-regression.mjs"
   ],
   "exemptions": [
     {

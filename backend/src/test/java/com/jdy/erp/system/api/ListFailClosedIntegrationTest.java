@@ -114,6 +114,7 @@ class ListFailClosedIntegrationTest {
         for (var listKey : List.of(
             "employee-master-list",
             "employee-master-selector",
+            "warehouse-master-selector",
             "financial-account-master-list",
             "financial-account-master-selector"
         )) {
@@ -149,12 +150,13 @@ class ListFailClosedIntegrationTest {
     }
 
     @Test
-    void employeeAndFinancialAccountSelectorsForceAuditedAndEnabledInProviderSql() {
+    void warehouseEmployeeAndFinancialAccountSelectorsForceAuditedAndEnabledInProviderSql() {
         var jdbcTemplate = mock(JdbcTemplate.class);
         when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
         var tenantDataScopeService = mock(TenantDataScopeService.class);
         var provider = new StubListSeedRowsProvider(jdbcTemplate, tenantDataScopeService);
 
+        provider.seedRows("warehouse-master-selector", "header", 200);
         provider.seedRows("employee-master-selector", "header", 200);
         provider.seedRows("financial-account-master-selector", "header", 200);
 
@@ -162,11 +164,14 @@ class ListFailClosedIntegrationTest {
             .filter(invocation -> "queryForList".equals(invocation.getMethod().getName()))
             .map(invocation -> String.valueOf((Object) invocation.getArgument(0)))
             .toList();
-        assertThat(sql).hasSize(2);
+        assertThat(sql).hasSize(3);
         assertThat(sql.get(0))
-            .contains("FROM md_employee", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
+            .contains("FROM md_warehouse", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
             .doesNotContain("md_product");
         assertThat(sql.get(1))
+            .contains("FROM md_employee", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
+            .doesNotContain("md_product");
+        assertThat(sql.get(2))
             .contains("FROM md_financial_account", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
             .doesNotContain("md_product");
         verifyNoInteractions(tenantDataScopeService);

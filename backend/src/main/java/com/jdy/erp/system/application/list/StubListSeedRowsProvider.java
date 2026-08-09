@@ -42,7 +42,8 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "unit-master-list" -> realUnitRows();
             case "customer-master-list" -> realCustomerRows();
             case "supplier-master-list" -> realSupplierRows();
-            case "warehouse-master-list" -> realWarehouseRows();
+            case "warehouse-master-list" -> realWarehouseRows(false);
+            case "warehouse-master-selector" -> realWarehouseRows(true);
             case "employee-master-list" -> employeeRows(false);
             case "employee-master-selector" -> employeeRows(true);
             case "financial-account-master-list" -> financialAccountRows(false);
@@ -885,7 +886,10 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             """));
     }
 
-    private List<Map<String, ?>> realWarehouseRows() {
+    private List<Map<String, ?>> realWarehouseRows(boolean selectorOnly) {
+        var selectorFilter = selectorOnly
+            ? "WHERE enabled = TRUE AND audit_status = 'AUDITED'"
+            : "";
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    system_no::text AS "systemNo",
@@ -901,8 +905,9 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
                    CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
             FROM md_warehouse
+            %s
             ORDER BY code
-            """));
+            """.formatted(selectorFilter)));
     }
 
     private List<Map<String, ?>> employeeRows(boolean selectorOnly) {

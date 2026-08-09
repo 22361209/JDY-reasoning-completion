@@ -22,6 +22,7 @@ class ListQueryContractRegistryTest {
             "customer-master-list",
             "supplier-master-list",
             "warehouse-master-list",
+            "warehouse-master-selector",
             "production-department-list",
             "sales-quote-form-list",
             "sales-order-form-list",

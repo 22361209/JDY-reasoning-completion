@@ -377,9 +377,3 @@ export const knownProductOptions: MasterOption[] = [
   { code: "CP-T413874", name: "验收商品总成", spec: "左前 / 蓝色", unit: "只", netWeight: "1.10", grossWeight: "1.25" },
   { code: "PJ-014", name: "衬套", spec: "65mm / 加强", unit: "件", netWeight: "0.08", grossWeight: "0.10" }
 ];
-
-export const knownWarehouseOptions: MasterOption[] = [
-  { code: "CK-001", name: "成品仓" },
-  { code: "CK-002", name: "原材料仓" },
-  { code: "CK-T413874", name: "验收仓" }
-];

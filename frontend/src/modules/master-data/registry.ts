@@ -328,13 +328,19 @@ export const masterDataDefinitions: Record<string, MasterDataDefinition> = {
   }
 };
 
+masterDataDefinitions["warehouse-master-selector"] = {
+  ...masterDataDefinitions["warehouse-master-list"],
+  listKey: "warehouse-master-selector"
+};
+
 const selectorListKeyByType: Record<string, string> = {
   customer: "customer-master-list",
   supplier: "supplier-master-list",
   product: "product-master-list",
-  warehouse: "warehouse-master-list",
+  warehouse: "warehouse-master-selector",
   employee: "employee-master-selector",
   financialAccount: "financial-account-master-selector",
+  "warehouse-master-selector": "warehouse-master-selector",
   "employee-master-selector": "employee-master-selector",
   "financial-account-master-selector": "financial-account-master-selector"
 };

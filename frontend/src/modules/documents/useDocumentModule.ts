@@ -7,7 +7,6 @@ import {
 import { taxAmounts } from "../../app/taxAmounts";
 import {
   knownProductOptions,
-  knownWarehouseOptions,
   zeroReasonOptions,
   type DownstreamTraceState,
   type EntryPasteConflict,
@@ -849,11 +848,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
     const [productResult, warehouseResult] = await Promise.all([
       fetchListRows("product-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 }),
-      fetchListRows("warehouse-master-list", { keyword: "", status: "", page: 1, pageSize: 1000 })
+      fetchListRows("warehouse-master-selector", { keyword: "", status: "", page: 1, pageSize: 1000 })
     ]);
     return {
       products: mergeMasterOptions(productResult.ok && productResult.data ? productResult.data.rows.map(masterRowToOption) : [], knownProductOptions),
-      warehouses: mergeMasterOptions(warehouseResult.ok && warehouseResult.data ? warehouseResult.data.rows.map(masterRowToOption) : [], knownWarehouseOptions)
+      warehouses: warehouseResult.ok && warehouseResult.data ? warehouseResult.data.rows.map(masterRowToOption) : []
     };
   }
 
@@ -1793,7 +1792,7 @@ function masterSelectorListKey(type: string) {
     customer: "customer-master-list",
     supplier: "supplier-master-list",
     product: "product-master-list",
-    warehouse: "warehouse-master-list"
+    warehouse: "warehouse-master-selector"
   };
   return listKeyByType[type] ?? "product-master-list";
 }
