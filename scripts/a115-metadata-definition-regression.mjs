@@ -989,13 +989,15 @@ const entryTable = [
   "frontend/src/components/entry-table/useEntryTableCalculations.ts",
   "frontend/src/components/entry-table/useEntryTableTestIds.ts"
 ].map((path) => readFileSync(path, "utf8")).join("\n");
+const dataListPageComponent = readFileSync("frontend/src/components/DataListPage.vue", "utf8");
 const dataListPage = [
-  "frontend/src/components/DataListPage.vue",
+  dataListPageComponent,
   "frontend/src/components/list/useDataListDefinition.ts",
   "frontend/src/components/list/useDataListColumnPreferences.ts",
   "frontend/src/components/list/useDataListSelection.ts",
   "frontend/src/components/list/useDataListSummary.ts"
-].map((path) => readFileSync(path, "utf8")).join("\n");
+].map((sourceOrPath) => sourceOrPath.includes("\n") ? sourceOrPath : readFileSync(sourceOrPath, "utf8")).join("\n");
+const baseStyles = readFileSync("frontend/src/styles/base.css", "utf8");
 const documentModule = readFileSync("frontend/src/modules/documents/useDocumentModule.ts", "utf8");
 const salesOutDocument = readFileSync("frontend/src/modules/sales/sales-out/useSalesOutDocument.ts", "utf8");
 const documentApi = readFileSync("frontend/src/services/documentApi.ts", "utf8");
@@ -1306,9 +1308,14 @@ assertContains(
   "采购订单详情、选源和保存必须贯通供应商物料编码与预计交期"
 );
 assertContains(
-  dataListPage,
-  /class="list-table-tools"[\s\S]*?data-testid="list-detail-view-toggle"[\s\S]*?data-testid="column-settings"[\s\S]*?data-testid="list-refresh-stock"/,
+  dataListPageComponent,
+  /^    <div class="list-toolbar">\n(?:(?!^    <\/div>$)[\s\S])*?^      <div class="list-toolbar-utilities">\n(?:(?!^      <\/div>$)[\s\S])*?data-testid="list-detail-view-toggle"(?:(?!^      <\/div>$)[\s\S])*?data-testid="column-settings"(?:(?!^      <\/div>$)[\s\S])*?data-testid="list-refresh-stock"(?:(?!^      <\/div>$)[\s\S])*?^      <\/div>\n^    <\/div>$/m,
   "整单/明细视图切换、列设置、更新库存必须集中在列表右侧工具区"
+);
+assertContains(
+  baseStyles,
+  /\.list-toolbar-utilities\s*\{[^}]*margin-left:\s*auto;[^}]*\}/,
+  "列表工具组必须通过自动左外边距固定在工具栏右侧"
 );
 assertContains(
   fieldTypes,

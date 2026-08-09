@@ -15,6 +15,8 @@ const fixtureKey = `A118-${runToken}`;
 const bomCode = `BOM-${fixtureKey}`;
 const productCode = `CP-${fixtureKey}`;
 const componentCode = `PJ-${fixtureKey}`;
+const productNameCode = `PN-${productCode}`;
+const componentNameCode = `PN-${componentCode}`;
 const productName = `A118 委外母件 ${runToken}`;
 const componentName = `A118 委外子件 ${runToken}`;
 const supplierCode = "GYS-001";
@@ -58,6 +60,11 @@ const expectedProducts = Object.freeze({
     purchasePrice: 3.2,
     subcontractPrice: null
   }
+});
+
+const expectedProductNames = Object.freeze({
+  [productNameCode]: { name: productName },
+  [componentNameCode]: { name: componentName }
 });
 
 const allowedFailureRoutes = new Set([
@@ -130,6 +137,7 @@ const artifacts = {
     postLogoutAuthenticated: null
   },
   ids: {
+    productNames: new Set(),
     products: new Set(),
     boms: new Set(),
     bomLines: new Set(),
@@ -155,6 +163,10 @@ const artifacts = {
     return: "",
     scrap: ""
   },
+  productNameWrites: {
+    [productNameCode]: { attempted: false, accepted: false, audited: false, rejected409: false, preflightCollision: false },
+    [componentNameCode]: { attempted: false, accepted: false, audited: false, rejected409: false, preflightCollision: false }
+  },
   productWrites: {
     [productCode]: { attempted: false, accepted: false, rejected409: false, preflightCollision: false },
     [componentCode]: { attempted: false, accepted: false, rejected409: false, preflightCollision: false }
@@ -168,6 +180,8 @@ const result = {
   fixtureKey,
   productCode,
   componentCode,
+  productNameCode,
+  componentNameCode,
   bomCode,
   workOrderNo: null,
   environment: {},
@@ -589,6 +603,41 @@ async function establishRunSession() {
   result.environment.actor = { id: artifacts.identity.userId, username: runUsername };
 }
 
+async function createProductNameCreateOnly(code, name) {
+  const write = artifacts.productNameWrites[code];
+  const preflight = rowsJson(
+    "md_product_name",
+    `row_value.code=${sqlLiteral(code)} OR row_value.name=${sqlLiteral(name)}`
+  );
+  if (preflight.length > 0) {
+    write.preflightCollision = true;
+    throw new Error(`A118 create-only product name ${code}/${name} must not pre-exist; the collision is unowned and will not be changed`);
+  }
+  write.attempted = true;
+  const response = await http("/api/master-data/productName", {
+    method: "POST",
+    body: { code, name, remark: fixtureKey, status: "启用" }
+  });
+  if (response.status === 409) {
+    write.rejected409 = true;
+    throw new Error(`A118 create-only product name ${code}/${name} rejected 409; existing data is not owned and will not be overwritten`);
+  }
+  assert(response.status === 201, `A118 create-only product name ${code}/${name} should return 201`, response);
+  const productNameId = recordUuid("productNames", response.data?.id, `A118 created product name ${code}`);
+  write.accepted = true;
+  write.productNameId = productNameId;
+  const audited = await requireJson(`/api/master-data/productName/${encodeURIComponent(code)}/audit`, { method: "POST" });
+  assert(audited?.id === productNameId
+    && audited?.code === code
+    && audited?.name === name
+    && audited?.auditStatus === "已审核"
+    && audited?.status === "启用"
+    && Number(audited?.version) === 1,
+  `A118 audited product name ${code} must retain the response-owned UUID and become enabled/audited`, audited);
+  write.audited = true;
+  return productNameId;
+}
+
 async function createProductCreateOnly(code, payload) {
   const write = artifacts.productWrites[code];
   const preflight = rowsJson("md_product", `row_value.code=${sqlLiteral(code)}`);
@@ -613,6 +662,13 @@ async function createProductCreateOnly(code, payload) {
 
 async function createMasterDataFixtures() {
   assert(productCode !== componentCode, "A118 parent/component run codes must be distinct");
+  assert(productNameCode !== componentNameCode && productName !== componentName,
+    "A118 parent/component product-name run fixtures must be distinct");
+  const parentProductNameId = await createProductNameCreateOnly(productNameCode, productName);
+  const componentProductNameId = await createProductNameCreateOnly(componentNameCode, componentName);
+  assert(parentProductNameId !== componentProductNameId && artifacts.ids.productNames.size === 2,
+    "A118 must create exactly one parent product name and one component product name by response UUID",
+    { parentProductNameId, componentProductNameId });
   const parentProductId = await createProductCreateOnly(productCode, {
     name: productName,
     category: "成品总成",
@@ -888,6 +944,7 @@ function allDocumentIds() {
 function allTargetIds() {
   return unique([
     artifacts.identity.userId,
+    ...artifacts.ids.productNames,
     ...artifacts.ids.products,
     ...artifacts.ids.boms,
     ...allDocumentIds()
@@ -899,11 +956,25 @@ function allBillNos() {
 }
 
 function allTargetNos() {
-  return unique([runUsername, productCode, componentCode, bomCode, ...allBillNos()]);
+  return unique([
+    runUsername,
+    productNameCode,
+    componentNameCode,
+    productCode,
+    componentCode,
+    bomCode,
+    ...allBillNos()
+  ]);
 }
 
 function cleanupSnapshotExpression() {
   const userIds = uuidArray([artifacts.identity.userId]);
+  const productNameIds = uuidArray([...artifacts.ids.productNames]);
+  const productNameCodes = textArray([productNameCode, componentNameCode]);
+  const productNameValues = textArray([productName, componentName]);
+  const acceptedProductNameValues = textArray(Object.entries(artifacts.productNameWrites)
+    .filter(([, write]) => write.accepted)
+    .map(([code]) => expectedProductNames[code].name));
   const productIds = uuidArray([...artifacts.ids.products]);
   const productCodes = textArray([productCode, componentCode]);
   const bomIds = uuidArray([...artifacts.ids.boms]);
@@ -967,9 +1038,14 @@ function cleanupSnapshotExpression() {
       `session_scope.user_id=ANY(${userIds}) OR session_scope.session_token=ANY(${sessionTokens})`,
       "session_scope.session_token"
     )},
+    'productNames', ${aggregateSql(
+      "public.md_product_name", "product_name_row",
+      `product_name_row.id=ANY(${productNameIds}) OR product_name_row.code=ANY(${productNameCodes}) OR product_name_row.name=ANY(${productNameValues})`,
+      "product_name_row.id"
+    )},
     'products', ${aggregateSql(
       "public.md_product", "product_row",
-      `product_row.id=ANY(${productIds}) OR product_row.code=ANY(${productCodes})`,
+      `product_row.id=ANY(${productIds}) OR product_row.code=ANY(${productCodes}) OR product_row.name=ANY(${acceptedProductNameValues})`,
       "product_row.id"
     )},
     'boms', ${aggregateSql(
@@ -1106,6 +1182,53 @@ function validateIdentityState(state) {
   }
 }
 
+function ownedProductNameSemantic(productNameRow, code, expected, write) {
+  const draft = productNameRow.audit_status === "DRAFT" && Number(productNameRow.version) === 0;
+  const audited = productNameRow.audit_status === "AUDITED" && Number(productNameRow.version) === 1;
+  return productNameRow.code === code
+    && productNameRow.name === expected.name
+    && productNameRow.remark === fixtureKey
+    && productNameRow.enabled === true
+    && (write.audited ? audited : (draft || audited))
+    && Date.parse(productNameRow.created_at) >= startedAtMs - 5_000
+    && Date.parse(productNameRow.updated_at) >= Date.parse(productNameRow.created_at);
+}
+
+function validateProductNames(state) {
+  const expectedEntries = Object.entries(expectedProductNames);
+  assert(state.productNames.length <= 4,
+    "A118 cleanup refused more than the run code/name product-name candidates", state.productNames);
+  for (const [code, expected] of expectedEntries) {
+    assert(state.productNames.filter((row) => row.code === code).length <= 1,
+      `A118 cleanup refused duplicate product-name code ${code}`, state.productNames);
+    assert(state.productNames.filter((row) => row.name === expected.name).length <= 1,
+      `A118 cleanup refused duplicate product-name value ${expected.name}`, state.productNames);
+  }
+  for (const productNameRow of state.productNames) {
+    const matches = expectedEntries.filter(([code, expected]) => (
+      productNameRow.code === code || productNameRow.name === expected.name
+    ));
+    assert(matches.length === 1,
+      "A118 cleanup found an ambiguous product-name candidate outside one exact run fixture", productNameRow);
+    const [code, expected] = matches[0];
+    const write = artifacts.productNameWrites[code];
+    if (!artifacts.ids.productNames.has(productNameRow.id)) {
+      if (write.rejected409 || write.preflightCollision) continue;
+      assert(false,
+        "A118 cleanup refuses a response-loss product-name UUID; the candidate is preserved for manual review",
+        { productNameRow, write });
+    }
+    assert(write.accepted
+      && write.productNameId === productNameRow.id
+      && ownedProductNameSemantic(productNameRow, code, expected, write),
+    "A118 cleanup refused a changed response-owned product-name semantic snapshot", productNameRow);
+  }
+  for (const productNameId of artifacts.ids.productNames) {
+    assert(state.productNames.some((row) => row.id === productNameId),
+      "A118 cleanup is missing a response-owned product-name UUID", productNameId);
+  }
+}
+
 function ownedProductSemantic(product, expected) {
   const expectedSupplierId = expected.defaultSupplierCode ? artifacts.supplier.id : null;
   return product.name === expected.name
@@ -1135,6 +1258,9 @@ function ownedProductSemantic(product, expected) {
 }
 
 function validateProductsAndBom(state) {
+  const acceptedProductNameValues = new Set(Object.entries(artifacts.productNameWrites)
+    .filter(([, write]) => write.accepted)
+    .map(([code]) => expectedProductNames[code].name));
   assert(state.products.length <= 2, "A118 cleanup refused more than the two run-code product candidates", state.products);
   for (const code of [productCode, componentCode]) {
     assert(state.products.filter((row) => row.code === code).length <= 1,
@@ -1146,6 +1272,9 @@ function validateProductsAndBom(state) {
     const write = artifacts.productWrites[product.code];
     if (!artifacts.ids.products.has(product.id)) {
       if (write.rejected409 || write.preflightCollision) {
+        assert(!acceptedProductNameValues.has(product.name),
+          "A118 cleanup refuses to delete an accepted product name consumed by a collision-owned product",
+          { product, write });
         continue;
       }
       assert(false,
@@ -1606,6 +1735,13 @@ function operationLogSpecs() {
     targetIds: artifacts.ids[spec.idSet],
     targetNo: spec.billKind === "bom" ? bomCode : artifacts.bills[spec.billKind]
   }));
+  const productNameMasterDataSpecs = [productNameCode, componentNameCode].flatMap((code) => {
+    const productNameId = artifacts.productNameWrites[code].productNameId;
+    return [
+      { module: "MASTER_DATA", action: "CREATE_MASTER_DATA", targetType: "md_product_name", targetIds: new Set([productNameId]), targetNo: code, before: null, after: { auditStatus: "DRAFT", enabled: true }, reason: "fields=code,name,remark,status; version=0" },
+      { module: "MASTER_DATA", action: "AUDIT_MASTER_DATA", targetType: "md_product_name", targetIds: new Set([productNameId]), targetNo: code, before: { auditStatus: "DRAFT", enabled: true }, after: { auditStatus: "AUDITED", enabled: true }, reason: "version=0->1" }
+    ];
+  });
   const masterDataSpecs = [productCode, componentCode].flatMap((code) => {
     const productId = artifacts.productWrites[code].productId;
     const createReason = code === productCode
@@ -1616,7 +1752,7 @@ function operationLogSpecs() {
       { module: "MASTER_DATA", action: "AUDIT_MASTER_DATA", targetType: "md_product", targetIds: new Set([productId]), targetNo: code, before: { auditStatus: "DRAFT", enabled: true }, after: { auditStatus: "AUDITED", enabled: true }, reason: "version=0->1" }
     ];
   });
-  return [...documentSpecs, ...masterDataSpecs];
+  return [...documentSpecs, ...productNameMasterDataSpecs, ...masterDataSpecs];
 }
 
 function validateLogsAndLocks(state) {
@@ -1693,13 +1829,14 @@ function validateLogsAndLocks(state) {
 function validateCleanupState(state) {
   const requiredArrays = [
     "accountSets", "adminRoles", "warehouses", "suppliers", "users", "roleLinks", "grants", "sessionScopes",
-    "products", "boms", "bomLines", "workOrders", "workOrderLines", "workOrderComponents",
+    "productNames", "products", "boms", "bomLines", "workOrders", "workOrderLines", "workOrderComponents",
     "issues", "issueLines", "receipts", "receiptLines", "returns", "returnLines", "scraps", "scrapLines",
     "transactions", "balances", "logs", "locks"
   ];
   assert(state && requiredArrays.every((key) => Array.isArray(state[key])),
     "A118 cleanup snapshot is incomplete", state);
   validateIdentityState(state);
+  validateProductNames(state);
   validateProductsAndBom(state);
   validateDocuments(state);
   validateInventory(state);
@@ -1782,6 +1919,11 @@ async function closeRunSession() {
 function cleanupFixtures() {
   result.cleanup.attempted = true;
   const state = discoverCleanupState();
+  const productNameIds = [...artifacts.ids.productNames];
+  const productNameCodes = Object.entries(artifacts.productNameWrites)
+    .filter(([, write]) => write.accepted)
+    .map(([code]) => code);
+  const productNames = productNameCodes.map((code) => expectedProductNames[code].name);
   const productIds = [...artifacts.ids.products];
   const productCodes = Object.entries(artifacts.productWrites)
     .filter(([, write]) => write.accepted)
@@ -1817,7 +1959,7 @@ function cleanupFixtures() {
     SET LOCAL statement_timeout='30s';
     LOCK TABLE public.sys_account_set, public.sys_role, public.sys_user, public.sys_user_role,
       public.sys_user_account_set, public.sys_session_account_scope, public.md_supplier,
-      public.md_warehouse, public.md_product, public.prod_bom, public.prod_bom_line,
+      public.md_warehouse, public.md_product_name, public.md_product, public.prod_bom, public.prod_bom_line,
       public.outsourcing_work_order, public.outsourcing_work_order_line, public.outsourcing_work_order_component,
       public.outsourcing_material_issue, public.outsourcing_material_issue_line,
       public.outsourcing_receipt, public.outsourcing_receipt_line,
@@ -1856,6 +1998,7 @@ function cleanupFixtures() {
       DELETE FROM public.prod_bom WHERE id=ANY(${uuidArray(bomIds)});
       DELETE FROM public.inv_stock_balance WHERE id=ANY(${uuidArray(balanceIds)});
       DELETE FROM public.md_product WHERE id=ANY(${uuidArray(productIds)});
+      DELETE FROM public.md_product_name WHERE id=ANY(${uuidArray(productNameIds)});
       DELETE FROM public.sys_session_account_scope scope_row WHERE ${scopeKeyPredicate("scope_row", state.sessionScopes)};
       DELETE FROM public.sys_user_account_set
       WHERE id=${sqlLiteral(artifacts.identity.grantId)}::uuid AND user_id=${sqlLiteral(artifacts.identity.userId)}::uuid;
@@ -1864,7 +2007,8 @@ function cleanupFixtures() {
       DELETE FROM public.sys_user
       WHERE id=${sqlLiteral(artifacts.identity.userId)}::uuid AND username=${sqlLiteral(runUsername)};
 
-      IF EXISTS (SELECT 1 FROM public.md_product WHERE id=ANY(${uuidArray(productIds)}) OR code=ANY(${textArray(productCodes)}))
+      IF EXISTS (SELECT 1 FROM public.md_product_name WHERE id=ANY(${uuidArray(productNameIds)}) OR code=ANY(${textArray(productNameCodes)}) OR name=ANY(${textArray(productNames)}))
+         OR EXISTS (SELECT 1 FROM public.md_product WHERE id=ANY(${uuidArray(productIds)}) OR code=ANY(${textArray(productCodes)}) OR name=ANY(${textArray(productNames)}))
          OR EXISTS (SELECT 1 FROM public.prod_bom WHERE id=ANY(${uuidArray(bomIds)}) OR (${hasOwnedBom ? `code=${sqlLiteral(bomCode)}` : "FALSE"}))
          OR EXISTS (SELECT 1 FROM public.prod_bom_line WHERE id=ANY(${uuidArray(bomLineIds)}) OR bom_id=ANY(${uuidArray(bomIds)}))
          OR EXISTS (SELECT 1 FROM public.outsourcing_work_order WHERE id=ANY(${uuidArray(workOrderIds)}) OR (${hasOwnedWorkOrder ? `bill_no=${sqlLiteral(artifacts.bills.workOrder)} OR remark=${sqlLiteral(fixtureKey)}` : "FALSE"}))
@@ -1898,7 +2042,8 @@ function cleanupFixtures() {
   `);
 
   const residue = {
-    products: dbNumber(`SELECT count(*) FROM public.md_product WHERE id=ANY(${uuidArray(productIds)}) OR code=ANY(${textArray(productCodes)})`),
+    productNames: dbNumber(`SELECT count(*) FROM public.md_product_name WHERE id=ANY(${uuidArray(productNameIds)}) OR code=ANY(${textArray(productNameCodes)}) OR name=ANY(${textArray(productNames)})`),
+    products: dbNumber(`SELECT count(*) FROM public.md_product WHERE id=ANY(${uuidArray(productIds)}) OR code=ANY(${textArray(productCodes)}) OR name=ANY(${textArray(productNames)})`),
     boms: dbNumber(`SELECT count(*) FROM public.prod_bom WHERE id=ANY(${uuidArray(bomIds)}) OR (${hasOwnedBom ? `code=${sqlLiteral(bomCode)}` : "FALSE"})`),
     documents: dbNumber(`SELECT
       (SELECT count(*) FROM public.outsourcing_work_order WHERE id=ANY(${uuidArray(workOrderIds)}))
@@ -1933,6 +2078,7 @@ function cleanupFixtures() {
 function artifactSummary() {
   return {
     actor: { id: artifacts.identity.userId, username: runUsername, grantId: artifacts.identity.grantId },
+    productNameWrites: Object.fromEntries(Object.entries(artifacts.productNameWrites).map(([code, write]) => [code, { ...write }])),
     productWrites: Object.fromEntries(Object.entries(artifacts.productWrites).map(([code, write]) => [code, { ...write }])),
     ids: Object.fromEntries(Object.entries(artifacts.ids).map(([key, values]) => [key, [...values].sort()])),
     bills: { ...artifacts.bills },

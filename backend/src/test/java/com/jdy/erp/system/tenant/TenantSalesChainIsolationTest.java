@@ -520,6 +520,12 @@ class TenantSalesChainIsolationTest {
     }
 
     private void createAuditedMaterial(String name) {
+        var nameCode = "PN-" + PRODUCT_CODE;
+        masterDataController.create("productName", Map.of(
+            "code", nameCode,
+            "name", name
+        ));
+        masterDataController.audit("productName", nameCode);
         masterDataController.create("product", Map.of(
             "code", PRODUCT_CODE,
             "name", name,

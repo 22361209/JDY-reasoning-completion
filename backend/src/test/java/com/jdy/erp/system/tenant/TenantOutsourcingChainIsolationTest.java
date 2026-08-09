@@ -279,6 +279,8 @@ class TenantOutsourcingChainIsolationTest {
             "name", supplierName
         ));
         masterDataController.audit("supplier", SUPPLIER_CODE);
+        createAuditedProductName("PN-" + PARENT_CODE, parentName);
+        createAuditedProductName("PN-" + COMPONENT_CODE, componentName);
         masterDataController.create("product", Map.ofEntries(
             Map.entry("code", PARENT_CODE),
             Map.entry("name", parentName),
@@ -287,6 +289,7 @@ class TenantOutsourcingChainIsolationTest {
             Map.entry("defaultWarehouseCode", WAREHOUSE_CODE),
             Map.entry("defaultSupplierCode", SUPPLIER_CODE),
             Map.entry("isInventory", "true"),
+            Map.entry("isProduce", "true"),
             Map.entry("isSubcontract", "true")
         ));
         masterDataController.audit("product", PARENT_CODE);
@@ -299,6 +302,14 @@ class TenantOutsourcingChainIsolationTest {
             Map.entry("isInventory", "true")
         ));
         masterDataController.audit("product", COMPONENT_CODE);
+    }
+
+    private void createAuditedProductName(String code, String name) {
+        masterDataController.create("productName", Map.of(
+            "code", code,
+            "name", name
+        ));
+        masterDataController.audit("productName", code);
     }
 
     private void saveComponentOpeningStock(BigDecimal qty) {

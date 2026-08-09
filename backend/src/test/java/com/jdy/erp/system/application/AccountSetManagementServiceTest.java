@@ -132,7 +132,7 @@ class AccountSetManagementServiceTest {
         assertThat(managedConstraintCount(schema, "u")).isEqualTo(87);
         assertThat(managedConstraintCount(schema, "f")).isEqualTo(199);
         assertThat(tenantScopeAccountSetForeignKeyCount(schema)).isZero();
-        assertThat(managedConstraintCount(schema, "c")).isEqualTo(118);
+        assertThat(managedConstraintCount(schema, "c")).isEqualTo(119);
         assertThat(countRows(schema, "md_unit")).isGreaterThanOrEqualTo(5);
         assertThat(warehouseNames(schema)).containsExactly(
             "冲压区材料仓",
