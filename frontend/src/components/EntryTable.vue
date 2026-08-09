@@ -544,6 +544,7 @@ const props = withDefaults(defineProps<{
   qtyLabel?: string;
   stockAvailableLabel?: string;
   showExecutedQtyColumn?: boolean;
+  requiredVisibleColumnKeys?: EntryColumnKey[];
   showPriceAmountColumns?: boolean;
   entryTableColspan: number;
   entryTotalColspan: number;
@@ -732,6 +733,7 @@ watch(() => [
   props.qtyLabel,
   props.stockAvailableLabel,
   props.showExecutedQtyColumn,
+  props.requiredVisibleColumnKeys?.join("|"),
   props.showPriceAmountColumns
 ], resetColumns, { immediate: true });
 
@@ -748,19 +750,24 @@ function resetColumns() {
     return;
   }
   const restored: EntryColumn[] = [];
+  const restoredKeys = new Set<EntryColumnKey>();
   saved.forEach((savedColumn) => {
     const current = defaultByKey.get(savedColumn.key);
-    if (!current) {
+    if (!current || restoredKeys.has(current.key)) {
       return;
     }
+    restoredKeys.add(current.key);
     restored.push({
       ...current,
       width: Number.isFinite(savedColumn.width) ? savedColumn.width : current.width,
-      visible: isFrozenEntryColumn(current.key) ? true : savedColumn.visible,
+      visible: isFrozenEntryColumn(current.key) || current.visibilityLocked
+        ? true
+        : typeof savedColumn.visible === "boolean"
+          ? savedColumn.visible
+          : current.visible,
       fixed: isFrozenEntryColumn(current.key) ? "left" : ""
     });
   });
-  const restoredKeys = new Set(restored.map((column) => column.key));
   columns.value = normalizeEntryColumns([
     ...restored,
     ...defaults.filter((column) => !restoredKeys.has(column.key)).map((column) => ({ ...column }))

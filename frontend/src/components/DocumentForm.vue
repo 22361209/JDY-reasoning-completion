@@ -171,6 +171,7 @@
         :qty-label="qtyLabel"
         :stock-available-label="stockAvailableLabel"
         :show-executed-qty-column="showExecutedQtyColumn"
+        :required-visible-column-keys="requiredVisibleColumnKeys"
         :show-price-amount-columns="showPriceAmountColumns"
         :entry-table-colspan="entryTableColspan"
         :entry-total-colspan="entryTotalColspan"
@@ -221,6 +222,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import EntryTable, { type EntryLine, type MasterOption } from "./EntryTable.vue";
+import type { EntryColumnKey } from "./entry-table/types";
 import FieldRenderer from "./fields/FieldRenderer.vue";
 import type { FieldDefinition, FieldLookupOption } from "./fields/types";
 import MasterSelectorDialog from "./MasterSelectorDialog.vue";
@@ -322,6 +324,7 @@ const props = withDefaults(defineProps<{
   qtyLabel?: string;
   stockAvailableLabel?: string;
   showExecutedQtyColumn?: boolean;
+  requiredVisibleColumnKeys?: EntryColumnKey[];
   showPriceAmountColumns?: boolean;
   showProductInfoSection?: boolean;
   showSectionTitles?: boolean;

@@ -209,6 +209,15 @@ class ListFailClosedIntegrationTest {
         masterGuard.assertReadable("financial-account-master-selector");
         assertForbidden(() -> masterGuard.assertReadable("financial-account-settlement-selector"));
 
+        var cashTransferPermission = mock(CurrentPermissionService.class);
+        when(cashTransferPermission.hasPermission("finance.cash_transfer.audit")).thenReturn(true);
+        var cashTransferGuard = new ListStubStateGuard(registry, cashTransferPermission);
+        cashTransferGuard.assertReadable("financial-account-settlement-selector");
+        assertForbidden(() -> cashTransferGuard.assertReadable("financial-account-master-list"));
+        assertForbidden(() -> cashTransferGuard.assertReadable("financial-account-master-selector"));
+        listKeys.forEach(key -> assertForbidden(() -> cashTransferGuard.assertReadable(key)));
+        selectorKeys.forEach(key -> assertForbidden(() -> cashTransferGuard.assertReadable(key)));
+
         var settlePermission = mock(CurrentPermissionService.class);
         when(settlePermission.hasPermission("finance.settle")).thenReturn(true);
         var settleGuard = new ListStubStateGuard(registry, settlePermission);

@@ -31,7 +31,7 @@ public class ListStubStateGuard {
         "employee-master-selector", List.of("master.data.manage", "system.role_permission.manage"),
         "financial-account-master-list", List.of("master.data.manage", "finance.settle"),
         "financial-account-master-selector", List.of("master.data.manage", "finance.settle"),
-        "financial-account-settlement-selector", List.of("finance.settle"),
+        "financial-account-settlement-selector", List.of("finance.settle", "finance.cash_transfer.audit"),
         "ar-receipt-form-list", List.of("finance.report.view", "finance.settle"),
         "ap-payment-form-list", List.of("finance.report.view", "finance.settle"),
         "ar-receivable-settlement-source-selector", List.of("finance.settle"),

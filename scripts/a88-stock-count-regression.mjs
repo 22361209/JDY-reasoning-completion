@@ -16,6 +16,9 @@ let gainBillNo = "";
 let lossBillNo = "";
 let tabSwitchLookupCount = 0;
 let multiLineErrorVerified = false;
+let legacyHiddenPreferenceRecovered = false;
+let malformedPreferenceRecovered = false;
+let missingPreferenceRecovered = false;
 const billDate = "2026-06-26";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
@@ -39,6 +42,25 @@ async function assertNumericText(page, testId, expected, label) {
   const actualText = await page.getByTestId(testId).innerText();
   const actual = Number(actualText.replaceAll(",", "").trim());
   assert(Number.isFinite(actual) && actual === expected, `${label} expected ${expected}, got ${JSON.stringify(actualText)}`);
+}
+
+async function openStockCountForm(page) {
+  await page.getByTestId("module-库存管理").hover();
+  await page.getByTestId("entry-stock-count-form").click();
+  await page.getByTestId("tab-stock-count-form").waitFor({ state: "visible" });
+}
+
+async function assertRequiredCountColumns(page, label) {
+  for (const title of ["实盘数量", "系统库存", "差异"]) {
+    await page.getByRole("columnheader", { name: new RegExp(title) }).waitFor({ state: "visible" });
+  }
+  await page.getByTestId("entry-column-settings").click();
+  for (const title of ["实盘数量", "系统库存", "差异"]) {
+    const checkbox = page.getByRole("checkbox", { name: title, exact: true });
+    assert(await checkbox.isChecked(), `${label}: ${title} must be forced visible`);
+    assert(await checkbox.isDisabled(), `${label}: ${title} visibility must be locked for auditability`);
+  }
+  await page.getByTestId("entry-column-settings-ok").click();
 }
 
 function isBookQuantityResponse(response, expectedStatus) {
@@ -108,11 +130,22 @@ async function createAndAuditInFrontend(countedQty, expectedBookQty) {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   const screenshots = [];
   try {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("a183-stock-count-preference-seeded") === "true") return;
+      const orderedKeys = ["productCode", "productName", "spec", "unit", "netWeight", "grossWeight", "warehouse", "qty", "executedQty", "remainingQty", "unitPrice", "amount", "remark"];
+      localStorage.setItem("jdy:entry-columns:stock-count", JSON.stringify(orderedKeys.map((key) => ({
+        key,
+        width: 104,
+        visible: !["qty", "executedQty", "remainingQty"].includes(key),
+        fixed: ""
+      }))));
+      sessionStorage.setItem("a183-stock-count-preference-seeded", "true");
+    });
     await page.goto(frontendUrl, { waitUntil: "networkidle" });
     await loginAsAdmin(page);
-    await page.getByTestId("module-库存管理").hover();
-    await page.getByTestId("entry-stock-count-form").click();
-    await page.getByTestId("tab-stock-count-form").waitFor({ state: "visible" });
+    await openStockCountForm(page);
+    await assertRequiredCountColumns(page, "legacy hidden stock-count preference");
+    legacyHiddenPreferenceRecovered = true;
     const billNoInput = page.getByTestId("stock-count-bill-no");
     assert(await billNoInput.inputValue() === "", "new stock count bill no should be blank");
     assert(!(await billNoInput.isEditable()), "new stock count bill no should be readonly");
@@ -129,6 +162,7 @@ async function createAndAuditInFrontend(countedQty, expectedBookQty) {
     const bookQuantityResult = await (await bookQuantityResponse).json();
     assert(Number(bookQuantityResult.bookQuantity) === expectedBookQty, `book quantity endpoint expected ${expectedBookQty}, got ${bookQuantityResult.bookQuantity}`);
     await assertNumericText(page, "stock-count-line-executed-qty", expectedBookQty, "visible book quantity");
+    assert(await page.getByTestId("stock-count-line-executed-qty").locator("input").count() === 0, "system inventory must remain readonly");
     await page.getByTestId("stock-count-line-qty").fill(String(countedQty));
     await assertNumericText(page, "stock-count-line-remaining-qty", countedQty - expectedBookQty, "visible count difference");
     await page.getByTestId("stock-count-line-price").fill(String(unitPrice));
@@ -174,6 +208,8 @@ async function createAndAuditInFrontend(countedQty, expectedBookQty) {
     await page.getByTestId("stock-count-line-product-2").fill(productCode);
     await secondRecovery;
     await assertNumericText(page, "stock-count-line-executed-qty-2", expectedBookQty, "second-line recovered book quantity");
+    await page.getByTestId("stock-count-line-qty-2").fill(String(countedQty));
+    await assertNumericText(page, "stock-count-line-remaining-qty-2", countedQty - expectedBookQty, "second-line visible count difference");
     const remainingError = await page.getByTestId("form-message").textContent();
     assert(remainingError?.includes("A181账面数量模拟查询失败") && !remainingError.includes("另有"), `resolving one row must retain the other row error, got ${JSON.stringify(remainingError)}`);
 
@@ -206,6 +242,7 @@ async function createAndAuditInFrontend(countedQty, expectedBookQty) {
     await pendingTabSwitchLookup;
     await page.getByTestId("tab-home").click();
     await page.getByTestId("tab-stock-count-form").click();
+    await assertRequiredCountColumns(page, "tab-remounted stock-count preference");
     await assertNumericText(page, "stock-count-line-executed-qty", expectedBookQty, "remounted book quantity");
     assert(tabSwitchLookupCount >= 2, `pending lookup must retry after tab remount, got ${tabSwitchLookupCount} requests`);
     lookupMode = "pass";
@@ -226,6 +263,25 @@ async function createAndAuditInFrontend(countedQty, expectedBookQty) {
     const formShot = `a88-stock-count-form-audited-${batch}.png`;
     await page.screenshot({ path: path.join(screenshotDir, formShot), fullPage: true });
     screenshots.push(`verification/playwright/${formShot}`);
+
+    await page.evaluate(() => localStorage.setItem("jdy:entry-columns:stock-count", "{malformed-json"));
+    await page.reload({ waitUntil: "networkidle" });
+    await openStockCountForm(page);
+    await assertRequiredCountColumns(page, "malformed stock-count preference");
+    malformedPreferenceRecovered = true;
+
+    await page.evaluate(() => {
+      localStorage.setItem("jdy:entry-columns:stock-count", JSON.stringify([
+        null,
+        { key: "productCode", width: 140, visible: true, fixed: "" },
+        { key: "qty", width: 104, visible: "invalid", fixed: "" },
+        { key: "remainingQty", width: 104, visible: false, fixed: "" }
+      ]));
+    });
+    await page.reload({ waitUntil: "networkidle" });
+    await openStockCountForm(page);
+    await assertRequiredCountColumns(page, "missing-column stock-count preference");
+    missingPreferenceRecovered = true;
 
     await page.getByTestId("module-库存管理").hover();
     await page.getByTestId("query-stock-count-form").click();
@@ -277,6 +333,9 @@ const result = {
   financeCount,
   tabSwitchLookupCount,
   multiLineErrorVerified,
+  legacyHiddenPreferenceRecovered,
+  malformedPreferenceRecovered,
+  missingPreferenceRecovered,
   screenshots
 };
 

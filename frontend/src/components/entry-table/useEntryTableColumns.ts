@@ -30,7 +30,7 @@ export const bulkPriceSourceOptions = [
 ] as const;
 
 export function buildDefaultEntryColumns(options: EntryColumnOptions): EntryColumn[] {
-  return [
+  const columns: EntryColumn[] = [
     { key: "rowNo", title: "序号", width: 48, visible: true, fixed: "left", locked: true, configurable: false, numeric: true },
     { key: "partyCode", title: options.partyCodeLabel || "客户编码", width: 118, visible: options.showPartyCodeColumn !== false },
     { key: "customerMaterialCode", title: "客户物料编码", width: 150, visible: Boolean(options.showCustomerMaterialCodeColumn) },
@@ -62,6 +62,10 @@ export function buildDefaultEntryColumns(options: EntryColumnOptions): EntryColu
     { key: "planDeliveryDate", title: "预计交期", width: 142, visible: Boolean(options.showPlanDeliveryDateColumn), bulkFillable: true },
     { key: "remark", title: "行备注", width: 210, visible: true }
   ];
+  const requiredVisibleKeys = new Set(options.requiredVisibleColumnKeys ?? []);
+  return columns.map((column) => requiredVisibleKeys.has(column.key)
+    ? { ...column, visible: true, visibilityLocked: true }
+    : column);
 }
 
 export function isColumnAvailable(column: EntryColumn, options: EntryColumnOptions) {
@@ -126,8 +130,14 @@ export function normalizeEntryColumns(nextColumns: EntryColumn[]) {
 
 export function loadEntryColumnPreferences(key: string): EntryColumn[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]") as EntryColumn[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]") as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is EntryColumn => Boolean(
+          item
+          && typeof item === "object"
+          && typeof (item as { key?: unknown }).key === "string"
+        ))
+      : [];
   } catch {
     return [];
   }
@@ -137,7 +147,7 @@ export function saveEntryColumnPreferences(key: string, columns: EntryColumn[]) 
   localStorage.setItem(key, JSON.stringify(columns.map((column) => ({
     key: column.key,
     width: isFrozenEntryColumn(column.key) ? column.width : Math.max(64, Number(column.width) || 64),
-    visible: isFrozenEntryColumn(column.key) ? true : column.visible,
+    visible: isFrozenEntryColumn(column.key) || column.visibilityLocked ? true : column.visible,
     fixed: isFrozenEntryColumn(column.key) ? "left" : ""
   }))));
 }

@@ -87,6 +87,7 @@ export interface EntryColumn {
   locked?: boolean;
   reorderable?: boolean;
   configurable?: boolean;
+  visibilityLocked?: boolean;
   numeric?: boolean;
   bulkFillable?: boolean;
 }
@@ -122,6 +123,7 @@ export interface EntryColumnOptions {
   qtyLabel?: string;
   stockAvailableLabel?: string;
   showExecutedQtyColumn?: boolean;
+  requiredVisibleColumnKeys?: EntryColumnKey[];
   showPriceAmountColumns?: boolean;
   showTaxColumns?: boolean;
   isDraft?: boolean;

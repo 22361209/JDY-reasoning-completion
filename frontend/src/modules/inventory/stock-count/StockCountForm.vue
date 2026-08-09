@@ -33,8 +33,10 @@
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="variant === 'count' || document.showExecutionColumns.value"
     :show-executed-qty-column="document.showExecutedQtyColumn"
+    :required-visible-column-keys="variant === 'count' ? countRequiredVisibleColumnKeys : undefined"
     :execution-qty-label="config.executionQtyLabel"
     :remaining-qty-label="config.remainingQtyLabel"
+    :qty-label="config.qtyLabel"
     :entry-table-colspan="document.entryTableColspan.value"
     :entry-total-colspan="document.entryTotalColspan.value"
     :total-amount="document.totalAmount.value"
@@ -101,6 +103,7 @@
 import { computed } from "vue";
 import DocumentDialogs from "../../../components/DocumentDialogs.vue";
 import DocumentForm from "../../../components/DocumentForm.vue";
+import type { EntryColumnKey } from "../../../components/entry-table/types";
 import type { DocumentDetail, OpenableDocumentType } from "../../../services/documentApi";
 import { useStockCountDocument } from "./useStockCountDocument";
 import { useStockCountGainDocument } from "../stock-count-gain/useStockCountGainDocument";
@@ -118,6 +121,7 @@ const props = defineProps<{
   userName: string;
   hasPermission: (permission: string) => boolean;
 }>();
+const countRequiredVisibleColumnKeys: EntryColumnKey[] = ["qty", "executedQty", "remainingQty"];
 
 const emit = defineEmits<{
   markDirty: [];
@@ -143,12 +147,12 @@ const document = props.variant === "gain"
 
 const config = computed(() => {
   if (props.variant === "gain") {
-    return { testPrefix: "stock-count-gain", executionQtyLabel: "已执行", remainingQtyLabel: "剩余" };
+    return { testPrefix: "stock-count-gain", executionQtyLabel: "已执行", remainingQtyLabel: "剩余", qtyLabel: "数量" };
   }
   if (props.variant === "loss") {
-    return { testPrefix: "stock-count-loss", executionQtyLabel: "已执行", remainingQtyLabel: "剩余" };
+    return { testPrefix: "stock-count-loss", executionQtyLabel: "已执行", remainingQtyLabel: "剩余", qtyLabel: "数量" };
   }
-  return { testPrefix: "stock-count", executionQtyLabel: "系统库存", remainingQtyLabel: "差异" };
+  return { testPrefix: "stock-count", executionQtyLabel: "系统库存", remainingQtyLabel: "差异", qtyLabel: "实盘数量" };
 });
 
 const dialogBindings = computed(() => ({

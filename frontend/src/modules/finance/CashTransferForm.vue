@@ -33,11 +33,20 @@
   >
     <section class="cash-transfer-form" data-testid="cash-transfer-form">
       <p class="cash-transfer-tip">仅允许 CNY/USD 的同币种账户互转。草稿不产生资金事实，审核后才写入双边资金事实。</p>
+      <p v-if="accountsLoading" class="cash-transfer-account-state" data-testid="cash-transfer-account-loading">正在加载可用资金账户…</p>
+      <p v-else-if="accountsLoadError" class="cash-transfer-account-state is-error" data-testid="cash-transfer-account-error">
+        <span>{{ accountsLoadError }}</span>
+        <button type="button" data-testid="cash-transfer-account-retry" @click="loadAccounts">重试加载账户</button>
+      </p>
+      <p v-else-if="accounts.length === 0" class="cash-transfer-account-state" data-testid="cash-transfer-account-empty">
+        <span>没有可用的已审核、启用 CNY/USD 资金账户。</span>
+        <button type="button" data-testid="cash-transfer-account-retry" @click="loadAccounts">重新加载</button>
+      </p>
       <div class="cash-transfer-grid">
         <label><span>单据编号</span><input :value="form.billNo" disabled data-testid="cash-transfer-bill-no" placeholder="保存后自动生成" /></label>
         <label><span>业务日期</span><input v-model="form.billDate" type="date" :disabled="!canEdit" data-testid="cash-transfer-bill-date" @input="markDirty" /></label>
-        <label><span>转出账户</span><select v-model="form.sourceAccountId" :disabled="!canEdit" data-testid="cash-transfer-source-account" @change="accountChanged"><option value="">请选择</option><option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.code }} · {{ account.name }} · {{ account.currency }}</option></select></label>
-        <label><span>转入账户</span><select v-model="form.targetAccountId" :disabled="!canEdit" data-testid="cash-transfer-target-account" @change="accountChanged"><option value="">请选择</option><option v-for="account in targetAccounts" :key="account.id" :value="account.id">{{ account.code }} · {{ account.name }} · {{ account.currency }}</option></select></label>
+        <label><span>转出账户</span><select v-model="form.sourceAccountId" :disabled="!canEdit || accountsLoading" data-testid="cash-transfer-source-account" @change="accountChanged"><option value="">请选择</option><option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.code }} · {{ account.name }} · {{ account.currency }}</option></select></label>
+        <label><span>转入账户</span><select v-model="form.targetAccountId" :disabled="!canEdit || accountsLoading" data-testid="cash-transfer-target-account" @change="accountChanged"><option value="">请选择</option><option v-for="account in targetAccounts" :key="account.id" :value="account.id">{{ account.code }} · {{ account.name }} · {{ account.currency }}</option></select></label>
         <label><span>币种</span><input :value="form.currency || '随账户确定'" disabled data-testid="cash-transfer-currency" /></label>
         <label><span>转账金额</span><input v-model="form.amount" type="text" inputmode="decimal" :disabled="!canEdit" data-testid="cash-transfer-amount" @input="markDirty" /></label>
         <label class="cash-transfer-remark"><span>备注</span><input v-model="form.remark" :disabled="!canEdit" data-testid="cash-transfer-remark" @input="markDirty" /></label>
@@ -56,6 +65,8 @@ const props = defineProps<{ title: string; subtitle: string; statusClass: string
 const emit = defineEmits<{ markDirty: []; clearDirty: [] }>();
 type Account = { id: string; code: string; name: string; currency: "CNY" | "USD" };
 const accounts = ref<Account[]>([]);
+const accountsLoading = ref(true);
+const accountsLoadError = ref("");
 const message = ref("");
 const form = reactive({ billNo: "", billDate: today(), sourceAccountId: "", targetAccountId: "", currency: "", amount: "0", remark: "", status: "DRAFT", version: 0 });
 const statusLabel = computed(() => form.status === "AUDITED" ? "已审核" : "草稿");
@@ -64,11 +75,56 @@ const canAudit = computed(() => canEdit.value && Boolean(form.billNo) && !props.
 const canReverse = computed(() => props.hasPermission("finance.cash_transfer.audit") && form.status === "AUDITED");
 const targetAccounts = computed(() => accounts.value.filter((account) => !form.sourceAccountId || account.id === form.sourceAccountId || account.currency === form.currency));
 
-onMounted(loadAccounts);
-async function loadAccounts() {
-  const result = await fetchListRows("financial-account-settlement-selector", { keyword: "", page: 1, pageSize: 200, view: "header" });
-  if (!result.ok || !result.data) { message.value = result.message || "资金账户加载失败。"; return; }
-  accounts.value = result.data.rows.map((row) => ({ id: String(row.id ?? ""), code: String(row.code ?? ""), name: String(row.name ?? ""), currency: String(row.currency ?? "") as "CNY" | "USD" })).filter((row) => row.id && (row.currency === "CNY" || row.currency === "USD"));
+let accountsLoadPromise: Promise<void> | null = null;
+onMounted(() => { void loadAccounts(); });
+function loadAccounts(): Promise<void> {
+  if (accountsLoadPromise) return accountsLoadPromise;
+  accountsLoadPromise = loadAccountsOnce().finally(() => { accountsLoadPromise = null; });
+  return accountsLoadPromise;
+}
+async function loadAccountsOnce() {
+  accountsLoading.value = true;
+  accountsLoadError.value = "";
+  accounts.value = [];
+  Object.assign(form, { sourceAccountId: "", targetAccountId: "", currency: "" });
+  try {
+    const rows: Record<string, unknown>[] = [];
+    const pageSize = 200;
+    let page = 1;
+    let expectedTotal: number | null = null;
+    do {
+      const result = await fetchListRows("financial-account-settlement-selector", { keyword: "", page, pageSize, view: "header" });
+      if (!result.ok || !result.data) {
+        accountsLoadError.value = result.message || "资金账户加载失败，请重试。";
+        return;
+      }
+      const nextRows = result.data.rows;
+      const nextTotal = Number(result.data.total);
+      if (!Array.isArray(nextRows) || !Number.isSafeInteger(nextTotal) || nextTotal < 0 || (nextRows.length === 0 && rows.length < nextTotal)) {
+        accountsLoadError.value = "资金账户数据异常，请重试。";
+        return;
+      }
+      if (expectedTotal !== null && nextTotal !== expectedTotal) {
+        accountsLoadError.value = "资金账户数据已变化，请重试。";
+        return;
+      }
+      expectedTotal = nextTotal;
+      rows.push(...nextRows);
+      page += 1;
+    } while (rows.length < (expectedTotal ?? 0));
+    const uniqueRows = new Map(rows.map((row) => [String(row.id ?? ""), row]));
+    if (uniqueRows.size !== (expectedTotal ?? 0) || uniqueRows.has("")) {
+      accountsLoadError.value = "资金账户数据已变化，请重试。";
+      return;
+    }
+    accounts.value = [...uniqueRows.values()]
+      .map((row) => ({ id: String(row.id ?? ""), code: String(row.code ?? ""), name: String(row.name ?? ""), currency: String(row.currency ?? "") as "CNY" | "USD" }))
+      .filter((row) => row.id && (row.currency === "CNY" || row.currency === "USD"));
+  } catch {
+    accountsLoadError.value = "资金账户数据异常，请重试。";
+  } finally {
+    accountsLoading.value = false;
+  }
 }
 function accountChanged() {
   const source = accounts.value.find((account) => account.id === form.sourceAccountId);
@@ -78,7 +134,12 @@ function accountChanged() {
   emit("markDirty");
 }
 function markDirty() { emit("markDirty"); }
-function startNew() { Object.assign(form, { billNo: "", billDate: today(), sourceAccountId: "", targetAccountId: "", currency: "", amount: "0", remark: "", status: "DRAFT", version: 0 }); message.value = ""; emit("clearDirty"); }
+function startNew() {
+  Object.assign(form, { billNo: "", billDate: today(), sourceAccountId: "", targetAccountId: "", currency: "", amount: "0", remark: "", status: "DRAFT", version: 0 });
+  message.value = "";
+  emit("clearDirty");
+  void loadAccounts();
+}
 function validation(auditing: boolean) {
   if (!form.sourceAccountId || !form.targetAccountId) return "请选择转出和转入账户。";
   if (form.sourceAccountId === form.targetAccountId) return "转出账户和转入账户不能相同。";
@@ -136,6 +197,9 @@ defineExpose({ startNew, loadByBillNo });
 <style scoped>
 .cash-transfer-form { padding: 18px 22px 28px; }
 .cash-transfer-tip { margin: 0 0 16px; color: #5b6878; }
+.cash-transfer-account-state { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; color: #5b6878; }
+.cash-transfer-account-state.is-error { color: #b42318; }
+.cash-transfer-account-state button { min-height: 28px; border: 1px solid #aeb9c6; border-radius: 3px; padding: 3px 10px; background: #fff; color: #2f5f92; cursor: pointer; }
 .cash-transfer-grid { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 14px 18px; }
 .cash-transfer-grid label { display: grid; gap: 6px; color: #425466; font-size: 13px; }
 .cash-transfer-grid input, .cash-transfer-grid select { min-width: 0; min-height: 32px; border: 1px solid #ccd5df; border-radius: 3px; padding: 5px 8px; background: #fff; color: #1d2a38; }

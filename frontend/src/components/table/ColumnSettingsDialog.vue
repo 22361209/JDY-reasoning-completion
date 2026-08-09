@@ -4,7 +4,7 @@
       <h3>{{ title }}</h3>
       <div class="column-setting-list">
         <div v-for="column in columns" :key="column.key || column.field" class="column-setting-row">
-          <label><input v-model="column.visible" type="checkbox" :disabled="column.configurable === false" /> {{ column.title }}</label>
+          <label><input v-model="column.visible" type="checkbox" :disabled="column.configurable === false || column.visibilityLocked === true" /> {{ column.title }}</label>
           <select v-model="column.fixed" :disabled="column.configurable === false">
             <option value="">不固定</option>
             <option value="left">固定左侧</option>
@@ -28,6 +28,7 @@ export interface ColumnSettingItem {
   visible: boolean;
   fixed?: "" | "left" | "right";
   configurable?: boolean;
+  visibilityLocked?: boolean;
 }
 
 defineProps<{
