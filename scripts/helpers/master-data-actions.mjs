@@ -1,5 +1,6 @@
 const MASTER_DATA_LIST_KEYS = Object.freeze({
   product: "product-master-list",
+  productName: "product-name-list",
   customer: "customer-master-list",
   supplier: "supplier-master-list",
   warehouse: "warehouse-master-list"
@@ -160,6 +161,19 @@ export async function upsertMasterDataFixture({ apiBase, type, payload, audit = 
   const code = String(payload?.code ?? "").trim();
   if (!code) {
     throw new Error(`${type} fixture requires code`);
+  }
+
+  if (type === "product") {
+    const productName = String(payload?.name ?? "").trim();
+    if (!productName) {
+      throw new Error("product fixture requires name");
+    }
+    await upsertMasterDataFixture({
+      apiBase,
+      type: "productName",
+      payload: { code: productName, name: productName, status: "启用" },
+      audit: true
+    });
   }
 
   const createResponse = await fetch(`${apiBase}/api/master-data/${type}`, {
