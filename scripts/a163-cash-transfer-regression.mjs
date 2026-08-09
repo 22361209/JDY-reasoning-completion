@@ -505,34 +505,175 @@ try {
   cleanupErrors.push(error instanceof Error ? error.message : String(error));
 }
 try {
-  scalar(`
-    BEGIN;
-    DELETE FROM public.sys_user_account_set
-    WHERE user_id IN (SELECT id FROM public.sys_user WHERE username=${sqlLiteral(transferOnlyFixture.username)});
-    DELETE FROM public.sys_user_role
-    WHERE user_id IN (SELECT id FROM public.sys_user WHERE username=${sqlLiteral(transferOnlyFixture.username)});
-    DELETE FROM public.sys_user WHERE username=${sqlLiteral(transferOnlyFixture.username)};
-    DELETE FROM public.sys_permission
-    WHERE role_id IN (SELECT id FROM public.sys_role WHERE code=${sqlLiteral(transferOnlyFixture.roleCode)});
-    DELETE FROM public.sys_role WHERE code=${sqlLiteral(transferOnlyFixture.roleCode)};
-    COMMIT;
+  const discoveredOwnershipText = scalar(`
+    SELECT coalesce((
+             SELECT id::text FROM public.sys_role
+             WHERE code=${sqlLiteral(transferOnlyFixture.roleCode)}
+               AND name='A183 资金转账最小权限'
+           ), '') || '|' || coalesce((
+             SELECT id::text FROM public.sys_user
+             WHERE username=${sqlLiteral(transferOnlyFixture.username)}
+               AND display_name='A183 资金转账最小权限用户'
+           ), '')
   `);
-  const residueText = transferOnlyOwnership
-    ? scalar(`
-        SELECT (SELECT count(*) FROM public.sys_role WHERE id='${transferOnlyOwnership.roleId}'::uuid) || '|'
-            || (SELECT count(*) FROM public.sys_user WHERE id='${transferOnlyOwnership.userId}'::uuid) || '|'
-            || (SELECT count(*) FROM public.sys_permission WHERE role_id='${transferOnlyOwnership.roleId}'::uuid) || '|'
-            || (SELECT count(*) FROM public.sys_user_role WHERE user_id='${transferOnlyOwnership.userId}'::uuid OR role_id='${transferOnlyOwnership.roleId}'::uuid) || '|'
-            || (SELECT count(*) FROM public.sys_user_account_set WHERE user_id='${transferOnlyOwnership.userId}'::uuid)
-      `)
-    : scalar(`
-        SELECT (SELECT count(*) FROM public.sys_role WHERE code=${sqlLiteral(transferOnlyFixture.roleCode)}) || '|'
-            || (SELECT count(*) FROM public.sys_user WHERE username=${sqlLiteral(transferOnlyFixture.username)}) || '|0|0|0'
-      `);
-  const [role, user, permission, roleLink, grant] = residueText.split("|").map(Number);
-  const fixtureResidue = { role, user, permission, roleLink, grant };
-  if (Object.values(fixtureResidue).some((count) => count !== 0)) cleanupErrors.push(`transfer-only fixture residue: ${JSON.stringify(fixtureResidue)}`);
-  else if (evidence) evidence.cleanup.transferOnlyFixtureResidue = fixtureResidue;
+  const [discoveredRoleId, discoveredUserId] = discoveredOwnershipText.split("|");
+  const cleanupOwnership = transferOnlyOwnership ?? (
+    discoveredRoleId && discoveredUserId
+      ? { roleId: discoveredRoleId, userId: discoveredUserId }
+      : null
+  );
+  if (!cleanupOwnership) {
+    const partialFixtureRows = Number(scalar(`
+      SELECT (SELECT count(*) FROM public.sys_role WHERE code=${sqlLiteral(transferOnlyFixture.roleCode)})
+           + (SELECT count(*) FROM public.sys_user WHERE username=${sqlLiteral(transferOnlyFixture.username)})
+    `));
+    assert(partialFixtureRows === 0, `transfer-only fixture ownership is incomplete: ${discoveredOwnershipText}`);
+  } else {
+    const residueText = scalar(`
+      BEGIN;
+      SET LOCAL lock_timeout='5s';
+      SET LOCAL statement_timeout='30s';
+      LOCK TABLE public.sys_user,
+                 public.sys_role,
+                 public.sys_user_role,
+                 public.sys_permission,
+                 public.sys_user_account_set,
+                 public.sys_session_account_scope,
+                 public.sys_operation_log
+      IN SHARE ROW EXCLUSIVE MODE;
+      DO $a163_guard$
+      BEGIN
+        IF (SELECT count(*) FROM public.sys_user
+            WHERE id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+              AND username=${sqlLiteral(transferOnlyFixture.username)}
+              AND display_name='A183 资金转账最小权限用户') <> 1 THEN
+          RAISE EXCEPTION 'A163 transfer-only user ownership drifted';
+        END IF;
+        IF (SELECT count(*) FROM public.sys_role
+            WHERE id=${sqlLiteral(cleanupOwnership.roleId)}::uuid
+              AND code=${sqlLiteral(transferOnlyFixture.roleCode)}
+              AND name='A183 资金转账最小权限') <> 1 THEN
+          RAISE EXCEPTION 'A163 transfer-only role ownership drifted';
+        END IF;
+        IF (SELECT count(*) FROM public.sys_permission
+            WHERE role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid) <> 1
+           OR (SELECT count(*) FROM public.sys_permission
+               WHERE role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid
+                 AND permission_code='finance.cash_transfer.audit'
+                 AND enabled=TRUE) <> 1 THEN
+          RAISE EXCEPTION 'A163 transfer-only permission ownership drifted';
+        END IF;
+        IF (SELECT count(*) FROM public.sys_user_role
+            WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+               OR role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid) <> 1
+           OR (SELECT count(*) FROM public.sys_user_role
+               WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+                 AND role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid) <> 1 THEN
+          RAISE EXCEPTION 'A163 transfer-only role link ownership drifted';
+        END IF;
+        IF (SELECT count(*) FROM public.sys_user_account_set
+            WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+               OR role_code=${sqlLiteral(transferOnlyFixture.roleCode)}) <> 1
+           OR (SELECT count(*)
+               FROM public.sys_user_account_set grant_row
+               JOIN public.sys_account_set account_set ON account_set.id=grant_row.account_set_id
+               WHERE grant_row.user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+                 AND account_set.code='BLD-TEST'
+                 AND grant_row.role_code=${sqlLiteral(transferOnlyFixture.roleCode)}
+                 AND grant_row.is_default=TRUE
+                 AND grant_row.enabled=TRUE) <> 1 THEN
+          RAISE EXCEPTION 'A163 transfer-only account-set grant ownership drifted';
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM public.sys_operation_log
+          WHERE (operated_by=${sqlLiteral(cleanupOwnership.userId)}::uuid
+                 OR actor_username=${sqlLiteral(transferOnlyFixture.username)})
+            AND (
+              actor_type IS DISTINCT FROM 'USER'
+              OR operated_by IS DISTINCT FROM ${sqlLiteral(cleanupOwnership.userId)}::uuid
+              OR actor_username IS DISTINCT FROM ${sqlLiteral(transferOnlyFixture.username)}
+              OR (actor_display_name IS NOT NULL
+                  AND actor_display_name IS DISTINCT FROM 'A183 资金转账最小权限用户')
+            )
+        ) THEN
+          RAISE EXCEPTION 'A163 transfer-only operation-log ownership drifted';
+        END IF;
+      END
+      $a163_guard$;
+      CREATE TEMP TABLE a163_owned_operation_logs ON COMMIT PRESERVE ROWS AS
+      SELECT id
+      FROM public.sys_operation_log
+      WHERE actor_type='USER'
+        AND operated_by=${sqlLiteral(cleanupOwnership.userId)}::uuid
+        AND actor_username=${sqlLiteral(transferOnlyFixture.username)};
+      DELETE FROM public.sys_operation_log
+      WHERE id IN (SELECT id FROM a163_owned_operation_logs);
+      DELETE FROM public.sys_user_account_set
+      WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+        AND role_code=${sqlLiteral(transferOnlyFixture.roleCode)};
+      DELETE FROM public.sys_session_account_scope
+      WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid;
+      DELETE FROM public.sys_user_role
+      WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+        AND role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid;
+      DELETE FROM public.sys_user
+      WHERE id=${sqlLiteral(cleanupOwnership.userId)}::uuid
+        AND username=${sqlLiteral(transferOnlyFixture.username)}
+        AND display_name='A183 资金转账最小权限用户';
+      DELETE FROM public.sys_permission
+      WHERE role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid
+        AND permission_code='finance.cash_transfer.audit';
+      DELETE FROM public.sys_role
+      WHERE id=${sqlLiteral(cleanupOwnership.roleId)}::uuid
+        AND code=${sqlLiteral(transferOnlyFixture.roleCode)}
+        AND name='A183 资金转账最小权限';
+      DO $a163_verify$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM public.sys_role WHERE id=${sqlLiteral(cleanupOwnership.roleId)}::uuid)
+           OR EXISTS (SELECT 1 FROM public.sys_user WHERE id=${sqlLiteral(cleanupOwnership.userId)}::uuid)
+           OR EXISTS (SELECT 1 FROM public.sys_permission WHERE role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid)
+           OR EXISTS (SELECT 1 FROM public.sys_user_role WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid OR role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid)
+           OR EXISTS (SELECT 1 FROM public.sys_user_account_set WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid OR role_code=${sqlLiteral(transferOnlyFixture.roleCode)})
+           OR EXISTS (SELECT 1 FROM public.sys_session_account_scope WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid)
+           OR EXISTS (SELECT 1 FROM public.sys_operation_log WHERE operated_by=${sqlLiteral(cleanupOwnership.userId)}::uuid OR actor_username=${sqlLiteral(transferOnlyFixture.username)}) THEN
+          RAISE EXCEPTION 'A163 transfer-only fixture residue remains before commit';
+        END IF;
+        IF EXISTS (
+          SELECT 1
+          FROM public.sys_operation_log log_row
+          LEFT JOIN public.sys_user user_row ON user_row.id=log_row.operated_by
+          WHERE log_row.operated_by IS NOT NULL AND user_row.id IS NULL
+        ) THEN
+          RAISE EXCEPTION 'A163 operation actor orphan remains before commit';
+        END IF;
+      END
+      $a163_verify$;
+      COMMIT;
+      SELECT (SELECT count(*) FROM public.sys_role WHERE id=${sqlLiteral(cleanupOwnership.roleId)}::uuid) || '|'
+          || (SELECT count(*) FROM public.sys_user WHERE id=${sqlLiteral(cleanupOwnership.userId)}::uuid) || '|'
+          || (SELECT count(*) FROM public.sys_permission WHERE role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid) || '|'
+          || (SELECT count(*) FROM public.sys_user_role WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid OR role_id=${sqlLiteral(cleanupOwnership.roleId)}::uuid) || '|'
+          || (SELECT count(*) FROM public.sys_user_account_set WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid OR role_code=${sqlLiteral(transferOnlyFixture.roleCode)}) || '|'
+          || (SELECT count(*) FROM public.sys_session_account_scope WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid) || '|'
+          || (SELECT count(*) FROM public.sys_operation_log WHERE operated_by=${sqlLiteral(cleanupOwnership.userId)}::uuid OR actor_username=${sqlLiteral(transferOnlyFixture.username)}) || '|'
+          || (SELECT count(*) FROM a163_owned_operation_logs) || '|'
+          || (SELECT count(*)
+              FROM public.sys_operation_log log_row
+              LEFT JOIN public.sys_user user_row ON user_row.id=log_row.operated_by
+              WHERE log_row.operated_by IS NOT NULL AND user_row.id IS NULL);
+      DROP TABLE a163_owned_operation_logs;
+    `);
+    const residueParts = residueText.split("|");
+    assert(residueParts.length === 9 && residueParts.every((value) => /^\d+$/.test(value)), `invalid transfer-only cleanup evidence: ${residueText}`);
+    const [role, user, permission, roleLink, grant, sessionScope, operationLog, deletedOperationLogs, actorOrphans] = residueParts.map(Number);
+    if (evidence) assert(deletedOperationLogs === 7, `transfer-only operation-log deletion count must be 7, got ${deletedOperationLogs}`);
+    const fixtureResidue = { role, user, permission, roleLink, grant, sessionScope, operationLog, actorOrphans };
+    if (Object.values(fixtureResidue).some((count) => count !== 0)) cleanupErrors.push(`transfer-only fixture residue: ${JSON.stringify(fixtureResidue)}`);
+    else if (evidence) {
+      evidence.cleanup.transferOnlyFixtureResidue = fixtureResidue;
+      evidence.cleanup.deletedOperationLogs = deletedOperationLogs;
+    }
+  }
 } catch (error) {
   cleanupErrors.push(`transfer-only fixture cleanup: ${error instanceof Error ? error.message : String(error)}`);
 }
