@@ -107,7 +107,7 @@
                   <span>{{ option.name }}</span>
                 </button>
                 <span v-if="parentMaterialLookupLoading" class="master-selector__loading">正在查询可自制母件…</span>
-                <em v-if="filteredParentMaterialOptions.length === 0">没有匹配的可自制母件</em>
+                <em v-else-if="filteredParentMaterialOptions.length === 0">没有匹配的可自制母件</em>
               </span>
             </span>
           </label>
@@ -655,16 +655,20 @@ function handleParentMaterialInput(event: Event) {
 function scheduleParentMaterialLookup(keywordSource: string) {
   if (parentMaterialLookupTimer != null) {
     window.clearTimeout(parentMaterialLookupTimer);
+    parentMaterialLookupTimer = undefined;
   }
   const keyword = keywordSource.trim();
+  const requestSeq = ++parentMaterialLookupRequestSeq;
+  parentMaterialLookupOptions.value = [];
+  parentMaterialLookupCursor.value = 0;
   if (!keyword) {
-    parentMaterialLookupOptions.value = [];
     parentMaterialLookupLoading.value = false;
     return;
   }
+  parentMaterialLookupLoading.value = true;
   parentMaterialLookupTimer = window.setTimeout(() => {
     parentMaterialLookupTimer = undefined;
-    void loadParentMaterialLookupOptions(keyword);
+    void loadParentMaterialLookupOptions(keyword, requestSeq);
   }, 180);
 }
 
@@ -678,15 +682,15 @@ function resetParentMaterialLookup() {
   parentMaterialLookupLoading.value = false;
 }
 
-async function loadParentMaterialLookupOptions(keywordSource: string) {
+async function loadParentMaterialLookupOptions(keywordSource: string, requestSeq: number) {
   const keyword = keywordSource.trim();
-  const requestSeq = ++parentMaterialLookupRequestSeq;
   if (!keyword) {
-    parentMaterialLookupOptions.value = [];
-    parentMaterialLookupLoading.value = false;
+    if (requestSeq === parentMaterialLookupRequestSeq) {
+      parentMaterialLookupOptions.value = [];
+      parentMaterialLookupLoading.value = false;
+    }
     return;
   }
-  parentMaterialLookupLoading.value = true;
   const result = await fetchListRows("product-master-list", {
     keyword,
     status: "",
@@ -702,7 +706,6 @@ async function loadParentMaterialLookupOptions(keywordSource: string) {
     return;
   }
   if (keyword !== form.productCode.trim()) {
-    parentMaterialLookupLoading.value = false;
     return;
   }
   parentMaterialLookupLoading.value = false;

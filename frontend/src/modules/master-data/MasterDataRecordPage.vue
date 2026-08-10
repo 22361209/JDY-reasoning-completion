@@ -119,6 +119,7 @@ const lookupHighlightIndex = ref(0);
 const localError = ref("");
 const pendingLookupCreate = ref<{ listKey: string; fieldName: string; label: string; value: string } | null>(null);
 const lookupRequestSeq: Record<string, number> = {};
+const lookupLoadingRequestSeq: Record<string, number | undefined> = {};
 const lookupValidationSeq: Record<string, number> = {};
 const lookupQueryTimers: Record<string, number | undefined> = {};
 let saveValidationSeq = 0;
@@ -253,6 +254,7 @@ async function queryLookupOptions(
   const requestSeq = (lookupRequestSeq[field.name] ?? 0) + 1;
   lookupRequestSeq[field.name] = requestSeq;
   if (options.showLoading) {
+    lookupLoadingRequestSeq[field.name] = requestSeq;
     lookupLoading[field.name] = true;
   }
   try {
@@ -279,7 +281,8 @@ async function queryLookupOptions(
     }
     return { options: fetchedOptions, error: "", stale: false };
   } finally {
-    if (options.showLoading) {
+    if (options.showLoading && lookupLoadingRequestSeq[field.name] === requestSeq) {
+      lookupLoadingRequestSeq[field.name] = undefined;
       lookupLoading[field.name] = false;
     }
   }
@@ -682,6 +685,7 @@ function cancelPendingLookupQueries() {
       lookupQueryTimers[fieldName] = undefined;
     }
     lookupRequestSeq[fieldName] = (lookupRequestSeq[fieldName] ?? 0) + 1;
+    lookupLoadingRequestSeq[fieldName] = undefined;
     lookupValidationSeq[fieldName] = (lookupValidationSeq[fieldName] ?? 0) + 1;
     lookupLoading[fieldName] = false;
   });

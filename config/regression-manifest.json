@@ -69,7 +69,8 @@
       "scripts/a148-inventory-movement-report-regression.mjs",
       "scripts/a151-material-scrap-backend-regression.mjs",
       "scripts/a179-warehouse-selector-regression.mjs",
-      "scripts/a180-warehouse-selector-initial-filter-regression.mjs"
+      "scripts/a180-warehouse-selector-initial-filter-regression.mjs",
+      "scripts/a184-a166-usability-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -116,7 +117,8 @@
       "scripts/a152-material-scrap-ui-regression.mjs",
       "scripts/a168-production-plan-entry-ux-regression.mjs",
       "scripts/a169-list-density-alignment-regression.mjs",
-      "scripts/a170-multilevel-production-procurement-regression.mjs"
+      "scripts/a170-multilevel-production-procurement-regression.mjs",
+      "scripts/a184-a166-usability-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -194,7 +196,8 @@
       "scripts/a167-production-plan-multi-line-migration-regression.mjs",
       "scripts/a167-production-multi-model-chain-regression.mjs",
       "scripts/a168-production-plan-entry-ux-regression.mjs",
-      "scripts/a170-multilevel-production-procurement-regression.mjs"
+      "scripts/a170-multilevel-production-procurement-regression.mjs",
+      "scripts/a184-a166-usability-regression.mjs"
     ],
     "master-data": [
       "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
@@ -212,7 +215,8 @@
       "scripts/a140-employee-financial-account-regression.mjs",
       "scripts/a143-master-data-import-regression.mjs",
       "scripts/a143-master-data-import-migration-regression.mjs",
-      "scripts/a179-warehouse-selector-regression.mjs"
+      "scripts/a179-warehouse-selector-regression.mjs",
+      "scripts/a184-a166-usability-regression.mjs"
     ],
     "reports": [
       "scripts/a145-report-query-foundation-regression.mjs",
@@ -370,7 +374,8 @@
     "scripts/a176-purchase-plan-order-closure-regression.mjs",
     "scripts/a176-uat-defects-regression.mjs",
     "scripts/a179-warehouse-selector-regression.mjs",
-    "scripts/a180-warehouse-selector-initial-filter-regression.mjs"
+    "scripts/a180-warehouse-selector-initial-filter-regression.mjs",
+    "scripts/a184-a166-usability-regression.mjs"
   ],
   "exemptions": [
     {

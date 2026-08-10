@@ -14,7 +14,7 @@
         />
         <button type="button" :data-testid="`${testPrefix}-source-selector-query`" @click="applyKeyword">查询</button>
         <button v-if="showColumnSettings" type="button" :data-testid="`${testPrefix}-source-selector-column-settings`" @click="columnDialogOpen = true">列设置</button>
-        <strong :data-testid="`${testPrefix}-source-selector-count`">{{ countLabel }}</strong>
+        <strong :data-testid="`${testPrefix}-source-selector-count`">{{ loading ? "数量加载中..." : countLabel }}</strong>
       </div>
       <div class="source-selector-content" :class="{ 'has-sidebar': Boolean($slots.sidebar) }">
         <aside v-if="$slots.sidebar" class="source-selector-sidebar">
@@ -84,22 +84,26 @@
       </div>
       <div class="source-selector-footer">
         <div class="source-selector-summary" :data-testid="`${testPrefix}-source-selector-summary`">
-          <span v-for="item in effectiveSummaryItems" :key="item.key" :class="{ strong: item.strong }">
-            {{ item.label }}：{{ item.value }}
-          </span>
+          <span v-if="loading" class="strong">明细加载中...</span>
+          <template v-else>
+            <span v-for="item in effectiveSummaryItems" :key="item.key" :class="{ strong: item.strong }">
+              {{ item.label }}：{{ item.value }}
+            </span>
+          </template>
         </div>
         <div class="source-selector-pagination" :data-testid="`${testPrefix}-source-selector-pagination`">
-          <span>共 {{ effectivePagination.total }} 条</span>
+          <span>{{ loading ? "总数加载中..." : `共 ${effectivePagination.total} 条` }}</span>
           <select
             v-model.number="localPageSize"
             :data-testid="`${testPrefix}-source-selector-page-size`"
+            :disabled="loading"
             @change="changePageSize"
           >
             <option v-for="option in pageSizeOptions" :key="option" :value="option">{{ option }}条/页</option>
           </select>
-          <button type="button" :disabled="!canPagePrev" @click="goPage(effectivePagination.page - 1)">上一页</button>
-          <span>第 {{ effectivePagination.page }} / {{ effectivePageCount }} 页</span>
-          <button type="button" :disabled="!canPageNext" @click="goPage(effectivePagination.page + 1)">下一页</button>
+          <button type="button" :disabled="loading || !canPagePrev" @click="goPage(effectivePagination.page - 1)">上一页</button>
+          <span>{{ loading ? "分页加载中..." : `第 ${effectivePagination.page} / ${effectivePageCount} 页` }}</span>
+          <button type="button" :disabled="loading || !canPageNext" @click="goPage(effectivePagination.page + 1)">下一页</button>
         </div>
       </div>
       <p v-if="message" class="form-error" :data-testid="`${testPrefix}-source-selector-message`">{{ message }}</p>
