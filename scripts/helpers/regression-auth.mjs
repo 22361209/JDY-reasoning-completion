@@ -39,6 +39,8 @@ const isolatedBackendOnlyEnvironment = "JDY_REGRESSION_ISOLATED_BACKEND_ONLY";
 const fixtureOwnershipVersion = "JDY_REGRESSION_FIXTURE_V1";
 const fixtureTombstonePasswordHash = `{noop}${fixtureOwnershipVersion}_DISABLED`;
 const redisInvariantCaptureRaceCode = "REGRESSION_REDIS_INVARIANT_CAPTURE_RACE";
+const regressionRequestFenceHttpErrorCode = "REGRESSION_REQUEST_FENCE_HTTP_ERROR";
+const regressionRequestFenceGenerationPendingReason = "回归测试身份请求门代际尚未生效";
 let cachedRuntimeCredentials;
 let cachedRuntimeFixtureLedgerWriter = null;
 const isolatedBackendOnly = (() => {
@@ -360,14 +362,104 @@ export async function manageRegressionRequestFence(
     // The control endpoint never echoes the capability. Preserve its bounded
     // public reason so preflight failures distinguish owner-schema, ownership,
     // and authorization defects without leaking the run-scoped token.
-    const reason = String(body?.message || body?.error || "").replace(/[^\p{L}\p{N}\s:_.-]/gu, " ").trim().slice(0, 240);
-    throw new Error(`regression request fence ${action} failed with status ${response.status}${reason ? `: ${reason}` : ""}`);
+    const rawReason = String(body?.message || body?.error || "");
+    const reason = rawReason
+      .split(controlCapability).join("[redacted]")
+      .replace(/[^\p{L}\p{N}\s:_.\-\[\]]/gu, " ")
+      .trim()
+      .slice(0, 240);
+    const error = new Error(`regression request fence ${action} failed with status ${response.status}${reason ? `: ${reason}` : ""}`);
+    error.code = regressionRequestFenceHttpErrorCode;
+    error.status = response.status;
+    error.reason = reason;
+    error.action = action;
+    throw error;
   }
   const expectedState = action === "OPEN" ? "OPEN" : "CLOSED";
   if (body?.state !== expectedState || Number(body?.activeCount) !== 0) {
     throw new Error(`regression request fence ${action} returned an incomplete drain state`);
   }
   return { state: body.state, activeCount: Number(body.activeCount) };
+}
+
+function sanitizedRegressionRequestFenceFailure(error, controlCapability) {
+  const fallback = error instanceof Error ? error.message : String(error);
+  const structured = error?.code === regressionRequestFenceHttpErrorCode
+    ? `status ${Number(error.status)}${error.reason ? `: ${String(error.reason)}` : ""}`
+    : fallback;
+  const withoutCapability = controlCapability
+    ? String(structured).split(controlCapability).join("[redacted]")
+    : String(structured);
+  return withoutCapability
+    .replace(/[^\p{L}\p{N}\s:_.\-\[\]()/]/gu, " ")
+    .trim()
+    .slice(0, 480) || "unknown request-fence failure";
+}
+
+export async function closeRegressionFixtureRequestFenceForLedger(
+  targetApiBase,
+  entry,
+  owned,
+  controlCapability = ""
+) {
+  const ledgerGeneration = Number(entry?.generation);
+  const currentGeneration = Number(owned?.sessionGeneration);
+  assert(["PREPARED", "HARD_DISABLED", "CLOSED"].includes(String(entry?.state)),
+    "regression fixture ledger request drain state is invalid");
+  assert(owned?.metadataMatches === true && owned?.ownershipMatches === true,
+    "regression fixture ledger request drain ownership is invalid");
+  assert(Number.isSafeInteger(ledgerGeneration) && ledgerGeneration >= 0,
+    "regression fixture ledger request drain generation is invalid");
+  assert(Number.isSafeInteger(currentGeneration) && currentGeneration >= 0,
+    "regression fixture database request drain generation is invalid");
+
+  const ledgerIdentity = {
+    username: String(entry.username),
+    userId: String(entry.userId),
+    generation: ledgerGeneration
+  };
+  try {
+    return await manageRegressionRequestFence(
+      targetApiBase,
+      ledgerIdentity,
+      "CLOSE_AND_DRAIN",
+      controlCapability
+    );
+  } catch (firstError) {
+    const retryCurrentGeneration = ["PREPARED", "HARD_DISABLED"].includes(entry.state)
+      && owned.enabled === false
+      && currentGeneration > ledgerGeneration
+      && firstError?.code === regressionRequestFenceHttpErrorCode
+      && firstError?.status === 409
+      && firstError?.action === "CLOSE_AND_DRAIN"
+      && firstError?.reason === regressionRequestFenceGenerationPendingReason;
+    if (!retryCurrentGeneration) throw firstError;
+
+    try {
+      return await manageRegressionRequestFence(
+        targetApiBase,
+        {
+          username: ledgerIdentity.username,
+          userId: ledgerIdentity.userId,
+          generation: currentGeneration
+        },
+        "CLOSE_AND_DRAIN",
+        controlCapability
+      );
+    } catch (retryError) {
+      const firstFailure = sanitizedRegressionRequestFenceFailure(firstError, controlCapability);
+      const retryFailure = sanitizedRegressionRequestFenceFailure(retryError, controlCapability);
+      const combined = new AggregateError(
+        [new Error(firstFailure), new Error(retryFailure)],
+        `regression request fence generation recovery failed: ledger ${firstFailure}; current ${retryFailure}`
+      );
+      combined.code = "REGRESSION_REQUEST_FENCE_GENERATION_RECOVERY_FAILED";
+      combined.action = "CLOSE_AND_DRAIN";
+      combined.firstFailure = firstFailure;
+      combined.retryFailure = retryFailure;
+      throw combined;
+    }
+  }
 }
 
 export async function fillRegressionAdminPassword(locator) {
@@ -1806,10 +1898,10 @@ export async function closeAndRecoverRegressionFixtureLedger(
       continue;
     }
     try {
-      await manageRegressionRequestFence(
+      await closeRegressionFixtureRequestFenceForLedger(
         targetApiBase,
         entry,
-        "CLOSE_AND_DRAIN",
+        owned,
         controlCapability
       );
     } catch (error) {

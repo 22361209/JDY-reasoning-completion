@@ -118,6 +118,22 @@ class RegressionFixtureControllerTest {
     }
 
     @Test
+    void ownerCapabilityCanCloseTheCurrentDisabledGenerationAfterTheEarlierFenceWasDrained() {
+        tracker.open(userId, 7L);
+        tracker.closeAndDrain(userId, 7L, java.time.Duration.ofMillis(100));
+        ownedFixture(false, true, true, 8L);
+
+        assertThat(controller.manage(servletRequest, request("CLOSE_AND_DRAIN", 8L)))
+            .containsEntry("state", "CLOSED")
+            .containsEntry("activeCount", 0);
+        assertThat(tracker.snapshot(userId))
+            .isEqualTo(new RegressionActiveRequestTracker.Snapshot(
+                RegressionActiveRequestTracker.FenceState.CLOSED,
+                0
+            ));
+    }
+
+    @Test
     void recoveryCapabilityCanOnlyCloseItsAuthorizedHistoricalGeneration() {
         ownedFixture(false, true, true, 8L);
         when(accessGuard.requireFixtureControl(
