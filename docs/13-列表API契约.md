@@ -38,6 +38,7 @@ GET /api/lists/{listKey}/export.csv
 | `action` | string | 否 | 操作日志专用，动作代码。 |
 | `operator` | string | 否 | 操作日志专用，操作人包含匹配。 |
 | `targetType` | string | 否 | 操作日志专用，对象类型精确匹配。 |
+| `snapshotToken` | string | 否 | 仅服务端显式声明快照分页的内部选择器使用；第一页不传，续页必须原样回传第一页签发的不透明标识。普通列表和导出不得自行生成。 |
 
 `keyword` 分词规则：
 
@@ -74,6 +75,7 @@ GET /api/lists/{listKey}/export.csv
   "sortField": "billNo",
   "sortOrder": "asc",
   "total": 1200,
+  "snapshotToken": "opaque-server-token",
   "rows": []
 }
 ```
@@ -89,6 +91,7 @@ GET /api/lists/{listKey}/export.csv
 - 未登记 `listKey` 的查询和引出均返回 `404`；必须先判定 key 已登记，再做列表专属权限和数据访问。
 - 服务异常返回非 `2xx`，前端显示错误态并提供重试。
 - 查询无结果返回 `200` 且 `rows=[]`、`total=0`，前端显示空态。
+- 声明快照分页的选择器必须在第一页返回 `snapshotToken`。续页缺少标识，或 tenant、查询条件、页大小、排序及候选全集任一发生变化时返回 `409`，且不得返回部分页；前端必须丢弃已经拼接的行并从第一页重试。
 
 `404` 与 `200` 空集的语义不可混用：前者表示列表未登记，后者表示已登记列表在当前条件下没有数据。未知 key 不得返回销售订单列、销售单号或伪空集。
 
@@ -144,11 +147,12 @@ A140/A183 登记以下精确 key，后缀不构成通配：
 | `employee-master-selector` | 员工内部选择器 | `master.data.manage` 或 `system.role_permission.manage` | 仅 `AUDITED + enabled` |
 | `financial-account-master-list` | 财务账户正式列表 | `master.data.manage` 或 `finance.settle` | tenant 内全部账户 |
 | `financial-account-master-selector` | 财务账户内部选择器 | `master.data.manage` 或 `finance.settle` | 仅 `AUDITED + enabled` |
-| `financial-account-settlement-selector` | 结算与资金转账最小账户候选 | `finance.settle` 或 `finance.cash_transfer.audit` | 仅 `AUDITED + enabled`；不返回账号、户名、备注和版本，资金转账表单再限定 `CNY/USD` |
+| `financial-account-settlement-selector` | 结算与资金转账最小账户候选 | `finance.settle` 或 `finance.cash_transfer.audit` | 仅 `AUDITED + enabled`；不返回账号、户名、备注和版本，资金转账表单再限定 `CNY/USD`；多页读取强制使用服务端候选全集快照标识 |
 
 - 两个正式列表是 catalog 入口；三个 selector 只供内部选择，不得发布为 catalog 入口。
 - OR 权限由后端契约显式声明，不能通过角色名、前端隐藏或给只读角色补 `master.data.manage` 实现。
 - selector 的审核/启用条件必须在服务端查询中强制；查询和导出不得依赖前端过滤。
+- `financial-account-settlement-selector` 的 `snapshotToken` 绑定当前 tenant、查询条件、页大小、排序和完整候选字段；它只保证分页读取一致性，不是授权凭据，也不能替代保存/审核时的账户资格复验。权限守卫必须先于 token 校验。
 - 员工、财务账户都使用真实 tenant 表，不扩展样本行；两个 tenant 可以有相同编码，但列表、详情、选择器不得串数据。
 - 未登记的普通/master/selector key 必须在权限、adapter/provider 选择和 JDBC 访问之前返回 `404`。
 

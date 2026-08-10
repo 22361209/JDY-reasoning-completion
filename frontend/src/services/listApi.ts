@@ -14,6 +14,7 @@ export interface ListQuery {
   scope?: "current" | "platform" | "historical";
   dateFrom?: string;
   dateTo?: string;
+  snapshotToken?: string;
   columnFilters?: Record<string, { operator: string; value: string }>;
 }
 
@@ -25,6 +26,7 @@ export interface ListResponse {
   sortField?: string;
   sortOrder?: string;
   scope?: "current" | "platform" | "historical";
+  snapshotToken?: string;
   rows: Record<string, unknown>[];
 }
 
@@ -138,6 +140,8 @@ export async function fetchListRows(listKey: string, query: ListQuery, options: 
           ? "当前账号无权查看该列表。"
           : response.status === 404
             ? "该列表未定义或尚未开放。"
+            : response.status === 409
+              ? "列表数据已变化，请重新加载。"
             : "列表数据加载失败，请稍后重试。",
         data: null
       };
@@ -161,6 +165,85 @@ export async function fetchListRows(listKey: string, query: ListQuery, options: 
       data: null
     };
   }
+}
+
+export async function fetchSnapshotListRows(
+  listKey: string,
+  query: Omit<ListQuery, "page" | "snapshotToken">,
+  options: ListFetchOptions = {}
+): Promise<ListFetchResult> {
+  const rows: Record<string, unknown>[] = [];
+  const rowIds = new Set<string>();
+  let page = 1;
+  let expectedTotal: number | null = null;
+  let snapshotToken = "";
+
+  while (true) {
+    const result = await fetchListRows(listKey, {
+      ...query,
+      page,
+      snapshotToken: page === 1 ? undefined : snapshotToken
+    }, options);
+    if (!result.ok || !result.data) {
+      return result;
+    }
+
+    const pageRows = result.data.rows;
+    const total = Number(result.data.total);
+    const responseToken = String(result.data.snapshotToken ?? "").trim();
+    if (
+      !Array.isArray(pageRows)
+      || !Number.isSafeInteger(total)
+      || total < 0
+      || result.data.page !== page
+      || result.data.pageSize !== query.pageSize
+      || !responseToken
+      || (snapshotToken && responseToken !== snapshotToken)
+      || (expectedTotal !== null && total !== expectedTotal)
+      || rows.length + pageRows.length > total
+      || (pageRows.length === 0 && rows.length < total)
+    ) {
+      return snapshotListFailure();
+    }
+
+    expectedTotal = total;
+    snapshotToken = responseToken;
+    for (const row of pageRows) {
+      const id = String(row.id ?? "");
+      if (!id || rowIds.has(id)) {
+        return snapshotListFailure();
+      }
+      rowIds.add(id);
+      rows.push(row);
+    }
+
+    if (rows.length === total) {
+      return {
+        ok: true,
+        status: result.status,
+        forbidden: false,
+        message: "",
+        data: {
+          ...result.data,
+          page: 1,
+          total,
+          snapshotToken,
+          rows
+        }
+      };
+    }
+    page += 1;
+  }
+}
+
+function snapshotListFailure(): ListFetchResult {
+  return {
+    ok: false,
+    status: 409,
+    forbidden: false,
+    message: "列表数据已变化，请重新加载。",
+    data: null
+  };
 }
 
 export async function exportListRows(listKey: string, query: ListQuery): Promise<ListExportResult> {
@@ -341,6 +424,9 @@ function buildListSearch(query: ListQuery) {
   }
   if (query.dateTo) {
     search.set("dateTo", query.dateTo);
+  }
+  if (query.snapshotToken) {
+    search.set("snapshotToken", query.snapshotToken);
   }
   if (query.columnFilters && Object.keys(query.columnFilters).length) {
     search.set("columnFilters", JSON.stringify(query.columnFilters));

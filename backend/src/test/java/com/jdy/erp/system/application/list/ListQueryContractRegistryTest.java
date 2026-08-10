@@ -99,6 +99,9 @@ class ListQueryContractRegistryTest {
         assertThat(registry.contractFor("material-scrap-source-selector", "header").adapterKey()).isEqualTo("materialScrap");
         assertThat(registry.contractFor("purchase-order-source-selector", "header").adapterKey()).isEqualTo("sourceSelector");
         assertThat(registry.contractFor("purchase-order-source-selector", "header").view()).isEqualTo("detail");
+        assertThat(registry.contractFor("financial-account-settlement-selector", "header").adapterKey()).isEqualTo("snapshotPaging");
+        assertThat(registry.contractFor("financial-account-master-selector", "header").adapterKey()).isEqualTo("default");
+        assertThat(registry.contractFor("warehouse-master-selector", "header").adapterKey()).isEqualTo("default");
     }
 
     @Test

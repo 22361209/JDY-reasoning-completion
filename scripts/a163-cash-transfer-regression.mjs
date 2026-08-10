@@ -18,6 +18,7 @@ const batch = `${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}-${ran
 const resultPath = path.join(rootDir, "verification/a163-cash-transfer-regression.json");
 const screenshotDir = path.join(rootDir, "verification/playwright");
 const accountCodes = { cnySource: `A163-CNY-S-${batch}`, cnyTarget: `A163-CNY-T-${batch}`, usd: `A163-USD-${batch}` };
+const snapshotCodes = Object.fromEntries(["A", "B", "C", "D"].map((suffix) => [suffix.toLowerCase(), `A184-SNAP-${batch}-${suffix}`]));
 const tenantCode = "A119OPS-49F5546B";
 const tenantCodes = { source: `A163-T-S-${batch}`, target: `A163-T-T-${batch}` };
 const transferOnlyFixture = {
@@ -141,6 +142,44 @@ assert(warehouseSelector.status === 403, `role without settle/transfer permissio
 const sourceId = await createAuditedAccount("", accountCodes.cnySource, "A163 CNY 转出", "CNY", publicOwnedAccountIds);
 const targetId = await createAuditedAccount("", accountCodes.cnyTarget, "A163 CNY 转入", "CNY", publicOwnedAccountIds);
 const usdId = await createAuditedAccount("", accountCodes.usd, "A163 USD 账户", "USD", publicOwnedAccountIds);
+const snapshotIds = {};
+for (const suffix of ["a", "b", "c"]) {
+  snapshotIds[suffix] = await createAuditedAccount("", snapshotCodes[suffix], `A184 快照账户 ${suffix.toUpperCase()}`, "CNY", publicOwnedAccountIds);
+}
+const snapshotQuery = (page, snapshotToken = "") => `/api/lists/financial-account-settlement-selector?${new URLSearchParams({
+  keyword: `A184-SNAP-${batch}`,
+  page: String(page),
+  pageSize: "2",
+  view: "header",
+  ...(snapshotToken ? { snapshotToken } : {})
+})}`;
+const snapshotFirst = await request(transferOnlyCookie, snapshotQuery(1));
+assert(snapshotFirst.status === 200 && snapshotFirst.data?.total === 3 && snapshotFirst.data?.rows?.length === 2 && typeof snapshotFirst.data?.snapshotToken === "string" && snapshotFirst.data.snapshotToken.length > 20, "snapshot selector first page must return 2/3 rows and an opaque token");
+const snapshotMissingToken = await request(transferOnlyCookie, snapshotQuery(2));
+assert(snapshotMissingToken.status === 409 && snapshotMissingToken.text.includes("快照标识"), "snapshot selector continuation without a token must fail closed");
+const snapshotPermissionFirst = await request(warehouseCookie, snapshotQuery(2, "forged-token"));
+assert(snapshotPermissionFirst.status === 403, "selector permission must be checked before a forged snapshot token");
+await admin(`/api/master-data/financialAccount/${encodeURIComponent(snapshotCodes.a)}/status`, { method: "PATCH", body: { status: "禁用" } });
+snapshotIds.d = await createAuditedAccount("", snapshotCodes.d, "A184 快照账户 D", "CNY", publicOwnedAccountIds);
+const snapshotStale = await request(transferOnlyCookie, snapshotQuery(2, snapshotFirst.data.snapshotToken));
+assert(snapshotStale.status === 409 && snapshotStale.text.includes("数据已变化"), "equal-count account replacement must invalidate the old snapshot token");
+const snapshotFreshFirst = await request(transferOnlyCookie, snapshotQuery(1));
+const snapshotFreshSecond = await request(transferOnlyCookie, snapshotQuery(2, snapshotFreshFirst.data?.snapshotToken));
+const snapshotFreshRows = [...(snapshotFreshFirst.data?.rows ?? []), ...(snapshotFreshSecond.data?.rows ?? [])];
+assert(snapshotFreshFirst.status === 200 && snapshotFreshSecond.status === 200 && snapshotFreshFirst.data?.total === 3 && snapshotFreshSecond.data?.total === 3, "fresh snapshot traversal must preserve the equal replacement total");
+assert(snapshotFreshFirst.data.snapshotToken === snapshotFreshSecond.data.snapshotToken && snapshotFreshFirst.data.snapshotToken !== snapshotFirst.data.snapshotToken, "fresh traversal must use one new stable token");
+assert(JSON.stringify(snapshotFreshRows.map((row) => row.code)) === JSON.stringify([snapshotCodes.b, snapshotCodes.c, snapshotCodes.d]), "fresh snapshot traversal must return B/C/D without stale A");
+assert(new Set(snapshotFreshRows.map((row) => row.id)).size === 3, "fresh snapshot traversal must not duplicate or omit account UUIDs");
+await admin(`/api/master-data/financialAccount/${encodeURIComponent(snapshotCodes.a)}/status`, { method: "PATCH", body: { status: "启用" } });
+const snapshotPagingEvidence = {
+  initialTotal: snapshotFirst.data.total,
+  missingToken: snapshotMissingToken.status,
+  permissionBeforeToken: snapshotPermissionFirst.status,
+  equalReplacement: snapshotStale.status,
+  freshTotal: snapshotFreshFirst.data.total,
+  freshCodes: snapshotFreshRows.map((row) => row.code),
+  tokenChanged: snapshotFreshFirst.data.snapshotToken !== snapshotFirst.data.snapshotToken
+};
 const transferSelectors = [];
 for (const [code, id] of [[accountCodes.cnySource, sourceId], [accountCodes.cnyTarget, targetId]]) {
   const selector = await request(transferOnlyCookie, `/api/lists/financial-account-settlement-selector?${new URLSearchParams({ keyword: code, page: "1", pageSize: "20", view: "header" })}`);
@@ -264,7 +303,7 @@ for (const viewport of [{ width: 1440, height: 900, name: "wide" }, { width: 390
         }
         if (selectorInjection === "empty") {
           selectorInjection = "pass";
-          await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ page: 1, pageSize: 200, total: 0, rows: [] }) });
+          await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ page: 1, pageSize: 200, total: 0, snapshotToken: "a163-empty-snapshot-v1", rows: [] }) });
           return;
         }
         await route.continue();
@@ -276,7 +315,7 @@ for (const viewport of [{ width: 1440, height: 900, name: "wide" }, { width: 390
     const initialSelectorResponse = await initialSelectorResponsePromise;
     const initialSelectorPayload = await initialSelectorResponse.json();
     assert(initialSelectorResponse.status() === 200, `initial account selector request must succeed, got ${initialSelectorResponse.status()}`);
-    assert(Array.isArray(initialSelectorPayload.rows) && Number(initialSelectorPayload.total) >= initialSelectorPayload.rows.length, "initial selector response must expose a valid rows/total contract");
+    assert(Array.isArray(initialSelectorPayload.rows) && Number(initialSelectorPayload.total) >= initialSelectorPayload.rows.length && typeof initialSelectorPayload.snapshotToken === "string" && initialSelectorPayload.snapshotToken.length > 20, "initial selector response must expose rows/total and an opaque snapshot token");
     const selectorHttp = {
       initial: { status: initialSelectorResponse.status(), rowCount: initialSelectorPayload.rows.length, total: Number(initialSelectorPayload.total) }
     };
@@ -410,7 +449,7 @@ assert(/^ZJZZ\d{6}$/.test(browserLifecycleBillNo), "wide browser run must comple
 assert(scalar(`SELECT string_agg(DISTINCT posting_action || ':' || posting_version::text, ',' ORDER BY posting_action || ':' || posting_version::text) FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${browserLifecycleBillNo}'`) === "AUDIT:1,AUDIT:3,REVERSE:2,REVERSE:4", "browser lifecycle must append four versioned posting legs");
 assert(scalar(`SELECT coalesce(sum(amount_delta), 0)::text FROM public.cash_transfer_fact f JOIN public.cash_transfer t ON t.id=f.cash_transfer_id WHERE t.bill_no='${browserLifecycleBillNo}'`) === "0.00", "browser lifecycle cleanup reverse must return both accounts to net zero");
 
-evidence = { ok: true, batch, billNo, accounts: accountCodes, deniedWrites: [deniedDraft.status, deniedAudit.status], permissions: permissionEvidence, facts: { audit: "-12.50,12.50", lifecycleVersions: [1, 2, 3, 4], netAfterSecondReverse: "0.00", concurrentAuditStatuses: concurrentAudits.map((response) => response.status).sort((left, right) => left - right) }, tenant: { code: tenantCode, billNo: tenantBillNo, schema: tenantSchema }, browserLifecycleBillNo, browser: browserEvidence, cleanup: { disabledAccounts } };
+evidence = { ok: true, batch, billNo, accounts: { ...accountCodes, snapshot: snapshotCodes }, snapshotPaging: snapshotPagingEvidence, deniedWrites: [deniedDraft.status, deniedAudit.status], permissions: permissionEvidence, facts: { audit: "-12.50,12.50", lifecycleVersions: [1, 2, 3, 4], netAfterSecondReverse: "0.00", concurrentAuditStatuses: concurrentAudits.map((response) => response.status).sort((left, right) => left - right) }, tenant: { code: tenantCode, billNo: tenantBillNo, schema: tenantSchema }, browserLifecycleBillNo, browser: browserEvidence, cleanup: { disabledAccounts } };
 } catch (error) {
   primaryError = error;
 }
@@ -486,7 +525,7 @@ for (const [code, ownership] of publicOwnedAccountIds) {
   }
 }
 if (evidence) {
-  const expectedDisabledAccounts = [...Object.values(accountCodes), ...Object.values(tenantCodes)].sort();
+  const expectedDisabledAccounts = [...Object.values(accountCodes), ...Object.values(snapshotCodes), ...Object.values(tenantCodes)].sort();
   const actualDisabledAccounts = [...new Set(disabledAccounts)].sort();
   if (JSON.stringify(actualDisabledAccounts) !== JSON.stringify(expectedDisabledAccounts)) {
     cleanupErrors.push(`disabled account closure mismatch: expected ${expectedDisabledAccounts.join(",")}, got ${actualDisabledAccounts.join(",")}`);

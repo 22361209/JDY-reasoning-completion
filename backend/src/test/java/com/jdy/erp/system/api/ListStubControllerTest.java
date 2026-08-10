@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ import com.jdy.erp.system.application.list.ListExportColumnProvider;
 import com.jdy.erp.system.application.list.ListQueryContractRegistry;
 import com.jdy.erp.system.application.list.ListQueryService;
 import com.jdy.erp.system.application.list.ListQueryResult;
+import com.jdy.erp.system.application.list.ListQueryRequest;
 import com.jdy.erp.system.application.list.ListSeedRowsProvider;
 import com.jdy.erp.system.application.list.ListStubStateGuard;
 import com.jdy.erp.system.application.list.OperationLogListQueryAdapter;
@@ -191,6 +193,48 @@ class ListStubControllerTest {
         assertThat(response.getBody())
             .contains("日志ID,操作时间,模块,动作,主体类型")
             .contains("00000000-0000-0000-0000-000000000123");
+    }
+
+    @Test
+    void settlementAccountSnapshotTokenIsPassedThroughWithoutWeakeningTheGuard() {
+        when(currentPermissionService.hasPermission("finance.settle")).thenReturn(true);
+        when(listQueryService.query(any(), eq(seedRowsProvider))).thenReturn(new ListQueryResult(
+            2,
+            2,
+            "header",
+            "",
+            "asc",
+            3,
+            "server-snapshot-token",
+            List.<Map<String, ?>>of(Map.of("id", "00000000-0000-0000-0000-000000000003", "code", "C"))
+        ));
+
+        var response = controller.rows(
+            "financial-account-settlement-selector",
+            "",
+            "",
+            2,
+            2,
+            "header",
+            "",
+            "asc",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "current",
+            "",
+            "",
+            "client-snapshot-token"
+        );
+
+        assertThat(response.get("snapshotToken")).isEqualTo("server-snapshot-token");
+        var request = ArgumentCaptor.forClass(ListQueryRequest.class);
+        verify(listQueryService).query(request.capture(), eq(seedRowsProvider));
+        assertThat(request.getValue().snapshotToken()).isEqualTo("client-snapshot-token");
+        verify(currentPermissionService).hasPermission("finance.settle");
     }
 
     private void assertForbidden(Runnable action) {

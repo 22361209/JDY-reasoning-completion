@@ -240,7 +240,7 @@ public class ListQueryContractRegistry {
             "updatedAt",
             "row",
             view,
-            "default",
+            settlementAccount ? "snapshotPaging" : "default",
             false
         );
     }

@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import StandardDocument from "../../components/StandardDocument.vue";
-import { fetchListRows } from "../../services/listApi";
+import { fetchSnapshotListRows } from "../../services/listApi";
 
 const props = defineProps<{ title: string; subtitle: string; statusClass: string; dirty: boolean; hasPermission: (permission: string) => boolean }>();
 const emit = defineEmits<{ markDirty: []; clearDirty: [] }>();
@@ -88,32 +88,22 @@ async function loadAccountsOnce() {
   accounts.value = [];
   Object.assign(form, { sourceAccountId: "", targetAccountId: "", currency: "" });
   try {
-    const rows: Record<string, unknown>[] = [];
     const pageSize = 200;
-    let page = 1;
-    let expectedTotal: number | null = null;
-    do {
-      const result = await fetchListRows("financial-account-settlement-selector", { keyword: "", page, pageSize, view: "header" });
-      if (!result.ok || !result.data) {
-        accountsLoadError.value = result.message || "资金账户加载失败，请重试。";
-        return;
-      }
-      const nextRows = result.data.rows;
-      const nextTotal = Number(result.data.total);
-      if (!Array.isArray(nextRows) || !Number.isSafeInteger(nextTotal) || nextTotal < 0 || (nextRows.length === 0 && rows.length < nextTotal)) {
-        accountsLoadError.value = "资金账户数据异常，请重试。";
-        return;
-      }
-      if (expectedTotal !== null && nextTotal !== expectedTotal) {
-        accountsLoadError.value = "资金账户数据已变化，请重试。";
-        return;
-      }
-      expectedTotal = nextTotal;
-      rows.push(...nextRows);
-      page += 1;
-    } while (rows.length < (expectedTotal ?? 0));
+    const result = await fetchSnapshotListRows("financial-account-settlement-selector", {
+      keyword: "",
+      pageSize,
+      view: "header"
+    });
+    if (!result.ok || !result.data) {
+      accountsLoadError.value = result.status === 409
+        ? "资金账户数据已变化，请重试。"
+        : result.message || "资金账户加载失败，请重试。";
+      return;
+    }
+    const rows = result.data.rows;
+    const expectedTotal = Number(result.data.total);
     const uniqueRows = new Map(rows.map((row) => [String(row.id ?? ""), row]));
-    if (uniqueRows.size !== (expectedTotal ?? 0) || uniqueRows.has("")) {
+    if (uniqueRows.size !== expectedTotal || uniqueRows.has("")) {
       accountsLoadError.value = "资金账户数据已变化，请重试。";
       return;
     }

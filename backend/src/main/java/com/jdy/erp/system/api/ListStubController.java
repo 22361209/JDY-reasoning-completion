@@ -60,11 +60,12 @@ public class ListStubController {
         @RequestParam(defaultValue = "") String actorType,
         @RequestParam(defaultValue = "current") String scope,
         @RequestParam(defaultValue = "") String dateFrom,
-        @RequestParam(defaultValue = "") String dateTo
+        @RequestParam(defaultValue = "") String dateTo,
+        @RequestParam(defaultValue = "") String snapshotToken
     ) {
         stateGuard.assertReadable(listKey, scope);
 
-        var request = listQueryRequest(listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, actorType, scope, dateFrom, dateTo, false);
+        var request = listQueryRequest(listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, actorType, scope, dateFrom, dateTo, snapshotToken, false);
         var result = listQueryService.query(request, seedRowsProvider);
         var response = new java.util.LinkedHashMap<String, Object>();
         response.put("page", result.page());
@@ -75,7 +76,35 @@ public class ListStubController {
         response.put("scope", scope == null || scope.isBlank() ? "current" : scope.trim().toLowerCase(java.util.Locale.ROOT));
         response.put("total", result.total());
         response.put("rows", result.rows());
+        if (result.snapshotToken() != null && !result.snapshotToken().isBlank()) {
+            response.put("snapshotToken", result.snapshotToken());
+        }
         return response;
+    }
+
+    public Map<String, Object> rows(
+        String listKey,
+        String keyword,
+        String status,
+        int page,
+        int pageSize,
+        String view,
+        String sortField,
+        String sortOrder,
+        String columnFilters,
+        String module,
+        String action,
+        String operator,
+        String targetType,
+        String actorType,
+        String scope,
+        String dateFrom,
+        String dateTo
+    ) {
+        return rows(
+            listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters,
+            module, action, operator, targetType, actorType, scope, dateFrom, dateTo, ""
+        );
     }
 
     public Map<String, Object> rows(
@@ -97,7 +126,7 @@ public class ListStubController {
     ) {
         return rows(
             listKey, keyword, status, page, pageSize, view, sortField, sortOrder, columnFilters,
-            module, action, operator, targetType, "", "current", dateFrom, dateTo
+            module, action, operator, targetType, "", "current", dateFrom, dateTo, ""
         );
     }
 
@@ -122,7 +151,7 @@ public class ListStubController {
     ) {
         stateGuard.assertReadable(listKey, scope);
 
-        var request = listQueryRequest(listKey, keyword, status, 1, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, actorType, scope, dateFrom, dateTo, true);
+        var request = listQueryRequest(listKey, keyword, status, 1, pageSize, view, sortField, sortOrder, columnFilters, module, action, operator, targetType, actorType, scope, dateFrom, dateTo, "", true);
         var rows = listQueryService.query(request, seedRowsProvider).rows();
         var columns = exportColumnProvider.columnsFor(listKey, rows);
         var csv = new StringBuilder();
@@ -190,6 +219,7 @@ public class ListStubController {
         String scope,
         String dateFrom,
         String dateTo,
+        String snapshotToken,
         boolean exportMode
     ) {
         return new ListQueryRequest(
@@ -210,6 +240,7 @@ public class ListStubController {
             scope == null || scope.isBlank() ? "current" : scope,
             dateFrom == null ? "" : dateFrom,
             dateTo == null ? "" : dateTo,
+            snapshotToken == null ? "" : snapshotToken,
             exportMode
         );
     }

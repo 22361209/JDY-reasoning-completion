@@ -1,4 +1,4 @@
-import { fetchListRows, type ListResponse } from "./listApi";
+import { fetchListRows, fetchSnapshotListRows, type ListResponse } from "./listApi";
 
 export type SettlementKind = "receipt" | "payment";
 export type SettlementCurrency = "CNY" | "USD";
@@ -185,16 +185,20 @@ export async function fetchSettlementSources(
 export async function fetchSettlementAccounts(
   query: { keyword: string; currency: SettlementCurrency }
 ): Promise<FinanceApiResult<SettlementAccountOption[]>> {
-  const result = await fetchListRows("financial-account-settlement-selector", {
+  const result = await fetchSnapshotListRows("financial-account-settlement-selector", {
     keyword: query.keyword,
-    page: 1,
-    pageSize: 1000,
+    pageSize: 200,
     columnFilters: {
       currency: { operator: "等于", value: query.currency }
     }
   });
   if (!result.ok || !result.data) {
-    return { ok: false, status: result.status, conflict: false, message: result.message || "财务账户加载失败。" };
+    return {
+      ok: false,
+      status: result.status,
+      conflict: result.status === 409,
+      message: result.status === 409 ? "财务账户数据已变化，请重试。" : result.message || "财务账户加载失败。"
+    };
   }
   return {
     ok: true,

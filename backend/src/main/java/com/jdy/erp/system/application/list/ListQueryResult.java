@@ -10,5 +10,18 @@ public record ListQueryResult(
     String sortField,
     String sortOrder,
     long total,
+    String snapshotToken,
     List<Map<String, ?>> rows
-) {}
+) {
+    public ListQueryResult(
+        int page,
+        int pageSize,
+        String view,
+        String sortField,
+        String sortOrder,
+        long total,
+        List<Map<String, ?>> rows
+    ) {
+        this(page, pageSize, view, sortField, sortOrder, total, "", rows);
+    }
+}
