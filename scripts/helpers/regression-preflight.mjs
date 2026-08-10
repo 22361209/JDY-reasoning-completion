@@ -50,6 +50,7 @@ const isProhibitedDynamicExecutionModule = (specifier) => (
 );
 const approvedRegressionLocalModulePaths = new Set([
   "frontend/node_modules/typescript/lib/typescript.js",
+  "scripts/helpers/a126-fixture-cleanup.mjs",
   "scripts/helpers/current-migration-head.mjs",
   "scripts/helpers/document-actions.mjs",
   "scripts/helpers/entry-table-actions.mjs",
@@ -64,6 +65,16 @@ const approvedRegressionLocalModulePaths = new Set([
   "scripts/helpers/sales-pages.mjs",
   "scripts/validate-regression-manifest.mjs"
 ]);
+const restrictedRegressionLocalModuleImporters = new Map([
+  ["scripts/helpers/a126-fixture-cleanup.mjs", new Set([
+    "scripts/a126-sales-daily-usability-regression.mjs"
+  ])]
+]);
+const approvedRegressionLocalModuleForImporter = (importer, dependency) => {
+  if (!approvedRegressionLocalModulePaths.has(dependency)) return false;
+  const restrictedImporters = restrictedRegressionLocalModuleImporters.get(dependency);
+  return !restrictedImporters || restrictedImporters.has(importer);
+};
 const auditedRegressionLocalDependencyPaths = [...approvedRegressionLocalModulePaths]
   .filter((modulePath) => ![
     "frontend/node_modules/typescript/lib/typescript.js",
@@ -101,7 +112,8 @@ const regressionAuthContractExports = new Set([
   "regressionAdminIdentity",
   "fillRegressionAdminPassword",
   "requestWithRegressionAdminConfirmation",
-  "createIsolatedAdminSessionFixture"
+  "createIsolatedAdminSessionFixture",
+  "createIsolatedRoleSessionFixture"
 ]);
 const regressionAuthAllowedManifestExports = new Set([
   ...regressionAuthContractExports,
@@ -716,7 +728,7 @@ function analyzeAdminCredentialSource(script, source) {
         || specifier.includes("?")
         || specifier.includes("#")
         || /^(?:\/|file:|data:|https?:)/i.test(specifier)
-        || (localModulePath && !approvedRegressionLocalModulePaths.has(localModulePath))) {
+        || (localModulePath && !approvedRegressionLocalModuleForImporter(script, localModulePath))) {
         unapprovedLocalModuleReferenceCount += 1;
       }
       if (resolvesRegressionAuthModule(specifier)) {

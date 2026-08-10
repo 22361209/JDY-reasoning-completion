@@ -439,6 +439,21 @@ assertBlocked("unapproved-local-static-import", `
   import "./helpers/raw-login-helper.mjs";
 `, "audited static regression module set");
 
+assertBlocked("a126-cleanup-helper-wrong-importer", `
+  import { captureA126Baseline } from "./helpers/a126-fixture-cleanup.mjs";
+  captureA126Baseline();
+`, "audited static regression module set");
+
+const approvedA126CleanupImporter = classify("scripts/a126-sales-daily-usability-regression.mjs", `
+  import { captureA126Baseline } from "./helpers/a126-fixture-cleanup.mjs";
+  captureA126Baseline();
+`);
+assert.deepEqual(
+  approvedA126CleanupImporter.violations,
+  [],
+  "only A126 may import its fixed-route cleanup helper"
+);
+
 assertBlocked("unapproved-local-dynamic-import", `
   await import("./helpers/raw-login-helper.mjs");
 `, "audited static regression module set");
@@ -658,6 +673,21 @@ assert.deepEqual(
   confirmationOnly.mainCredentialScripts,
   ["scripts/contract-confirmation-only.mjs"],
   "a script using only admin confirmation must receive the run-scoped credential file"
+);
+
+const isolatedRoleFixture = classify("scripts/contract-isolated-role-fixture.mjs", `
+  import { createIsolatedRoleSessionFixture } from "./helpers/regression-auth.mjs";
+  createIsolatedRoleSessionFixture("http://127.0.0.1:8080", {
+    roleCode: "WAREHOUSE",
+    expectedRole: "仓库员",
+    autoManageRequestFence: true
+  });
+`);
+assert.deepEqual(isolatedRoleFixture.violations, [], "the reviewed isolated role fixture must remain an auth capability");
+assert.deepEqual(
+  isolatedRoleFixture.mainCredentialScripts,
+  ["scripts/contract-isolated-role-fixture.mjs"],
+  "a script creating an isolated role fixture must receive the run-scoped credential file"
 );
 
 const { manifest } = await loadRegressionManifest(rootDir);

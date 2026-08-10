@@ -1189,11 +1189,11 @@ export async function installApiSession(
   return sessionCookie;
 }
 
-function verifyFixtureRoute(accountSetCodes) {
+function verifyFixtureRoute(accountSetCodes, roleCode) {
   const route = dbJson(`
     SELECT jsonb_build_object(
-      'roleId', admin_role.id::text,
-      'roleEnabled', admin_role.enabled,
+      'roleId', fixture_role.id::text,
+      'roleEnabled', fixture_role.enabled,
       'accountSets', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'id', account_set.id::text,
@@ -1205,11 +1205,11 @@ function verifyFixtureRoute(accountSetCodes) {
         WHERE account_set.code=ANY(${sqlTextArray(accountSetCodes)})
       ), '[]'::jsonb)
     )::text
-    FROM public.sys_role admin_role
-    WHERE admin_role.code='ADMIN'
+    FROM public.sys_role fixture_role
+    WHERE fixture_role.code=${sqlLiteral(roleCode)}
   `, "isolated regression route lookup");
   assert(uuidPattern.test(String(route?.roleId ?? "")) && route?.roleEnabled === true,
-    "isolated regression route requires one enabled ADMIN role");
+    `isolated regression route requires one enabled ${roleCode} role`);
   assert(Array.isArray(route.accountSets) && route.accountSets.length === accountSetCodes.length,
     "isolated regression route could not resolve every requested account set");
   const actualCodes = route.accountSets.map((row) => row.code).sort();
@@ -1884,21 +1884,25 @@ export async function closeAndRecoverRegressionFixtureLedger(
   };
 }
 
-export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
+export function createIsolatedRoleSessionFixture(apiBase, options = {}) {
   apiBase = canonicalOrigin(apiBase, "isolated regression fixture API target");
   if (readRuntimeCredentials() && apiBase !== mainApiBase) {
     throw new Error("isolated regression fixture refuses a non-main origin while suite credentials are active");
   }
+  const roleCode = String(options.roleCode || "").toUpperCase();
+  const expectedRole = String(options.expectedRole || "");
+  assert(/^[A-Z][A-Z0-9_.-]{0,79}$/.test(roleCode), "isolated regression role code is invalid");
+  assert(expectedRole.length > 0 && expectedRole.length <= 120, "isolated regression role display name is invalid");
   const label = String(options.label || "suite").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 18) || "suite";
   const accountSetCodes = sortedUnique(options.accountSetCodes?.length ? options.accountSetCodes : ["BLD-TEST"]);
   const defaultAccountSetCode = options.defaultAccountSetCode || accountSetCodes[0];
   assert(accountSetCodes.includes(defaultAccountSetCode), "isolated regression default account set must be granted");
-  const route = verifyFixtureRoute(accountSetCodes);
+  const route = verifyFixtureRoute(accountSetCodes, roleCode);
   const defaultAccountSet = route.accountSets.find((row) => row.code === defaultAccountSetCode);
   const username = String(options.username || `r_${label}_${randomBytes(8).toString("hex")}`).slice(0, 80);
   assert(/^r_[a-z0-9_]{1,58}_[0-9a-f]{12,32}$/.test(username), "isolated regression username is outside the owned namespace");
   const password = `R!${randomBytes(18).toString("base64url")}a1`;
-  const displayName = String(options.displayName || `隔离回归管理员 ${label}`).slice(0, 120);
+  const displayName = String(options.displayName || `隔离回归${expectedRole} ${label}`).slice(0, 120);
   const runtimeCredentials = readRuntimeCredentials();
   const fixtureLedgerWriter = options.fixtureLedgerWriter || cachedRuntimeFixtureLedgerWriter;
   const fixtureLedgerRunId = String(options.fixtureLedgerRunId || runtimeCredentials?.runId || "");
@@ -2028,7 +2032,7 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
         RETURNING user_id
       ), created_grants AS (
         INSERT INTO public.sys_user_account_set (user_id, account_set_id, role_code, is_default, enabled)
-        SELECT created_user.id, account_set.id, 'ADMIN', account_set.code=${sqlLiteral(defaultAccountSetCode)}, TRUE
+        SELECT created_user.id, account_set.id, ${sqlLiteral(roleCode)}, account_set.code=${sqlLiteral(defaultAccountSetCode)}, TRUE
         FROM created_user
         CROSS JOIN public.sys_account_set account_set
         WHERE account_set.code=ANY(${sqlTextArray(accountSetCodes)})
@@ -2057,7 +2061,7 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
         RETURNING user_id
       ), created_grants AS (
         INSERT INTO public.sys_user_account_set (user_id, account_set_id, role_code, is_default, enabled)
-        SELECT created_user.id, account_set.id, 'ADMIN', account_set.code=${sqlLiteral(defaultAccountSetCode)}, TRUE
+        SELECT created_user.id, account_set.id, ${sqlLiteral(roleCode)}, account_set.code=${sqlLiteral(defaultAccountSetCode)}, TRUE
         FROM created_user
         CROSS JOIN public.sys_account_set account_set
         WHERE account_set.code=ANY(${sqlTextArray(accountSetCodes)})
@@ -2136,8 +2140,8 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
     }
     if (!response.ok || !sessionMatches(session, {
       username,
-      expectedRole: "系统管理员",
-      roleCode: "ADMIN",
+      expectedRole,
+      roleCode,
       accountSetCode,
       schemaName: expectedAccountSet.schemaName
     })) {
@@ -2328,6 +2332,8 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
     username,
     password,
     userId,
+    roleCode,
+    expectedRole,
     requestFenceGeneration,
     defaultAccountSetCode,
     accountSets: route.accountSets.map(({ code, schemaName }) => ({ code, schemaName })),
@@ -2342,4 +2348,12 @@ export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
     closeAndDrainRequestFence,
     cleanup
   };
+}
+
+export function createIsolatedAdminSessionFixture(apiBase, options = {}) {
+  return createIsolatedRoleSessionFixture(apiBase, {
+    ...options,
+    roleCode: "ADMIN",
+    expectedRole: "系统管理员"
+  });
 }

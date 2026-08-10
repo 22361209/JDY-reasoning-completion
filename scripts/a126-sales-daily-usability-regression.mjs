@@ -1,13 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import {
-  loginApi,
-  loginAsAdmin,
-  regressionAdminIdentity,
-  requestWithRegressionAdminConfirmation
+  createIsolatedRoleSessionFixture
 } from "./helpers/regression-auth.mjs";
+import {
+  captureA126Baseline,
+  captureA126RunSnapshot,
+  cleanupA126Run,
+  validateA126RunSnapshot
+} from "./helpers/a126-fixture-cleanup.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const apiBase = "http://127.0.0.1:8080";
@@ -16,25 +20,100 @@ const billDate = "2026-07-01";
 const productCode = "CP-001";
 const warehouseCode = "CK-001";
 const customerCode = "KH-001";
-const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const batchTimestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+const runId = randomUUID();
+const batch = `${batchTimestamp}-${runId.slice(0, 8)}`;
+const marker = `A126:${runId}`;
+const seedPrefix = `A126_SEED:${runId}:`;
 const evidenceDir = path.join(rootDir, "verification");
 const screenshotDir = path.join(evidenceDir, "playwright");
 const resultPath = path.join(evidenceDir, `a126-sales-daily-usability-${batch}.json`);
-const adminIdentity = regressionAdminIdentity();
+const tempResultPath = `${resultPath}.tmp`;
+const failurePoint = String(process.env.A126_TEST_FAILURE_POINT ?? "");
+const allowedFailurePoints = new Set([
+  "after-first-seed",
+  "after-quote-server-commit-before-register",
+  "after-notice-audit",
+  "after-sales-out-audit",
+  "after-red-audit",
+  "before-browser"
+]);
+delete process.env.A126_TEST_FAILURE_POINT;
+if (failurePoint) {
+  if (process.env.JDY_REGRESSION_ALLOW_A126_FAILURES !== "1" || !allowedFailurePoints.has(failurePoint)) {
+    throw new Error("A126 failure injection requires an explicit controlled marker and a whitelisted point");
+  }
+}
+delete process.env.JDY_REGRESSION_ALLOW_A126_FAILURES;
 
-await mkdir(evidenceDir, { recursive: true });
-await mkdir(screenshotDir, { recursive: true });
-
-const adminCookie = await loginApi(apiBase);
-const warehouseCookie = await loginApi(apiBase, "warehouse", "warehouse123");
+let adminFixture = null;
+let warehouseFixture = null;
+let adminCookie = "";
+let warehouseCookie = "";
+let accountSetId = "";
+let baseline = null;
+let cleanupConfig = null;
+const evidenceWriteErrors = [];
 const evidence = {
   batch,
+  batchTimestamp,
+  runId,
+  marker,
   generatedAt: new Date().toISOString(),
   data: {},
+  artifacts: { intents: [] },
+  cleanup: { attempted: false, success: false, phases: [] },
   assertions: [],
   screenshots: [],
   notes: []
 };
+
+async function persistEvidence() {
+  await mkdir(evidenceDir, { recursive: true });
+  await writeFile(tempResultPath, JSON.stringify(evidence, null, 2), { mode: 0o600 });
+  await rename(tempResultPath, resultPath);
+}
+
+async function persistCleanupEvidence(label) {
+  try {
+    await persistEvidence();
+  } catch (error) {
+    evidenceWriteErrors.push({
+      label,
+      error: error instanceof Error ? error : new Error(String(error))
+    });
+  }
+}
+
+async function trackIntent(kind, operation) {
+  const intent = {
+    id: randomUUID(),
+    kind,
+    operation,
+    state: "PENDING",
+    createdAt: new Date().toISOString()
+  };
+  evidence.artifacts.intents.push(intent);
+  await persistEvidence();
+  return {
+    async complete(details = {}) {
+      intent.state = "COMPLETED";
+      intent.completedAt = new Date().toISOString();
+      Object.assign(intent, details);
+      await persistEvidence();
+    },
+    async fail(error) {
+      intent.state = "FAILED";
+      intent.failedAt = new Date().toISOString();
+      intent.error = error instanceof Error ? error.message : String(error);
+      await persistEvidence();
+    }
+  };
+}
+
+function inject(point) {
+  if (failurePoint === point) throw new Error(`A126 controlled failure injection: ${point}`);
+}
 
 function assert(condition, message, details = undefined) {
   if (!condition) {
@@ -78,11 +157,6 @@ async function requireApi(cookie, pathname, options = {}) {
   return result.data;
 }
 
-const adminSession = await requireApi(adminCookie, "/api/system/session", { method: "GET" });
-const accountSetId = String(adminSession?.tenant?.id ?? "");
-assert(/^[0-9a-f-]{36}$/i.test(accountSetId), "current session should expose account set id", { accountSetId });
-assert(adminSession?.tenant?.schemaName === "public", "A126 direct SQL expects the BLD-TEST public schema", { schemaName: adminSession?.tenant?.schemaName });
-
 async function expectApiFailure(cookie, pathname, expectedStatuses, options = {}) {
   const { expectedReason, ...requestOptions } = options;
   const result = await api(cookie, pathname, requestOptions);
@@ -101,9 +175,12 @@ async function expectApiFailure(cookie, pathname, expectedStatuses, options = {}
 }
 
 async function requireAdminConfirmation(pathname, reason) {
-  const result = await requestWithRegressionAdminConfirmation(apiBase, pathname, {
-    sessionCookie: adminCookie,
-    reason
+  const result = await api(adminCookie, pathname, {
+    body: {
+      username: adminFixture.username,
+      password: adminFixture.password,
+      reason
+    }
   });
   if (!result.ok) throw new Error(`POST ${pathname} failed ${result.status}: ${result.text}`);
   return result.data;
@@ -114,10 +191,12 @@ async function expectAdminConfirmationFailure(pathname, expectedStatuses, {
   invalidPassword = false,
   expectedReason = ""
 }) {
-  const result = await requestWithRegressionAdminConfirmation(apiBase, pathname, {
-    sessionCookie: adminCookie,
-    reason,
-    invalidPassword
+  const result = await api(adminCookie, pathname, {
+    body: {
+      username: adminFixture.username,
+      password: invalidPassword ? `${adminFixture.password}-wrong` : adminFixture.password,
+      reason
+    }
   });
   const expected = Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses];
   assert(!result.ok && expected.includes(result.status), `POST ${pathname} should fail with ${expected.join("/")}`, {
@@ -142,7 +221,7 @@ function generatedBillNo(row, prefix, label) {
 function sqlValue(sql) {
   return execFileSync(
     "docker",
-    ["exec", "jdy-erp-postgres", "psql", "-U", "jdy", "-d", "jdy_erp", "-tA", "-c", sql],
+    ["exec", "jdy-erp-postgres", "psql", "-X", "-U", "jdy", "-d", "jdy_erp", "-v", "ON_ERROR_STOP=1", "-tAq", "-c", sql],
     { encoding: "utf8" }
   ).trim();
 }
@@ -155,7 +234,9 @@ function stock() {
     LEFT JOIN inv_stock_balance b ON b.product_id = p.id AND b.warehouse_id = w.id AND b.account_set_id = '${accountSetId}'::uuid
     WHERE p.code = '${productCode}'
   `);
+  assert(raw.includes("|"), "A126 controlled stock balance is unavailable", { raw });
   const [onHand, reserved, available] = raw.split("|").map(Number);
+  assert([onHand, reserved, available].every(Number.isFinite), "A126 controlled stock balance is invalid", { raw });
   return { onHand, reserved, available };
 }
 
@@ -204,15 +285,23 @@ async function selectableSalesOrderLines(customerCodeValue = customerCode) {
 }
 
 async function seedInventory(qtyDelta, label) {
-  await requireApi(adminCookie, "/api/inventory/adjustments", {
-    body: {
-      productCode,
-      warehouseCode,
-      qtyDelta,
-      txnType: "A126_SEED",
-      sourceBillType: `A126_SEED:${batch}:${label}`
-    }
-  });
+  const intent = await trackIntent("inventory_seed", label);
+  try {
+    await requireApi(adminCookie, "/api/inventory/adjustments", {
+      body: {
+        productCode,
+        warehouseCode,
+        qtyDelta,
+        txnType: "A126_SEED",
+        sourceBillType: `${seedPrefix}${label}`
+      }
+    });
+    await intent.complete({ qtyDelta, sourceBillType: `${seedPrefix}${label}` });
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
+  if (label === "main") inject("after-first-seed");
 }
 
 function line(qty, unitPrice = 86, extra = {}) {
@@ -222,84 +311,123 @@ function line(qty, unitPrice = 86, extra = {}) {
     qty,
     unitPrice,
     taxRate: 13,
-    customerOrderNo: `KH-A126-${batch}`,
-    lineRemark: "A126 日常可用性验收",
+    customerOrderNo: marker,
+    lineRemark: marker,
     planDeliveryDate: "2026-07-10",
     ...extra
   };
 }
 
 async function createQuote(qty) {
-  const saved = await requireApi(adminCookie, "/api/sales-quotes/draft", {
-    body: {
-      billNo: null,
-      customerCode,
-      billDate,
-      validUntil: "2026-12-31",
-      department: "销售部",
-      ownerName: "本地管理员",
-      remark: "A126 报价源单",
-      lines: [line(qty, 86)]
-    }
-  });
-  const quoteNo = generatedBillNo(saved, "XSBJ", "A126 sales quote");
-  await requireApi(adminCookie, `/api/sales-quotes/${encodeURIComponent(quoteNo)}/audit`);
-  return quoteNo;
+  const intent = await trackIntent("sales_quote", "create-and-audit");
+  try {
+    const saved = await requireApi(adminCookie, "/api/sales-quotes/draft", {
+      body: {
+        billNo: null,
+        customerCode,
+        billDate,
+        validUntil: "2026-12-31",
+        department: "销售部",
+        ownerName: adminFixture.expectedRole,
+        remark: `${marker}:quote`,
+        lines: [line(qty, 86)]
+      }
+    });
+    inject("after-quote-server-commit-before-register");
+    const quoteNo = generatedBillNo(saved, "XSBJ", "A126 sales quote");
+    await requireApi(adminCookie, `/api/sales-quotes/${encodeURIComponent(quoteNo)}/audit`);
+    await intent.complete({ id: saved.id, billNo: quoteNo });
+    return quoteNo;
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
 }
 
 async function createOrder(qty, sourceQuoteNo = "") {
-  const saved = await requireApi(adminCookie, "/api/sales-orders/draft", {
-    body: {
-      billNo: null,
-      sourceOrderNo: sourceQuoteNo || undefined,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      remark: "A126 销售订单",
-      lines: [line(qty, 86, sourceQuoteNo ? { sourceOrderNo: sourceQuoteNo, sourceLineNo: 1 } : {})]
-    }
-  });
-  const orderNo = generatedBillNo(saved, "XSDD", "A126 sales order");
-  await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
-  return orderNo;
+  const intent = await trackIntent("sales_order", sourceQuoteNo ? "create-from-quote-and-audit" : "create-and-audit");
+  try {
+    const saved = await requireApi(adminCookie, "/api/sales-orders/draft", {
+      body: {
+        billNo: null,
+        sourceOrderNo: sourceQuoteNo || undefined,
+        customerCode,
+        billDate,
+        department: "销售部",
+        ownerName: adminFixture.expectedRole,
+        remark: `${marker}:order`,
+        lines: [line(qty, 86, sourceQuoteNo ? { sourceOrderNo: sourceQuoteNo, sourceLineNo: 1 } : {})]
+      }
+    });
+    const orderNo = generatedBillNo(saved, "XSDD", "A126 sales order");
+    await requireApi(adminCookie, `/api/sales-orders/${encodeURIComponent(orderNo)}/audit`);
+    await intent.complete({ id: saved.id, billNo: orderNo });
+    return orderNo;
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
 }
 
 async function createNotice(orderNo, qty, cookie = adminCookie) {
   const noticeNo = await saveNoticeDraft(orderNo, [line(qty, 86, { sourceOrderNo: orderNo, sourceLineNo: 1 })], cookie);
-  await requireApi(cookie, `/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+  const intent = await trackIntent("delivery_notice", `audit:${noticeNo}`);
+  try {
+    await requireApi(cookie, `/api/delivery-notices/${encodeURIComponent(noticeNo)}/audit`);
+    await intent.complete({ billNo: noticeNo });
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
+  inject("after-notice-audit");
   return noticeNo;
 }
 
 async function saveNoticeDraft(orderNo, lines, cookie = adminCookie) {
-  const saved = await requireApi(cookie, "/api/delivery-notices/draft", {
-    body: {
-      billNo: null,
-      sourceOrderNo: orderNo,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: cookie === warehouseCookie ? "仓库操作员" : "本地管理员",
-      remark: "A126 发货通知",
-      lines
-    }
-  });
-  return generatedBillNo(saved, "FHTZD", "A126 delivery notice");
+  const intent = await trackIntent("delivery_notice", "save-draft");
+  try {
+    const saved = await requireApi(cookie, "/api/delivery-notices/draft", {
+      body: {
+        billNo: null,
+        sourceOrderNo: orderNo,
+        customerCode,
+        billDate,
+        department: "销售部",
+        ownerName: cookie === warehouseCookie ? warehouseFixture.expectedRole : adminFixture.expectedRole,
+        remark: `${marker}:notice`,
+        lines
+      }
+    });
+    const billNo = generatedBillNo(saved, "FHTZD", "A126 delivery notice");
+    await intent.complete({ id: saved.id, billNo });
+    return billNo;
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
 }
 
 async function saveSalesOutDraft(noticeNo, lines, cookie = warehouseCookie) {
-  const saved = await requireApi(cookie, "/api/sales-outs/draft", {
-    body: {
-      billNo: null,
-      customerCode,
-      billDate,
-      department: "仓储部",
-      ownerName: cookie === warehouseCookie ? "仓库操作员" : "本地管理员",
-      remark: "A126 销售出库",
-      lines
-    }
-  });
-  return generatedBillNo(saved, "XSCKD", "A126 sales out");
+  const intent = await trackIntent("sales_out", "save-draft");
+  try {
+    const saved = await requireApi(cookie, "/api/sales-outs/draft", {
+      body: {
+        billNo: null,
+        customerCode,
+        billDate,
+        department: "仓储部",
+        ownerName: cookie === warehouseCookie ? warehouseFixture.expectedRole : adminFixture.expectedRole,
+        remark: `${marker}:out`,
+        lines
+      }
+    });
+    const billNo = generatedBillNo(saved, "XSCKD", "A126 sales out");
+    await intent.complete({ id: saved.id, billNo });
+    return billNo;
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
 }
 
 async function createSalesOut(noticeNo, qty, cookie = warehouseCookie) {
@@ -308,7 +436,15 @@ async function createSalesOut(noticeNo, qty, cookie = warehouseCookie) {
     [line(qty, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })],
     cookie
   );
-  await requireApi(cookie, `/api/sales-outs/${encodeURIComponent(outNo)}/audit`);
+  const intent = await trackIntent("sales_out", `audit:${outNo}`);
+  try {
+    await requireApi(cookie, `/api/sales-outs/${encodeURIComponent(outNo)}/audit`);
+    await intent.complete({ billNo: outNo });
+  } catch (error) {
+    await intent.fail(error);
+    throw error;
+  }
+  inject("after-sales-out-audit");
   return outNo;
 }
 
@@ -463,10 +599,19 @@ async function runRedReverseFlow() {
   const beforeOut = stock();
   const outNo = await createSalesOut(noticeNo, 10);
   const afterOut = stock();
-  const redDraft = await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/red-reverse`, {
-    body: { billDate, ownerName: "仓库操作员" }
-  });
-  const redNo = generatedBillNo(redDraft, "XSCKD", "A126 red sales out");
+  const redIntent = await trackIntent("sales_out_red", `create-from:${outNo}`);
+  let redDraft;
+  let redNo;
+  try {
+    redDraft = await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/red-reverse`, {
+      body: { billDate, ownerName: warehouseFixture.expectedRole }
+    });
+    redNo = generatedBillNo(redDraft, "XSCKD", "A126 red sales out");
+    await redIntent.complete({ id: redDraft.id, billNo: redNo, sourceBillNo: outNo });
+  } catch (error) {
+    await redIntent.fail(error);
+    throw error;
+  }
   const afterRedDraft = stock();
   await expectApiFailure(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}/reverse`, 409, {
     expectedReason: "销售出库单已存在非作废红字单，不能反审核"
@@ -477,14 +622,22 @@ async function runRedReverseFlow() {
       customerCode,
       billDate,
       department: "仓储部",
-      ownerName: "仓库操作员",
+      ownerName: warehouseFixture.expectedRole,
       remark: "A126 篡改红字草稿",
       lines: [line(20, 86, { sourceDeliveryNoticeNo: noticeNo, sourceDeliveryLineNo: 1 })]
     },
     expectedReason: "销售出库单红字草稿由来源单生成，不能通过普通保存修改"
   });
   const afterTamperedSaveBlocked = stock();
-  await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`);
+  const auditIntent = await trackIntent("sales_out_red", `audit:${redNo}`);
+  try {
+    await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(redNo)}/audit`);
+    await auditIntent.complete({ billNo: redNo });
+  } catch (error) {
+    await auditIntent.fail(error);
+    throw error;
+  }
+  inject("after-red-audit");
   const afterRed = stock();
   const original = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outNo)}`, { method: "GET" });
   const red = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(redNo)}`, { method: "GET" });
@@ -529,17 +682,27 @@ async function runVoidFlow() {
     reason: "已审核不可作废",
     expectedReason: "只有草稿且无下游影响的单据可以作废"
   });
-  const draft = await requireApi(adminCookie, "/api/sales-orders/draft", {
-    body: {
-      billNo: null,
-      customerCode,
-      billDate,
-      department: "销售部",
-      ownerName: "本地管理员",
-      lines: [line(3)]
-    }
-  });
-  const draftNo = generatedBillNo(draft, "XSDD", "A126 voidable sales order");
+  const draftIntent = await trackIntent("sales_order", "save-voidable-draft");
+  let draft;
+  let draftNo;
+  try {
+    draft = await requireApi(adminCookie, "/api/sales-orders/draft", {
+      body: {
+        billNo: null,
+        customerCode,
+        billDate,
+        department: "销售部",
+        ownerName: adminFixture.expectedRole,
+        remark: `${marker}:order`,
+        lines: [line(3)]
+      }
+    });
+    draftNo = generatedBillNo(draft, "XSDD", "A126 voidable sales order");
+    await draftIntent.complete({ id: draft.id, billNo: draftNo });
+  } catch (error) {
+    await draftIntent.fail(error);
+    throw error;
+  }
   await expectAdminConfirmationFailure(`/api/document-lifecycle/salesOrder/${encodeURIComponent(draftNo)}/void`, [400, 401, 403, 409], {
     reason: "错误密码",
     invalidPassword: true,
@@ -563,7 +726,7 @@ async function runVoidFlow() {
     expectedReason: "当前密码不正确"
   });
   await requireApi(warehouseCookie, `/api/sales-outs/${encodeURIComponent(outDraftNo)}/void`, {
-    body: { username: "warehouse", password: "warehouse123", reason: "A126 销售出库草稿作废" }
+    body: { username: warehouseFixture.username, password: warehouseFixture.password, reason: "A126 销售出库草稿作废" }
   });
   const outVoided = await requireApi(adminCookie, `/api/sales-outs/${encodeURIComponent(outDraftNo)}`, { method: "GET" });
   assert(outVoided.document?.status === "VOID", "销售出库旧作废入口同样要求账号密码原因并走统一作废", outVoided.document);
@@ -586,7 +749,7 @@ async function runPermissionFlow() {
       customerCode,
       billDate,
       department: "销售部",
-      ownerName: "仓库操作员",
+      ownerName: warehouseFixture.expectedRole,
       lines: [line(1)]
     },
     expectedReason: "当前角色无权执行该操作：sales.order.audit"
@@ -595,12 +758,12 @@ async function runPermissionFlow() {
     expectedReason: "当前角色无权执行该操作：sales.order.audit"
   });
   evidence.data.permissions = {
-    salesOperator: `${adminIdentity.username}/系统管理员模拟销售人员`,
-    warehouseOperator: "warehouse/仓库员",
+    salesOperator: `${adminFixture.username}/系统管理员模拟销售人员`,
+    warehouseOperator: `${warehouseFixture.username}/仓库员`,
     warehouseSalesOrderDraftBlocked: true,
     warehouseSalesOrderAuditBlocked: true
   };
-  evidence.notes.push("当前系统尚无独立 SALES 角色/账号，本轮以 run-scoped ADMIN 模拟销售人员，以 warehouse 模拟仓库人员。");
+  evidence.notes.push("当前系统尚无独立 SALES 角色/账号，本轮以 run-owned ADMIN 模拟销售人员，以 run-owned WAREHOUSE 执行仓库链路。");
 }
 
 async function runPageUsabilityFlow() {
@@ -638,14 +801,25 @@ async function runPageUsabilityFlow() {
 
 async function captureScreenshots(main) {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   try {
+    await adminFixture.installInBrowser(context, "BLD-TEST");
+    const page = await context.newPage();
     await page.goto(frontendUrl, { waitUntil: "domcontentloaded" });
-    await loginAsAdmin(page);
+    const session = await page.evaluate(async () => {
+      const response = await fetch("/api/system/session");
+      return { status: response.status, body: await response.json() };
+    });
+    assert(session.status === 200
+      && session.body?.authenticated === true
+      && session.body?.user?.username === adminFixture.username
+      && session.body?.user?.roleCode === "ADMIN"
+      && session.body?.tenant?.schemaName === "public", "A126 browser session must use the run-owned ADMIN in BLD-TEST", session);
     await openListAndScreenshot(page, "query-sales-order-form", "sales-order-form-list", main.orderNo, "sales-order-list");
     await openListAndScreenshot(page, "query-delivery-notice-form", "delivery-notice-form-list", main.noticeNo, "delivery-notice-list");
     await openListAndScreenshot(page, "query-sales-out-form", "sales-out-form-list", main.outNo, "sales-out-list");
   } finally {
+    await context.close().catch(() => {});
     await browser.close();
   }
 }
@@ -662,16 +836,206 @@ async function openListAndScreenshot(page, entryTestId, tabKey, billNo, name) {
   evidence.screenshots.push(`verification/playwright/${screenshot}`);
 }
 
-await runMainFlow();
-await runPartialFlow();
-await runFullyNoticedPendingShipmentFlow();
-await runNoticeDraftAndGroupedAuditGuardFlow();
-await runCloseRemainingFlow();
-await runRedReverseFlow();
-await runFreezeFlow();
-await runVoidFlow();
-await runPermissionFlow();
-await runPageUsabilityFlow();
+async function setup() {
+  await mkdir(evidenceDir, { recursive: true });
+  await mkdir(screenshotDir, { recursive: true });
+  await persistEvidence();
+  adminFixture = createIsolatedRoleSessionFixture(apiBase, {
+    label: "a126_admin",
+    roleCode: "ADMIN",
+    expectedRole: "系统管理员",
+    accountSetCodes: ["BLD-TEST"],
+    defaultAccountSetCode: "BLD-TEST",
+    autoManageRequestFence: true,
+    displayName: `A126 隔离管理员 ${runId}`
+  });
+  warehouseFixture = createIsolatedRoleSessionFixture(apiBase, {
+    label: "a126_warehouse",
+    roleCode: "WAREHOUSE",
+    expectedRole: "仓库员",
+    accountSetCodes: ["BLD-TEST"],
+    defaultAccountSetCode: "BLD-TEST",
+    autoManageRequestFence: true,
+    displayName: `A126 隔离仓库员 ${runId}`
+  });
+  evidence.identities = {
+    admin: { userId: adminFixture.userId, username: adminFixture.username, roleCode: adminFixture.roleCode },
+    warehouse: { userId: warehouseFixture.userId, username: warehouseFixture.username, roleCode: warehouseFixture.roleCode }
+  };
+  await persistEvidence();
+  adminCookie = await adminFixture.login("BLD-TEST");
+  warehouseCookie = await warehouseFixture.login("BLD-TEST");
+  const [adminSession, warehouseSession] = await Promise.all([
+    requireApi(adminCookie, "/api/system/session", { method: "GET" }),
+    requireApi(warehouseCookie, "/api/system/session", { method: "GET" })
+  ]);
+  accountSetId = String(adminSession?.tenant?.id ?? "");
+  assert(/^[0-9a-f-]{36}$/i.test(accountSetId), "current session should expose account set id", { accountSetId });
+  assert(adminSession?.tenant?.schemaName === "public" && adminSession?.tenant?.code === "BLD-TEST" && adminSession?.user?.roleCode === "ADMIN",
+    "A126 ADMIN route must be BLD-TEST/public", adminSession);
+  assert(warehouseSession?.tenant?.schemaName === "public" && warehouseSession?.tenant?.code === "BLD-TEST" && warehouseSession?.user?.roleCode === "WAREHOUSE",
+    "A126 WAREHOUSE route must be BLD-TEST/public", warehouseSession);
+  baseline = captureA126Baseline();
+  assert(numberOf(baseline.balance.qty_available) === numberOf(baseline.balance.qty_on_hand) - numberOf(baseline.balance.qty_reserved),
+    "A126 baseline stock quantities must satisfy available = on-hand - reserved", baseline.balance);
+  cleanupConfig = {
+    marker,
+    seedPrefix,
+    productCode,
+    warehouseCode,
+    billDate,
+    startedAt: evidence.generatedAt,
+    userIds: [adminFixture.userId, warehouseFixture.userId]
+  };
+  evidence.baseline = baseline;
+  await persistEvidence();
+}
 
-await writeFile(resultPath, JSON.stringify(evidence, null, 2));
-console.log(JSON.stringify({ ok: true, resultPath: path.relative(rootDir, resultPath), evidence }, null, 2));
+async function run() {
+  await runMainFlow();
+  await persistEvidence();
+  await runPartialFlow();
+  await persistEvidence();
+  await runFullyNoticedPendingShipmentFlow();
+  await persistEvidence();
+  await runNoticeDraftAndGroupedAuditGuardFlow();
+  await persistEvidence();
+  await runCloseRemainingFlow();
+  await persistEvidence();
+  await runRedReverseFlow();
+  await persistEvidence();
+  await runFreezeFlow();
+  await persistEvidence();
+  await runVoidFlow();
+  await persistEvidence();
+  await runPermissionFlow();
+  await persistEvidence();
+  inject("before-browser");
+  await runPageUsabilityFlow();
+  await persistEvidence();
+}
+
+function frozenSnapshotEvidence(snapshot, transform) {
+  const rows = (key) => snapshot[key].map((row) => ({ id: row.id, billNo: row.bill_no })).sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  return {
+    snapshotDigest: snapshot.snapshotDigest,
+    transform,
+    allowlist: {
+      quotes: rows("quotes"),
+      orders: rows("orders"),
+      notices: rows("notices"),
+      outs: rows("outs"),
+      receivableIds: snapshot.receivables.map((row) => row.id).sort(),
+      transactionIds: snapshot.transactions.map((row) => row.id).sort(),
+      operationLogIds: snapshot.logs.map((row) => row.id).sort(),
+      locks: snapshot.locks.map((row) => ({ documentType: row.document_type, billNo: row.bill_no, holderUserId: row.holder_user_id }))
+    },
+    external: snapshot.external,
+    nonOwnedTransactions: snapshot.nonOwnedTransactions,
+    currentBalance: snapshot.balance
+  };
+}
+
+async function cleanup() {
+  evidence.cleanup.attempted = true;
+  const phaseErrors = [];
+  let requestFencesClosed = true;
+  for (const [label, fixture] of [["admin fence", adminFixture], ["warehouse fence", warehouseFixture]]) {
+    if (!fixture) continue;
+    try {
+      const result = await fixture.closeAndDrainRequestFence();
+      assert(result?.state === "CLOSED" && Number(result?.activeCount) === 0,
+        `A126 ${label} did not reach a closed and drained request fence`, result);
+      evidence.cleanup.phases.push({ label, ok: true, result });
+    } catch (error) {
+      requestFencesClosed = false;
+      phaseErrors.push({ label, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  await persistCleanupEvidence("request fences");
+  if (baseline && cleanupConfig && requestFencesClosed) {
+    try {
+      const snapshot = captureA126RunSnapshot(cleanupConfig);
+      const transform = validateA126RunSnapshot({ baseline, snapshot, config: cleanupConfig });
+      evidence.cleanup.frozen = frozenSnapshotEvidence(snapshot, transform);
+      await persistEvidence();
+      const result = cleanupA126Run({ baseline, snapshot, config: cleanupConfig });
+      evidence.cleanup.phases.push({ label: "business facts and stock baseline", ok: true, result });
+    } catch (error) {
+      phaseErrors.push({ label: "business facts and stock baseline", message: error instanceof Error ? error.message : String(error) });
+    }
+  } else if (baseline && cleanupConfig) {
+    phaseErrors.push({
+      label: "business facts and stock baseline",
+      message: "skipped fail-closed because every request fence was not proven CLOSED with zero active requests"
+    });
+  }
+  await persistCleanupEvidence("business facts and stock baseline");
+  for (const [label, fixture] of [["warehouse identity", warehouseFixture], ["admin identity", adminFixture]]) {
+    if (!fixture) continue;
+    try {
+      const result = await fixture.cleanup({ allowForcedRedisRelease: true });
+      evidence.cleanup.phases.push({ label, ok: true, result });
+    } catch (error) {
+      phaseErrors.push({ label, message: error instanceof Error ? error.message : String(error), cleanup: error?.cleanup });
+    }
+  }
+  evidence.cleanup.phaseErrors = phaseErrors;
+  evidence.cleanup.success = phaseErrors.length === 0;
+  await persistCleanupEvidence("identity closure");
+  if (phaseErrors.length > 0) throw new Error(`A126 cleanup did not close every phase ${JSON.stringify(phaseErrors)}`);
+}
+
+let runError = null;
+let cleanupError = null;
+let finalEvidenceError = null;
+try {
+  await setup();
+  await run();
+} catch (error) {
+  runError = error;
+  evidence.failure = {
+    phase: "main",
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined
+  };
+}
+
+try {
+  await cleanup();
+} catch (error) {
+  cleanupError = error;
+  evidence.cleanup.error = error instanceof Error ? error.message : String(error);
+}
+
+evidence.ok = !runError && !cleanupError;
+evidence.completedAt = new Date().toISOString();
+if (evidenceWriteErrors.length > 0) {
+  evidence.ok = false;
+  evidence.evidenceWriteErrors = evidenceWriteErrors.map(({ label, error }) => ({
+    label,
+    message: error.message
+  }));
+}
+try {
+  await persistEvidence();
+} catch (error) {
+  finalEvidenceError = error instanceof Error ? error : new Error(String(error));
+}
+
+const terminalErrors = [
+  runError,
+  cleanupError,
+  ...evidenceWriteErrors.map(({ error }) => error),
+  finalEvidenceError
+].filter(Boolean);
+if (terminalErrors.length > 1) throw new AggregateError(terminalErrors, "A126 run, cleanup, or evidence delivery failed");
+if (terminalErrors.length === 1) throw terminalErrors[0];
+
+console.log(JSON.stringify({
+  ok: true,
+  resultPath: path.relative(rootDir, resultPath),
+  batch,
+  cleanup: evidence.cleanup,
+  data: evidence.data
+}, null, 2));
