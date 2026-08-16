@@ -10,6 +10,7 @@
     table-class="entry-native-table"
     :columns="entryCoreColumns"
     :rows="lines"
+    :row-key="entryRowKey"
     :min-width="1180"
     :max-resize-width="420"
     :row-visible="rowMatchesFilters"
@@ -142,7 +143,6 @@
                   @focus="emit('searchMasterOptions', 'warehouse', line.warehouseCode, selectorIdForLine(lineIndex, 'warehouse'))"
                   @input="emit('handleMasterInput', 'warehouse', line.warehouseCode, selectorIdForLine(lineIndex, 'warehouse'))"
                   @keydown="handleLineCellKeydown($event, lineIndex, 'warehouse', selectorIdForLine(lineIndex, 'warehouse'))"
-                  @paste="emit('entryPaste', $event, lineIndex)"
                 />
                 <button
                   class="master-selector__open"
@@ -177,7 +177,6 @@
                   @focus="emit('searchMasterOptions', 'warehouse', line.targetWarehouseCode || '', selectorIdForLine(lineIndex, 'target-warehouse'))"
                   @input="emit('handleMasterInput', 'warehouse', line.targetWarehouseCode || '', selectorIdForLine(lineIndex, 'target-warehouse'))"
                   @keydown="handleLineCellKeydown($event, lineIndex, 'target-warehouse', selectorIdForLine(lineIndex, 'target-warehouse'))"
-                  @paste="emit('entryPaste', $event, lineIndex)"
                 />
                 <button
                   class="master-selector__open"
@@ -235,7 +234,6 @@
               :data-testid="lineQtyTestId(lineIndex)"
               @input="emit('markDirty')"
               @keydown="handleLineCellKeydown($event, lineIndex, 'qty')"
-              @paste="emit('entryPaste', $event, lineIndex)"
             />
             <template v-else-if="column.key === 'executedQty'">
               <button
@@ -264,9 +262,8 @@
               class="entry-number-input"
               :disabled="!isDraft || sourceLockedLines"
               :data-testid="linePriceTestId(lineIndex)"
-              @input="emit('markDirty')"
+              @input="handleManualUnitPriceInput(lineIndex)"
               @keydown="handleLineCellKeydown($event, lineIndex, 'price')"
-              @paste="emit('entryPaste', $event, lineIndex)"
             />
             <span v-else-if="column.key === 'taxInclusiveUnitPrice'" class="entry-cell-value entry-cell-value--number" :data-testid="lineTaxInclusiveUnitPriceTestId(lineIndex)">{{ lineTaxInclusiveUnitPrice(line) }}</span>
             <input
@@ -563,6 +560,9 @@ const emit = defineEmits<{
   applyBatchWarehouse: [];
   applyBatchPlanDeliveryDate: [lineIndexes: number[]];
   markDirty: [];
+  invalidateEntryPaste: [];
+  markDirtyPreservingPaste: [];
+  manualUnitPriceInput: [lineIndex: number];
   searchMasterOptions: [type: string, keyword: string, selectorId: string];
   handleMasterInput: [type: string, keyword: string, selectorId: string];
   handleSelectorKeydown: [event: KeyboardEvent, selectorId: string];
@@ -584,6 +584,11 @@ const emit = defineEmits<{
   addLine: [];
   refreshStock: [];
 }>();
+
+const entryRowKeys = new WeakMap<EntryLine, number>();
+let nextEntryRowKey = 1;
+const bulkPriceManualEditSeq = new WeakMap<EntryLine, number>();
+let bulkPriceRequestSeq = 0;
 
 const {
   selectorIdForLine,
@@ -892,6 +897,17 @@ function entryRowClass(line: EntryLine, lineIndex: number) {
   };
 }
 
+function entryRowKey(line: EntryLine) {
+  const existing = entryRowKeys.get(line);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const key = nextEntryRowKey;
+  nextEntryRowKey += 1;
+  entryRowKeys.set(line, key);
+  return key;
+}
+
 function entryRowAttrs(line: EntryLine, lineIndex: number) {
   return {
     "data-testid": `${props.testPrefix}-entry-row`,
@@ -1051,8 +1067,17 @@ function applyBulkQty() {
 }
 
 async function applyBulkPrice() {
-  const indexes = targetLineIndexes().filter((index) => props.lines[index]?.productCode?.trim());
-  if (!indexes.length) {
+  const targets = targetLineIndexes()
+    .map((index) => props.lines[index])
+    .filter((line): line is EntryLine => Boolean(line?.productCode?.trim()))
+    .map((line) => ({
+      line,
+      productId: String(line.productId ?? ""),
+      productCode: line.productCode.trim(),
+      unitPrice: Number(line.unitPrice ?? 0),
+      manualEditSeq: bulkPriceManualEditSeq.get(line) ?? 0
+    }));
+  if (!targets.length) {
     bulkPriceMessage.value = "没有可填充的商品行";
     return;
   }
@@ -1066,17 +1091,43 @@ async function applyBulkPrice() {
     bulkPriceMessage.value = "系数格式不正确";
     return;
   }
-  const productCodes = indexes.map((index) => props.lines[index].productCode);
+  const sourceKey = bulkPriceSourceKey.value;
+  const operator = bulkPriceOperator.value;
+  const requestSeq = bulkPriceRequestSeq + 1;
+  bulkPriceRequestSeq = requestSeq;
+  emit("invalidateEntryPaste");
+  targets.forEach(({ line }) => {
+    const currentIndex = props.lines.indexOf(line);
+    if (currentIndex >= 0) {
+      emit("manualUnitPriceInput", currentIndex);
+    }
+  });
+  const productCodes = [...new Set(targets.map((target) => target.productCode))];
   const result = await fetchSalesUnitPriceSources(customerCode, productCodes);
+  if (requestSeq !== bulkPriceRequestSeq || (props.salesPriceCustomerCode || "").trim() !== customerCode) {
+    bulkPriceMessage.value = "客户或批量取价条件已变化，本次结果已忽略";
+    return;
+  }
   if (!result.ok || !result.data) {
     bulkPriceMessage.value = result.message || "价格来源查询失败";
     return;
   }
   let applied = 0;
-  indexes.forEach((index) => {
-    const line = props.lines[index];
-    const productSources = result.data?.products?.[line.productCode] as SalesUnitPriceSourcesByProduct | undefined;
-    const source = productSources?.[bulkPriceSourceKey.value as keyof SalesUnitPriceSourcesByProduct];
+  let stale = 0;
+  targets.forEach((target) => {
+    const currentIndex = props.lines.indexOf(target.line);
+    if (
+      currentIndex < 0
+      || String(target.line.productId ?? "") !== target.productId
+      || target.line.productCode.trim() !== target.productCode
+      || Number(target.line.unitPrice ?? 0) !== target.unitPrice
+      || (bulkPriceManualEditSeq.get(target.line) ?? 0) !== target.manualEditSeq
+    ) {
+      stale += 1;
+      return;
+    }
+    const productSources = result.data?.products?.[target.productCode] as SalesUnitPriceSourcesByProduct | undefined;
+    const source = productSources?.[sourceKey as keyof SalesUnitPriceSourcesByProduct];
     if (!isPriceSource(source)) {
       return;
     }
@@ -1084,20 +1135,30 @@ async function applyBulkPrice() {
     if (!source.available || !Number.isFinite(sourceValue)) {
       return;
     }
-    const nextPrice = calculateBulkPrice(sourceValue, factor, bulkPriceOperator.value);
+    const nextPrice = calculateBulkPrice(sourceValue, factor, operator);
     if (nextPrice == null) {
       return;
     }
-    line.unitPrice = nextPrice;
+    emit("manualUnitPriceInput", currentIndex);
+    target.line.unitPrice = nextPrice;
     applied += 1;
   });
   if (!applied) {
-    bulkPriceMessage.value = "选中商品没有可用价格来源";
+    bulkPriceMessage.value = stale > 0 ? "目标行已变化，本次批量取价未覆盖" : "选中商品没有可用价格来源";
     return;
   }
-  emit("markDirty");
-  bulkPriceMessage.value = `已填充 ${applied} 行`;
+  emit("markDirtyPreservingPaste");
+  bulkPriceMessage.value = stale > 0 ? `已填充 ${applied} 行，忽略 ${stale} 行已变化目标` : `已填充 ${applied} 行`;
   closeFloatingPanels();
+}
+
+function handleManualUnitPriceInput(lineIndex: number) {
+  const line = props.lines[lineIndex];
+  if (line) {
+    bulkPriceManualEditSeq.set(line, (bulkPriceManualEditSeq.get(line) ?? 0) + 1);
+  }
+  emit("manualUnitPriceInput", lineIndex);
+  emit("markDirty");
 }
 
 function isPriceSource(value: unknown): value is SalesUnitPriceSource {

@@ -14,6 +14,7 @@ import com.jdy.erp.masterdata.api.MasterDataController;
 import com.jdy.erp.production.application.ProductionTaskAppService;
 import com.jdy.erp.shared.application.NumberingService;
 import com.jdy.erp.system.application.AccountSetManagementService;
+import com.jdy.erp.system.application.list.StubListSeedRowsProvider;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.testsupport.IsolatedAdminFixture;
 import org.junit.jupiter.api.AfterEach;
@@ -46,6 +47,9 @@ class TenantMasterDataBomNumberingIsolationTest {
 
     @Autowired
     private NumberingService numberingService;
+
+    @Autowired
+    private StubListSeedRowsProvider listSeedRowsProvider;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -98,6 +102,7 @@ class TenantMasterDataBomNumberingIsolationTest {
         assertThat(numberingService.nextBillNo("salesOrder")).isEqualTo("TA0001");
         assertThat(productName("A119-M")).isEqualTo("A119 账套A母件");
         assertThat(bomProductName()).isEqualTo("A119 账套A母件");
+        assertBomListRow("A119 账套A母件");
 
         useTenant(tenantB);
         createAuditedMaterial("A119-M", "A119 账套B母件");
@@ -107,6 +112,7 @@ class TenantMasterDataBomNumberingIsolationTest {
         assertThat(numberingService.nextBillNo("salesOrder")).isEqualTo("TB0010");
         assertThat(productName("A119-M")).isEqualTo("A119 账套B母件");
         assertThat(bomProductName()).isEqualTo("A119 账套B母件");
+        assertBomListRow("A119 账套B母件");
         assertThat(countProductsNamed("A119 账套A母件")).isZero();
 
         useTenant(tenantA);
@@ -288,6 +294,18 @@ class TenantMasterDataBomNumberingIsolationTest {
         @SuppressWarnings("unchecked")
         var detail = (Map<String, Object>) productionTaskAppService.bomDetail("BOM-A119");
         return String.valueOf(detail.get("productName"));
+    }
+
+    private void assertBomListRow(String expectedProductName) {
+        var row = listSeedRowsProvider.seedRows("bom-list", "header", 20).stream()
+            .filter(candidate -> "BOM-A119".equals(candidate.get("code")))
+            .findFirst()
+            .orElseThrow();
+        assertThat(String.valueOf(row.get("productName"))).isEqualTo(expectedProductName);
+        assertThat(String.valueOf(row.get("auditStatus"))).isEqualTo("已审核");
+        assertThat(String.valueOf(row.get("status"))).isEqualTo("启用");
+        assertThat(String.valueOf(row.get("isCurrent"))).isEqualTo("是");
+        assertThat(String.valueOf(row.get("updatedBy"))).isNotBlank().isNotEqualTo("-");
     }
 
     private String quoteIdentifier(String identifier) {

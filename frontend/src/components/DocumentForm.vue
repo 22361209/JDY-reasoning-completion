@@ -183,6 +183,9 @@
         @apply-batch-warehouse="emit('applyBatchWarehouse')"
         @apply-batch-plan-delivery-date="emit('applyBatchPlanDeliveryDate', $event)"
         @mark-dirty="emit('markDirty')"
+        @invalidate-entry-paste="emit('invalidateEntryPaste')"
+        @mark-dirty-preserving-paste="emit('markDirtyPreservingPaste')"
+        @manual-unit-price-input="emit('manualUnitPriceInput', $event)"
         @search-master-options="(type, keyword, selectorId) => emit('searchMasterOptions', type, keyword, selectorId)"
         @handle-master-input="(type, keyword, selectorId) => emit('handleMasterInput', type, keyword, selectorId)"
         @handle-selector-keydown="(event, selectorId) => emit('handleSelectorKeydown', event, selectorId)"
@@ -431,6 +434,9 @@ const emit = defineEmits<{
   applyBatchWarehouse: [];
   applyBatchPlanDeliveryDate: [lineIndexes: number[]];
   markDirty: [];
+  invalidateEntryPaste: [];
+  markDirtyPreservingPaste: [];
+  manualUnitPriceInput: [lineIndex: number];
   searchMasterOptions: [type: string, keyword: string, selectorId: string];
   handleMasterInput: [type: string, keyword: string, selectorId: string];
   handleSelectorKeydown: [event: KeyboardEvent, selectorId: string];

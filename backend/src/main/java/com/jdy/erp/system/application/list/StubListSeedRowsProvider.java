@@ -2024,7 +2024,7 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
                    to_char(b.updated_at, 'YYYY-MM-DD HH24:MI') AS "updatedAt"
             FROM prod_bom b
             JOIN md_product p ON p.id = b.product_id
-            LEFT JOIN sys_user u ON u.id = b.updated_by
+            LEFT JOIN public.sys_user u ON u.id = b.updated_by
             ORDER BY b.updated_at DESC, b.code
             """));
     }

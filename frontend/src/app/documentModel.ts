@@ -73,6 +73,7 @@ export interface OrderLineForm {
 
 export interface PendingEntryPaste {
   startIndex: number;
+  targetLine?: OrderLineForm;
   lines: OrderLineForm[];
   conflicts: EntryPasteConflict[];
 }

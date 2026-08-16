@@ -1,5 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from "vue";
-import { masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "../../app/entryPaste";
+import { isStructuredEntryClipboard, masterRowToOption, mergeMasterOptions, parseEntryClipboard } from "../../app/entryPaste";
 import {
   documentLifecycleStatusLabel,
   lifecyclePolicyFor
@@ -172,7 +172,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   const voidUsername = ref("");
   const voidPassword = ref("");
   let selectorRequestSeq = 0;
+  let entryPasteRequestSeq = 0;
   let priceRequestSeq = 0;
+  const linePriceRequestSeq = new WeakMap<OrderLineForm, number>();
 
   const isDraft = computed(() => form.status === "DRAFT");
   const lifecyclePolicy = computed(() => lifecyclePolicyFor(config.saveType ?? null));
@@ -247,6 +249,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   );
 
   async function startNew() {
+    invalidateLineTargets();
     form.billDate = todayText();
     form.billNo = "";
     form.version = undefined;
@@ -276,6 +279,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function fillFromDetail(detail: DocumentDetail) {
+    invalidateLineTargets();
     const document = detail.document;
     form.billNo = document.billNo;
     form.version = normalizeDocumentVersion(document.version);
@@ -357,6 +361,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   async function loadByBillNo(billNo: string, loadedMessage = "") {
+    invalidateLineTargets();
     form.lines = [];
     const result = await fetchDocumentDetail(config.documentType, billNo);
     if (!result.ok || !result.data) {
@@ -418,6 +423,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     ownerName: string;
     lines: PendingPushLine[];
   }) {
+    invalidateLineTargets();
     form.billNo = draft.billNo;
     form.sourceOrderNo = "";
     form.redReverseBillNo = undefined;
@@ -481,6 +487,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
       return;
     }
+    invalidateLineTargets();
     form.lines = preparedLines.formLines;
     const result = config.saveDraft
       ? await config.saveDraft(form, preparedLines.formLines)
@@ -726,13 +733,35 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function markDirty() {
+    invalidateEntryPasteForEdit();
     runtime.markDirty();
+  }
+
+  function invalidateEntryPasteForEdit() {
+    if (pendingEntryPaste.value) {
+      pendingEntryPaste.value = null;
+      message.value = "已取消较早的粘贴，保留最新编辑。";
+    }
+    entryPasteRequestSeq += 1;
+  }
+
+  function markDirtyPreservingPaste() {
+    runtime.markDirty();
+  }
+
+  function invalidateSalesLinePrice(lineIndex: number) {
+    const line = form.lines[lineIndex];
+    if (!line) {
+      return;
+    }
+    linePriceRequestSeq.set(line, (linePriceRequestSeq.get(line) ?? 0) + 1);
   }
 
   function addLine() {
     if (!isDraft.value || config.sourceLockedLines) {
       return;
     }
+    invalidateLineTargets();
     form.lines.push(blankLine());
     runtime.markDirty();
   }
@@ -741,6 +770,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!isDraft.value || config.sourceLockedLines) {
       return;
     }
+    invalidateLineTargets();
     form.lines.splice(index + 1, 0, blankLine());
     runtime.markDirty();
     void focusLineCell(index + 1, "product", config.testPrefix);
@@ -754,6 +784,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!source) {
       return;
     }
+    invalidateLineTargets();
     form.lines.splice(index + 1, 0, { ...source });
     runtime.markDirty();
     void focusLineCell(index + 1, "product", config.testPrefix);
@@ -763,6 +794,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!isDraft.value || (!config.sourceLockedLines && form.lines.length <= 1)) {
       return;
     }
+    invalidateLineTargets();
     form.lines.splice(index, 1);
     runtime.markDirty();
   }
@@ -792,8 +824,8 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     const [line] = form.lines.splice(draggingLineIndex.value, 1);
     if (line) {
+      invalidateLineTargets();
       form.lines.splice(targetIndex, 0, line);
-      activeSelector.value = "";
       runtime.markDirty();
     }
     draggingLineIndex.value = null;
@@ -842,8 +874,21 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!text.trim()) {
       return;
     }
+    if (!isStructuredEntryClipboard(text)) {
+      return;
+    }
     event.preventDefault();
+    const targetLine = form.lines[startIndex];
+    if (!targetLine) {
+      return;
+    }
+    const requestSeq = entryPasteRequestSeq + 1;
+    entryPasteRequestSeq = requestSeq;
     const refs = await loadEntryPasteRefs();
+    const resolvedStartIndex = form.lines.indexOf(targetLine);
+    if (requestSeq !== entryPasteRequestSeq || resolvedStartIndex < 0) {
+      return;
+    }
     const pasteResult = parseEntryClipboard(text, refs, {
       fallbackWarehouseCode: batchWarehouseCode.value.trim() || "CK-001",
       defaultUnitPrice: config.defaultUnitPrice
@@ -854,11 +899,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     if (pasteResult.conflicts.length > 0) {
       activeSelector.value = "";
-      pendingEntryPaste.value = { startIndex, lines: pasteResult.lines, conflicts: pasteResult.conflicts };
+      pendingEntryPaste.value = { startIndex: resolvedStartIndex, targetLine, lines: pasteResult.lines, conflicts: pasteResult.conflicts };
       message.value = `有 ${pasteResult.conflicts.length} 行商品需要选择。`;
       return;
     }
-    applyPastedEntryLines(startIndex, pasteResult.lines);
+    applyPastedEntryLines(resolvedStartIndex, pasteResult.lines);
   }
 
   async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
@@ -873,6 +918,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[]) {
+    invalidateLineTargets();
     pastedLines.forEach((line, offset) => {
       const targetIndex = startIndex + offset;
       if (targetIndex < form.lines.length) {
@@ -899,7 +945,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
         line.productId = "";
       }
     }
-    runtime.markDirty();
+    markDirty();
     void searchMasterOptions(type, keywordValue, selectorId);
   }
 
@@ -1013,7 +1059,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.partyCode = selectedOption.code;
     form.partyName = selectedOption.name;
     activeSelector.value = "";
-    runtime.markDirty();
+    markDirty();
     void refreshSalesLinePrices();
     focusNextAfterSelector(selectorId);
   }
@@ -1041,7 +1087,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     line.warehouseCode = option.code;
     activeSelector.value = "";
-    runtime.markDirty();
+    markDirty();
     focusNextAfterSelector(selectorId);
   }
 
@@ -1052,7 +1098,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     }
     line.targetWarehouseCode = option.code;
     activeSelector.value = "";
-    runtime.markDirty();
+    markDirty();
     focusNextAfterSelector(selectorId);
   }
 
@@ -1069,7 +1115,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     line.netWeight = option.netWeight ?? "";
     line.grossWeight = option.grossWeight ?? "";
     activeSelector.value = "";
-    runtime.markDirty();
+    markDirty();
     void refreshSalesLinePrice(lineIndex);
     focusNextAfterSelector(selectorId);
   }
@@ -1093,15 +1139,17 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!line || !customerCode || !productCode) {
       return;
     }
+    const lineRequestSeq = (linePriceRequestSeq.get(line) ?? 0) + 1;
+    linePriceRequestSeq.set(line, lineRequestSeq);
     const result = await fetchSalesUnitPriceQuote(customerCode, productCode);
-    if (requestSeq !== priceRequestSeq || !result.ok || !result.data) {
+    if (requestSeq !== priceRequestSeq || linePriceRequestSeq.get(line) !== lineRequestSeq || !result.ok || !result.data) {
       return;
     }
-    const currentLine = form.lines[lineIndex];
-    if (!currentLine || currentLine.productCode.trim() !== productCode || form.partyCode.trim() !== customerCode) {
+    const currentLineIndex = form.lines.indexOf(line);
+    if (currentLineIndex < 0 || line.productCode.trim() !== productCode || form.partyCode.trim() !== customerCode) {
       return;
     }
-    currentLine.unitPrice = Number(result.data.unitPrice ?? 0);
+    line.unitPrice = Number(result.data.unitPrice ?? 0);
     runtime.markDirty();
   }
 
@@ -1179,8 +1227,24 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     if (!pending || !entryPasteConflictsResolved.value) {
       return;
     }
-    applyPastedEntryLines(pending.startIndex, pending.lines);
+    const startIndex = pending.targetLine ? form.lines.indexOf(pending.targetLine) : pending.startIndex;
+    if (startIndex < 0) {
+      pendingEntryPaste.value = null;
+      message.value = "原粘贴目标行已删除，本次粘贴已取消。";
+      return;
+    }
+    applyPastedEntryLines(startIndex, pending.lines);
     pendingEntryPaste.value = null;
+  }
+
+  function invalidateLineTargets() {
+    activeSelector.value = "";
+    selectorOptions.value = [];
+    selectorCursorIndex.value = 0;
+    masterSelectorDialogOpen.value = false;
+    pendingEntryPaste.value = null;
+    selectorRequestSeq += 1;
+    entryPasteRequestSeq += 1;
   }
 
   function moveEntryPasteCandidate(delta: number) {
@@ -1431,6 +1495,9 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     openDownstreamTrace,
     openDownstreamDocument,
     markDirty,
+    invalidateEntryPaste: invalidateEntryPasteForEdit,
+    markDirtyPreservingPaste,
+    invalidateSalesLinePrice,
     addLine,
     insertLineAfter,
     copyLine,

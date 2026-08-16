@@ -23,6 +23,17 @@ export function mergeMasterOptions(primary: MasterOption[], fallback: MasterOpti
   return Array.from(byCode.values());
 }
 
+export function isStructuredEntryClipboard(text: string) {
+  const rows = text
+    .split(/\r?\n/)
+    .map((row) => row.trim())
+    .filter(Boolean);
+  if (rows.length > 1 || text.includes("\t")) {
+    return true;
+  }
+  return /[;,]/.test(text);
+}
+
 export function parseEntryClipboard(
   text: string,
   refs: EntryPasteRefs,

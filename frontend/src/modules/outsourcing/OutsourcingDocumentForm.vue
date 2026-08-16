@@ -165,7 +165,7 @@
         empty-text="暂无可选源单"
         @query-change="sourceSelector.load"
         @toggle="sourceSelector.toggleRow"
-        @close="sourceSelector.close"
+        @close="closeSourcePicker"
         @confirm="confirmSourcePicker"
       />
     </div>
@@ -257,6 +257,7 @@ const lines = reactive<EntryLine[]>([emptyLine()]);
 const activeSelector = ref("");
 const selectorOptions = ref<MasterOption[]>([]);
 const selectorCursorIndex = ref(0);
+let selectorRequestSeq = 0;
 const knownProductOptions = ref<MasterOption[]>([]);
 const componentLines = reactive<ComponentDemandLine[]>([]);
 const testPrefix = computed(() => `outsourcing-${props.kind}`);
@@ -357,6 +358,7 @@ function markDirty() {
 }
 
 function startNew() {
+  invalidateLineTargets();
   form.billNo = "";
   form.sourceBillNo = "";
   form.supplierCode = "";
@@ -382,6 +384,7 @@ async function loadDocument(billNo: string) {
 }
 
 function applyDetail(data: Record<string, unknown>) {
+  invalidateLineTargets();
   form.billNo = textValue(data.billNo);
   form.sourceBillNo = textValue(data.sourceBillNo);
   form.supplierCode = textValue(data.supplierCode);
@@ -463,6 +466,7 @@ async function openSourcePicker() {
 }
 
 function closeSourcePicker() {
+  selectorRequestSeq += 1;
   sourceSelector.close();
 }
 
@@ -476,20 +480,31 @@ async function confirmSourcePicker() {
 }
 
 async function selectSource(source: SourceOption) {
-  form.sourceBillNo = source.billNo;
-  form.supplierCode = source.supplierCode;
+  const requestSeq = selectorRequestSeq + 1;
+  selectorRequestSeq = requestSeq;
+  let componentSourceLines: EntryLine[] = [];
   if (props.kind === "issue") {
     const detail = await fetchOutsourcingWorkOrder(source.billNo);
+    if (requestSeq !== selectorRequestSeq) {
+      return;
+    }
     const components = detail.ok && detail.data && Array.isArray(detail.data.components)
       ? detail.data.components
       : [];
-    if (components.length) {
-      lines.splice(0, lines.length, ...components.map((component) => lineFromComponentSource(source.billNo, component)));
-      sourceSelector.commitLocalAllocation();
-      closeSourcePicker();
-      markDirty();
-      return;
-    }
+    componentSourceLines = components.map((component) => lineFromComponentSource(source.billNo, component));
+  }
+  if (requestSeq !== selectorRequestSeq) {
+    return;
+  }
+  invalidateLineTargets();
+  form.sourceBillNo = source.billNo;
+  form.supplierCode = source.supplierCode;
+  if (componentSourceLines.length) {
+    lines.splice(0, lines.length, ...componentSourceLines);
+    sourceSelector.commitLocalAllocation();
+    closeSourcePicker();
+    markDirty();
+    return;
   }
   lines.splice(0, lines.length, {
     ...emptyLine(),
@@ -614,6 +629,7 @@ function handlePushResult(result: { ok: boolean; message: string; data?: Record<
 }
 
 function insertLineAfter(index: number) {
+  invalidateLineTargets();
   lines.splice(index + 1, 0, emptyLine());
   markDirty();
 }
@@ -622,6 +638,7 @@ function removeLine(index: number) {
   if (lines.length <= 1) {
     return;
   }
+  invalidateLineTargets();
   lines.splice(index, 1);
   markDirty();
 }
@@ -631,13 +648,22 @@ function copyLine(index: number) {
   if (!line) {
     return;
   }
+  invalidateLineTargets();
   lines.splice(index + 1, 0, { ...line });
   markDirty();
 }
 
 function addLine() {
+  invalidateLineTargets();
   lines.push(emptyLine());
   markDirty();
+}
+
+function invalidateLineTargets() {
+  activeSelector.value = "";
+  selectorOptions.value = [];
+  selectorCursorIndex.value = 0;
+  selectorRequestSeq += 1;
 }
 
 function handleMasterInput(type: string, keyword: string, selectorId: string) {
@@ -647,12 +673,19 @@ function handleMasterInput(type: string, keyword: string, selectorId: string) {
 
 async function searchMasterOptions(type: string, keyword: string, selectorId: string) {
   activeSelector.value = selectorId;
+  selectorOptions.value = [];
+  selectorCursorIndex.value = 0;
+  const requestSeq = selectorRequestSeq + 1;
+  selectorRequestSeq = requestSeq;
   const result = await fetchListRows(type === "warehouse" ? "warehouse-master-selector" : "product-master-list", {
     keyword,
     status: "",
     page: 1,
     pageSize: 20
   });
+  if (requestSeq !== selectorRequestSeq || activeSelector.value !== selectorId) {
+    return;
+  }
   selectorOptions.value = result.ok && result.data ? result.data.rows.map(masterRowToOption) : [];
   selectorCursorIndex.value = selectorOptions.value.length > 0 ? 0 : -1;
 }

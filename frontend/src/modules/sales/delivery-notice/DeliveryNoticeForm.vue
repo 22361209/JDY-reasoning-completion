@@ -84,6 +84,8 @@
     @apply-batch-warehouse="document.applyBatchWarehouse"
     @apply-batch-plan-delivery-date="document.applyBatchPlanDeliveryDate"
     @mark-dirty="document.markDirty"
+    @invalidate-entry-paste="document.invalidateEntryPaste"
+    @mark-dirty-preserving-paste="document.markDirtyPreservingPaste"
     @search-master-options="document.searchMasterOptions"
     @handle-master-input="document.handleMasterInput"
     @handle-selector-keydown="document.handleSelectorKeydown"

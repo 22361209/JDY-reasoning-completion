@@ -126,6 +126,7 @@ const productLookupOptions = ref<MasterOption[]>([]);
 const activeProductLookupIndex = ref<number | null>(null);
 const productLookupCursor = ref(0);
 let productLookupRequestSeq = 0;
+const productApplyRequestSeq = new Map<string, number>();
 let productLookupCloseTimer: number | undefined;
 const form = reactive({
   billNo: "",
@@ -177,6 +178,7 @@ function markDirty() {
 function startNew() {
   closeProductLookup();
   closeProductSelector();
+  productApplyRequestSeq.clear();
   form.billNo = "";
   form.warehouseCode = "";
   form.sourceType = "SELF";
@@ -191,6 +193,7 @@ function startNew() {
 async function loadPlan(billNo: string) {
   closeProductLookup();
   closeProductSelector();
+  productApplyRequestSeq.clear();
   const result = await fetchProductionPlanDetail(billNo);
   if (!result.ok || !result.data) {
     hasError.value = true;
@@ -217,6 +220,7 @@ function removeLine(index: number) {
   if (entryLines.value.length <= 1) {
     return;
   }
+  productApplyRequestSeq.delete(entryLines.value[index]?.localId ?? "");
   entryLines.value.splice(index, 1);
   markDirty();
 }
@@ -232,6 +236,10 @@ function openProductSelector(index: number) {
 }
 
 function closeProductSelector() {
+  const targetLine = productSelectorLineIndex.value == null ? undefined : entryLines.value[productSelectorLineIndex.value];
+  if (targetLine) {
+    productApplyRequestSeq.set(targetLine.localId, (productApplyRequestSeq.get(targetLine.localId) ?? 0) + 1);
+  }
   productSelectorOpen.value = false;
   productSelectorLineIndex.value = null;
   productSelectorKeyword.value = "";
@@ -265,19 +273,31 @@ async function applyProductOption(option: MasterOption, index: number) {
     return false;
   }
   const targetLocalId = line.localId;
+  const requestSeq = (productApplyRequestSeq.get(targetLocalId) ?? 0) + 1;
+  productApplyRequestSeq.set(targetLocalId, requestSeq);
   closeProductLookup();
-  const bom = await resolveCurrentBom(String(option.code ?? ""));
+  const bomResult = await resolveCurrentBom(String(option.code ?? ""));
   const targetLine = entryLines.value[index];
-  if (!targetLine || targetLine.localId !== targetLocalId) {
+  if (requestSeq !== productApplyRequestSeq.get(targetLocalId) || !targetLine || targetLine.localId !== targetLocalId) {
     return false;
   }
+  if (!bomResult.ok) {
+    hasError.value = true;
+    message.value = bomResult.message || `物料 ${String(option.code ?? "")} 的当前 BOM 加载失败，请稍后重试`;
+    return false;
+  }
+  const bom = bomResult.bom;
   if (!bom) {
+    targetLine.productCode = String(option.code ?? "");
     targetLine.productId = "";
     targetLine.productName = "";
     targetLine.spec = "";
     targetLine.unit = "";
     targetLine.bomCode = "";
     targetLine.bomVersionNo = "";
+    targetLine.warehouseCode = "";
+    targetLine.departmentCode = "";
+    markDirty();
     hasError.value = true;
     message.value = `物料 ${String(option.code ?? "")} 没有已审核、启用的当前 BOM，不能用于生产计划`;
     return false;
@@ -308,12 +328,22 @@ async function resolveCurrentBom(productCode: string) {
     }
   });
   if (!result.ok || !result.data) {
-    return null;
+    return {
+      ok: false as const,
+      message: result.message
+        ? `物料 ${productCode} 的当前 BOM 加载失败：${result.message}`
+        : `物料 ${productCode} 的当前 BOM 加载失败，请稍后重试`,
+      bom: null
+    };
   }
-  return result.data.rows.find((row) => String(row.productCode ?? "") === productCode
-    && String(row.auditStatus ?? "") === "已审核"
-    && String(row.isCurrent ?? "") === "是"
-    && String(row.status ?? "") === "启用") ?? null;
+  return {
+    ok: true as const,
+    message: "",
+    bom: result.data.rows.find((row) => String(row.productCode ?? "") === productCode
+      && String(row.auditStatus ?? "") === "已审核"
+      && String(row.isCurrent ?? "") === "是"
+      && String(row.status ?? "") === "启用") ?? null
+  };
 }
 
 function handleProductInput(keyword: string, index: number) {
@@ -321,6 +351,7 @@ function handleProductInput(keyword: string, index: number) {
   if (!line || !isDraft.value) {
     return;
   }
+  productApplyRequestSeq.set(line.localId, (productApplyRequestSeq.get(line.localId) ?? 0) + 1);
   line.productId = "";
   line.productName = "";
   line.spec = "";
@@ -537,6 +568,7 @@ function applyLifecycleResult(result: { ok: boolean; message: string; data?: Rec
 }
 
 function applyPlanData(data: Record<string, unknown>) {
+  productApplyRequestSeq.clear();
   form.billNo = text(data.billNo);
   form.sourceType = text(data.sourceType) || "SELF";
   form.warehouseCode = text(data.warehouseCode);

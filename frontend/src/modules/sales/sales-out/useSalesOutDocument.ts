@@ -22,6 +22,7 @@ import {
   lifecyclePolicyFor
 } from "../../../app/documentLifecyclePolicy";
 import { taxAmounts } from "../../../app/taxAmounts";
+import { isStructuredEntryClipboard } from "../../../app/entryPaste";
 import { fetchListRows } from "../../../services/listApi";
 import {
   auditDocument,
@@ -127,7 +128,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const highlightedSourceBillNo = ref("");
   const highlightedSourceLineNo = ref<number | null>(null);
   let selectorRequestSeq = 0;
+  let entryPasteRequestSeq = 0;
   let priceRequestSeq = 0;
+  const linePriceRequestSeq = new WeakMap<OrderLineForm, number>();
 
   const isDraft = computed(() => form.status === "DRAFT");
   const lifecyclePolicy = computed(() => lifecyclePolicyFor("salesOut"));
@@ -160,6 +163,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   const entryPasteConflictsResolved = computed(() => Boolean(pendingEntryPaste.value?.conflicts.every((conflict) => conflict.selectedCode)));
 
   async function startNew() {
+    invalidateLineTargets();
     const today = new Date();
     form.billDate = [
       today.getFullYear(),
@@ -186,6 +190,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function fillFromDetail(detail: DocumentDetail) {
+    invalidateLineTargets();
     const document = detail.document;
     form.billNo = document.billNo;
     form.sourceOrderNo = "";
@@ -236,6 +241,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   async function loadByBillNo(billNo: string, loadedMessage = "") {
+    invalidateLineTargets();
     form.lines = [];
     const result = await fetchDocumentDetail("salesOut", billNo);
     if (!result.ok || !result.data) {
@@ -259,6 +265,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function applyPushDownDraft(draft: SalesOutPushDownDraft) {
+    invalidateLineTargets();
     form.billNo = draft.billNo;
     form.sourceOrderNo = "";
     form.redReverseBillNo = undefined;
@@ -300,6 +307,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function applySalesOrderLines(order: SalesOrderDetail["order"], lines: PendingPushLine[], loadedMessage: string) {
+    invalidateLineTargets();
     const today = new Date();
     form.sourceOrderNo = "";
     form.partyCode = order.customerCode || "";
@@ -380,6 +388,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function appendFormLines(lines: OrderLineForm[]) {
+    invalidateLineTargets();
     if (form.lines.length === 1 && (isStarterLine(form.lines[0]) || isBlankEntryLine(form.lines[0]))) {
       form.lines = lines;
       return;
@@ -443,6 +452,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
       pendingZeroEntrySave.value = { target: "document", warnings: zeroWarnings };
       return;
     }
+    invalidateLineTargets();
     form.lines = preparedLines.formLines;
     const result = await saveDocumentDraft("salesOut", {
       billNo: form.billNo,
@@ -685,6 +695,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!isDraft.value) {
       return;
     }
+    invalidateLineTargets();
     form.lines.push(blankLine());
     options.markDirty();
   }
@@ -693,6 +704,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!isDraft.value) {
       return;
     }
+    invalidateLineTargets();
     form.lines.splice(index + 1, 0, blankLine());
     options.markDirty();
     void focusLineCell(index + 1, "product");
@@ -706,6 +718,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!source) {
       return;
     }
+    invalidateLineTargets();
     form.lines.splice(index + 1, 0, { ...source });
     options.markDirty();
     void focusLineCell(index + 1, "product");
@@ -715,6 +728,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!isDraft.value || form.lines.length <= 1) {
       return;
     }
+    invalidateLineTargets();
     form.lines.splice(index, 1);
     options.markDirty();
   }
@@ -744,9 +758,9 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }
     const [line] = form.lines.splice(draggingLineIndex.value, 1);
     if (line) {
+      invalidateLineTargets();
       form.lines.splice(targetIndex, 0, line);
     }
-    activeSelector.value = "";
     draggingLineIndex.value = null;
     options.markDirty();
   }
@@ -791,8 +805,21 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!text.trim()) {
       return;
     }
+    if (!isStructuredEntryClipboard(text)) {
+      return;
+    }
     event.preventDefault();
+    const targetLine = form.lines[startIndex];
+    if (!targetLine) {
+      return;
+    }
+    const requestSeq = entryPasteRequestSeq + 1;
+    entryPasteRequestSeq = requestSeq;
     const refs = await loadEntryPasteRefs();
+    const resolvedStartIndex = form.lines.indexOf(targetLine);
+    if (requestSeq !== entryPasteRequestSeq || resolvedStartIndex < 0) {
+      return;
+    }
     const pasteResult = parseEntryClipboard(text, refs);
     if (pasteResult.lines.length === 0) {
       message.value = "未识别到可粘贴的分录。";
@@ -800,11 +827,11 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }
     if (pasteResult.conflicts.length > 0) {
       activeSelector.value = "";
-      pendingEntryPaste.value = { startIndex, lines: pasteResult.lines, conflicts: pasteResult.conflicts };
+      pendingEntryPaste.value = { startIndex: resolvedStartIndex, targetLine, lines: pasteResult.lines, conflicts: pasteResult.conflicts };
       message.value = `有 ${pasteResult.conflicts.length} 行商品需要选择。`;
       return;
     }
-    applyPastedEntryLines(startIndex, pasteResult.lines);
+    applyPastedEntryLines(resolvedStartIndex, pasteResult.lines);
   }
 
   async function loadEntryPasteRefs(): Promise<EntryPasteRefs> {
@@ -819,6 +846,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function applyPastedEntryLines(startIndex: number, pastedLines: OrderLineForm[]) {
+    invalidateLineTargets();
     pastedLines.forEach((line, offset) => {
       const targetIndex = startIndex + offset;
       if (targetIndex < form.lines.length) {
@@ -843,8 +871,49 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!pending || !entryPasteConflictsResolved.value) {
       return;
     }
-    applyPastedEntryLines(pending.startIndex, pending.lines);
+    const startIndex = pending.targetLine ? form.lines.indexOf(pending.targetLine) : pending.startIndex;
+    if (startIndex < 0) {
+      pendingEntryPaste.value = null;
+      message.value = "原粘贴目标行已删除，本次粘贴已取消。";
+      return;
+    }
+    applyPastedEntryLines(startIndex, pending.lines);
     pendingEntryPaste.value = null;
+  }
+
+  function invalidateLineTargets() {
+    activeSelector.value = "";
+    selectorOptions.value = [];
+    selectorCursorIndex.value = 0;
+    masterSelectorDialogOpen.value = false;
+    pendingEntryPaste.value = null;
+    selectorRequestSeq += 1;
+    entryPasteRequestSeq += 1;
+  }
+
+  function invalidateSalesLinePrice(lineIndex: number) {
+    const line = form.lines[lineIndex];
+    if (!line) {
+      return;
+    }
+    linePriceRequestSeq.set(line, (linePriceRequestSeq.get(line) ?? 0) + 1);
+  }
+
+  function markDirty() {
+    invalidateEntryPasteForEdit();
+    options.markDirty();
+  }
+
+  function invalidateEntryPasteForEdit() {
+    if (pendingEntryPaste.value) {
+      pendingEntryPaste.value = null;
+      message.value = "已取消较早的粘贴，保留最新编辑。";
+    }
+    entryPasteRequestSeq += 1;
+  }
+
+  function markDirtyPreservingPaste() {
+    options.markDirty();
   }
 
   function selectEntryPasteCandidate(lineIndex: number, code: string) {
@@ -994,7 +1063,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
   }
 
   function handleMasterInput(type: string, keywordValue: string, selectorId: string) {
-    options.markDirty();
+    markDirty();
     void searchMasterOptions(type, keywordValue, selectorId);
   }
 
@@ -1040,7 +1109,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     form.partyCode = option.code;
     form.partyName = option.name;
     activeSelector.value = "";
-    options.markDirty();
+    markDirty();
     void refreshSalesLinePrices();
     focusNextAfterSelector(selectorId);
   }
@@ -1052,7 +1121,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     }
     line.warehouseCode = option.code;
     activeSelector.value = "";
-    options.markDirty();
+    markDirty();
     focusNextAfterSelector(selectorId);
   }
 
@@ -1069,7 +1138,7 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     line.netWeight = option.netWeight ?? "";
     line.grossWeight = option.grossWeight ?? "";
     activeSelector.value = "";
-    options.markDirty();
+    markDirty();
     void refreshSalesLinePrice(lineIndex);
     focusNextAfterSelector(selectorId);
   }
@@ -1093,15 +1162,17 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     if (!line || !customerCode || !productCode || line.sourceOrderNo?.trim()) {
       return;
     }
+    const lineRequestSeq = (linePriceRequestSeq.get(line) ?? 0) + 1;
+    linePriceRequestSeq.set(line, lineRequestSeq);
     const result = await fetchSalesUnitPriceQuote(customerCode, productCode);
-    if (requestSeq !== priceRequestSeq || !result.ok || !result.data) {
+    if (requestSeq !== priceRequestSeq || linePriceRequestSeq.get(line) !== lineRequestSeq || !result.ok || !result.data) {
       return;
     }
-    const currentLine = form.lines[lineIndex];
-    if (!currentLine || currentLine.productCode.trim() !== productCode || form.partyCode.trim() !== customerCode || currentLine.sourceOrderNo?.trim()) {
+    const currentLineIndex = form.lines.indexOf(line);
+    if (currentLineIndex < 0 || line.productCode.trim() !== productCode || form.partyCode.trim() !== customerCode || line.sourceOrderNo?.trim()) {
       return;
     }
-    currentLine.unitPrice = Number(result.data.unitPrice ?? 0);
+    line.unitPrice = Number(result.data.unitPrice ?? 0);
     options.markDirty();
   }
 
@@ -1240,7 +1311,10 @@ export function useSalesOutDocument(options: SalesOutDocumentOptions) {
     downstreamDocTestId,
     entryPasteCandidateTestId,
     zeroReasonTestId,
-    markDirty: options.markDirty
+    markDirty,
+    invalidateEntryPaste: invalidateEntryPasteForEdit,
+    markDirtyPreservingPaste,
+    invalidateSalesLinePrice
   };
 }
 
