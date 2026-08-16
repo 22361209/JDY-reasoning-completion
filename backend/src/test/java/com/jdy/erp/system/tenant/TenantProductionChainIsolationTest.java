@@ -236,6 +236,94 @@ class TenantProductionChainIsolationTest {
     }
 
     @Test
+    void productionDocumentProductInfoAndCompletionRemarkPersistAcrossLifecycle() {
+        var tenant = createManagedAccountSet("A186HDR");
+        useTenant(tenant);
+        createProductionSetup("A186 产品信息母件", "A186 产品信息子件", "A186 产品信息供应商");
+        saveComponentOpeningStock(new BigDecimal("4"));
+        createAuditedBom();
+        var planNo = createPlan(BigDecimal.ONE);
+        jdbcTemplate.update("""
+            UPDATE md_product
+            SET name = 'A186 主档漂移名称', spec = 'A186-DRIFT', unit = 'BOX'
+            WHERE code = ?
+            """, PARENT_CODE);
+        var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A186 产品信息供应商", "2.0000");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT product_unit_snapshot FROM production_task WHERE bill_no = ?",
+            String.class,
+            taskBillNo
+        )).isEqualTo("PCS");
+        try {
+            jdbcTemplate.execute("ALTER TABLE production_task DISABLE TRIGGER USER");
+            jdbcTemplate.update("""
+                UPDATE production_task
+                SET product_code_snapshot = '',
+                    product_name_snapshot = '',
+                    product_unit_snapshot = ''
+                WHERE bill_no = ?
+                """, taskBillNo);
+            assertThat(jdbcTemplate.queryForMap("""
+                SELECT product_code_snapshot AS code,
+                       product_name_snapshot AS name,
+                       product_unit_snapshot AS unit
+                FROM production_task
+                WHERE bill_no = ?
+                """, taskBillNo))
+                .containsEntry("code", "")
+                .containsEntry("name", "")
+                .containsEntry("unit", "");
+        } finally {
+            jdbcTemplate.execute("ALTER TABLE production_task ENABLE TRIGGER USER");
+        }
+        assertProductionProductInfo(
+            productionTaskAppService.taskDetail(taskBillNo),
+            "A186 产品信息母件",
+            WAREHOUSE_CODE,
+            "1.0000"
+        );
+        assertProductionProductInfo(
+            materialIssueAppService.previewFromTask(taskBillNo),
+            "A186 产品信息母件",
+            WAREHOUSE_CODE,
+            "1.0000"
+        );
+        var issueNo = saveAndAuditIssue(taskBillNo);
+
+        assertProductionProductInfo(
+            materialIssueAppService.detail(issueNo),
+            "A186 产品信息母件",
+            WAREHOUSE_CODE,
+            "1.0000"
+        );
+
+        var created = productInAppService.saveDraft(new ProductInAppService.ProductInDraftRequest(
+            null,
+            taskBillNo,
+            BigDecimal.ONE,
+            "A186 产品入库创建备注",
+            null
+        ));
+        var billNo = generatedBillNo(created, "产品入库单");
+        assertCompletionHeader(billNo, "A186 产品入库创建备注", "1.0000");
+        var updated = productInAppService.saveDraft(new ProductInAppService.ProductInDraftRequest(
+            billNo,
+            taskBillNo,
+            BigDecimal.ONE,
+            "A186 产品入库更新备注",
+            null
+        ));
+        assertThat(updated.get("id")).isEqualTo(created.get("id"));
+        assertThat(updated.get("billNo")).isEqualTo(created.get("billNo"));
+        assertCompletionHeader(billNo, "A186 产品入库更新备注", "1.0000");
+
+        productInAppService.audit(billNo);
+        assertCompletionHeader(billNo, "A186 产品入库更新备注", "0.0000");
+        productInAppService.reverse(billNo);
+        assertCompletionHeader(billNo, "A186 产品入库更新备注", "1.0000");
+    }
+
+    @Test
     void materialIssueDraftMatchesRequestedQtyBySourceLineNoWhenComponentRepeats() {
         var tenant = createManagedAccountSet("A119DUP");
         useTenant(tenant);
@@ -748,10 +836,43 @@ class TenantProductionChainIsolationTest {
     @SuppressWarnings("unchecked")
     private void assertCompletionWarehouse(String billNo, String warehouseCode) {
         var detail = productInAppService.detail(billNo);
+        assertProductionProductInfo(detail, null, warehouseCode, null);
         var lines = (List<Map<String, Object>>) detail.get("lines");
         assertThat(lines)
             .singleElement()
             .satisfies(line -> assertThat(line.get("warehouseCode")).isEqualTo(warehouseCode));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertCompletionHeader(String billNo, String remark, String remainingQty) {
+        var detail = productInAppService.detail(billNo);
+        var document = (Map<String, Object>) detail.get("document");
+        assertThat(document.get("remark")).isEqualTo(remark);
+        assertProductionProductInfo(detail, "A186 产品信息母件", WAREHOUSE_CODE, remainingQty);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertProductionProductInfo(
+        Map<String, Object> detail,
+        String expectedProductName,
+        String warehouseCode,
+        String remainingQty
+    ) {
+        var productInfo = (Map<String, Object>) detail.get("productInfo");
+        assertThat(productInfo)
+            .containsEntry("productCode", PARENT_CODE)
+            .containsEntry("spec", "")
+            .containsEntry("unit", "PCS")
+            .containsEntry("warehouseCode", warehouseCode)
+            .containsEntry("bomCode", BOM_CODE);
+        assertThat(String.valueOf(productInfo.get("bomVersionNo"))).isEqualTo("1");
+        assertDecimal(productInfo.get("taskQty"), "1.0000");
+        if (expectedProductName != null) {
+            assertThat(productInfo.get("productName")).isEqualTo(expectedProductName);
+        }
+        if (remainingQty != null) {
+            assertDecimal(productInfo.get("remainingQty"), remainingQty);
+        }
     }
 
     private void assertBalanceAtWarehouse(String productCode, String warehouseCode, String expectedQty) {

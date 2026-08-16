@@ -21,7 +21,9 @@ import {
 const rootDir = path.resolve(import.meta.dirname, "..");
 const guardPath = path.join(rootDir, "scripts/helpers/regression-child-process-guard.mjs");
 const probePath = path.join(rootDir, "scripts/helpers/regression-child-guard-probe.mjs");
+const regressionAuthPath = path.join(rootDir, "scripts/helpers/regression-auth.mjs");
 const guardSource = readFileSync(guardPath, "utf8");
+const regressionAuthSource = readFileSync(regressionAuthPath, "utf8");
 assert.doesNotMatch(guardSource, /\btrustedProcessKill\b/,
   "watchdog initialization cleanup must not call a removed signal primitive");
 assert.match(guardSource,
@@ -35,6 +37,19 @@ assert.match(guardSource,
   "a spawned watchdog must retain signed ownership evidence on initialization failure");
 assert.match(guardSource, /const maximumDockerIntents = 1_024;/,
   "the guarded Docker lease cap must cover the bounded A43 cleanup envelope");
+const redisPrimarySessionKeysSource = regressionAuthSource.match(
+  /function redisPrimarySessionKeys\(\) \{[\s\S]*?\n\}/
+)?.[0] ?? "";
+assert.notEqual(redisPrimarySessionKeysSource, "",
+  "the Redis primary-session enumerator must remain explicit");
+assert.doesNotMatch(redisPrimarySessionKeysSource, /redisCommand\("TYPE"/,
+  "session enumeration must not spend one guarded Docker intent per unrelated Redis key");
+assert.match(regressionAuthSource,
+  /export function deleteProvenRedisPrimary[\s\S]{0,700}?regressionRedisDeleteOwnedPrimaryLua/,
+  "removing the TYPE amplification must retain atomic proven-owner deletion");
+assert.match(regressionAuthSource,
+  /export function deleteProvenRedisPrimary[\s\S]{0,420}?redisCommand\(\s*"EVAL",\s*regressionRedisDeleteOwnedPrimaryLua,\s*"1",\s*key,\s*\.\.\.ownerDigests\s*\)[\s\S]{0,160}?assert\(result >= 0/,
+  "atomic Redis cleanup must keep EVAL ownership digests and fail closed on owner drift");
 const token = "a".repeat(32);
 const runId = "b".repeat(32);
 const secretDir = mkdtempSync(path.join(tmpdir(), "jdy-child-guard-contract-"));

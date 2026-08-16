@@ -664,7 +664,7 @@ function synchronousPause(milliseconds) {
 function redisPrimarySessionKeys() {
   return redisScan("*:sessions:*").flatMap((key) => {
     const match = /^(.*:sessions:)([^:]+)$/.exec(key);
-    if (!match || redisCommand("TYPE", key) !== "hash") return [];
+    if (!match) return [];
     return [{ key, prefix: match[1], sessionId: match[2], namespace: match[1].slice(0, -"sessions:".length) }];
   });
 }

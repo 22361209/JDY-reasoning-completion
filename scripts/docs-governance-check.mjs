@@ -110,8 +110,30 @@ async function checkTaskAndSnapshot() {
   } else if (Number(task.maxFullGateRuns) > 1) {
     expect(/^user_authorized_[a-z0-9_-]+$/i.test(task.fullGateAuthorization || ""),
       "a second full gate requires an explicit recorded user authorization");
-    expect(/首轮 full .*预检.*未执行脚本/.test(taskSource),
-      "a second full gate requires evidence that the first full did not execute regression scripts");
+    const taskBody = taskSource.replace(/^---\n[\s\S]*?\n---\n/, "");
+    const firstFullStoppedBeforeScripts = /首轮 full .*预检.*未执行脚本/.test(taskBody);
+    const firstFullRunId = String(task.firstFullGateRunId || "");
+    const firstFullExecutedScripts = Number(task.firstFullGateExecutedScripts);
+    const firstFullSummarySha256 = String(task.firstFullGateSummarySha256 || "");
+    const secondFullRepairScope = String(task.secondFullGateRepairScope || "");
+    const escapedRunId = firstFullRunId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedSummarySha = firstFullSummarySha256.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedRepairScope = secondFullRepairScope.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const recordedRepairScope = /^[a-z0-9][a-z0-9_-]{1,126}[a-z0-9]$/i.test(secondFullRepairScope)
+      && new RegExp(`\\brepairScope=${escapedRepairScope}(?![0-9A-Za-z_-])`).test(taskBody);
+    const authorizedExecutedRetry = /^[0-9a-f]{32}$/.test(firstFullRunId)
+      && Number.isInteger(firstFullExecutedScripts)
+      && firstFullExecutedScripts > 0
+      && /^[0-9a-f]{64}$/.test(firstFullSummarySha256)
+      && new RegExp(`\\brunId=${escapedRunId}(?![0-9A-Za-z_-])`).test(taskBody)
+      && new RegExp(`\\bSHA-256[ =\\x60]*${escapedSummarySha}(?![0-9A-Za-z_-])`).test(taskBody)
+      && new RegExp(`\\bexecuted=${firstFullExecutedScripts}(?![0-9A-Za-z_-])`).test(taskBody);
+    expect(recordedRepairScope,
+      "a second full gate requires its structured repair scope in the task body");
+    expect(task.secondFullGateNonRepeat === "no_third_full_without_new_authorization",
+      "a second full gate requires a no-third-full contract");
+    expect(firstFullStoppedBeforeScripts || authorizedExecutedRetry,
+      "a second full gate requires either a pre-script first stop or a user-authorized runId/executed/scope/non-repeat contract");
   }
   expect(task.maxTotalSubagents === "unbounded"
     || Number(task.maxTotalSubagents) >= Number(task.maxConcurrentSubagents),

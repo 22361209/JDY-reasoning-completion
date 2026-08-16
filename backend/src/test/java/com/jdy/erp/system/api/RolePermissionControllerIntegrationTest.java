@@ -9,6 +9,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -17,8 +22,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.transaction.AfterTransaction;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -30,6 +39,14 @@ class RolePermissionControllerIntegrationTest {
     @Autowired
     @Qualifier("platformJdbcTemplate")
     private JdbcTemplate platformJdbcTemplate;
+
+    @Autowired
+    @Qualifier("platformTransactionManager")
+    private PlatformTransactionManager platformTransactionManager;
+
+    private UUID settlementOnlyUserId;
+    private String settlementOnlyUsername;
+    private boolean settlementOnlyPermissionAssertionsCompleted;
 
     @Test
     void adminCreatesMinimalRoleAtomicallyAndReadersRemainPermissionGuarded() throws Exception {
@@ -151,6 +168,14 @@ class RolePermissionControllerIntegrationTest {
                     """.formatted(username, roleCode)))
             .andExpect(status().isOk());
 
+        settlementOnlyUsername = username;
+        settlementOnlyUserId = platformJdbcTemplate.queryForObject(
+            "SELECT id FROM sys_user WHERE username = ? AND display_name = 'A186 仅结算用户'",
+            UUID.class,
+            username
+        );
+        assertThat(settlementOnlyUserId).isNotNull();
+
         var settlementOnly = login(username, "A186-Settle-123!");
         try {
             mockMvc.perform(get("/api/lists/financial-account-master-list").session(settlementOnly))
@@ -184,10 +209,93 @@ class RolePermissionControllerIntegrationTest {
                 Integer.class,
                 forbiddenAccountCode
             )).isZero();
+            settlementOnlyPermissionAssertionsCompleted = true;
         } finally {
             mockMvc.perform(post("/api/system/logout").session(settlementOnly))
                 .andExpect(status().isOk());
         }
+    }
+
+    @AfterTransaction
+    void removeCommittedDeniedWriteLogsForRolledBackSettlementOnlyUser() {
+        if (settlementOnlyUserId == null || settlementOnlyUsername == null) {
+            return;
+        }
+
+        var expectedTargets = Set.of(
+            "POST /api/master-data/{type}",
+            "PATCH /api/master-data/{type}/{code}",
+            "POST /api/master-data/{type}/{code}/audit",
+            "PATCH /api/master-data/{type}/{code}/status"
+        );
+        var rows = platformJdbcTemplate.queryForList("""
+            SELECT id, module_code, action_code, target_type, target_id, target_no,
+                   before_state, after_state, success, failure_reason,
+                   operated_by, account_set_id, account_set_code,
+                   actor_type, actor_username, actor_display_name
+            FROM sys_operation_log
+            WHERE operated_by = ? OR actor_username = ?
+            ORDER BY id
+            """, settlementOnlyUserId, settlementOnlyUsername);
+        var logIds = rows.stream()
+            .filter(row -> settlementOnlyUserId.equals(row.get("operated_by"))
+                && settlementOnlyUsername.equals(row.get("actor_username")))
+            .map(row -> UUID.fromString(String.valueOf(row.get("id"))))
+            .toList();
+
+        var transaction = new TransactionTemplate(platformTransactionManager);
+        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        var deleted = transaction.execute(status -> {
+            if (logIds.isEmpty()) {
+                return 0;
+            }
+            var placeholders = String.join(",", logIds.stream().map(ignored -> "?").toList());
+            var arguments = new ArrayList<Object>(logIds);
+            arguments.add(settlementOnlyUserId);
+            arguments.add(settlementOnlyUsername);
+            return platformJdbcTemplate.update("""
+                DELETE FROM sys_operation_log
+                WHERE id IN (%s)
+                  AND operated_by = ?
+                  AND actor_username = ?
+                """.formatted(placeholders), arguments.toArray());
+        });
+
+        assertThat(rows).hasSizeLessThanOrEqualTo(expectedTargets.size());
+        var actualTargets = new HashSet<String>();
+        for (var row : rows) {
+            var target = String.valueOf(row.get("target_no"));
+            assertThat(expectedTargets).contains(target);
+            assertThat(actualTargets.add(target)).as("denied endpoint must be unique: %s", target).isTrue();
+            assertThat(row)
+                .containsEntry("module_code", "SECURITY")
+                .containsEntry("action_code", "WRITE_DENIED")
+                .containsEntry("target_type", "http_endpoint")
+                .containsEntry("success", false)
+                .containsEntry("failure_reason", "当前角色无权执行该操作：master.data.manage")
+                .containsEntry("operated_by", settlementOnlyUserId)
+                .containsEntry("account_set_id", UUID.fromString("00000000-0000-0000-0000-000000000001"))
+                .containsEntry("account_set_code", "BLD-TEST")
+                .containsEntry("actor_type", "USER")
+                .containsEntry("actor_username", settlementOnlyUsername)
+                .containsEntry("actor_display_name", "A186 仅结算用户");
+            assertThat(row.get("target_id")).isNull();
+            assertThat(row.get("before_state")).isNull();
+            assertThat(row.get("after_state")).isNull();
+        }
+        if (settlementOnlyPermissionAssertionsCompleted) {
+            assertThat(actualTargets).containsExactlyInAnyOrderElementsOf(expectedTargets);
+        }
+        assertThat(deleted).isEqualTo(logIds.size());
+        assertThat(platformJdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM sys_operation_log
+            WHERE operated_by = ? OR actor_username = ?
+            """, Integer.class, settlementOnlyUserId, settlementOnlyUsername)).isZero();
+
+        settlementOnlyUserId = null;
+        settlementOnlyUsername = null;
+        settlementOnlyPermissionAssertionsCompleted = false;
     }
 
     private MockHttpSession login(String username, String password) throws Exception {

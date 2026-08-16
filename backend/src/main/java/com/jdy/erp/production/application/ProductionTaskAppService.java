@@ -793,11 +793,12 @@ public class ProductionTaskAppService {
             INSERT INTO production_task (
                 id, bill_no, plan_id, plan_line_id, bom_id, product_id,
                 product_code_snapshot, product_name_snapshot, product_spec_snapshot,
+                product_unit_snapshot, net_weight_snapshot, gross_weight_snapshot,
                 warehouse_id, department_code, bom_code_snapshot, bom_version_no,
                 qty, status, source_kind, parent_task_id, root_task_id,
                 source_bom_line_id, source_level, bom_path
             )
-            VALUES (COALESCE(?::uuid, gen_random_uuid()), ?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?)
+            VALUES (COALESCE(?::uuid, gen_random_uuid()), ?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET plan_id = EXCLUDED.plan_id,
                 plan_line_id = EXCLUDED.plan_line_id,
@@ -806,6 +807,9 @@ public class ProductionTaskAppService {
                 product_code_snapshot = EXCLUDED.product_code_snapshot,
                 product_name_snapshot = EXCLUDED.product_name_snapshot,
                 product_spec_snapshot = EXCLUDED.product_spec_snapshot,
+                product_unit_snapshot = EXCLUDED.product_unit_snapshot,
+                net_weight_snapshot = EXCLUDED.net_weight_snapshot,
+                gross_weight_snapshot = EXCLUDED.gross_weight_snapshot,
                 warehouse_id = EXCLUDED.warehouse_id,
                 department_code = EXCLUDED.department_code,
                 bom_code_snapshot = EXCLUDED.bom_code_snapshot,
@@ -832,6 +836,9 @@ public class ProductionTaskAppService {
             source.get("productCode"),
             source.get("productName"),
             source.get("spec"),
+            source.get("unit"),
+            source.get("netWeight"),
+            source.get("grossWeight"),
             source.get("warehouseId"),
             source.get("departmentCode"),
             source.get("bomCode"),
@@ -852,6 +859,23 @@ public class ProductionTaskAppService {
         if (requestedTaskId != null && !requestedTaskId.equals(taskId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务草稿标识与单号不一致");
         }
+        // V69 intentionally captures the current product attributes in its
+        // BEFORE INSERT trigger. A production task, however, must inherit the
+        // already-frozen plan/BOM source attributes. Apply that lineage in the
+        // same transaction after INSERT; the V69 UPDATE branch preserves
+        // explicit non-blank snapshot values.
+        jdbcTemplate.update("""
+            UPDATE production_task
+            SET product_unit_snapshot = ?,
+                net_weight_snapshot = ?,
+                gross_weight_snapshot = ?
+            WHERE id = ?::uuid
+            """,
+            source.get("unit"),
+            source.get("netWeight"),
+            source.get("grossWeight"),
+            taskId
+        );
         var rootTaskId = source.get("rootTaskId") == null ? taskId : String.valueOf(source.get("rootTaskId"));
         if (source.get("rootTaskId") == null) {
             jdbcTemplate.update("UPDATE production_task SET root_task_id = ?::uuid WHERE id = ?::uuid", taskId, taskId);
@@ -898,16 +922,21 @@ public class ProductionTaskAppService {
         }
         var task = taskRows.get(0);
         var productRows = jdbcTemplate.queryForList("""
-            SELECT COALESCE(t.product_code_snapshot, p.code) AS "productCode",
-                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
-                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
-                   COALESCE(t.product_unit_snapshot, p.unit, '') AS unit,
+            SELECT COALESCE(NULLIF(t.product_code_snapshot, ''), NULLIF(plan_line.product_code_snapshot, ''), p.code) AS "productCode",
+                   COALESCE(NULLIF(t.product_name_snapshot, ''), NULLIF(plan_line.product_name_snapshot, ''), p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, plan_line.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(NULLIF(t.product_unit_snapshot, ''), NULLIF(plan_line.product_unit_snapshot, ''), p.unit, '') AS unit,
                    w.code AS "warehouseCode",
                    t.qty AS "taskQty",
                    GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
-                   t.bom_code_snapshot AS "bomCode",
-                   t.bom_version_no AS "bomVersionNo"
+                   COALESCE(t.bom_code_snapshot, plan_line.bom_code_snapshot) AS "bomCode",
+                   COALESCE(t.bom_version_no, plan_line.bom_version_no) AS "bomVersionNo"
             FROM production_task t
+            LEFT JOIN production_plan_line plan_line
+              ON plan_line.id = t.plan_line_id
+             AND t.source_kind = 'PLAN_ROOT'
+             AND plan_line.product_id = t.product_id
+             AND plan_line.bom_id = t.bom_id
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
             WHERE t.id = ?::uuid
@@ -1161,6 +1190,9 @@ public class ProductionTaskAppService {
                        COALESCE(line.product_code_snapshot, mp.code) AS "productCode",
                        COALESCE(line.product_name_snapshot, mp.name) AS "productName",
                        COALESCE(line.product_spec_snapshot, mp.spec, '') AS spec,
+                       COALESCE(line.product_unit_snapshot, mp.unit, '') AS unit,
+                       COALESCE(line.net_weight_snapshot, mp.net_weight) AS "netWeight",
+                       COALESCE(line.gross_weight_snapshot, mp.gross_weight) AS "grossWeight",
                        line.warehouse_id::text AS "warehouseId",
                        line.department_code AS "departmentCode",
                        COALESCE(line.bom_code_snapshot, b.code) AS "bomCode",
@@ -1198,6 +1230,9 @@ public class ProductionTaskAppService {
             source.put("productCode", plan.get("productCode"));
             source.put("productName", plan.get("productName"));
             source.put("spec", plan.get("spec"));
+            source.put("unit", plan.get("unit"));
+            source.put("netWeight", plan.get("netWeight"));
+            source.put("grossWeight", plan.get("grossWeight"));
             source.put("warehouseId", plan.get("warehouseId"));
             source.put("departmentCode", plan.get("departmentCode"));
             source.put("bomCode", plan.get("bomCode"));
@@ -1222,6 +1257,9 @@ public class ProductionTaskAppService {
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
+                   COALESCE(p.unit, '') AS unit,
+                   p.net_weight AS "netWeight",
+                   p.gross_weight AS "grossWeight",
                    p.default_warehouse_id::text AS "defaultWarehouseId",
                    department.code AS "departmentCode"
             FROM prod_bom b
@@ -1248,6 +1286,9 @@ public class ProductionTaskAppService {
         source.put("productCode", bom.get("productCode"));
         source.put("productName", bom.get("productName"));
         source.put("spec", bom.get("spec"));
+        source.put("unit", bom.get("unit"));
+        source.put("netWeight", bom.get("netWeight"));
+        source.put("grossWeight", bom.get("grossWeight"));
         source.put("warehouseId", resolveTaskWarehouseId(request.warehouseCode(), (String) bom.get("defaultWarehouseId")));
         source.put("departmentCode", bom.get("departmentCode"));
         source.put("bomCode", bom.get("bomCode"));
@@ -1728,6 +1769,9 @@ public class ProductionTaskAppService {
                 childSource.put("productCode", line.get("productCode"));
                 childSource.put("productName", line.get("productName"));
                 childSource.put("spec", line.get("spec"));
+                childSource.put("unit", line.get("unit"));
+                childSource.put("netWeight", line.get("netWeight"));
+                childSource.put("grossWeight", line.get("grossWeight"));
                 childSource.put("warehouseId", line.get("completionWarehouseId"));
                 childSource.put("departmentCode", line.get("completionDepartmentCode"));
                 childSource.put("bomCode", childBom.get("bomCode"));

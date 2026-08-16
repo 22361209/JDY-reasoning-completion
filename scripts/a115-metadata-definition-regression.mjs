@@ -1630,8 +1630,28 @@ for (const tableName of [
 }
 assertContains(
   productSnapshotService,
-  /resolve\(String productId,\s*String productCode[\s\S]*?return byId\(productId\.trim\(\), label\)[\s\S]*?return byCode\(productCode\.trim\(\), label\)[\s\S]*?WHERE id = \?::uuid/,
-  "ProductSnapshotService 必须优先用 UUID 解析物料快照，并兼容旧编码录入"
+  /public ProductSnapshot resolve\(String productId,\s*String productCode,\s*String label\)\s*\{\s*return resolve\(productId, productCode, label, false\);/,
+  "ProductSnapshotService 普通读取必须明确走无锁解析"
+);
+assertContains(
+  productSnapshotService,
+  /@Transactional\(propagation = Propagation\.MANDATORY\)[\s\S]{0,220}?resolveForReference\(String productId,\s*String productCode,\s*String label\)\s*\{\s*return resolve\(productId, productCode, label, true\);/,
+  "ProductSnapshotService 引用写入必须在既有事务中启用引用锁"
+);
+assertContains(
+  productSnapshotService,
+  /private ProductSnapshot resolve\(String productId,\s*String productCode,\s*String label,\s*boolean lockForReference\)[\s\S]{0,520}?return byId\(productId\.trim\(\), label, lockForReference\)[\s\S]{0,320}?return byCode\(productCode\.trim\(\), label, lockForReference\)/,
+  "ProductSnapshotService 必须保持 UUID 优先、旧编码回退并将引用锁标志贯通到两个解析分支"
+);
+assertContains(
+  productSnapshotService,
+  /private ProductSnapshot byId\(String productId,\s*String label,\s*boolean lockForReference\)[\s\S]{0,900}?WHERE id = \?::uuid AND enabled = TRUE AND audit_status = 'AUDITED'[\s\S]{0,120}?lockForReference \? " FOR KEY SHARE" : ""/,
+  "ProductSnapshotService UUID 引用解析必须保留审核启用过滤与可选 KEY SHARE"
+);
+assertContains(
+  productSnapshotService,
+  /private ProductSnapshot byCode\(String productCode,\s*String label,\s*boolean lockForReference\)[\s\S]{0,760}?WHERE code = \? AND enabled = TRUE AND audit_status = 'AUDITED'[\s\S]{0,120}?lockForReference \? " FOR KEY SHARE" : ""/,
+  "ProductSnapshotService 编码兼容解析必须保留审核启用过滤与可选 KEY SHARE"
 );
 assertContains(
   productSnapshotService,

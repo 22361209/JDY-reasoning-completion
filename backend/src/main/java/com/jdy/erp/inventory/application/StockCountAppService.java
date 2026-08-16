@@ -76,7 +76,8 @@ public class StockCountAppService {
                    b.department,
                    b.business_type AS "businessType",
                    b.status,
-                   b.owner_name AS "ownerName"
+                   b.owner_name AS "ownerName",
+                   COALESCE(b.remark, '') AS remark
             FROM stock_count b
             WHERE b.bill_no = ?
             """, billNo);
@@ -112,12 +113,13 @@ public class StockCountAppService {
     public Map<String, Object> saveDraft(StockCountDraftRequest request) {
         var billNo = numberingService.assignBillNo("stockCount", request.billNo());
         var bill = jdbcTemplate.queryForMap("""
-            INSERT INTO stock_count (bill_no, bill_date, department, document_type, business_type, status, owner_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO stock_count (bill_no, bill_date, department, document_type, business_type, status, owner_name, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
                 owner_name = EXCLUDED.owner_name,
+                remark = EXCLUDED.remark,
                 status = EXCLUDED.status,
                 updated_at = now(),
                 version = stock_count.version + 1
@@ -131,6 +133,7 @@ public class StockCountAppService {
             "盘点单",
             BillStatus.DRAFT.name(),
             request.ownerName(),
+            validationService.optionalText(request.remark()),
             BillStatus.DRAFT.name()
         );
         var billId = bill.get("id");
@@ -222,7 +225,11 @@ public class StockCountAppService {
         return price;
     }
 
-    public record StockCountDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, List<StockCountLineRequest> lines) {
+    public record StockCountDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, String remark, List<StockCountLineRequest> lines) {
+        public StockCountDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, List<StockCountLineRequest> lines) {
+            this(billNo, supplierCode, billDate, department, ownerName, null, lines);
+        }
+
         public StockCountDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");

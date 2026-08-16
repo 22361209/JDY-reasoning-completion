@@ -60,6 +60,13 @@ async function lifecycleLog(cookie, billNo, action) {
   assert((response.rows ?? []).some((row) => row.targetNo === billNo && row.targetType === "cash_transfer" && row.action === action && row.status === "成功"), `operation log missing ${action} for ${billNo}`);
 }
 
+const globalActorOrphanBaseline = Number(scalar(`
+  SELECT count(*)
+  FROM public.sys_operation_log log_row
+  LEFT JOIN public.sys_user user_row ON user_row.id=log_row.operated_by
+  WHERE log_row.operated_by IS NOT NULL AND user_row.id IS NULL
+`));
+assert(globalActorOrphanBaseline === 0, `A163 global actor orphan baseline must be zero before fixture creation, got ${globalActorOrphanBaseline}`);
 await mkdir(screenshotDir, { recursive: true });
 const identity = createIsolatedAdminSessionFixture(apiBase, {
   label: "a163",
@@ -684,14 +691,6 @@ try {
            OR EXISTS (SELECT 1 FROM public.sys_operation_log WHERE operated_by=${sqlLiteral(cleanupOwnership.userId)}::uuid OR actor_username=${sqlLiteral(transferOnlyFixture.username)}) THEN
           RAISE EXCEPTION 'A163 transfer-only fixture residue remains before commit';
         END IF;
-        IF EXISTS (
-          SELECT 1
-          FROM public.sys_operation_log log_row
-          LEFT JOIN public.sys_user user_row ON user_row.id=log_row.operated_by
-          WHERE log_row.operated_by IS NOT NULL AND user_row.id IS NULL
-        ) THEN
-          RAISE EXCEPTION 'A163 operation actor orphan remains before commit';
-        END IF;
       END
       $a163_verify$;
       COMMIT;
@@ -702,18 +701,14 @@ try {
           || (SELECT count(*) FROM public.sys_user_account_set WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid OR role_code=${sqlLiteral(transferOnlyFixture.roleCode)}) || '|'
           || (SELECT count(*) FROM public.sys_session_account_scope WHERE user_id=${sqlLiteral(cleanupOwnership.userId)}::uuid) || '|'
           || (SELECT count(*) FROM public.sys_operation_log WHERE operated_by=${sqlLiteral(cleanupOwnership.userId)}::uuid OR actor_username=${sqlLiteral(transferOnlyFixture.username)}) || '|'
-          || (SELECT count(*) FROM a163_owned_operation_logs) || '|'
-          || (SELECT count(*)
-              FROM public.sys_operation_log log_row
-              LEFT JOIN public.sys_user user_row ON user_row.id=log_row.operated_by
-              WHERE log_row.operated_by IS NOT NULL AND user_row.id IS NULL);
+          || (SELECT count(*) FROM a163_owned_operation_logs);
       DROP TABLE a163_owned_operation_logs;
     `);
     const residueParts = residueText.split("|");
-    assert(residueParts.length === 9 && residueParts.every((value) => /^\d+$/.test(value)), `invalid transfer-only cleanup evidence: ${residueText}`);
-    const [role, user, permission, roleLink, grant, sessionScope, operationLog, deletedOperationLogs, actorOrphans] = residueParts.map(Number);
+    assert(residueParts.length === 8 && residueParts.every((value) => /^\d+$/.test(value)), `invalid transfer-only cleanup evidence: ${residueText}`);
+    const [role, user, permission, roleLink, grant, sessionScope, operationLog, deletedOperationLogs] = residueParts.map(Number);
     if (evidence) assert(deletedOperationLogs === 7, `transfer-only operation-log deletion count must be 7, got ${deletedOperationLogs}`);
-    const fixtureResidue = { role, user, permission, roleLink, grant, sessionScope, operationLog, actorOrphans };
+    const fixtureResidue = { role, user, permission, roleLink, grant, sessionScope, operationLog };
     if (Object.values(fixtureResidue).some((count) => count !== 0)) cleanupErrors.push(`transfer-only fixture residue: ${JSON.stringify(fixtureResidue)}`);
     else if (evidence) {
       evidence.cleanup.transferOnlyFixtureResidue = fixtureResidue;
@@ -722,6 +717,25 @@ try {
   }
 } catch (error) {
   cleanupErrors.push(`transfer-only fixture cleanup: ${error instanceof Error ? error.message : String(error)}`);
+}
+try {
+  const globalActorOrphanFinal = Number(scalar(`
+    SELECT count(*)
+    FROM public.sys_operation_log log_row
+    LEFT JOIN public.sys_user user_row ON user_row.id=log_row.operated_by
+    WHERE log_row.operated_by IS NOT NULL AND user_row.id IS NULL
+  `));
+  if (evidence) {
+    evidence.cleanup.globalActorOrphans = {
+      baseline: globalActorOrphanBaseline,
+      final: globalActorOrphanFinal
+    };
+  }
+  if (globalActorOrphanBaseline !== null && globalActorOrphanFinal !== globalActorOrphanBaseline) {
+    cleanupErrors.push(`global actor orphan drift: baseline=${globalActorOrphanBaseline}, final=${globalActorOrphanFinal}`);
+  }
+} catch (error) {
+  cleanupErrors.push(`global actor orphan verification: ${error instanceof Error ? error.message : String(error)}`);
 }
 if (primaryError) {
   if (cleanupErrors.length > 0) {

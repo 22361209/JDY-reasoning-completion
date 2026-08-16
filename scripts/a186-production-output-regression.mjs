@@ -16,6 +16,21 @@ const runId = randomUUID();
 const runShort = runId.replaceAll("-", "").slice(0, 12).toUpperCase();
 const taskBillNo = "SCRW900001";
 const lossBillNo = "PK900001";
+const issueHeaderBillNo = "SOUT900001";
+const productInHeaderBillNo = "SCRK900001";
+const transferHeaderBillNo = "DBD900001";
+const countHeaderBillNo = "PD900001";
+const headerBillNos = Object.freeze({
+  "material-issue-form-list": issueHeaderBillNo,
+  "product-in-form-list": productInHeaderBillNo,
+  "stock-transfer-form-list": transferHeaderBillNo,
+  "stock-count-form-list": countHeaderBillNo
+});
+const headerRemarks = {
+  productIn: "A186 产品入库原备注",
+  stockTransfer: "A186 调拨原备注",
+  stockCount: "A186 盘点原备注"
+};
 
 await mkdir(verificationDir, { recursive: true });
 await mkdir(screenshotDir, { recursive: true });
@@ -64,14 +79,60 @@ async function openEntry(page, moduleName, entryId) {
   await page.waitForTimeout(275);
 }
 
+async function openDetailFromList(page, moduleName, entryId, listId, billNo, billNoTestId) {
+  await page.getByTestId(`module-${moduleName}`).hover();
+  await page.getByTestId(`query-${entryId}`).click();
+  await page.getByTestId(`tab-${listId}`).waitFor({ state: "visible", timeout: 10000 });
+  await page.getByTestId("list-keyword").fill(billNo);
+  await page.getByTestId("list-keyword").press("Enter");
+  await page.getByTestId(`open-document-${billNo}`).waitFor({ state: "visible", timeout: 10000 });
+  await page.getByTestId(`open-document-${billNo}`).click();
+  await page.waitForFunction(
+    ({ id, value }) => document.querySelector(`[data-testid="${id}"]`)?.value === value,
+    { id: billNoTestId, value: billNo }
+  );
+}
+
+async function closeDocumentForm(page, formId, expectedLockRequestCount) {
+  await page.getByTestId(`close-${formId}`).click();
+  await page.getByTestId(`tab-${formId}`).waitFor({ state: "hidden", timeout: 10000 });
+  await waitUntil(
+    () => evidence.requests.documentLocks.length === expectedLockRequestCount,
+    10000,
+    `${formId} document-lock release`
+  );
+}
+
+async function waitForTabDirtyState(page, formId, dirty) {
+  await page.waitForFunction(
+    ({ id, expected }) => document.querySelector(`[data-testid="tab-${id}"]`)?.classList.contains("dirty") === expected,
+    { id: formId, expected: dirty }
+  );
+}
+
+async function productInfoValues(page) {
+  const section = page.locator("section.master-record-section").filter({ has: page.getByRole("heading", { name: "产品信息", exact: true }) });
+  await section.waitFor({ state: "visible", timeout: 10000 });
+  return section.locator("input").evaluateAll((inputs) => inputs.map((input) => input.value));
+}
+
 async function waitForText(locator, text) {
   await locator.filter({ hasText: text }).waitFor({ state: "visible", timeout: 10000 });
+}
+
+async function waitUntil(predicate, timeoutMs, label) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`${label} timed out after ${timeoutMs}ms`);
 }
 
 const firstTaskRequestSeen = deferred();
 const releaseFirstTaskRequest = deferred();
 const evidence = {
-  taskId: "A186-5",
+  taskId: "A186",
   runId,
   generatedAt: new Date().toISOString(),
   ok: false,
@@ -83,6 +144,9 @@ const evidence = {
     lossDrafts: [],
     lossAudits: 0,
     lossPrints: [],
+    headerDrafts: [],
+    headerDetailGets: { materialIssue: 0, productIn: 0, stockTransfer: 0, stockCount: 0 },
+    documentLocks: [],
     unexpectedWrites: []
   },
   screenshots: [],
@@ -113,6 +177,106 @@ try {
     const request = route.request();
     const url = new URL(request.url());
     const method = request.method();
+
+    if (method === "GET" && url.pathname.startsWith("/api/lists/")) {
+      const listKey = decodeURIComponent(url.pathname.slice("/api/lists/".length));
+      const billNo = headerBillNos[listKey];
+      if (billNo) {
+        await fulfillJson(route, {
+          page: 1,
+          pageSize: 50,
+          total: 1,
+          rows: [{
+            billNo,
+            sourceOrderNo: taskBillNo,
+            billDate: "2026-08-16",
+            status: "DRAFT",
+            department: "A186",
+            productCode: "CP-A186-FINISH",
+            productName: "A186 完工母件",
+            warehouse: "A186-FINISH",
+            sourceWarehouse: "CK-001",
+            targetWarehouse: "A186-FINISH",
+            systemQty: 10,
+            countedQty: 10,
+            diffQty: 0
+          }]
+        });
+        return;
+      }
+    }
+    const productInfo = {
+      productCode: "CP-A186-FINISH",
+      productName: "A186 完工母件",
+      spec: "A186",
+      unit: "PCS",
+      warehouseCode: "A186-FINISH",
+      taskQty: 1,
+      remainingQty: 1,
+      bomCode: "BOM-A186-IDEMPOTENT",
+      bomVersionNo: 1
+    };
+    if (method === "GET" && url.pathname === `/api/production/material-issues/${issueHeaderBillNo}`) {
+      evidence.requests.headerDetailGets.materialIssue += 1;
+      await fulfillJson(route, {
+        action: "DETAIL",
+        document: { billNo: issueHeaderBillNo, sourceOrderNo: taskBillNo, billDate: "2026-08-16", department: "生产部", status: "DRAFT" },
+        productInfo,
+        lines: [{ lineNo: 1, productCode: "CP-A186-MAT", productName: "A186 生产子件", spec: "A186-M", unit: "PCS", warehouseCode: "CK-001", qty: 1, unitPrice: 1, amount: 1 }]
+      });
+      return;
+    }
+    if (method === "GET" && url.pathname === `/api/production/product-ins/${productInHeaderBillNo}`) {
+      evidence.requests.headerDetailGets.productIn += 1;
+      await fulfillJson(route, {
+        action: "DETAIL",
+        document: { billNo: productInHeaderBillNo, sourceOrderNo: taskBillNo, billDate: "2026-08-16", department: "生产部", status: "DRAFT", remark: headerRemarks.productIn },
+        productInfo,
+        lines: [{ lineNo: 1, productCode: "CP-A186-FINISH", productName: "A186 完工母件", spec: "A186", unit: "PCS", warehouseCode: "A186-FINISH", qty: 1, unitPrice: 1, amount: 1 }]
+      });
+      return;
+    }
+    if (method === "GET" && url.pathname === `/api/stock-transfers/${transferHeaderBillNo}`) {
+      evidence.requests.headerDetailGets.stockTransfer += 1;
+      await fulfillJson(route, {
+        action: "DETAIL",
+        document: { billNo: transferHeaderBillNo, billDate: "2026-08-16", department: "A186", businessType: "直接调拨", status: "DRAFT", remark: headerRemarks.stockTransfer },
+        lines: [{ lineNo: 1, productCode: "CP-A186-FINISH", productName: "A186 完工母件", spec: "A186", unit: "PCS", warehouseCode: "CK-001", targetWarehouseCode: "A186-FINISH", qty: 1, unitPrice: 1, amount: 1 }]
+      });
+      return;
+    }
+    if (method === "GET" && url.pathname === `/api/stock-counts/${countHeaderBillNo}`) {
+      evidence.requests.headerDetailGets.stockCount += 1;
+      await fulfillJson(route, {
+        action: "DETAIL",
+        document: { billNo: countHeaderBillNo, billDate: "2026-08-16", department: "A186", businessType: "盘点单", status: "DRAFT", remark: headerRemarks.stockCount },
+        lines: [{ lineNo: 1, productCode: "CP-A186-FINISH", productName: "A186 完工母件", spec: "A186", unit: "PCS", warehouseCode: "CK-001", qty: 10, systemQty: 10, diffQty: 0, unitPrice: 1 }]
+      });
+      return;
+    }
+    const headerDraftType = {
+      "/api/production/product-ins/draft": "productIn",
+      "/api/stock-transfers/draft": "stockTransfer",
+      "/api/stock-counts/draft": "stockCount"
+    }[url.pathname];
+    if (method === "POST" && headerDraftType) {
+      const payload = request.postDataJSON();
+      const billNo = headerDraftType === "productIn"
+        ? productInHeaderBillNo
+        : headerDraftType === "stockTransfer"
+          ? transferHeaderBillNo
+          : countHeaderBillNo;
+      assert(String(payload.billNo ?? "") === billNo, `${headerDraftType} save must update the exact opened draft`, payload);
+      evidence.requests.headerDrafts.push({ type: headerDraftType, payload });
+      headerRemarks[headerDraftType] = String(payload.remark ?? "");
+      await fulfillJson(route, { billNo, status: "DRAFT" }, 201);
+      return;
+    }
+    if ((method === "POST" || method === "DELETE") && url.pathname.startsWith("/api/document-locks/")) {
+      evidence.requests.documentLocks.push(`${method} ${url.pathname}`);
+      await fulfillJson(route, { mode: "editable", locked: false, readOnly: false, canOverride: false });
+      return;
+    }
 
     if (method === "POST" && url.pathname === "/api/production/tasks") {
       const payload = request.postDataJSON();
@@ -280,6 +444,150 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, taskShot), fullPage: true });
   evidence.screenshots.push(`verification/playwright/${taskShot}`);
 
+  const expectedProductInfo = [
+    "CP-A186-FINISH",
+    "A186 完工母件",
+    "A186",
+    "PCS",
+    "1",
+    "1",
+    "BOM-A186-IDEMPOTENT",
+    "1"
+  ];
+  await openDetailFromList(
+    page,
+    "生产管理",
+    "material-issue-form",
+    "material-issue-form-list",
+    issueHeaderBillNo,
+    "material-issue-bill-no"
+  );
+  const issueProductInfo = await productInfoValues(page);
+  assert(JSON.stringify(issueProductInfo) === JSON.stringify(expectedProductInfo), "material issue detail must preserve top-level productInfo through frontend normalization", issueProductInfo);
+  await closeDocumentForm(page, "material-issue-form", 2);
+  await openDetailFromList(
+    page,
+    "生产管理",
+    "material-issue-form",
+    "material-issue-form-list",
+    issueHeaderBillNo,
+    "material-issue-bill-no"
+  );
+  const issueProductInfoAfterReopen = await productInfoValues(page);
+  assert(JSON.stringify(issueProductInfoAfterReopen) === JSON.stringify(expectedProductInfo), "material issue productInfo must survive a fresh list reopen", issueProductInfoAfterReopen);
+  await closeDocumentForm(page, "material-issue-form", 4);
+
+  await openDetailFromList(
+    page,
+    "生产管理",
+    "product-in-form",
+    "product-in-form-list",
+    productInHeaderBillNo,
+    "product-in-bill-no"
+  );
+  const completionProductInfo = await productInfoValues(page);
+  assert(JSON.stringify(completionProductInfo) === JSON.stringify(expectedProductInfo), "product-in detail must preserve top-level productInfo through frontend normalization", completionProductInfo);
+  const completionRemark = `A186 产品入库复验 ${runShort}`;
+  await page.getByTestId("product-in-remark").fill(completionRemark);
+  await waitForTabDirtyState(page, "product-in-form", true);
+  await page.getByTestId("save-sales-order").click();
+  await waitUntil(() => evidence.requests.headerDrafts.length === 1, 10000, "product-in remark save");
+  await waitUntil(() => evidence.requests.headerDetailGets.productIn >= 2, 10000, "product-in detail reload after save");
+  await waitForTabDirtyState(page, "product-in-form", false);
+  const completionRemarkAfterSave = await page.getByTestId("product-in-remark").inputValue();
+  assert(completionRemarkAfterSave === completionRemark, "product-in automatic detail reload must preserve the saved remark", completionRemarkAfterSave);
+  const completionProductInfoAfterSave = await productInfoValues(page);
+  assert(JSON.stringify(completionProductInfoAfterSave) === JSON.stringify(expectedProductInfo), "product-in productInfo must survive automatic detail reload", completionProductInfoAfterSave);
+  await closeDocumentForm(page, "product-in-form", 6);
+  await openDetailFromList(page, "生产管理", "product-in-form", "product-in-form-list", productInHeaderBillNo, "product-in-bill-no");
+  await waitUntil(() => evidence.requests.headerDetailGets.productIn >= 3, 10000, "product-in detail reopen");
+  await page.waitForFunction(
+    ({ id, value }) => document.querySelector(`[data-testid="${id}"]`)?.value === value,
+    { id: "product-in-remark", value: completionRemark }
+  );
+  const completionRemarkAfterReopen = await page.getByTestId("product-in-remark").inputValue();
+  const completionProductInfoAfterReopen = await productInfoValues(page);
+  assert(JSON.stringify(completionProductInfoAfterReopen) === JSON.stringify(expectedProductInfo), "product-in productInfo must survive a fresh list reopen", completionProductInfoAfterReopen);
+  await closeDocumentForm(page, "product-in-form", 8);
+
+  await openDetailFromList(
+    page,
+    "库存管理",
+    "stock-transfer-form",
+    "stock-transfer-form-list",
+    transferHeaderBillNo,
+    "stock-transfer-bill-no"
+  );
+  const transferRemark = `A186 调拨复验 ${runShort}`;
+  await page.getByTestId("stock-transfer-remark").fill(transferRemark);
+  await waitForTabDirtyState(page, "stock-transfer-form", true);
+  await page.getByTestId("save-sales-order").click();
+  await waitUntil(() => evidence.requests.headerDrafts.length === 2, 10000, "stock-transfer remark save");
+  await waitUntil(() => evidence.requests.headerDetailGets.stockTransfer >= 2, 10000, "stock-transfer detail reload after save");
+  await waitForTabDirtyState(page, "stock-transfer-form", false);
+  const transferRemarkAfterSave = await page.getByTestId("stock-transfer-remark").inputValue();
+  assert(transferRemarkAfterSave === transferRemark, "stock-transfer automatic detail reload must preserve the saved remark", transferRemarkAfterSave);
+  await closeDocumentForm(page, "stock-transfer-form", 10);
+  await openDetailFromList(page, "库存管理", "stock-transfer-form", "stock-transfer-form-list", transferHeaderBillNo, "stock-transfer-bill-no");
+  await waitUntil(() => evidence.requests.headerDetailGets.stockTransfer >= 3, 10000, "stock-transfer detail reopen");
+  await page.waitForFunction(
+    ({ id, value }) => document.querySelector(`[data-testid="${id}"]`)?.value === value,
+    { id: "stock-transfer-remark", value: transferRemark }
+  );
+  const transferRemarkAfterReopen = await page.getByTestId("stock-transfer-remark").inputValue();
+  await closeDocumentForm(page, "stock-transfer-form", 12);
+
+  await openDetailFromList(
+    page,
+    "库存管理",
+    "stock-count-form",
+    "stock-count-form-list",
+    countHeaderBillNo,
+    "stock-count-bill-no"
+  );
+  const countRemark = `A186 盘点复验 ${runShort}`;
+  await page.getByTestId("stock-count-remark").fill(countRemark);
+  await waitForTabDirtyState(page, "stock-count-form", true);
+  await page.getByTestId("save-sales-order").click();
+  await waitUntil(() => evidence.requests.headerDrafts.length === 3, 10000, "stock-count remark save");
+  await waitUntil(() => evidence.requests.headerDetailGets.stockCount >= 2, 10000, "stock-count detail reload after save");
+  await waitForTabDirtyState(page, "stock-count-form", false);
+  const countRemarkAfterSave = await page.getByTestId("stock-count-remark").inputValue();
+  assert(countRemarkAfterSave === countRemark, "stock-count automatic detail reload must preserve the saved remark", countRemarkAfterSave);
+  await closeDocumentForm(page, "stock-count-form", 14);
+  await openDetailFromList(page, "库存管理", "stock-count-form", "stock-count-form-list", countHeaderBillNo, "stock-count-bill-no");
+  await waitUntil(() => evidence.requests.headerDetailGets.stockCount >= 3, 10000, "stock-count detail reopen");
+  await page.waitForFunction(
+    ({ id, value }) => document.querySelector(`[data-testid="${id}"]`)?.value === value,
+    { id: "stock-count-remark", value: countRemark }
+  );
+  const countRemarkAfterReopen = await page.getByTestId("stock-count-remark").inputValue();
+  const headerShot = `a186-document-headers-${runShort}.png`;
+  await page.screenshot({ path: path.join(screenshotDir, headerShot), fullPage: true });
+  evidence.screenshots.push(`verification/playwright/${headerShot}`);
+  await closeDocumentForm(page, "stock-count-form", 16);
+  assert(
+    JSON.stringify(evidence.requests.headerDrafts.map((item) => [item.type, item.payload.billNo, item.payload.remark])) === JSON.stringify([
+      ["productIn", productInHeaderBillNo, completionRemark],
+      ["stockTransfer", transferHeaderBillNo, transferRemark],
+      ["stockCount", countHeaderBillNo, countRemark]
+    ]),
+    "three header draft requests must update their exact bill numbers with exact visible remarks",
+    evidence.requests.headerDrafts
+  );
+  assert(
+    JSON.stringify(evidence.requests.headerDetailGets) === JSON.stringify({ materialIssue: 2, productIn: 3, stockTransfer: 3, stockCount: 3 }),
+    "five document header scenarios must issue the exact detail GET counts",
+    evidence.requests.headerDetailGets
+  );
+  evidence.checks.documentHeaderScenarios = [
+    { defectId: "UAT-A186-012", documentType: "materialIssue", billNo: issueHeaderBillNo, initial: issueProductInfo, afterReopen: issueProductInfoAfterReopen },
+    { defectId: "UAT-A186-013", documentType: "productIn", billNo: productInHeaderBillNo, initial: completionProductInfo, afterSave: completionProductInfoAfterSave, afterReopen: completionProductInfoAfterReopen },
+    { defectId: "UAT-A186-014", documentType: "productIn", billNo: productInHeaderBillNo, expectedRemark: completionRemark, observedAfterSave: completionRemarkAfterSave, observedAfterReopen: completionRemarkAfterReopen },
+    { defectId: "UAT-A186-014", documentType: "stockTransfer", billNo: transferHeaderBillNo, expectedRemark: transferRemark, observedAfterSave: transferRemarkAfterSave, observedAfterReopen: transferRemarkAfterReopen },
+    { defectId: "UAT-A186-014", documentType: "stockCount", billNo: countHeaderBillNo, expectedRemark: countRemark, observedAfterSave: countRemarkAfterSave, observedAfterReopen: countRemarkAfterReopen }
+  ];
+
   await openEntry(page, "库存管理", "stock-count-loss-form");
   const printButton = page.getByTestId("print-sales-order");
   assert(await printButton.isDisabled(), "unsaved stock-count-loss print must be disabled");
@@ -322,6 +630,29 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, lossShot), fullPage: true });
   evidence.screenshots.push(`verification/playwright/${lossShot}`);
 
+  const expectedDocumentLocks = [
+    `POST /api/document-locks/materialIssue/${issueHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/materialIssue/${issueHeaderBillNo}`,
+    `POST /api/document-locks/materialIssue/${issueHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/materialIssue/${issueHeaderBillNo}`,
+    `POST /api/document-locks/productIn/${productInHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/productIn/${productInHeaderBillNo}`,
+    `POST /api/document-locks/productIn/${productInHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/productIn/${productInHeaderBillNo}`,
+    `POST /api/document-locks/stockTransfer/${transferHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/stockTransfer/${transferHeaderBillNo}`,
+    `POST /api/document-locks/stockTransfer/${transferHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/stockTransfer/${transferHeaderBillNo}`,
+    `POST /api/document-locks/stockCount/${countHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/stockCount/${countHeaderBillNo}`,
+    `POST /api/document-locks/stockCount/${countHeaderBillNo}/acquire`,
+    `DELETE /api/document-locks/stockCount/${countHeaderBillNo}`
+  ];
+  assert(
+    JSON.stringify(evidence.requests.documentLocks) === JSON.stringify(expectedDocumentLocks),
+    "controlled document-lock writes must acquire and release each exact document in order",
+    evidence.requests.documentLocks
+  );
   assert(evidence.requests.unexpectedWrites.length === 0, "no unapproved real write may escape the controlled browser script", evidence.requests.unexpectedWrites);
   runCompleted = true;
 } catch (error) {

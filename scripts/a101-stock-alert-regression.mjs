@@ -12,7 +12,7 @@ const frontendUrl = "http://127.0.0.1:5173/";
 const apiBase = "http://127.0.0.1:8080";
 const adminIdentity = regressionAdminIdentity();
 const batch = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-const productCode = "CP-118";
+const productCode = "CP-001";
 const faultPhase = (process.env.A101_FAULT_PHASE ?? "").trim();
 const runToken = `${Date.now().toString(36)}-${randomUUID().slice(0, 12)}`.toUpperCase();
 const fixtureKey = `A101-${runToken}`;
@@ -63,6 +63,21 @@ function dbJson(sql) {
   const raw = dbScalar(sql);
   assert(raw, `SQL JSON query returned no row: ${sql}`);
   return JSON.parse(raw);
+}
+
+function productSnapshot() {
+  return dbJson(`
+    SELECT jsonb_build_object(
+      'id', product.id::text,
+      'code', product.code,
+      'auditStatus', product.audit_status,
+      'enabled', product.enabled,
+      'isInventory', product.is_inventory,
+      'rowDigest', encode(digest(to_jsonb(product)::text, 'sha256'), 'hex')
+    )::text
+    FROM public.md_product product
+    WHERE product.code = ${sqlLiteral(productCode)}
+  `);
 }
 
 function uuidArray(values) {
@@ -557,12 +572,20 @@ assert(session.tenant?.schemaName === "public", `A101 must run only in tenant.sc
 assertUuid(session.tenant?.id, "A101 account set id");
 assert(["", "after-api-write"].includes(faultPhase), `A101_FAULT_PHASE only accepts after-api-write, got ${JSON.stringify(faultPhase)}`);
 
+const baselineProductSnapshot = productSnapshot();
+assert(baselineProductSnapshot.code === productCode, `A101 product snapshot must resolve ${productCode}`);
+assert(baselineProductSnapshot.auditStatus === "AUDITED", `A101 product ${productCode} must be audited`);
+assert(baselineProductSnapshot.enabled === true, `A101 product ${productCode} must be enabled`);
+assert(baselineProductSnapshot.isInventory === true, `A101 product ${productCode} must be inventory-enabled`);
+assert(/^[0-9a-f]{64}$/.test(String(baselineProductSnapshot.rowDigest ?? "")), "A101 product row digest must be SHA-256");
+
 const coordinates = fixtureCoordinates();
 assert(coordinates.productIds.length === 1, `A101 requires exactly one public product ${productCode}, got ${JSON.stringify(coordinates.productIds)}`);
 assert(coordinates.warehouseIds.length === 0, `A101 unique warehouse id/code must be unused before fixture write, got ${JSON.stringify(coordinates.warehouseIds)}`);
 assert(coordinates.balanceIds.length === 0, `A101 unique balance id/warehouse must be unused before fixture write, got ${JSON.stringify(coordinates.balanceIds)}`);
 const [productId] = coordinates.productIds;
 assertUuid(productId, `A101 product ${productCode}`);
+assert(productId === baselineProductSnapshot.id, `A101 product id must match the baseline snapshot: ${JSON.stringify({ productId, baselineProductSnapshot })}`);
 const accountSetId = session.tenant.id;
 const referenceColumns = warehouseReferenceColumns();
 const unsupportedReferenceColumns = referenceColumns.filter((reference) =>
@@ -594,6 +617,7 @@ let ownedSettingId = null;
 let pendingMutation = null;
 let primaryError = null;
 let cleanupError = null;
+let restoredProductSnapshot = null;
 const cleanupErrors = [];
 const cleanup = {
   attempted: false,
@@ -603,6 +627,10 @@ const cleanup = {
   ownershipReconciliation: null,
   restored: null,
   fixtureSnapshots: null,
+  productSnapshot: {
+    baseline: baselineProductSnapshot,
+    restored: null
+  },
   residue: null
 };
 
@@ -612,7 +640,9 @@ try {
   assert(fixtureSnapshots.warehouse?.id === warehouseId
     && fixtureSnapshots.warehouse?.code === warehouseCode
     && fixtureSnapshots.warehouse?.name === warehouseName
-    && fixtureSnapshots.warehouse?.remark === fixtureKey,
+    && fixtureSnapshots.warehouse?.remark === fixtureKey
+    && fixtureSnapshots.warehouse?.enabled === true
+    && fixtureSnapshots.warehouse?.audit_status === "AUDITED",
   `A101 created warehouse snapshot does not match known fixture identity: ${JSON.stringify(fixtureSnapshots.warehouse)}`);
   assert(fixtureSnapshots.balance?.id === balanceId
     && fixtureSnapshots.balance?.account_set_id === accountSetId
@@ -818,6 +848,16 @@ try {
       cleanupErrors.push(residueError);
     }
   }
+  try {
+    restoredProductSnapshot = productSnapshot();
+    cleanup.productSnapshot.restored = restoredProductSnapshot;
+    assert(same(restoredProductSnapshot, baselineProductSnapshot),
+      `A101 shared product must remain byte-stable: ${JSON.stringify({ baselineProductSnapshot, restoredProductSnapshot })}`);
+    cleanup.productPassed = true;
+  } catch (error) {
+    cleanup.productPassed = false;
+    cleanupErrors.push(error);
+  }
   cleanup.passed = cleanupErrors.length === 0;
   cleanupError = cleanupErrors.length === 0
     ? null
@@ -836,6 +876,9 @@ const result = {
     tenantCode: session.tenant?.code,
     schemaName: session.tenant?.schemaName,
     accountSetId: session.tenant?.id,
+    productAuditStatus: baselineProductSnapshot.auditStatus,
+    productEnabled: baselineProductSnapshot.enabled,
+    productInventoryEnabled: baselineProductSnapshot.isInventory,
     testInventoryAdjustmentApi: health.testInventoryAdjustmentApi,
     faultPhase: faultPhase || null
   },
@@ -844,7 +887,8 @@ const result = {
     "库存预警列表直查 inv_stock_balance + 安全库存配置",
     "安全库存阈值配置入口可打开并保存",
     "本轮唯一仓库与余额坐标隔离并发写入",
-    "安全库存设置以完整快照 CAS 删除，仓库与余额以完整 to_jsonb 快照锁表清理"
+    "安全库存设置以完整快照 CAS 删除，仓库与余额以完整 to_jsonb 快照锁表清理",
+    "canonical 商品只读使用且完整行 digest 保持不变"
   ],
   fixture: {
     fixtureKey,
@@ -863,6 +907,10 @@ const result = {
   },
   lowRow,
   snapshots: {
+    product: {
+      baseline: baselineProductSnapshot,
+      restored: restoredProductSnapshot
+    },
     baseline: baselineSnapshot,
     expectedCurrent: expectedCurrentSnapshot,
     fixture: fixtureSnapshots

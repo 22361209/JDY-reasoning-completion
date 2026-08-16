@@ -482,7 +482,7 @@ function normalizeDocumentDetail(raw: unknown): { ok: boolean; message: string; 
   if (!raw || typeof raw !== "object") {
     return { ok: false, message: "单据详情格式异常。" };
   }
-  const payload = raw as { action?: string; document?: unknown; order?: unknown; lines?: unknown };
+  const payload = raw as { action?: string; document?: unknown; order?: unknown; productInfo?: unknown; lines?: unknown };
   const document = payload.document ?? payload.order;
   if (!document || typeof document !== "object") {
     return { ok: false, message: "单据详情缺少单头信息。" };
@@ -505,6 +505,9 @@ function normalizeDocumentDetail(raw: unknown): { ok: boolean; message: string; 
     data: {
       action: payload.action,
       document: document as DocumentDetail["document"],
+      productInfo: payload.productInfo && typeof payload.productInfo === "object" && !Array.isArray(payload.productInfo)
+        ? payload.productInfo as DocumentDetail["productInfo"]
+        : undefined,
       lines: lines as DocumentDetail["lines"]
     }
   };

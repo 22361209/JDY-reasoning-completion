@@ -64,6 +64,7 @@ public class ProductInAppService {
                    '生产车间' AS customer,
                    to_char(c.created_at AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') AS "billDate",
                    '生产部' AS department,
+	                   COALESCE(c.remark, '') AS remark,
 	                   c.status,
 	                   COALESCE(SUM(l.amount), 0) AS "totalAmount",
 	                   '本地管理员' AS "ownerName",
@@ -109,7 +110,33 @@ public class ProductInAppService {
             WHERE c.bill_no = ?
             ORDER BY l.line_no
             """, billNo);
-        return Map.of("action", "DETAIL", "document", billRows.get(0), "lines", lines);
+        var productRows = jdbcTemplate.queryForList("""
+            SELECT COALESCE(NULLIF(t.product_code_snapshot, ''), NULLIF(plan_line.product_code_snapshot, ''), p.code) AS "productCode",
+                   COALESCE(NULLIF(t.product_name_snapshot, ''), NULLIF(plan_line.product_name_snapshot, ''), p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, plan_line.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(NULLIF(t.product_unit_snapshot, ''), NULLIF(plan_line.product_unit_snapshot, ''), p.unit, '') AS unit,
+                   w.code AS "warehouseCode",
+                   t.qty AS "taskQty",
+                   GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
+                   COALESCE(t.bom_code_snapshot, plan_line.bom_code_snapshot) AS "bomCode",
+                   COALESCE(t.bom_version_no, plan_line.bom_version_no) AS "bomVersionNo"
+            FROM production_completion c
+            JOIN production_task t ON t.id = c.task_id
+            LEFT JOIN production_plan_line plan_line
+              ON plan_line.id = t.plan_line_id
+             AND t.source_kind = 'PLAN_ROOT'
+             AND plan_line.product_id = t.product_id
+             AND plan_line.bom_id = t.bom_id
+            JOIN md_product p ON p.id = t.product_id
+            JOIN md_warehouse w ON w.id = t.warehouse_id
+            WHERE c.bill_no = ?
+            """, billNo);
+        return Map.of(
+            "action", "DETAIL",
+            "document", billRows.get(0),
+            "productInfo", productRows.isEmpty() ? Map.of() : productRows.get(0),
+            "lines", lines
+        );
     }
 
     @Transactional
@@ -124,17 +151,18 @@ public class ProductInAppService {
         redReverseGuardService.assertNotRedDraftForBillNo(BILL_TABLE, productInBillNo, "产品入库单");
         var defaultQty = request.qty() == null ? remainingCompletableQty(task) : positive(request.qty(), "完工数量");
         var completionRows = jdbcTemplate.queryForList("""
-            INSERT INTO production_completion (bill_no, task_id, source_issue_id, qty, status)
-            VALUES (?, ?::uuid, NULL, ?, ?)
+            INSERT INTO production_completion (bill_no, task_id, source_issue_id, qty, status, remark)
+            VALUES (?, ?::uuid, NULL, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET task_id = EXCLUDED.task_id,
                 source_issue_id = NULL,
                 qty = EXCLUDED.qty,
                 status = EXCLUDED.status,
+                remark = EXCLUDED.remark,
                 updated_at = now()
             WHERE production_completion.status = 'DRAFT'
             RETURNING id::text AS id, bill_no AS "billNo", qty, status
-            """, productInBillNo, task.get("id"), defaultQty, BillStatus.DRAFT.name());
+            """, productInBillNo, task.get("id"), defaultQty, BillStatus.DRAFT.name(), validationService.optionalText(request.remark()));
         if (completionRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有草稿产品入库单可以覆盖保存");
         }
@@ -722,6 +750,9 @@ public class ProductInAppService {
     public record CompleteLineRequest(String productId, String productCode, String warehouseCode, BigDecimal qty, BigDecimal unitPrice) {
     }
 
-    public record ProductInDraftRequest(String billNo, String sourceOrderNo, BigDecimal qty, List<CompleteLineRequest> lines) {
+    public record ProductInDraftRequest(String billNo, String sourceOrderNo, BigDecimal qty, String remark, List<CompleteLineRequest> lines) {
+        public ProductInDraftRequest(String billNo, String sourceOrderNo, BigDecimal qty, List<CompleteLineRequest> lines) {
+            this(billNo, sourceOrderNo, qty, null, lines);
+        }
     }
 }

@@ -64,7 +64,8 @@ public class StockTransferAppService {
                    b.department,
                    b.business_type AS "businessType",
                    b.status,
-                   b.owner_name AS "ownerName"
+                   b.owner_name AS "ownerName",
+                   COALESCE(b.remark, '') AS remark
             FROM stock_transfer b
             WHERE b.bill_no = ?
             """, billNo);
@@ -101,8 +102,8 @@ public class StockTransferAppService {
     public Map<String, Object> saveDraft(StockTransferDraftRequest request) {
         var billNo = numberingService.assignBillNo("stockTransfer", request.billNo());
         var bills = jdbcTemplate.queryForList("""
-            INSERT INTO stock_transfer (bill_no, bill_date, department, transfer_type, business_type, status, owner_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO stock_transfer (bill_no, bill_date, department, transfer_type, business_type, status, owner_name, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET bill_date = EXCLUDED.bill_date,
                 department = EXCLUDED.department,
@@ -110,6 +111,7 @@ public class StockTransferAppService {
                 business_type = EXCLUDED.business_type,
                 status = EXCLUDED.status,
                 owner_name = EXCLUDED.owner_name,
+                remark = EXCLUDED.remark,
                 updated_at = now(),
                 version = stock_transfer.version + 1
             WHERE stock_transfer.status = ?
@@ -122,6 +124,7 @@ public class StockTransferAppService {
             "直接调拨",
             BillStatus.DRAFT.name(),
             request.ownerName(),
+            validationService.optionalText(request.remark()),
             BillStatus.DRAFT.name()
         );
         if (bills.isEmpty()) {
@@ -236,7 +239,11 @@ public class StockTransferAppService {
         return price;
     }
 
-    public record StockTransferDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, List<StockTransferLineRequest> lines) {
+    public record StockTransferDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, String remark, List<StockTransferLineRequest> lines) {
+        public StockTransferDraftRequest(String billNo, String supplierCode, String billDate, String department, String ownerName, List<StockTransferLineRequest> lines) {
+            this(billNo, supplierCode, billDate, department, ownerName, null, lines);
+        }
+
         public StockTransferDraftRequest {
             if (lines == null || lines.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "至少需要一条分录");

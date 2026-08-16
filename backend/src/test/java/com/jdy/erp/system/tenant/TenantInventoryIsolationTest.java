@@ -15,6 +15,7 @@ import com.jdy.erp.inventory.application.InventoryPostingService;
 import com.jdy.erp.inventory.application.OpeningStockService;
 import com.jdy.erp.inventory.application.OtherStockInAppService;
 import com.jdy.erp.inventory.application.StockCountAppService;
+import com.jdy.erp.inventory.application.StockTransferAppService;
 import com.jdy.erp.masterdata.api.MasterDataController;
 import com.jdy.erp.system.api.ListStubController;
 import com.jdy.erp.system.application.AccountSetManagementService;
@@ -61,6 +62,9 @@ class TenantInventoryIsolationTest {
 
     @Autowired
     private StockCountAppService stockCountAppService;
+
+    @Autowired
+    private StockTransferAppService stockTransferAppService;
 
     @Autowired
     private ListStubController listStubController;
@@ -174,6 +178,80 @@ class TenantInventoryIsolationTest {
         assertInventoryListRow("A119 账套A库存物料", "16");
     }
 
+    @Test
+    void transferAndCountHeaderRemarksPersistAcrossDraftUpdateAndLifecycle() {
+        var tenant = createManagedAccountSet("A186REM");
+        useTenant(tenant);
+        createAuditedMaterial("A186-REM", "A186 备注物料");
+        createAuditedWarehouse("A186-REM-WH", "A186 备注目标仓");
+        openingStockService.saveRows(List.of(new OpeningStockService.OpeningStockLineRequest(
+            "A186-REM",
+            "CK-001",
+            new BigDecimal("10"),
+            BigDecimal.ONE,
+            "A186 header remark fixture"
+        )));
+
+        var transferLines = List.of(new StockTransferAppService.StockTransferLineRequest(
+            null,
+            "A186-REM",
+            "CK-001",
+            "A186-REM-WH",
+            null,
+            BigDecimal.ONE,
+            BigDecimal.ONE,
+            "A186 transfer line"
+        ));
+        var legacyTransfer = new StockTransferAppService.StockTransferDraftRequest(
+            null, null, "2026-08-16", "A186", "admin", transferLines
+        );
+        assertThat(legacyTransfer.remark()).isNull();
+        var createdTransfer = stockTransferAppService.saveDraft(new StockTransferAppService.StockTransferDraftRequest(
+            null, null, "2026-08-16", "A186", "admin", "A186 调拨创建备注", transferLines
+        ));
+        var transferNo = String.valueOf(createdTransfer.get("billNo"));
+        assertHeaderRemark(stockTransferAppService.detail(transferNo), "A186 调拨创建备注");
+        var updatedTransfer = stockTransferAppService.saveDraft(new StockTransferAppService.StockTransferDraftRequest(
+            transferNo, null, "2026-08-16", "A186", "admin", "A186 调拨更新备注", transferLines
+        ));
+        assertThat(updatedTransfer.get("id")).isEqualTo(createdTransfer.get("id"));
+        assertThat(updatedTransfer.get("billNo")).isEqualTo(createdTransfer.get("billNo"));
+        assertHeaderRemark(stockTransferAppService.detail(transferNo), "A186 调拨更新备注");
+        stockTransferAppService.audit(transferNo);
+        assertHeaderRemark(stockTransferAppService.detail(transferNo), "A186 调拨更新备注");
+        stockTransferAppService.reverse(transferNo);
+        assertHeaderRemark(stockTransferAppService.detail(transferNo), "A186 调拨更新备注");
+
+        var countLines = List.of(new StockCountAppService.StockCountLineRequest(
+            null,
+            "A186-REM",
+            "CK-001",
+            null,
+            new BigDecimal("10"),
+            BigDecimal.ONE,
+            "A186 count line"
+        ));
+        var legacyCount = new StockCountAppService.StockCountDraftRequest(
+            null, null, "2026-08-16", "A186", "admin", countLines
+        );
+        assertThat(legacyCount.remark()).isNull();
+        var createdCount = stockCountAppService.saveDraft(new StockCountAppService.StockCountDraftRequest(
+            null, null, "2026-08-16", "A186", "admin", "A186 盘点创建备注", countLines
+        ));
+        var countNo = String.valueOf(createdCount.get("billNo"));
+        assertHeaderRemark(stockCountAppService.detail(countNo), "A186 盘点创建备注");
+        var updatedCount = stockCountAppService.saveDraft(new StockCountAppService.StockCountDraftRequest(
+            countNo, null, "2026-08-16", "A186", "admin", "A186 盘点更新备注", countLines
+        ));
+        assertThat(updatedCount.get("id")).isEqualTo(createdCount.get("id"));
+        assertThat(updatedCount.get("billNo")).isEqualTo(createdCount.get("billNo"));
+        assertHeaderRemark(stockCountAppService.detail(countNo), "A186 盘点更新备注");
+        stockCountAppService.audit(countNo);
+        assertHeaderRemark(stockCountAppService.detail(countNo), "A186 盘点更新备注");
+        stockCountAppService.reverse(countNo);
+        assertHeaderRemark(stockCountAppService.detail(countNo), "A186 盘点更新备注");
+    }
+
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         createdCodes.add(code);
@@ -217,6 +295,17 @@ class TenantInventoryIsolationTest {
             "isProduce", "true"
         ));
         masterDataController.audit("product", code);
+    }
+
+    private void createAuditedWarehouse(String code, String name) {
+        masterDataController.create("warehouse", Map.of("code", code, "name", name));
+        masterDataController.audit("warehouse", code);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertHeaderRemark(Map<String, Object> detail, String expectedRemark) {
+        var document = (Map<String, Object>) detail.get("document");
+        assertThat(document.get("remark")).isEqualTo(expectedRemark);
     }
 
     private void saveAndAuditOtherStockIn(BigDecimal qty) {

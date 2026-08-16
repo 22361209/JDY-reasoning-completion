@@ -65,7 +65,21 @@ const multilevelProductionPurchasePlanningMigrationPath = path.join(
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const database = process.env.JDY_DATABASE || "jdy_erp";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
-const expectedSchemas = ["tenant_a119ops_49f5546b", "tenant_a119ui"];
+const writableTenantFixtures = [
+  {
+    accountSetCode: "A119OPS-49F5546B",
+    schema: "tenant_a119ops_49f5546b",
+    enabled: true,
+    initialized: false
+  },
+  {
+    accountSetCode: "A119UI",
+    schema: "tenant_a119ui",
+    enabled: true,
+    initialized: true
+  }
+];
+const writableFixtureSchemas = writableTenantFixtures.map((fixture) => fixture.schema);
 const expectedMetrics = {
   baseTables: 90,
   managedTables: 90,
@@ -141,16 +155,35 @@ const result = {
   container,
   database,
   token,
-  expectedSchemas,
+  writableFixtureSchemas,
   expectedMetrics,
   migration: {},
-  existingTenants: {},
+  registeredTenantInventory: {},
+  registeredTenantTopology: {},
+  writableFixtureSync: {},
+  mutationBoundary: {
+    allowedPersistentTenantFixtures: writableTenantFixtures,
+    rollbackOnlyTemporarySchemas: [
+      topology.schema,
+      topology.missingSchema,
+      topology.unregisteredSchema,
+      topology.unsafeSchema
+    ],
+    rollbackOnlyPublicTopologyTables: ["public.sys_account_set", "public.md_customer"],
+    fixtureEnforcementTransaction: "BEGIN_ROLLBACK",
+    temporaryTopologyTransaction: "BEGIN_ROLLBACK",
+    syncTargets: [],
+    enforcementTargets: []
+  },
   enforcement: {},
   topologies: {},
   cleanup: {}
 };
 
 let primaryError = null;
+let registeredSchemas = [];
+let registeredTenantInventoryBaseline = [];
+const registeredTenantBaselines = new Map();
 try {
   const migrationSource = await readFile(migrationPath, "utf8");
   const runtimeGuardMigrationSource = await readFile(runtimeGuardMigrationPath, "utf8");
@@ -502,24 +535,33 @@ try {
     sourceSha256: createHash("sha256").update(multilevelProductionPurchasePlanningMigrationSource).digest("hex")
   };
 
-  const registeredSchemas = sqlJson(`
-    SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)::text
-    FROM (
-      SELECT DISTINCT btrim(schema_name) AS schema_name
-      FROM public.sys_account_set
-      WHERE nullif(btrim(schema_name), '') IS NOT NULL
-        AND lower(btrim(schema_name)) <> 'public'
-    ) registered
-  `);
-  assert(
-    same(registeredSchemas, expectedSchemas),
-    `registered tenant schemas changed: expected=${JSON.stringify(expectedSchemas)} actual=${JSON.stringify(registeredSchemas)}`
-  );
+  registeredTenantInventoryBaseline = registeredTenantInventory();
+  assertRegisteredTenantInventory(registeredTenantInventoryBaseline);
+  result.registeredTenantInventory.before = registeredTenantInventoryBaseline;
+  registeredSchemas = registeredTenantInventoryBaseline.map((registration) => registration.schema);
+  result.registeredSchemas = registeredSchemas;
+  for (const fixture of writableTenantFixtures) assertFixtureWriteTarget(fixture, registeredTenantInventoryBaseline);
 
-  for (const schema of registeredSchemas) {
+  for (const registration of registeredTenantInventoryBaseline) {
+    const schema = registration.schema;
     const beforeMetrics = sqlJson(schemaMetricsSql(schema));
     assertMetrics(schema, beforeMetrics);
     const before = tenantFingerprints(schema);
+    registeredTenantBaselines.set(schema, { metrics: beforeMetrics, fingerprints: before });
+    result.registeredTenantTopology[schema] = {
+      registration,
+      mode: writableFixtureSchemas.includes(schema) ? "writable-fixture-observed" : "read-only",
+      metrics: { before: beforeMetrics },
+      fingerprints: { before }
+    };
+  }
+
+  for (const fixture of writableTenantFixtures) {
+    assertFixtureWriteTarget(fixture, registeredTenantInventoryBaseline);
+    const schema = fixture.schema;
+    const baseline = registeredTenantBaselines.get(schema);
+    assert(baseline, `writable fixture tenant baseline is missing: ${schema}`);
+    result.mutationBoundary.syncTargets.push({ accountSetCode: fixture.accountSetCode, schema });
 
     const firstManagedCount = Number(sqlScalar(
       `SELECT public.jdy_sync_tenant_schema(${sqlLiteral(schema)}, FALSE)`
@@ -537,23 +579,42 @@ try {
     assertMetrics(`${schema} after second sync`, afterSecondMetrics);
     const afterSecond = tenantFingerprints(schema);
 
-    assertFingerprints(schema, before, afterFirst, "first sync");
+    assertFingerprints(schema, baseline.fingerprints, afterFirst, "first sync");
     assertFingerprints(schema, afterFirst, afterSecond, "second sync");
-    result.existingTenants[schema] = {
+    result.writableFixtureSync[schema] = {
+      mode: "sync-allowed-fixture",
       metrics: afterSecondMetrics,
       syncManagedCounts: [firstManagedCount, secondManagedCount],
-      fingerprints: { before, afterFirst, afterSecond },
+      fingerprints: { before: baseline.fingerprints, afterFirst, afterSecond },
       idempotent: true
     };
   }
+  assert(
+    same(Object.keys(result.writableFixtureSync).sort(), [...writableFixtureSchemas].sort()),
+    `schema sync target drifted: expected=${JSON.stringify(writableFixtureSchemas)} actual=${JSON.stringify(Object.keys(result.writableFixtureSync))}`
+  );
+  assert(
+    same(
+      result.mutationBoundary.syncTargets,
+      writableTenantFixtures.map(({ accountSetCode, schema }) => ({ accountSetCode, schema }))
+    ),
+    `schema sync ownership evidence drifted: ${JSON.stringify(result.mutationBoundary.syncTargets)}`
+  );
 
-  result.enforcement = runEnforcementChecks();
+  result.mutationBoundary.enforcementTargets = writableTenantFixtures.map(({ accountSetCode, schema }) => ({
+    accountSetCode,
+    schema
+  }));
+  result.enforcement = runEnforcementChecks(writableTenantFixtures[0], writableTenantFixtures[1]);
   assert(result.enforcement.crossTenantSameCodeAllowed === true, "cross-tenant same code was not proven");
   assert(result.enforcement.sameTenantDuplicateRejected === true, "same-tenant duplicate was not rejected");
   assert(result.enforcement.invalidForeignKeyRejected === true, "invalid FK write was not rejected");
   assert(result.enforcement.invalidUniqueKeyRejected === true, "invalid UK write was not rejected");
   assert(result.enforcement.invalidCheckRejected === true, "invalid CHECK write was not rejected");
 
+  for (const schema of result.mutationBoundary.rollbackOnlyTemporarySchemas) {
+    assert(!registeredSchemas.includes(schema), `rollback-only topology schema is already registered: ${schema}`);
+  }
   result.topologies = runTopologyChecks();
   const requiredTopologyChecks = [
     "unregisteredSchema",
@@ -577,6 +638,7 @@ try {
 
   result.cleanup = verifyCleanup();
   assertCleanup(result.cleanup);
+  verifyRegisteredTenantFinal();
   result.ok = true;
 } catch (error) {
   primaryError = error;
@@ -587,6 +649,13 @@ try {
   } catch (cleanupError) {
     result.cleanupError = errorText(cleanupError);
   }
+  try {
+    if (registeredSchemas.length > 0 && registeredTenantBaselines.size === registeredSchemas.length) {
+      verifyRegisteredTenantFinal();
+    }
+  } catch (tenantVerificationError) {
+    result.registeredTenantVerificationError = errorText(tenantVerificationError);
+  }
 }
 
 result.finishedAt = new Date().toISOString();
@@ -594,7 +663,11 @@ await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify({
   ok: result.ok,
   resultPath: path.relative(rootDir, resultPath),
-  schemas: Object.keys(result.existingTenants),
+  registeredSchemas: result.registeredSchemas ?? [],
+  readOnlySchemas: Object.entries(result.registeredTenantTopology)
+    .filter(([, tenant]) => tenant.mode === "read-only")
+    .map(([schema]) => schema),
+  writableFixtureSchemas,
   topologyChecks: Object.values(result.topologies).filter((entry) => entry?.ok === true).length,
   cleanup: result.cleanup
 }, null, 2));
@@ -604,9 +677,11 @@ if (primaryError) {
   process.exitCode = 1;
 }
 
-function runEnforcementChecks() {
-  const firstSchema = expectedSchemas[0];
-  const secondSchema = expectedSchemas[1];
+function runEnforcementChecks(firstFixture, secondFixture) {
+  assertFixtureWriteTarget(firstFixture, registeredTenantInventoryBaseline);
+  assertFixtureWriteTarget(secondFixture, registeredTenantInventoryBaseline);
+  const firstSchema = firstFixture.schema;
+  const secondSchema = secondFixture.schema;
   const sql = `
     BEGIN;
     CREATE TEMP TABLE a137_enforcement_result (
@@ -996,6 +1071,80 @@ function runTopologyChecks() {
   return sqlJson(sql);
 }
 
+function registeredTenantInventory() {
+  return sqlJson(`
+    SELECT COALESCE(jsonb_agg(
+      jsonb_build_object(
+        'id', id::text,
+        'accountSetCode', code,
+        'database', database_name,
+        'schema', btrim(schema_name),
+        'enabled', enabled,
+        'initialized', initialized
+      ) ORDER BY code, id
+    ), '[]'::jsonb)::text
+    FROM public.sys_account_set
+    WHERE nullif(btrim(schema_name), '') IS NOT NULL
+      AND lower(btrim(schema_name)) <> 'public'
+  `);
+}
+
+function assertRegisteredTenantInventory(inventory) {
+  assert(Array.isArray(inventory) && inventory.length > 0, "registered tenant inventory is empty");
+  const seenSchemas = new Set();
+  const seenCodes = new Set();
+  for (const registration of inventory) {
+    assert(/^[0-9a-f-]{36}$/i.test(String(registration.id ?? "")), `registered tenant id is invalid: ${JSON.stringify(registration)}`);
+    assert(typeof registration.accountSetCode === "string" && registration.accountSetCode.length > 0, `registered tenant code is invalid: ${JSON.stringify(registration)}`);
+    assert(/^[a-z][a-z0-9_]{0,62}$/.test(String(registration.schema ?? "")), `registered tenant schema is unsafe: ${JSON.stringify(registration)}`);
+    assert(registration.database === database, `registered tenant database drifted: ${JSON.stringify(registration)}`);
+    assert(typeof registration.enabled === "boolean" && typeof registration.initialized === "boolean", `registered tenant lifecycle flags are invalid: ${JSON.stringify(registration)}`);
+    assert(seenCodes.add(registration.accountSetCode), `registered tenant code is duplicated: ${registration.accountSetCode}`);
+    assert(seenSchemas.add(registration.schema), `registered tenant schema is duplicated: ${registration.schema}`);
+  }
+}
+
+function assertFixtureWriteTarget(fixture, inventory) {
+  assert(writableTenantFixtures.some((allowed) => same(allowed, fixture)), `refusing tenant write outside exact fixture allowlist: ${JSON.stringify(fixture)}`);
+  const claims = inventory.filter((registration) =>
+    registration.accountSetCode === fixture.accountSetCode || registration.schema === fixture.schema
+  );
+  assert(claims.length === 1, `writable fixture registration is not unique: ${JSON.stringify(fixture)} claims=${JSON.stringify(claims)}`);
+  const [registration] = claims;
+  assert(
+    registration.accountSetCode === fixture.accountSetCode
+      && registration.schema === fixture.schema
+      && registration.database === database
+      && registration.enabled === fixture.enabled
+      && registration.initialized === fixture.initialized,
+    `writable fixture registration drifted: expected=${JSON.stringify(fixture)} actual=${JSON.stringify(registration)}`
+  );
+}
+
+function verifyRegisteredTenantFinal() {
+  const finalInventory = registeredTenantInventory();
+  assertRegisteredTenantInventory(finalInventory);
+  assert(
+    same(finalInventory, registeredTenantInventoryBaseline),
+    `registered tenant inventory changed during A137: before=${JSON.stringify(registeredTenantInventoryBaseline)} final=${JSON.stringify(finalInventory)}`
+  );
+  result.registeredTenantInventory.after = finalInventory;
+  result.registeredTenantInventory.unchanged = true;
+  for (const registration of finalInventory) {
+    const schema = registration.schema;
+    const baseline = registeredTenantBaselines.get(schema);
+    assert(baseline, `registered tenant baseline is missing during final verification: ${schema}`);
+    const finalMetrics = sqlJson(schemaMetricsSql(schema));
+    assertMetrics(`${schema} final`, finalMetrics);
+    const final = tenantFingerprints(schema);
+    const topologyEvidence = result.registeredTenantTopology[schema];
+    assert(topologyEvidence, `registered tenant evidence is missing during final verification: ${schema}`);
+    topologyEvidence.metrics.final = finalMetrics;
+    topologyEvidence.fingerprints.final = final;
+    assertFingerprints(schema, baseline.fingerprints, final, "entire A137 regression");
+  }
+}
+
 function schemaMetricsSql(schema) {
   const schemaName = sqlLiteral(schema);
   const tenantScopeAccountSetTables = sqlTextArray(tenantScopeAccountSetChildren);
@@ -1301,16 +1450,16 @@ function verifyCleanup() {
       ),
       'temporaryCustomers', (
         SELECT
-          (SELECT count(*) FROM ${quoteIdentifier(expectedSchemas[0])}.md_customer WHERE code = ${sqlLiteral(fixtureCode)})
+          (SELECT count(*) FROM ${quoteIdentifier(writableFixtureSchemas[0])}.md_customer WHERE code = ${sqlLiteral(fixtureCode)})
           +
-          (SELECT count(*) FROM ${quoteIdentifier(expectedSchemas[1])}.md_customer WHERE code = ${sqlLiteral(fixtureCode)})
+          (SELECT count(*) FROM ${quoteIdentifier(writableFixtureSchemas[1])}.md_customer WHERE code = ${sqlLiteral(fixtureCode)})
       ),
       'invalidForeignKeyRows', (
-        SELECT count(*) FROM ${quoteIdentifier(expectedSchemas[0])}.stock_count_line
+        SELECT count(*) FROM ${quoteIdentifier(writableFixtureSchemas[0])}.stock_count_line
         WHERE id = ${uuidLiteral(enforcement.invalidLineId)}
       ),
       'invalidCheckRows', (
-        SELECT count(*) FROM ${quoteIdentifier(expectedSchemas[0])}.sys_operation_log
+        SELECT count(*) FROM ${quoteIdentifier(writableFixtureSchemas[0])}.sys_operation_log
         WHERE id = ${uuidLiteral(enforcement.invalidLogId)}
       )
     )::text

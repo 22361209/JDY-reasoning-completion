@@ -4,11 +4,14 @@ import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { currentMigrationHead } from "./helpers/current-migration-head.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const migrationDir = path.join(rootDir, "backend/src/main/resources/db/migration");
 const v119Path = path.join(migrationDir, "V119__registered_tenant_and_red_payable_reversal_hardening.sql");
 const v120Path = path.join(migrationDir, "V120__red_payable_reversal_shape_guard.sql");
+const v121Path = path.join(migrationDir, "V121__production_inventory_header_remarks.sql");
+const migrationHead = await currentMigrationHead(migrationDir);
 const resultPath = path.join(rootDir, "verification/a167-production-plan-multi-line-migration-regression.json");
 const container = process.env.JDY_POSTGRES_CONTAINER || "jdy-erp-postgres";
 const databaseUser = process.env.JDY_DATABASE_USER || "jdy";
@@ -43,6 +46,10 @@ const draftRequisitionLineId = randomUUID();
 const auditedRequisitionLineId = randomUUID();
 const draftPurchasePlanId = randomUUID();
 const auditedPurchasePlanId = randomUUID();
+const legacyRemarkTaskId = randomUUID();
+const legacyCompletionId = randomUUID();
+const legacyTransferId = randomUUID();
+const legacyCountId = randomUUID();
 const legacyPlanNo = `SCJH-A167-${token.toUpperCase()}`;
 const normalPurchaseInNo = `RK-A167-${token.toUpperCase()}`;
 const redOriginalPurchaseInNo = `RK-A167-RED-SRC-${token.toUpperCase()}`;
@@ -490,6 +497,26 @@ try {
   result.upgrade.flywayV111 = flyway(upgradeDatabase, 111);
   assert(psql(upgradeDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "111", "staged upgrade must reach V111");
   psql(upgradeDatabase, `
+    INSERT INTO public.production_task (
+      id, bill_no, bom_id, product_id, warehouse_id, qty, status, plan_id
+    ) SELECT
+      ${literal(legacyRemarkTaskId)}::uuid, 'SCRW-A167-LEGACY-REMARK',
+      ${literal(bomId)}::uuid, ${literal(productId)}::uuid, ${literal(warehouseId)}::uuid,
+      1, 'DRAFT', plan.id
+    FROM public.production_plan plan
+    WHERE plan.bill_no=${literal(legacyPlanNo)};
+    INSERT INTO public.production_completion (id, bill_no, task_id, qty, status)
+    VALUES (${literal(legacyCompletionId)}::uuid, 'SCRK-A167-LEGACY-REMARK', ${literal(legacyRemarkTaskId)}::uuid, 1, 'DRAFT');
+    INSERT INTO public.stock_transfer (id, bill_no, bill_date, status)
+    VALUES (${literal(legacyTransferId)}::uuid, 'DBD-A167-LEGACY-REMARK', DATE '2026-08-16', 'DRAFT');
+    INSERT INTO public.stock_count (id, bill_no, bill_date, status)
+    VALUES (${literal(legacyCountId)}::uuid, 'PD-A167-LEGACY-REMARK', DATE '2026-08-16', 'DRAFT');
+    INSERT INTO ${identifier(backupSchema)}.production_completion (id, bill_no, task_id, qty, status)
+    VALUES (${literal(legacyCompletionId)}::uuid, 'SCRK-A167-LEGACY-REMARK', ${literal(legacyRemarkTaskId)}::uuid, 1, 'DRAFT');
+    INSERT INTO ${identifier(backupSchema)}.stock_transfer (id, bill_no, bill_date, status)
+    VALUES (${literal(legacyTransferId)}::uuid, 'DBD-A167-LEGACY-REMARK', DATE '2026-08-16', 'DRAFT');
+    INSERT INTO ${identifier(backupSchema)}.stock_count (id, bill_no, bill_date, status)
+    VALUES (${literal(legacyCountId)}::uuid, 'PD-A167-LEGACY-REMARK', DATE '2026-08-16', 'DRAFT');
     INSERT INTO ${identifier(backupSchema)}.purchase_requisition_line (id, qty, planned_qty, updated_at)
     VALUES
       (${literal(draftRequisitionLineId)}::uuid, 10, 10, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
@@ -712,7 +739,7 @@ try {
 
   result.upgrade.flywayLatest = flyway(upgradeDatabase);
   const latestVersion = psql(upgradeDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success");
-  assert(latestVersion === "120", "upgrade must end at V120", latestVersion);
+  assert(latestVersion === migrationHead.version, `upgrade must end at V${migrationHead.version}`, latestVersion);
   assertTopology("upgrade public", topology(upgradeDatabase, "public"), 203);
   assertTopology("upgrade tenant", topology(upgradeDatabase, tenantSchema), 199);
   assertTopology("upgrade inactive tenant", topology(upgradeDatabase, inactiveTenantSchema), 199);
@@ -767,6 +794,7 @@ try {
   `);
   await psqlFile(upgradeDatabase, v119Path);
   await psqlFile(upgradeDatabase, v120Path);
+  await psqlFile(upgradeDatabase, v121Path);
   const lifecycleAfterRepeat = {
     public: lifecycleSemantics(upgradeDatabase, "public"),
     tenant: lifecycleSemantics(upgradeDatabase, tenantSchema),
@@ -780,7 +808,7 @@ try {
       inactiveTenant: inactiveTenantLifecycle,
       backup: backupLifecycle
     }),
-    "V119/V120 repeated execution must preserve all-layer lifecycle semantics",
+    "V119/V120/V121 repeated execution must preserve all-layer lifecycle semantics",
     lifecycleAfterRepeat
   );
 
@@ -820,6 +848,22 @@ try {
       'publicPurchasePlanTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('purchase_plan', 'purchase_plan_line')),
       'tenantPurchasePlanTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema=${literal(tenantSchema)} AND table_name IN ('purchase_plan', 'purchase_plan_line')),
       'backupPurchasePlanTables', (SELECT count(*) FROM information_schema.tables WHERE table_schema=${literal(backupSchema)} AND table_name IN ('purchase_plan', 'purchase_plan_line')),
+      'publicRemarkColumns', (SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name IN ('production_completion', 'stock_transfer', 'stock_count') AND column_name='remark' AND data_type='text' AND is_nullable='YES' AND column_default IS NULL AND is_generated='NEVER' AND is_identity='NO'),
+      'tenantRemarkColumns', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(tenantSchema)} AND table_name IN ('production_completion', 'stock_transfer', 'stock_count') AND column_name='remark' AND data_type='text' AND is_nullable='YES' AND column_default IS NULL AND is_generated='NEVER' AND is_identity='NO'),
+      'inactiveTenantRemarkColumns', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(inactiveTenantSchema)} AND table_name IN ('production_completion', 'stock_transfer', 'stock_count') AND column_name='remark' AND data_type='text' AND is_nullable='YES' AND column_default IS NULL AND is_generated='NEVER' AND is_identity='NO'),
+      'backupRemarkColumns', (SELECT count(*) FROM information_schema.columns WHERE table_schema=${literal(backupSchema)} AND table_name IN ('production_completion', 'stock_transfer', 'stock_count') AND column_name='remark' AND data_type='text' AND is_nullable='YES' AND column_default IS NULL AND is_generated='NEVER' AND is_identity='NO'),
+      'legacyRemarkNulls', (
+        SELECT count(*)
+        FROM (
+          SELECT remark FROM public.production_completion WHERE id=${literal(legacyCompletionId)}::uuid
+          UNION ALL SELECT remark FROM public.stock_transfer WHERE id=${literal(legacyTransferId)}::uuid
+          UNION ALL SELECT remark FROM public.stock_count WHERE id=${literal(legacyCountId)}::uuid
+          UNION ALL SELECT remark FROM ${identifier(backupSchema)}.production_completion WHERE id=${literal(legacyCompletionId)}::uuid
+          UNION ALL SELECT remark FROM ${identifier(backupSchema)}.stock_transfer WHERE id=${literal(legacyTransferId)}::uuid
+          UNION ALL SELECT remark FROM ${identifier(backupSchema)}.stock_count WHERE id=${literal(legacyCountId)}::uuid
+        ) legacy_rows
+        WHERE remark IS NULL
+      ),
       'planBillNoUniqueBtree', (
         SELECT count(*) FROM pg_index index_row
         JOIN pg_class table_row ON table_row.oid=index_row.indrelid
@@ -838,6 +882,15 @@ try {
   assert(Number(backfill.publicSourceIssueColumn) === 1 && Number(backfill.tenantSourceIssueColumn) === 1 && Number(backfill.backupSourceIssueColumn) === 1, "receipt-to-issue trace column must exist in every schema shape", backfill);
   assert(Number(backfill.publicPlanningFlags) === 2 && Number(backfill.tenantPlanningFlags) === 2 && Number(backfill.backupPlanningFlags) === 2, "A170 production plan switches must exist in public, tenant and backup shapes", backfill);
   assert(Number(backfill.publicPurchasePlanTables) === 2 && Number(backfill.tenantPurchasePlanTables) === 2 && Number(backfill.backupPurchasePlanTables) === 2, "A170 purchase plan tables must exist in public, tenant and backup shapes", backfill);
+  assert(
+    Number(backfill.publicRemarkColumns) === 3
+      && Number(backfill.tenantRemarkColumns) === 3
+      && Number(backfill.inactiveTenantRemarkColumns) === 3
+      && Number(backfill.backupRemarkColumns) === 3,
+    "V121 nullable remark columns must exist in public, registered live tenants and historical backup shapes",
+    backfill
+  );
+  assert(Number(backfill.legacyRemarkNulls) === 6, "V121 must preserve SQL NULL for every pre-existing public and backup header row", backfill);
   assert(Number(backfill.planBillNoUniqueBtree) === 1, "production_plan must retain exactly one single-column unique bill_no btree", backfill);
   result.upgrade = {
     ...result.upgrade,
@@ -858,9 +911,22 @@ try {
     .sort((left, right) => Number(left.match(/^V(\d+)/)[1]) - Number(right.match(/^V(\d+)/)[1]));
   const historyScripts = json(freshDatabase, "SELECT COALESCE(jsonb_agg(script ORDER BY installed_rank), '[]'::jsonb)::text FROM public.flyway_schema_history WHERE type='SQL'");
   assert(JSON.stringify(historyScripts) === JSON.stringify(sourceScripts), "fresh Flyway history must equal the migration source set");
-  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === "120", "fresh migration must end at V120");
+  assert(psql(freshDatabase, "SELECT max(version::integer) FROM public.flyway_schema_history WHERE success") === migrationHead.version, `fresh migration must end at V${migrationHead.version}`);
   assertTopology("fresh public", topology(freshDatabase, "public"), 203);
-  result.fresh = { ...result.fresh, latestVersion: 120, topology: topology(freshDatabase, "public") };
+  const freshRemarkColumns = Number(psql(freshDatabase, `
+    SELECT count(*)
+    FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name IN ('production_completion', 'stock_transfer', 'stock_count')
+      AND column_name='remark'
+      AND data_type='text'
+      AND is_nullable='YES'
+      AND column_default IS NULL
+      AND is_generated='NEVER'
+      AND is_identity='NO'
+  `));
+  assert(freshRemarkColumns === 3, "fresh V121 migration must create all three nullable TEXT remark columns", freshRemarkColumns);
+  result.fresh = { ...result.fresh, latestVersion: migrationHead.versionNumber, topology: topology(freshDatabase, "public"), remarkColumns: freshRemarkColumns };
   result.ok = true;
 } catch (error) {
   primaryError = error;

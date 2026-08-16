@@ -132,17 +132,22 @@ public class MaterialIssueAppService {
             ORDER BY l.line_no
             """, inventoryScopeId(), billNo);
         var productRows = jdbcTemplate.queryForList("""
-            SELECT COALESCE(t.product_code_snapshot, p.code) AS "productCode",
-                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
-                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
-                   COALESCE(p.unit, '') AS unit,
+            SELECT COALESCE(NULLIF(t.product_code_snapshot, ''), NULLIF(plan_line.product_code_snapshot, ''), p.code) AS "productCode",
+                   COALESCE(NULLIF(t.product_name_snapshot, ''), NULLIF(plan_line.product_name_snapshot, ''), p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, plan_line.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(NULLIF(t.product_unit_snapshot, ''), NULLIF(plan_line.product_unit_snapshot, ''), p.unit, '') AS unit,
                    w.code AS "warehouseCode",
                    t.qty AS "taskQty",
                    GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
-                   t.bom_code_snapshot AS "bomCode",
-                   t.bom_version_no AS "bomVersionNo"
+                   COALESCE(t.bom_code_snapshot, plan_line.bom_code_snapshot) AS "bomCode",
+                   COALESCE(t.bom_version_no, plan_line.bom_version_no) AS "bomVersionNo"
             FROM production_material_issue i
             JOIN production_task t ON t.id = i.task_id
+            LEFT JOIN production_plan_line plan_line
+              ON plan_line.id = t.plan_line_id
+             AND t.source_kind = 'PLAN_ROOT'
+             AND plan_line.product_id = t.product_id
+             AND plan_line.bom_id = t.bom_id
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
             WHERE i.bill_no = ?
@@ -234,16 +239,21 @@ public class MaterialIssueAppService {
         }
         var task = taskRows.get(0);
         var productRows = jdbcTemplate.queryForList("""
-            SELECT COALESCE(t.product_code_snapshot, p.code) AS "productCode",
-                   COALESCE(t.product_name_snapshot, p.name) AS "productName",
-                   COALESCE(t.product_spec_snapshot, p.spec, '') AS spec,
-                   COALESCE(p.unit, '') AS unit,
+            SELECT COALESCE(NULLIF(t.product_code_snapshot, ''), NULLIF(plan_line.product_code_snapshot, ''), p.code) AS "productCode",
+                   COALESCE(NULLIF(t.product_name_snapshot, ''), NULLIF(plan_line.product_name_snapshot, ''), p.name) AS "productName",
+                   COALESCE(t.product_spec_snapshot, plan_line.product_spec_snapshot, p.spec, '') AS spec,
+                   COALESCE(NULLIF(t.product_unit_snapshot, ''), NULLIF(plan_line.product_unit_snapshot, ''), p.unit, '') AS unit,
                    w.code AS "warehouseCode",
                    t.qty AS "taskQty",
                    GREATEST(t.qty - t.completed_qty, 0) AS "remainingQty",
-                   t.bom_code_snapshot AS "bomCode",
-                   t.bom_version_no AS "bomVersionNo"
+                   COALESCE(t.bom_code_snapshot, plan_line.bom_code_snapshot) AS "bomCode",
+                   COALESCE(t.bom_version_no, plan_line.bom_version_no) AS "bomVersionNo"
             FROM production_task t
+            LEFT JOIN production_plan_line plan_line
+              ON plan_line.id = t.plan_line_id
+             AND t.source_kind = 'PLAN_ROOT'
+             AND plan_line.product_id = t.product_id
+             AND plan_line.bom_id = t.bom_id
             JOIN md_product p ON p.id = t.product_id
             JOIN md_warehouse w ON w.id = t.warehouse_id
             WHERE t.id = ?::uuid
