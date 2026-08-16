@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import com.jdy.erp.shared.application.LookupService;
 import com.jdy.erp.system.security.RequirePermission;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -18,14 +19,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping("/api/inventory/stock-alert-settings")
 public class StockAlertSettingController {
     private final JdbcTemplate jdbcTemplate;
+    private final LookupService lookupService;
 
-    public StockAlertSettingController(JdbcTemplate jdbcTemplate) {
+    public StockAlertSettingController(JdbcTemplate jdbcTemplate, LookupService lookupService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.lookupService = lookupService;
     }
 
     @GetMapping
@@ -51,9 +55,10 @@ public class StockAlertSettingController {
 
     @PutMapping
     @RequirePermission("inventory.stock_alert.manage")
+    @Transactional
     public Map<String, Object> upsert(@RequestBody StockAlertSettingRequest request) {
-        var productId = lookupId("md_product", request.productCode(), "商品不存在");
-        var warehouseId = lookupId("md_warehouse", request.warehouseCode(), "仓库不存在");
+        var productId = lookupService.lookupEnabledIdForReference("md_product", request.productCode(), "商品");
+        var warehouseId = lookupService.lookupEnabledId("md_warehouse", request.warehouseCode(), "仓库");
         var safetyQty = positiveOrZero(request.safetyQty(), "最低安全量不能小于 0");
         var maxQty = request.maxQty();
         if (maxQty != null && maxQty.compareTo(safetyQty) < 0) {
@@ -79,14 +84,6 @@ public class StockAlertSettingController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "安全库存设置不存在");
         }
         return Map.of("deleted", true);
-    }
-
-    private String lookupId(String table, String code, String missingMessage) {
-        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ?", code);
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, missingMessage);
-        }
-        return String.valueOf(rows.get(0).get("id"));
     }
 
     private BigDecimal positiveOrZero(BigDecimal value, String message) {

@@ -197,7 +197,7 @@ public class PurchaseReturnAppService {
     public Map<String, Object> saveDraft(PurchaseReturnDraftRequest request) {
         request.lines().forEach(line -> validationService.positive(line.qty(), "采购退货数量"));
         var billNo = numberingService.assignBillNo("purchaseReturn", request.billNo());
-        var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
+        var supplierId = lookupService.lookupEnabledIdForReference("md_supplier", request.supplierCode(), "供应商");
         validateSourceCurrencies(request.lines(), supplierId);
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
@@ -297,7 +297,7 @@ public class PurchaseReturnAppService {
     private void insertLines(Object billId, List<PurchaseReturnLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""

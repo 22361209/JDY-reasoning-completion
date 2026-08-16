@@ -258,7 +258,7 @@ public class PurchaseOrderAppService {
     public Map<String, Object> saveDraft(PurchaseOrderDraftRequest request) {
         request.lines().forEach(line -> validationService.positive(line.qty(), "采购订单数量"));
         var billNo = numberingService.assignBillNo("purchaseOrder", request.billNo());
-        var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
+        var supplierId = lookupService.lookupEnabledIdForReference("md_supplier", request.supplierCode(), "供应商");
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -307,7 +307,7 @@ public class PurchaseOrderAppService {
         jdbcTemplate.update("DELETE FROM purchase_order_line WHERE order_id = ?::uuid", orderId);
         var lineNo = 1;
         for (var line : request.lines()) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""

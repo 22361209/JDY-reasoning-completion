@@ -258,7 +258,7 @@ async function searchSupplierOptions(keyword: string, index: number) {
   supplierLookupCursor.value = 0;
   const requestSeq = supplierLookupRequestSeq + 1;
   supplierLookupRequestSeq = requestSeq;
-  const result = await fetchListRows("supplier-master-list", {
+  const result = await fetchListRows("supplier-master-selector", {
     keyword,
     status: "启用",
     page: 1,

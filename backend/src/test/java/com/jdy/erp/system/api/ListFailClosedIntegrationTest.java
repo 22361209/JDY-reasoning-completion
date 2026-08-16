@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -115,6 +116,7 @@ class ListFailClosedIntegrationTest {
             "employee-master-list",
             "employee-master-selector",
             "warehouse-master-selector",
+            "supplier-master-selector",
             "financial-account-master-list",
             "financial-account-master-selector"
         )) {
@@ -124,6 +126,8 @@ class ListFailClosedIntegrationTest {
         }
         assertNotFound(() -> registry.contractFor("unknown-master-selector", "header"));
         assertNotFound(() -> registry.contractFor("employee-master-selector-copy", "header"));
+        assertThat(registry.contractFor("supplier-master-selector", "header").keywordFields())
+            .containsExactly("code", "name");
 
         var employeePermission = mock(CurrentPermissionService.class);
         when(employeePermission.hasPermission("master.data.manage")).thenReturn(false);
@@ -143,20 +147,70 @@ class ListFailClosedIntegrationTest {
         verify(financePermission, times(2)).hasPermission("master.data.manage");
         verify(financePermission, times(2)).hasPermission("finance.settle");
 
+        for (var permissionCode : List.of(
+            "master.data.manage",
+            "purchase.order.audit",
+            "purchase.in.audit",
+            "purchase.return.audit",
+            "inventory.other_stock_in.audit"
+        )) {
+            var allowedPermission = mock(CurrentPermissionService.class);
+            when(allowedPermission.hasPermission(permissionCode)).thenReturn(true);
+            assertThatCode(() -> new ListStubStateGuard(registry, allowedPermission)
+                .assertReadable("supplier-master-selector"))
+                .as(permissionCode)
+                .doesNotThrowAnyException();
+        }
+
+        for (var unrelatedPermissionCode : List.of(
+            "inventory.stock_count.audit",
+            "inventory.stock_count_gain.audit",
+            "inventory.stock_count_loss.audit",
+            "inventory.stock.view"
+        )) {
+            var unrelatedPermission = mock(CurrentPermissionService.class);
+            when(unrelatedPermission.hasPermission(unrelatedPermissionCode)).thenReturn(true);
+            assertForbidden(() -> new ListStubStateGuard(registry, unrelatedPermission)
+                .assertReadable("supplier-master-selector"));
+        }
+
+        var supplierMasterPermission = mock(CurrentPermissionService.class);
+        when(supplierMasterPermission.hasPermission("purchase.order.audit")).thenReturn(true);
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission: master.data.manage"))
+            .when(supplierMasterPermission).requirePermission("master.data.manage");
+        var supplierMasterGuard = new ListStubStateGuard(registry, supplierMasterPermission);
+        supplierMasterGuard.assertReadable("supplier-master-selector");
+        assertForbidden(() -> supplierMasterGuard.assertReadable("supplier-master-list"));
+        verify(supplierMasterPermission).requirePermission("master.data.manage");
+
         var deniedPermission = mock(CurrentPermissionService.class);
         var deniedGuard = new ListStubStateGuard(registry, deniedPermission);
         assertForbidden(() -> deniedGuard.assertReadable("employee-master-list"));
+        assertForbidden(() -> deniedGuard.assertReadable("supplier-master-selector"));
         assertForbidden(() -> deniedGuard.assertReadable("financial-account-master-selector"));
     }
 
     @Test
     void warehouseEmployeeAndFinancialAccountSelectorsForceAuditedAndEnabledInProviderSql() {
         var jdbcTemplate = mock(JdbcTemplate.class);
-        when(jdbcTemplate.queryForList(anyString())).thenReturn(List.of());
+        when(jdbcTemplate.queryForList(anyString())).thenAnswer(invocation -> {
+            var sql = String.valueOf((Object) invocation.getArgument(0));
+            if (sql.contains("FROM md_supplier")) {
+                return List.of(Map.of(
+                    "id", "00000000-0000-0000-0000-000000000186",
+                    "code", "A186-SUPPLIER",
+                    "name", "A186 供应商",
+                    "status", "启用",
+                    "auditStatus", "已审核"
+                ));
+            }
+            return List.of();
+        });
         var tenantDataScopeService = mock(TenantDataScopeService.class);
         var provider = new StubListSeedRowsProvider(jdbcTemplate, tenantDataScopeService);
 
         provider.seedRows("warehouse-master-selector", "header", 200);
+        provider.seedRows("supplier-master-selector", "header", 200);
         provider.seedRows("employee-master-selector", "header", 200);
         provider.seedRows("financial-account-master-selector", "header", 200);
 
@@ -164,14 +218,21 @@ class ListFailClosedIntegrationTest {
             .filter(invocation -> "queryForList".equals(invocation.getMethod().getName()))
             .map(invocation -> String.valueOf((Object) invocation.getArgument(0)))
             .toList();
-        assertThat(sql).hasSize(3);
+        assertThat(sql).hasSize(4);
         assertThat(sql.get(0))
             .contains("FROM md_warehouse", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
             .doesNotContain("md_product");
         assertThat(sql.get(1))
+            .contains("FROM md_supplier", "WHERE enabled = TRUE", "audit_status = 'AUDITED'")
+            .doesNotContain("bank_account", "tax_no", "address", "remark", "version");
+        assertThat(provider.seedRows("supplier-master-selector", "header", 200))
+            .hasSize(1)
+            .allSatisfy(row -> assertThat(row.keySet())
+                .containsExactlyInAnyOrder("id", "code", "name", "status", "auditStatus"));
+        assertThat(sql.get(2))
             .contains("FROM md_employee", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
             .doesNotContain("md_product");
-        assertThat(sql.get(2))
+        assertThat(sql.get(3))
             .contains("FROM md_financial_account", "WHERE enabled = TRUE AND audit_status = 'AUDITED'")
             .doesNotContain("md_product");
         verifyNoInteractions(tenantDataScopeService);

@@ -308,7 +308,7 @@ public class DeliveryNoticeAppService {
     private void insertLines(Object billId, String defaultSourceOrderNo, List<DeliveryNoticeLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());

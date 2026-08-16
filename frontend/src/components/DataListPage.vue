@@ -1792,9 +1792,7 @@ async function submitBatchVoid(reason: string, username: string, password: strin
 
 async function submitBatchDelete() {
   if (isMasterList.value) {
-    const count = selectedRows.value.length;
-    const deleted = await submitMasterDelete();
-    batchMessage.value = deleted ? `已删除 ${count} 条资料。` : "请选择可删除的资料。";
+    await submitMasterDelete();
     return;
   }
   const type = documentActionTypeByListKey[props.listKey];
@@ -1932,11 +1930,13 @@ function openCopyDialog() {
 }
 
 async function submitMasterAudit(audit: boolean) {
-  await masterMaintenance.submitAudit(audit);
+  const result = await masterMaintenance.submitAudit(audit);
+  batchMessage.value = result.message;
 }
 
 async function submitMasterStatus(enabled: boolean) {
-  await masterMaintenance.submitStatus(enabled);
+  const result = await masterMaintenance.submitStatus(enabled);
+  batchMessage.value = result.message;
 }
 
 async function submitBomStatus(enabled: boolean) {
@@ -1965,7 +1965,9 @@ function isBomRowEnabled(row: Record<string, unknown>) {
 }
 
 async function submitMasterDelete() {
-  return masterMaintenance.submitDelete();
+  const result = await masterMaintenance.submitDelete();
+  batchMessage.value = result.message;
+  return result.ok;
 }
 
 function toggleBomStatusFilter() {

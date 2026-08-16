@@ -227,6 +227,7 @@
         <UserManagementPage
           v-else-if="tabs.activeTab.value.id === 'user-role-list'"
           :can-manage="canManageRolePermissions"
+          :current-account-set-code="session.accountSetCode.value"
         />
         <PermissionMatrixPage
           v-else-if="tabs.activeTab.value.id === 'role-permission-settings'"
@@ -2989,7 +2990,8 @@ function openMasterRecord(
         : `${payload.listKey}:create`
   );
   const existingRecord = masterRecords[tabId];
-  if (existingRecord) {
+  const existingTab = tabs.tabs.value.some((tab) => tab.id === tabId);
+  if (existingRecord && existingTab) {
     tabs.activeTabId.value = tabId;
     if (options.mode === "edit") {
       existingRecord.editing = true;
@@ -2998,12 +3000,15 @@ function openMasterRecord(
     }
     return;
   }
+  if (existingRecord && !existingTab) {
+    delete masterRecords[tabId];
+  }
   const editing = options.mode === "edit";
   const readOnly = options.mode === "view";
   const form = newMasterForm(payload.listKey, payload.row, { copy: options.mode === "copy" });
   const requiresVersion = Boolean(definition.sparsePatch);
   const version = requiresVersion ? (persisted ? parseMasterVersion(payload.row?.version) : 0) : null;
-  masterRecords[tabId] = {
+  const nextRecord: MasterRecordState = {
     id: tabId,
     listKey: payload.listKey,
     type: definition.type,
@@ -3023,13 +3028,17 @@ function openMasterRecord(
     lookupCreateReturn: options.lookupCreateReturn
   };
   const actionTitle = options.mode === "view" ? title : options.mode === "edit" ? `编辑${title}` : `新增${title}`;
-  tabs.openTab({
+  const opened = tabs.openTab({
     id: tabId,
     title: actionTitle,
     module: masterModule(payload.listKey),
     kind: "form",
     dirty: options.mode === "create" || options.mode === "copy"
   });
+  if (!opened) {
+    return;
+  }
+  masterRecords[tabId] = nextRecord;
 }
 
 function masterRecordTabId(listKey: string, code: string) {

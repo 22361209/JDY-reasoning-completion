@@ -715,13 +715,13 @@ public class FinanceSettlementAppService {
     }
 
     private void requireParty(SettlementKind kind, UUID partyId) {
-        var count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*)::int FROM " + kind.partyTable + " WHERE id = ?::uuid",
-            Integer.class,
+        var rows = jdbcTemplate.queryForList(
+            "SELECT id::text AS id FROM " + kind.partyTable
+                + " WHERE id = ?::uuid AND enabled = TRUE AND audit_status = 'AUDITED' FOR KEY SHARE",
             partyId
         );
-        if (count == null || count != 1) {
-            throw conflict(kind.partyLabel + "不存在");
+        if (rows.isEmpty()) {
+            throw conflict(kind.partyLabel + "不存在、未审核或已禁用");
         }
     }
 

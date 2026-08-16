@@ -98,6 +98,10 @@ public class OtherStockInAppService {
 
     @Transactional
     public Map<String, Object> saveDraft(OtherStockInDraftRequest request) {
+        var supplierCode = validationService.optionalText(request.supplierCode());
+        if (supplierCode != null) {
+            lookupService.lookupEnabledId("md_supplier", supplierCode, "供应商");
+        }
         var billNo = numberingService.assignBillNo("otherStockIn", request.billNo());
         var totalAmount = request.lines().stream()
             .map(line -> positive(line.qty(), "数量").multiply(nonNegativePrice(line.unitPrice())))
@@ -199,7 +203,7 @@ public class OtherStockInAppService {
     private void insertLines(Object billId, List<OtherStockInLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var qty = positive(line.qty(), "数量");
             var unitPrice = nonNegativePrice(line.unitPrice());

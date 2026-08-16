@@ -203,6 +203,33 @@ class FinanceSettlementAppServiceIntegrationTest {
     }
 
     @Test
+    void paymentDraftRejectsDisabledOrUnauditedSupplierBeforeCreatingReference() {
+        var suffix = suffix();
+        var disabledSupplierId = jdbcTemplate.queryForObject("""
+            INSERT INTO md_supplier (code, name, enabled, audit_status)
+            VALUES (?, ?, FALSE, 'AUDITED')
+            RETURNING id::text
+            """, String.class, "GYS-A186-DIS-" + suffix, "A186 禁用付款供应商 " + suffix);
+        var draftSupplierId = jdbcTemplate.queryForObject("""
+            INSERT INTO md_supplier (code, name, enabled, audit_status)
+            VALUES (?, ?, TRUE, 'DRAFT')
+            RETURNING id::text
+            """, String.class, "GYS-A186-DRAFT-" + suffix, "A186 草稿付款供应商 " + suffix);
+        var before = jdbcTemplate.queryForObject("SELECT count(*)::int FROM ap_payment", Integer.class);
+
+        for (var supplierId : List.of(disabledSupplierId, draftSupplierId)) {
+            assertThatThrownBy(() -> settlementService.createDraft(
+                SettlementKind.PAYMENT,
+                request(null, supplierId, "CNY", BigDecimal.ZERO, List.of(), List.of(), "A186 supplier lifecycle")
+            ))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("未审核或已禁用");
+        }
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*)::int FROM ap_payment", Integer.class))
+            .isEqualTo(before);
+    }
+
+    @Test
     void settlementDetailKeepsNumeric18Scale2AmountsAsExactDecimalStrings() {
         var suffix = suffix();
         var customerId = insertParty("md_customer", "KH-A141-M-" + suffix);
@@ -935,7 +962,7 @@ class FinanceSettlementAppServiceIntegrationTest {
 
     private String insertPartyExact(String table, String code) {
         return jdbcTemplate.queryForObject(
-            "INSERT INTO " + table + " (code, name, enabled) VALUES (?, ?, TRUE) RETURNING id::text",
+            "INSERT INTO " + table + " (code, name, enabled, audit_status) VALUES (?, ?, TRUE, 'AUDITED') RETURNING id::text",
             String.class,
             code,
             code

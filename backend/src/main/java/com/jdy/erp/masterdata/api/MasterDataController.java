@@ -1,6 +1,7 @@
 package com.jdy.erp.masterdata.api;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -275,7 +276,7 @@ public class MasterDataController {
         var current = lockMasterData(type, code);
         var beforeEnabled = Boolean.TRUE.equals(current.get("enabled"));
         var beforeAuditStatus = String.valueOf(current.get("audit_status"));
-        if (!enabled) {
+        if (!enabled && !"supplier".equals(type)) {
             assertNotReferencedByProduct(type, code, "禁用");
         }
         var table = tableName(type);
@@ -309,7 +310,11 @@ public class MasterDataController {
             validateProductReferencesBeforeAudit(code);
         }
         if ("DRAFT".equals(auditStatus)) {
-            assertNotReferencedByProduct(type, code, "反审核");
+            if (Set.of("product", "supplier").contains(type)) {
+                assertMasterDataNotReferenced(type, String.valueOf(current.get("id")), "反审核");
+            } else {
+                assertNotReferencedByProduct(type, code, "反审核");
+            }
         }
         var table = tableName(type);
         var enabled = Boolean.TRUE.equals(current.get("enabled"));
@@ -330,48 +335,73 @@ public class MasterDataController {
     }
 
     private Map<String, Object> deleteProduct(String code) {
-        var rows = jdbcTemplate.queryForList("SELECT id::text AS id, audit_status FROM md_product WHERE code = ?", code);
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "master data not found");
-        }
-        var row = rows.get(0);
+        var row = lockMasterData("product", code);
         if ("AUDITED".equals(row.get("audit_status"))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "已审核物料不能删除，请先反审核；已有业务往来的物料只能禁用。");
         }
         var productId = String.valueOf(row.get("id"));
-        if (productReferenceCount(productId) > 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "该物料已有业务引用，不能删除；请改为禁用。");
-        }
+        assertMasterDataNotReferenced("product", productId, "删除");
         return updateAndReturn("DELETE FROM md_product WHERE code = ? RETURNING " + returningFor("product"), code);
     }
 
-    private long productReferenceCount(String productId) {
-        var references = jdbcTemplate.queryForList("""
-            SELECT kcu.table_name, kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-              ON tc.constraint_schema = kcu.constraint_schema
-             AND tc.constraint_name = kcu.constraint_name
-            JOIN information_schema.constraint_column_usage ccu
-              ON ccu.constraint_schema = tc.constraint_schema
-             AND ccu.constraint_name = tc.constraint_name
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-              AND tc.table_schema = 'public'
-              AND ccu.table_schema = 'public'
-              AND ccu.table_name = 'md_product'
-              AND ccu.column_name = 'id'
-            """);
+    private long referenceCount(String targetTable, String targetId) {
+        var references = referenceColumns(targetTable);
         long count = 0;
         for (var reference : references) {
             var table = safeIdentifier(String.valueOf(reference.get("table_name")));
             var column = safeIdentifier(String.valueOf(reference.get("column_name")));
-            var value = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + column + " = ?::uuid", Long.class, productId);
+            var value = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + column + " = ?::uuid", Long.class, targetId);
             count += value == null ? 0 : value;
             if (count > 0) {
                 return count;
             }
         }
         return count;
+    }
+
+    private List<Map<String, Object>> referenceColumns(String targetTable) {
+        var safeTargetTable = safeIdentifier(targetTable);
+        var references = jdbcTemplate.queryForList("""
+            SELECT child.relname AS table_name,
+                   child_attribute.attname AS column_name
+            FROM pg_constraint constraint_row
+            JOIN pg_class child ON child.oid = constraint_row.conrelid
+            JOIN pg_namespace child_namespace ON child_namespace.oid = child.relnamespace
+            JOIN pg_class parent ON parent.oid = constraint_row.confrelid
+            JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
+            JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY child_key(attnum, position) ON TRUE
+            JOIN LATERAL unnest(constraint_row.confkey) WITH ORDINALITY parent_key(attnum, position)
+              ON parent_key.position = child_key.position
+            JOIN pg_attribute child_attribute
+              ON child_attribute.attrelid = child.oid
+             AND child_attribute.attnum = child_key.attnum
+            JOIN pg_attribute parent_attribute
+              ON parent_attribute.attrelid = parent.oid
+             AND parent_attribute.attnum = parent_key.attnum
+            WHERE constraint_row.contype = 'f'
+              AND child_namespace.nspname = current_schema()
+              AND parent_namespace.nspname = current_schema()
+              AND parent.relname = ?
+              AND parent_attribute.attname = 'id'
+            ORDER BY child.relname, child_attribute.attname
+            """, safeTargetTable);
+        if (references.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法确认当前账套的主数据引用关系，操作已阻断");
+        }
+        return references;
+    }
+
+    private void assertMasterDataNotReferenced(String type, String id, String action) {
+        if (referenceCount(tableName(type), id) > 0) {
+            var label = "product".equals(type) ? "物料" : "供应商";
+            var referenceLabel = "product".equals(type)
+                ? "BOM、生产、委外、库存或其他业务"
+                : "物料、采购、委外、应付或其他业务";
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "该" + label + "已有" + referenceLabel + "引用，不能" + action + "；请改为禁用。"
+            );
+        }
     }
 
     private String safeIdentifier(String value) {

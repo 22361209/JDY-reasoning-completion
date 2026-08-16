@@ -171,7 +171,7 @@ public class PurchaseInAppService {
         request.lines().forEach(line -> requirePositiveQty(line.qty(), "采购入库数量必须大于 0"));
         var billNo = numberingService.assignBillNo("purchaseIn", request.billNo());
         redReverseGuardService.assertNotRedDraftForBillNo(BILL_TABLE, billNo, "采购入库单");
-        var supplierId = lookupService.lookupEnabledId("md_supplier", request.supplierCode(), "供应商");
+        var supplierId = lookupService.lookupEnabledIdForReference("md_supplier", request.supplierCode(), "供应商");
         var totalAmount = request.lines().stream()
             .map(line -> taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate()).priceTaxTotal())
             .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -445,7 +445,7 @@ public class PurchaseInAppService {
     private void insertLines(String table, String billIdColumn, Object billId, String defaultSourceOrderNo, List<PurchaseInLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             var sourceOrderNo = validationService.optionalText(line.sourceOrderNo() == null || line.sourceOrderNo().isBlank() ? defaultSourceOrderNo : line.sourceOrderNo());

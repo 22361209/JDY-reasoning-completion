@@ -698,6 +698,7 @@ public class PurchaseRequisitionAppService {
                   AND enabled = TRUE
                   AND audit_status = 'AUDITED'
                   AND (?::text IS NULL OR code = ?)
+                FOR KEY SHARE
                 """, normalizedId, normalizedCode, normalizedCode);
             return rows.isEmpty() ? NO_SUPPLIER : supplierSnapshot(rows.get(0));
         }
@@ -707,6 +708,7 @@ public class PurchaseRequisitionAppService {
             WHERE code = ?
               AND enabled = TRUE
               AND audit_status = 'AUDITED'
+            FOR KEY SHARE
             """, normalizedCode);
         return rows.isEmpty() ? NO_SUPPLIER : supplierSnapshot(rows.get(0));
     }
@@ -716,7 +718,7 @@ public class PurchaseRequisitionAppService {
         if (normalizedCode == null) {
             return NO_SUPPLIER;
         }
-        var supplierId = lookupService.lookupEnabledId("md_supplier", normalizedCode, "供应商");
+        var supplierId = lookupService.lookupEnabledIdForReference("md_supplier", normalizedCode, "供应商");
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id, code, name
             FROM md_supplier

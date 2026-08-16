@@ -137,7 +137,7 @@ Controller -> ListQueryService -> ListQueryContractRegistry -> ListQueryAdapter
 - 内部 alias 和 source-selector 也必须进入显式登记集；不作为 catalog 入口暴露，但不得依赖通配/default。
 - 未交付入口必须从 catalog 移除并在 delivery status 中标记 `exposure=hidden`、`surface=none`，不能以空表或其他业务数据伪装完成。
 
-### 员工与财务账户主数据
+### 员工、供应商与财务账户主数据
 
 A140/A183 登记以下精确 key，后缀不构成通配：
 
@@ -145,15 +145,18 @@ A140/A183 登记以下精确 key，后缀不构成通配：
 | --- | --- | --- | --- |
 | `employee-master-list` | 员工正式列表 | `master.data.manage` 或 `system.role_permission.manage` | tenant 内全部员工 |
 | `employee-master-selector` | 员工内部选择器 | `master.data.manage` 或 `system.role_permission.manage` | 仅 `AUDITED + enabled` |
+| `supplier-master-list` | 供应商正式列表 | `master.data.manage` | tenant 内全部供应商及完整管理字段 |
+| `supplier-master-selector` | 采购与其他入库业务的最小供应商候选 | `master.data.manage`、`purchase.order.audit`、`purchase.in.audit`、`purchase.return.audit` 或 `inventory.other_stock_in.audit` | 仅 `AUDITED + enabled`；只返回 `id/code/name/status/auditStatus` |
 | `financial-account-master-list` | 财务账户正式列表 | `master.data.manage` 或 `finance.settle` | tenant 内全部账户 |
 | `financial-account-master-selector` | 财务账户内部选择器 | `master.data.manage` 或 `finance.settle` | 仅 `AUDITED + enabled` |
 | `financial-account-settlement-selector` | 结算与资金转账最小账户候选 | `finance.settle` 或 `finance.cash_transfer.audit` | 仅 `AUDITED + enabled`；不返回账号、户名、备注和版本，资金转账表单再限定 `CNY/USD`；多页读取强制使用服务端候选全集快照标识 |
 
-- 两个正式列表是 catalog 入口；三个 selector 只供内部选择，不得发布为 catalog 入口。
+- 三个正式列表是 catalog 入口；四个 selector 只供内部选择，不得发布为 catalog 入口。
 - OR 权限由后端契约显式声明，不能通过角色名、前端隐藏或给只读角色补 `master.data.manage` 实现。
 - selector 的审核/启用条件必须在服务端查询中强制；查询和导出不得依赖前端过滤。
 - `financial-account-settlement-selector` 的 `snapshotToken` 绑定当前 tenant、查询条件、页大小、排序和完整候选字段；它只保证分页读取一致性，不是授权凭据，也不能替代保存/审核时的账户资格复验。权限守卫必须先于 token 校验。
-- 员工、财务账户都使用真实 tenant 表，不扩展样本行；两个 tenant 可以有相同编码，但列表、详情、选择器不得串数据。
+- 员工、供应商、财务账户都使用真实 tenant 表，不扩展样本行；两个 tenant 可以有相同编码，但列表、详情、选择器不得串数据。
+- `supplier-master-selector` 不得返回联系人、电话、税号、开户地址、银行账号、地址、备注或版本等管理字段；前端过滤不能代替服务端的审核与启用状态过滤，保存接口仍须复验供应商资格。
 - 未登记的普通/master/selector key 必须在权限、adapter/provider 选择和 JDBC 访问之前返回 `404`。
 
 ### 选源单查询

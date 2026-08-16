@@ -112,7 +112,7 @@ public class SalesOrderAppService {
         jdbcTemplate.update("DELETE FROM sales_order_line WHERE order_id = ?::uuid", orderId);
         var lineNo = 1;
         for (var line : request.lines()) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""

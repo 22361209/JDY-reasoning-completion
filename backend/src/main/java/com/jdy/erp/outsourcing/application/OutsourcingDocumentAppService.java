@@ -977,7 +977,7 @@ public class OutsourcingDocumentAppService {
     }
 
     private Supplier supplier(String supplierCode) {
-        var supplierId = lookupService.lookupEnabledId("md_supplier", supplierCode, "供应商");
+        var supplierId = lookupService.lookupEnabledIdForReference("md_supplier", supplierCode, "供应商");
         var row = jdbcTemplate.queryForMap("SELECT code, name FROM md_supplier WHERE id = ?::uuid", supplierId);
         return new Supplier(supplierId, String.valueOf(row.get("code")), String.valueOf(row.get("name")));
     }

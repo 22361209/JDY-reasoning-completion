@@ -490,7 +490,7 @@ public class ProductInAppService {
             if (line == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "产品入库分录不能为空");
             }
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "完工商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "完工商品");
             if (!String.valueOf(task.get("product_id")).equals(product.id())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "产品入库分录必须与来源生产任务母件一致");
             }

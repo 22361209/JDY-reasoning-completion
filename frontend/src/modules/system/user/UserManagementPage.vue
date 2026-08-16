@@ -25,6 +25,59 @@
           <span>{{ page.userManagementMode.value === "create" ? "CREATE" : page.selectedManagedUser.value?.username || "" }}</span>
           <em>{{ page.selectedManagedUser.value ? page.managedUserStateLabel(page.selectedManagedUser.value) : "选择角色后保存" }}</em>
         </div>
+        <section class="user-management-core" data-testid="user-management-core-fields">
+          <label>
+            <span>用户名</span>
+            <input ref="managedUsernameInput" v-model="page.managedUserForm.username" :readonly="page.userManagementMode.value === 'edit'" data-testid="managed-user-username" />
+          </label>
+          <label>
+            <span>姓名</span>
+            <input v-model="page.managedUserForm.displayName" data-testid="managed-user-display-name" />
+          </label>
+          <label>
+            <span>角色</span>
+            <select v-model="page.managedUserForm.roleCode" data-testid="managed-user-role">
+              <option v-for="role in page.managedRoles.value" :key="role.code" :value="role.code">{{ role.name }} / {{ role.code }}</option>
+            </select>
+          </label>
+          <label class="user-management-check">
+            <input v-model="page.managedUserForm.enabled" type="checkbox" data-testid="managed-user-enabled" />
+            <span>启用</span>
+          </label>
+          <section class="account-set-grant-panel user-management-core__wide" data-testid="managed-user-account-sets">
+            <div class="password-reset-admin-panel__head">
+              <strong>账套授权</strong>
+              <span>{{ page.managedUserForm.accountSetCodes.length }} 个</span>
+            </div>
+            <div class="account-set-grant-grid">
+              <label
+                v-for="accountSet in page.managedAccountSets.value"
+                :key="accountSet.code"
+                class="account-set-grant-row"
+              >
+                <input
+                  type="checkbox"
+                  :checked="page.managedUserForm.accountSetCodes.includes(accountSet.code)"
+                  :data-testid="`managed-user-account-set-${accountSet.code}`"
+                  @change="page.toggleAccountSetGrant(accountSet.code, ($event.target as HTMLInputElement).checked)"
+                />
+                <span>{{ accountSet.name }}</span>
+                <em>{{ accountSet.code }}</em>
+              </label>
+            </div>
+            <label>
+              <span>默认账套</span>
+              <select v-model="page.managedUserForm.defaultAccountSetCode" data-testid="managed-user-default-account-set">
+                <option v-for="accountSetCode in page.managedUserForm.accountSetCodes" :key="accountSetCode" :value="accountSetCode">{{ accountSetCode }}</option>
+              </select>
+            </label>
+          </section>
+          <label>
+            <span>{{ page.userManagementMode.value === "create" ? "初始密码" : "重置密码" }}</span>
+            <input v-model="page.managedUserPassword.value" type="password" data-testid="managed-user-password" />
+          </label>
+          <ActionBar class="user-management-core__wide" bar-class="settings-inline-actions" :actions="managedUserActions" @action="handleAction" />
+        </section>
         <dl v-if="page.selectedManagedUser.value && page.userManagementMode.value === 'edit'" class="user-security-summary" data-testid="user-security-summary">
           <div>
             <dt>失败次数</dt>
@@ -99,57 +152,6 @@
           <ActionBar bar-class="settings-inline-actions" :actions="passwordResetActions" @action="handleAction" />
         </section>
         <NotificationOutboxPanel ref="notificationOutboxPanelRef" :can-manage="canManage" :set-message="page.setUserManagementMessage" />
-        <label>
-          <span>用户名</span>
-          <input v-model="page.managedUserForm.username" :readonly="page.userManagementMode.value === 'edit'" data-testid="managed-user-username" />
-        </label>
-        <label>
-          <span>姓名</span>
-          <input v-model="page.managedUserForm.displayName" data-testid="managed-user-display-name" />
-        </label>
-        <label>
-          <span>角色</span>
-          <select v-model="page.managedUserForm.roleCode" data-testid="managed-user-role">
-            <option v-for="role in page.managedRoles.value" :key="role.code" :value="role.code">{{ role.name }} / {{ role.code }}</option>
-          </select>
-        </label>
-        <label class="user-management-check">
-          <input v-model="page.managedUserForm.enabled" type="checkbox" data-testid="managed-user-enabled" />
-          <span>启用</span>
-        </label>
-        <section class="account-set-grant-panel" data-testid="managed-user-account-sets">
-          <div class="password-reset-admin-panel__head">
-            <strong>账套授权</strong>
-            <span>{{ page.managedUserForm.accountSetCodes.length }} 个</span>
-          </div>
-          <div class="account-set-grant-grid">
-            <label
-              v-for="accountSet in page.managedAccountSets.value"
-              :key="accountSet.code"
-              class="account-set-grant-row"
-            >
-              <input
-                type="checkbox"
-                :checked="page.managedUserForm.accountSetCodes.includes(accountSet.code)"
-                :data-testid="`managed-user-account-set-${accountSet.code}`"
-                @change="page.toggleAccountSetGrant(accountSet.code, ($event.target as HTMLInputElement).checked)"
-              />
-              <span>{{ accountSet.name }}</span>
-              <em>{{ accountSet.code }}</em>
-            </label>
-          </div>
-          <label>
-            <span>默认账套</span>
-            <select v-model="page.managedUserForm.defaultAccountSetCode" data-testid="managed-user-default-account-set">
-              <option v-for="accountSetCode in page.managedUserForm.accountSetCodes" :key="accountSetCode" :value="accountSetCode">{{ accountSetCode }}</option>
-            </select>
-          </label>
-        </section>
-        <label>
-          <span>{{ page.userManagementMode.value === "create" ? "初始密码" : "重置密码" }}</span>
-          <input v-model="page.managedUserPassword.value" type="password" data-testid="managed-user-password" />
-        </label>
-        <ActionBar bar-class="settings-inline-actions" :actions="managedUserActions" @action="handleAction" />
         <p v-if="page.userManagementMessage.value" class="form-message" data-testid="user-management-message">{{ page.userManagementMessage.value }}</p>
       </div>
     </section>
@@ -166,23 +168,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref } from "vue";
 import ActionBar from "../../../components/ActionBar.vue";
 import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
 import MasterSelectorDialog from "../../../components/MasterSelectorDialog.vue";
 import NotificationOutboxPanel from "../notification/NotificationOutboxPanel.vue";
-import { ref } from "vue";
 import { useUserManagementPage } from "./useUserManagementPage";
 
 const props = defineProps<{
   canManage: boolean;
+  currentAccountSetCode: string;
 }>();
 
 const notificationOutboxPanelRef = ref<InstanceType<typeof NotificationOutboxPanel> | null>(null);
+const managedUsernameInput = ref<HTMLInputElement | null>(null);
 
 const page = useUserManagementPage({
   canManage: () => props.canManage,
+  currentAccountSetCode: () => props.currentAccountSetCode,
   onNotificationsChanged: () => notificationOutboxPanelRef.value?.reload()
 });
 
@@ -246,7 +250,7 @@ function handleAction(actionKey: string) {
     return;
   }
   if (actionKey === "create") {
-    page.startCreateManagedUser();
+    void startCreateManagedUser();
     return;
   }
   if (actionKey === "save") {
@@ -281,6 +285,13 @@ function handleAction(actionKey: string) {
     void page.unlinkSelectedEmployee();
   }
 }
+
+async function startCreateManagedUser() {
+  page.startCreateManagedUser();
+  await nextTick();
+  managedUsernameInput.value?.scrollIntoView({ block: "nearest" });
+  managedUsernameInput.value?.focus();
+}
 </script>
 
 <style scoped>
@@ -306,5 +317,16 @@ function handleAction(actionKey: string) {
 
 .user-management-form {
   background: #fff;
+}
+
+.user-management-core {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 420px));
+  align-items: start;
+  gap: 12px;
+}
+
+.user-management-core__wide {
+  grid-column: 1 / -1;
 }
 </style>

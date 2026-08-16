@@ -169,7 +169,7 @@ public class StockCountGainAppService {
     private void insertLines(Object billId, List<StockCountGainLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var qty = positive(line.qty(), "数量");
             var unitPrice = nonNegativePrice(line.unitPrice());

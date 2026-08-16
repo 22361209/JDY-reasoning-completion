@@ -41,7 +41,8 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "product-category-list" -> realProductCategoryRows();
             case "unit-master-list" -> realUnitRows();
             case "customer-master-list" -> realCustomerRows();
-            case "supplier-master-list" -> realSupplierRows();
+            case "supplier-master-list" -> realSupplierRows(false);
+            case "supplier-master-selector" -> realSupplierRows(true);
             case "warehouse-master-list" -> realWarehouseRows(false);
             case "warehouse-master-selector" -> realWarehouseRows(true);
             case "employee-master-list" -> employeeRows(false);
@@ -87,7 +88,9 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             case "role-list", "user-role-list" -> roleRows();
             default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown list key: " + listKey);
         };
-        return isStockCountHeader(listKey) ? rows : withLifecycleColumns(rows);
+        return isStockCountHeader(listKey) || "supplier-master-selector".equals(listKey)
+            ? rows
+            : withLifecycleColumns(rows);
     }
 
     private boolean isStockCountHeader(String listKey) {
@@ -862,7 +865,20 @@ public class StubListSeedRowsProvider implements ListSeedRowsProvider {
             """));
     }
 
-    private List<Map<String, ?>> realSupplierRows() {
+    private List<Map<String, ?>> realSupplierRows(boolean selectorOnly) {
+        if (selectorOnly) {
+            return List.copyOf(jdbcTemplate.queryForList("""
+                SELECT id::text AS id,
+                       code,
+                       name,
+                       CASE WHEN enabled THEN '启用' ELSE '禁用' END AS status,
+                       CASE WHEN audit_status = 'AUDITED' THEN '已审核' ELSE '未审核' END AS "auditStatus"
+                FROM md_supplier
+                WHERE enabled = TRUE
+                  AND audit_status = 'AUDITED'
+                ORDER BY code
+                """));
+        }
         return List.copyOf(jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    system_no::text AS "systemNo",

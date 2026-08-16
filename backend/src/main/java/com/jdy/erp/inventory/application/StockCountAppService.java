@@ -169,7 +169,7 @@ public class StockCountAppService {
     private void insertLines(Object billId, List<StockCountLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = lookupService.lookupEnabledId("md_warehouse", line.warehouseCode(), "仓库");
             var countedQty = nonNegative(line.qty(), "实盘数量");
             var systemQty = currentStockQty(product.id(), warehouseId);

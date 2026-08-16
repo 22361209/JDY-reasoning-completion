@@ -527,6 +527,7 @@ public class ProductionTaskAppService {
               AND enabled = TRUE
               AND audit_status = 'AUDITED'
               AND (? = FALSE OR is_produce = TRUE)
+            FOR KEY SHARE
             """, validationService.required(code, label), requireProduce);
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + (requireProduce ? "不存在、未启用、未审核或不可自制" : "不存在、未启用或未审核"));

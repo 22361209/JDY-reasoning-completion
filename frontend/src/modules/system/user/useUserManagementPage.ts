@@ -17,6 +17,7 @@ import {
 
 export function useUserManagementPage(options: {
   canManage: () => boolean;
+  currentAccountSetCode: () => string;
   onNotificationsChanged: () => void;
 }) {
   const managedUsers = ref<ManagedUser[]>([]);
@@ -146,7 +147,11 @@ export function useUserManagementPage(options: {
     managedUserForm.displayName = "";
     managedUserForm.roleCode = managedRoles.value.find((role) => role.code === "WAREHOUSE")?.code ?? managedRoles.value[0]?.code ?? "";
     managedUserForm.enabled = true;
-    managedUserForm.accountSetCodes = managedAccountSets.value[0]?.code ? [managedAccountSets.value[0].code] : [];
+    const currentAccountSetCode = options.currentAccountSetCode().trim();
+    const defaultAccountSetCode = currentAccountSetCode
+      || managedAccountSets.value[0]?.code
+      || "";
+    managedUserForm.accountSetCodes = defaultAccountSetCode ? [defaultAccountSetCode] : [];
     managedUserForm.defaultAccountSetCode = managedUserForm.accountSetCodes[0] ?? "";
     managedUserPassword.value = "";
     employeeSelectorOpen.value = false;

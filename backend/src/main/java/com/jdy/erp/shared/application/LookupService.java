@@ -5,6 +5,8 @@ import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -28,11 +30,25 @@ public class LookupService {
     }
 
     public String lookupEnabledId(String table, String code, String label) {
+        return lookupEnabledId(table, code, label, false);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String lookupEnabledIdForReference(String table, String code, String label) {
+        return lookupEnabledId(table, code, label, true);
+    }
+
+    private String lookupEnabledId(String table, String code, String label, boolean lockForReference) {
         if (!ENABLED_LOOKUP_TABLES.contains(table)) {
             throw new IllegalArgumentException("Unsupported lookup table: " + table);
         }
         var normalizedCode = validationService.required(code, label + "编码");
-        var rows = jdbcTemplate.queryForList("SELECT id::text AS id FROM " + table + " WHERE code = ? AND enabled = TRUE AND audit_status = 'AUDITED'", normalizedCode);
+        var rows = jdbcTemplate.queryForList(
+            "SELECT id::text AS id FROM " + table
+                + " WHERE code = ? AND enabled = TRUE AND audit_status = 'AUDITED'"
+                + (lockForReference ? " FOR KEY SHARE" : ""),
+            normalizedCode
+        );
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不存在、未审核或已禁用");
         }

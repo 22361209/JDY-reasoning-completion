@@ -7,10 +7,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
+import com.jdy.erp.inventory.application.OtherStockInAppService;
 import com.jdy.erp.system.application.list.StubListSeedRowsProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +42,9 @@ class MasterDataReferenceIntegrationTest {
 
     @Autowired
     private StubListSeedRowsProvider listRowsProvider;
+
+    @Autowired
+    private OtherStockInAppService otherStockInAppService;
 
     @Autowired
     private MockMvc mockMvc;
@@ -94,6 +100,120 @@ class MasterDataReferenceIntegrationTest {
             .isInstanceOf(ResponseStatusException.class)
             .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
             .isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void referencedSupplierCanBeDisabledButCannotBeReverseAuditedAndSelectorTracksEnabledState() {
+        var suffix = Long.toUnsignedString(System.nanoTime(), 36).toUpperCase();
+        var supplierCode = "GYS-A186-" + suffix;
+        var purchaseOrderNo = "CGDD-A186-" + suffix;
+
+        controller.create("supplier", Map.of("code", supplierCode, "name", "A186 引用供应商"));
+        controller.audit("supplier", supplierCode);
+        jdbcTemplate.update("""
+            INSERT INTO purchase_order (bill_no, supplier_id, bill_date, status)
+            SELECT ?, id, CURRENT_DATE, 'DRAFT'
+            FROM md_supplier
+            WHERE code = ?
+            """, purchaseOrderNo, supplierCode);
+
+        var disabled = controller.updateStatus("supplier", supplierCode, Map.of("status", "禁用"));
+        assertThat(disabled).containsEntry("status", "禁用").containsEntry("auditStatus", "已审核");
+        assertThat(jdbcTemplate.queryForObject("""
+            SELECT count(*)::int
+            FROM purchase_order purchase
+            JOIN md_supplier supplier ON supplier.id = purchase.supplier_id
+            WHERE purchase.bill_no = ? AND supplier.code = ?
+            """, Integer.class, purchaseOrderNo, supplierCode)).isOne();
+        assertThat(listRowsProvider.seedRows("supplier-master-selector", "header", 200))
+            .extracting(row -> String.valueOf(row.get("code")))
+            .doesNotContain(supplierCode);
+        assertThat(listRowsProvider.seedRows("supplier-master-list", "header", 200))
+            .filteredOn(row -> supplierCode.equals(String.valueOf(row.get("code"))))
+            .singleElement()
+            .extracting(row -> String.valueOf(row.get("status")))
+            .isEqualTo("禁用");
+
+        assertThatThrownBy(() -> controller.reverseAudit("supplier", supplierCode))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT audit_status FROM md_supplier WHERE code = ?",
+            String.class,
+            supplierCode
+        )).isEqualTo("AUDITED");
+
+        controller.updateStatus("supplier", supplierCode, Map.of("status", "启用"));
+        assertThat(listRowsProvider.seedRows("supplier-master-selector", "header", 200))
+            .extracting(row -> String.valueOf(row.get("code")))
+            .contains(supplierCode);
+    }
+
+    @Test
+    void productWithBomReferenceCannotBeReverseAudited() {
+        var suffix = Long.toUnsignedString(System.nanoTime(), 36).toUpperCase();
+        var productCode = "CP-A186-BOM-" + suffix;
+        var productNameCode = "PN-A186-BOM-" + suffix;
+        var bomCode = "BOM-A186-" + suffix;
+        controller.create("productName", Map.of("code", productNameCode, "name", "A186 BOM 物料"));
+        controller.audit("productName", productNameCode);
+        controller.create("product", Map.of(
+            "code", productCode,
+            "name", "A186 BOM 物料",
+            "category", "成品总成",
+            "unit", "只",
+            "isInventory", "true",
+            "isProduce", "true"
+        ));
+        controller.audit("product", productCode);
+        jdbcTemplate.update("""
+            INSERT INTO prod_bom (code, product_id, qty, enabled, audit_status, bom_category, is_current)
+            SELECT ?, id, 1, TRUE, 'AUDITED', '自制BOM', TRUE
+            FROM md_product
+            WHERE code = ?
+            """, bomCode, productCode);
+
+        assertThatThrownBy(() -> controller.reverseAudit("product", productCode))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("BOM")
+            .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT audit_status FROM md_product WHERE code = ?",
+            String.class,
+            productCode
+        )).isEqualTo("AUDITED");
+    }
+
+    @Test
+    void disabledSupplierCannotBeSubmittedByTypingItsCodeIntoOtherStockIn() {
+        var suffix = Long.toUnsignedString(System.nanoTime(), 36).toUpperCase();
+        var supplierCode = "GYS-A186-DIS-" + suffix;
+        controller.create("supplier", Map.of("code", supplierCode, "name", "A186 禁用候选供应商"));
+        controller.audit("supplier", supplierCode);
+        controller.updateStatus("supplier", supplierCode, Map.of("status", "禁用"));
+
+        assertThatThrownBy(() -> otherStockInAppService.saveDraft(new OtherStockInAppService.OtherStockInDraftRequest(
+            null,
+            supplierCode,
+            "2026-08-16",
+            "仓储部",
+            "A186",
+            List.of(new OtherStockInAppService.OtherStockInLineRequest(
+                null,
+                "CP-001",
+                "CK-001",
+                null,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                "A186 disabled supplier guard"
+            ))
+        )))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("未审核或已禁用")
+            .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test

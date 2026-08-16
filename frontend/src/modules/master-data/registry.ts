@@ -333,14 +333,24 @@ masterDataDefinitions["warehouse-master-selector"] = {
   listKey: "warehouse-master-selector"
 };
 
+masterDataDefinitions["supplier-master-selector"] = {
+  ...masterDataDefinitions["supplier-master-list"],
+  listKey: "supplier-master-selector",
+  selectorColumns: [
+    { field: "code", title: "供应商编码", width: 150, visible: true },
+    { field: "name", title: "供应商名称", width: 220, visible: true }
+  ]
+};
+
 const selectorListKeyByType: Record<string, string> = {
   customer: "customer-master-list",
-  supplier: "supplier-master-list",
+  supplier: "supplier-master-selector",
   product: "product-master-list",
   warehouse: "warehouse-master-selector",
   employee: "employee-master-selector",
   financialAccount: "financial-account-master-selector",
   "warehouse-master-selector": "warehouse-master-selector",
+  "supplier-master-selector": "supplier-master-selector",
   "employee-master-selector": "employee-master-selector",
   "financial-account-master-selector": "financial-account-master-selector"
 };

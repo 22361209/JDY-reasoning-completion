@@ -177,6 +177,12 @@ export interface RolePermissionResult {
   data: RolePermissionMatrix | null;
 }
 
+export interface RoleCreatePayload {
+  code: string;
+  name: string;
+  permissionCodes: string[];
+}
+
 export type RepeatedLoginPolicy = "SINGLE_ACTIVE" | "ALLOW_CONCURRENT";
 
 export interface PasswordPolicySettings {
@@ -700,6 +706,23 @@ export async function saveRolePermissions(roleCode: string, permissionCodes: str
     return { ok: true, status: response.status, message: "", data: await response.json() as RolePermissionMatrix };
   } catch {
     return { ok: false, status: 0, message: "权限保存失败。", data: null };
+  }
+}
+
+export async function createRole(payload: RoleCreatePayload): Promise<RolePermissionResult> {
+  try {
+    const response = await fetch("/api/system/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { ok: false, status: response.status, message: parseErrorMessage(text) || "角色创建失败。", data: null };
+    }
+    return { ok: true, status: response.status, message: "", data: await response.json() as RolePermissionMatrix };
+  } catch {
+    return { ok: false, status: 0, message: "角色创建失败。", data: null };
   }
 }
 

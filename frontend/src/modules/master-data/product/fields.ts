@@ -48,7 +48,7 @@ export const productMasterFields: MasterDataField[] = [
   { name: "defaultWorkshop", label: "默认生产车间", placeholder: "输入部门编码或名称", section: "生产信息", suggestions: ["冲压车间", "焊接车间", "金工车间", "安装车间", "包装车间"], lookup: { listKey: "production-department-list", valueField: "name", displayFields: ["code", "name"], searchFields: ["manager"] } },
 
   { name: "defaultWarehouseCode", label: "默认仓库", placeholder: "输入仓库编码或名称", section: "其他信息", lookup: { listKey: "warehouse-master-selector", valueField: "code", displayFields: ["code", "name"], searchFields: ["warehouseType", "manager"] } },
-  { name: "defaultSupplierCode", label: "默认供应商", placeholder: "输入供应商编码或名称", section: "其他信息", lookup: { listKey: "supplier-master-list", valueField: "code", displayFields: ["code", "name"], searchFields: ["contact", "phone"] } },
+  { name: "defaultSupplierCode", label: "默认供应商", placeholder: "输入供应商编码或名称", section: "其他信息", lookup: { listKey: "supplier-master-selector", valueField: "code", displayFields: ["code", "name"] } },
   { name: "drawingFileName", label: "图纸(PDF)", placeholder: "上传 1 张 PDF 图纸", section: "附件", type: "file", accept: ".pdf,application/pdf", maxFiles: 1, fileDataName: "drawingFileData", span: 2 },
   { name: "imageFileNames", label: "图片", placeholder: "最多 5 张 PNG/JPG/JPEG", section: "附件", type: "file", accept: ".png,.jpg,.jpeg,image/png,image/jpeg", multiple: true, maxFiles: 5, fileDataName: "imageFileData", span: 2 }
 ];

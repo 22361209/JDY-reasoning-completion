@@ -78,7 +78,7 @@ public class OpeningStockService {
         var qty = nonNegative(line.qty(), "期初数量");
         var unitCost = optionalNonNegative(line.unitCost(), "单位成本");
         var amount = unitCost == null ? null : qty.multiply(unitCost).setScale(2, RoundingMode.HALF_UP);
-        var productId = lookupService.lookupEnabledId("md_product", productCode, "物料");
+        var productId = lookupService.lookupEnabledIdForReference("md_product", productCode, "物料");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", warehouseCode, "仓库");
         jdbcTemplate.update("""
             INSERT INTO inv_stock_balance (

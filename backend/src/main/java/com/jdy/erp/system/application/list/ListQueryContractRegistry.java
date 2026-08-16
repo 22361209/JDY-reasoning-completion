@@ -21,6 +21,7 @@ public class ListQueryContractRegistry {
 
     private static final Set<String> MASTER_SELECTOR_KEYS = Set.of(
         "warehouse-master-selector",
+        "supplier-master-selector",
         "employee-master-selector",
         "financial-account-master-selector",
         "financial-account-settlement-selector"
@@ -225,6 +226,7 @@ public class ListQueryContractRegistry {
 
     private ListQueryContract masterSelectorContract(String listKey, String view) {
         var warehouse = "warehouse-master-selector".equals(listKey);
+        var supplier = "supplier-master-selector".equals(listKey);
         var employee = "employee-master-selector".equals(listKey);
         var settlementAccount = "financial-account-settlement-selector".equals(listKey);
         return new ListQueryContract(
@@ -232,6 +234,8 @@ public class ListQueryContractRegistry {
             view,
             warehouse
                 ? List.of("code", "name", "warehouseType", "manager")
+                : supplier
+                    ? List.of("code", "name")
                 : employee
                     ? List.of("code", "name", "position", "department")
                 : settlementAccount

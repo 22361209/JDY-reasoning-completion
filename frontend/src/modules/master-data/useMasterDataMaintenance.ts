@@ -7,6 +7,14 @@ import {
 } from "../../services/listApi";
 import { masterDataDefinitions } from "./registry";
 
+export interface MasterDataMaintenanceResult {
+  ok: boolean;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  message: string;
+}
+
 export function useMasterDataMaintenance(
   listKey: Ref<string>,
   rows: Ref<Record<string, unknown>[]>,
@@ -21,38 +29,61 @@ export function useMasterDataMaintenance(
   async function submitStatus(enabled: boolean) {
     const masterDefinition = definition.value;
     if (!masterDefinition) {
-      return false;
+      return emptyResult();
     }
-    for (const row of actionRows()) {
-      await setMasterDataStatus(masterDefinition.type, String(row.code), enabled);
-    }
-    await reload();
-    return true;
+    return runBatch(enabled ? "启用" : "禁用", (code) => setMasterDataStatus(masterDefinition.type, code, enabled));
   }
 
   async function submitAudit(audit: boolean) {
     const masterDefinition = definition.value;
     if (!masterDefinition) {
-      return false;
+      return emptyResult();
     }
     const submit = audit ? auditMasterData : reverseAuditMasterData;
-    for (const row of actionRows()) {
-      await submit(masterDefinition.type, String(row.code));
-    }
-    await reload();
-    return true;
+    return runBatch(audit ? "审核" : "反审核", (code) => submit(masterDefinition.type, code));
   }
 
   async function submitDelete() {
     const masterDefinition = definition.value;
     if (!masterDefinition || masterDefinition.allowDelete === false) {
-      return false;
+      return emptyResult();
     }
-    for (const row of actionRows()) {
-      await deleteMasterData(masterDefinition.type, String(row.code));
+    return runBatch("删除", (code) => deleteMasterData(masterDefinition.type, code));
+  }
+
+  async function runBatch(
+    actionLabel: string,
+    submit: (code: string) => Promise<{ ok: boolean; message: string }>
+  ): Promise<MasterDataMaintenanceResult> {
+    const targets = actionRows();
+    if (!targets.length) {
+      return { ok: false, attempted: 0, succeeded: 0, failed: 0, message: `请选择要${actionLabel}的资料。` };
+    }
+    let succeeded = 0;
+    const failureMessages: string[] = [];
+    for (const row of targets) {
+      const result = await submit(String(row.code));
+      if (result.ok) {
+        succeeded += 1;
+      } else {
+        failureMessages.push(result.message || `${actionLabel}失败`);
+      }
     }
     await reload();
-    return true;
+    const failed = targets.length - succeeded;
+    return {
+      ok: failed === 0,
+      attempted: targets.length,
+      succeeded,
+      failed,
+      message: failed === 0
+        ? `已${actionLabel} ${succeeded} 条资料。`
+        : `${actionLabel}完成 ${succeeded}/${targets.length}，失败 ${failed}：${failureMessages[0]}`
+    };
+  }
+
+  function emptyResult(): MasterDataMaintenanceResult {
+    return { ok: false, attempted: 0, succeeded: 0, failed: 0, message: "当前列表不支持该操作。" };
   }
 
   function actionRows() {

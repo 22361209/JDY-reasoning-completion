@@ -24,11 +24,19 @@ public class ListStubStateGuard {
         Map.entry("sales-return-form-list", "sales.out.audit"),
         Map.entry("sales-out-return-source-selector", "sales.out.audit"),
         Map.entry("material-scrap-form-list", "production.document.audit"),
-        Map.entry("material-scrap-source-selector", "production.document.audit")
+        Map.entry("material-scrap-source-selector", "production.document.audit"),
+        Map.entry("supplier-master-list", "master.data.manage")
     );
     private static final Map<String, List<String>> READ_PERMISSION_ALTERNATIVES = Map.of(
         "employee-master-list", List.of("master.data.manage", "system.role_permission.manage"),
         "employee-master-selector", List.of("master.data.manage", "system.role_permission.manage"),
+        "supplier-master-selector", List.of(
+            "master.data.manage",
+            "purchase.order.audit",
+            "purchase.in.audit",
+            "purchase.return.audit",
+            "inventory.other_stock_in.audit"
+        ),
         "financial-account-master-list", List.of("master.data.manage", "finance.settle"),
         "financial-account-master-selector", List.of("master.data.manage", "finance.settle"),
         "financial-account-settlement-selector", List.of("finance.settle", "finance.cash_transfer.audit"),

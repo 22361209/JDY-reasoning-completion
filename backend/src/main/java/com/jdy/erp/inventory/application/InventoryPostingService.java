@@ -192,7 +192,7 @@ public class InventoryPostingService {
     }
 
     private PostingSource resolveSource(InventoryPostingCommand command) {
-        var productId = lookupService.lookupEnabledId("md_product", command.productCode(), "商品");
+        var productId = lookupService.lookupEnabledIdForReference("md_product", command.productCode(), "商品");
         var warehouseId = lookupService.lookupEnabledId("md_warehouse", command.warehouseCode(), "仓库");
         var source = new PostingSource(inventoryScopeId(), productId, warehouseId);
         lockPostingFact(command, source);

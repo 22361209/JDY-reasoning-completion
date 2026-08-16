@@ -157,6 +157,39 @@ class TenantMasterDataBomNumberingIsolationTest {
         assertThat(bomAuditStatus("BOM-A181-AUDIT")).isEqualTo("DRAFT");
     }
 
+    @Test
+    void productReverseReferenceGuardUsesOnlyCurrentTenantSchema() {
+        var tenantA = createManagedAccountSet("A186PRA");
+        var tenantB = createManagedAccountSet("A186PRB");
+
+        useTenant(tenantA);
+        createAuditedMaterial("A186-P", "A186 账套A物料");
+        jdbcTemplate.update("""
+            INSERT INTO prod_bom (code, product_id, qty, enabled, audit_status, bom_category, is_current)
+            SELECT 'BOM-A186-REF', id, 1, TRUE, 'AUDITED', '自制BOM', TRUE
+            FROM md_product
+            WHERE code = 'A186-P'
+            """);
+
+        useTenant(tenantB);
+        createAuditedMaterial("A186-P", "A186 账套B物料");
+        masterDataController.reverseAudit("product", "A186-P");
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT audit_status FROM md_product WHERE code = 'A186-P'",
+            String.class
+        )).isEqualTo("DRAFT");
+
+        useTenant(tenantA);
+        assertThatThrownBy(() -> masterDataController.reverseAudit("product", "A186-P"))
+            .isInstanceOf(ResponseStatusException.class)
+            .extracting(ex -> ((ResponseStatusException) ex).getStatusCode().value())
+            .isEqualTo(409);
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT audit_status FROM md_product WHERE code = 'A186-P'",
+            String.class
+        )).isEqualTo("AUDITED");
+    }
+
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         createdCodes.add(code);

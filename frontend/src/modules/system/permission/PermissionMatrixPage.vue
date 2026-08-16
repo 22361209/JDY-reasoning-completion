@@ -27,10 +27,20 @@
       </aside>
       <div class="role-permission-matrix">
         <div class="role-permission-summary" data-testid="role-permission-summary">
-          <strong>{{ page.selectedRole.value?.name || "未选择角色" }}</strong>
-          <span>{{ page.selectedRole.value?.code || "" }}</span>
+          <strong>{{ page.roleManagementMode.value === "create" ? "新增角色" : page.selectedRole.value?.name || "未选择角色" }}</strong>
+          <span>{{ page.roleManagementMode.value === "create" ? "CREATE" : page.selectedRole.value?.code || "" }}</span>
           <em>已勾选 {{ page.selectedRolePermissionCount.value }} 项权限</em>
         </div>
+        <section v-if="page.roleManagementMode.value === 'create'" class="role-create-fields" data-testid="role-create-fields">
+          <label>
+            <span>角色编码</span>
+            <input ref="roleCodeInput" v-model="page.newRoleCode.value" data-testid="role-create-code" placeholder="如：PURCHASE_VIEWER" />
+          </label>
+          <label>
+            <span>角色名称</span>
+            <input v-model="page.newRoleName.value" data-testid="role-create-name" placeholder="如：采购只读" />
+          </label>
+        </section>
         <div v-for="group in page.permissionGroups.value" :key="group.moduleName" class="permission-group">
           <h3>{{ group.moduleName }}</h3>
           <div class="permission-grid">
@@ -53,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref } from "vue";
 import ActionBar from "../../../components/ActionBar.vue";
 import { defineAction, type ActionBarItem } from "../../../components/actions/actionRegistry";
 import DocumentCommandHeader from "../../../components/DocumentCommandHeader.vue";
@@ -66,17 +76,49 @@ const props = defineProps<{
 const page = usePermissionMatrixPage({
   canManage: () => props.canManage
 });
+const roleCodeInput = ref<HTMLInputElement | null>(null);
 
 const permissionActions = computed<ActionBarItem[]>(() => [
-  defineAction("refresh", { enabled: true, testId: "role-permission-refresh" }),
-  defineAction("save", { enabled: props.canManage, testId: "role-permission-save" })
+  defineAction("refresh", { enabled: !page.loading.value && !page.saving.value, testId: "role-permission-refresh" }),
+  defineAction("create", { enabled: props.canManage && !page.loading.value && !page.saving.value, testId: "role-permission-new" }),
+  defineAction("save", { enabled: props.canManage && !page.loading.value && !page.saving.value, testId: "role-permission-save" })
 ]);
 
 function handleAction(key: string) {
   const handlers: Record<string, () => void> = {
     refresh: () => { void page.loadRolePermissions(); },
+    create: () => { void startCreateRole(); },
     save: () => { void page.saveSelectedRolePermissions(); }
   };
   handlers[key]?.();
 }
+
+async function startCreateRole() {
+  page.startCreateRole();
+  await nextTick();
+  roleCodeInput.value?.scrollIntoView({ block: "nearest" });
+  roleCodeInput.value?.focus();
+}
 </script>
+
+<style scoped>
+.role-create-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 320px));
+  gap: 12px;
+}
+
+.role-create-fields label {
+  display: grid;
+  gap: 6px;
+  color: #405366;
+  font-size: 12px;
+}
+
+.role-create-fields input {
+  height: 32px;
+  border: 1px solid #c7d4e2;
+  border-radius: 4px;
+  padding: 0 9px;
+}
+</style>

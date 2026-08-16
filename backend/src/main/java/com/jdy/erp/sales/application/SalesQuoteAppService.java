@@ -96,7 +96,7 @@ public class SalesQuoteAppService {
         jdbcTemplate.update("DELETE FROM sales_quote_line WHERE quote_id = ?::uuid", quoteId);
         var lineNo = 1;
         for (var line : request.lines()) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var warehouseId = optionalWarehouseId(line.warehouseCode());
             var amounts = taxAmountCalculator.calculate(line.qty(), line.unitPrice(), line.taxRate());
             jdbcTemplate.update("""

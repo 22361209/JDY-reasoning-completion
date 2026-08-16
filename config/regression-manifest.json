@@ -122,7 +122,8 @@
       "scripts/a169-list-density-alignment-regression.mjs",
       "scripts/a170-multilevel-production-procurement-regression.mjs",
       "scripts/a184-a166-usability-regression.mjs",
-      "scripts/a186-selector-bom-regression.mjs"
+      "scripts/a186-selector-bom-regression.mjs",
+      "scripts/a186-permission-masterdata-regression.mjs"
     ],
     "security": [
       "scripts/a54-role-permission-matrix-regression.mjs",
@@ -147,7 +148,8 @@
       "scripts/a148-inventory-movement-report-regression.mjs",
       "scripts/a151-material-scrap-backend-regression.mjs",
       "scripts/a152-material-scrap-ui-regression.mjs",
-      "scripts/a153-6e-closure-regression.mjs"
+      "scripts/a153-6e-closure-regression.mjs",
+      "scripts/a186-permission-masterdata-regression.mjs"
     ],
     "system": [
       "scripts/a119-account-set-switch-ui-regression.mjs",
@@ -170,7 +172,8 @@
       "scripts/a151-material-scrap-backend-regression.mjs",
       "scripts/a151-material-scrap-migration-regression.mjs",
       "scripts/a153-6e-closure-regression.mjs",
-      "scripts/a167-production-plan-multi-line-migration-regression.mjs"
+      "scripts/a167-production-plan-multi-line-migration-regression.mjs",
+      "scripts/a186-permission-masterdata-regression.mjs"
     ],
     "print": [
       "scripts/a38-document-pdf-output-regression.mjs",
@@ -222,7 +225,8 @@
       "scripts/a143-master-data-import-migration-regression.mjs",
       "scripts/a179-warehouse-selector-regression.mjs",
       "scripts/a184-a166-usability-regression.mjs",
-      "scripts/a186-selector-bom-regression.mjs"
+      "scripts/a186-selector-bom-regression.mjs",
+      "scripts/a186-permission-masterdata-regression.mjs"
     ],
     "reports": [
       "scripts/a145-report-query-foundation-regression.mjs",
@@ -382,7 +386,8 @@
     "scripts/a179-warehouse-selector-regression.mjs",
     "scripts/a180-warehouse-selector-initial-filter-regression.mjs",
     "scripts/a184-a166-usability-regression.mjs",
-    "scripts/a186-selector-bom-regression.mjs"
+    "scripts/a186-selector-bom-regression.mjs",
+    "scripts/a186-permission-masterdata-regression.mjs"
   ],
   "exemptions": [
     {

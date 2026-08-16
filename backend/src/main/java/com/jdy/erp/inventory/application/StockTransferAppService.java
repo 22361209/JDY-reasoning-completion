@@ -185,7 +185,7 @@ public class StockTransferAppService {
     private void insertLines(Object billId, List<StockTransferLineRequest> lines) {
         var lineNo = 1;
         for (var line : lines) {
-            var product = productSnapshotService.resolve(line.productId(), line.productCode(), "商品");
+            var product = productSnapshotService.resolveForReference(line.productId(), line.productCode(), "商品");
             var sourceWarehouseCode = validationService.required(line.warehouseCode(), "源仓库");
             var targetWarehouseCode = validationService.required(line.targetWarehouseCode(), "目标仓库");
             var sourceWarehouseId = lookupService.lookupEnabledId("md_warehouse", sourceWarehouseCode, "源仓库");

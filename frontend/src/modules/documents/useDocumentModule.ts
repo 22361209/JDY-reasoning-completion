@@ -1917,7 +1917,7 @@ function selectorIdForParty(testPrefix = "") {
 function masterSelectorListKey(type: string) {
   const listKeyByType: Record<string, string> = {
     customer: "customer-master-list",
-    supplier: "supplier-master-list",
+    supplier: "supplier-master-selector",
     product: "product-master-list",
     warehouse: "warehouse-master-selector"
   };
