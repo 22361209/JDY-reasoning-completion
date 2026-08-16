@@ -245,7 +245,7 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> auditBom(String code, BomAuditRequest request) {
-        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bom = findBomByCodeForUpdate(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
         var productId = String.valueOf(bom.get("productId"));
         var userId = currentSessionService.currentUserId();
@@ -305,7 +305,7 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> reverseBom(String code) {
-        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bom = findBomByCodeForUpdate(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
         var userId = currentSessionService.currentUserId();
         ensureBomNotReferenced(bomId, "反审核");
@@ -328,7 +328,7 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> setBomEnabled(String code, boolean enabled) {
-        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bom = findBomByCodeForUpdate(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
         var wasEnabled = Boolean.parseBoolean(String.valueOf(bom.get("enabled")));
         var userId = currentSessionService.currentUserId();
@@ -366,7 +366,7 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> deleteBom(String code) {
-        var bom = findBomByCode(validationService.required(code, "BOM 编码"));
+        var bom = findBomByCodeForUpdate(validationService.required(code, "BOM 编码"));
         var bomId = String.valueOf(bom.get("id"));
         if (!"DRAFT".equals(String.valueOf(bom.get("auditStatus")))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只能删除未审核 BOM");
@@ -435,6 +435,14 @@ public class ProductionTaskAppService {
     }
 
     private Map<String, Object> findBomByCode(String code) {
+        return findBomByCode(code, false);
+    }
+
+    private Map<String, Object> findBomByCodeForUpdate(String code) {
+        return findBomByCode(code, true);
+    }
+
+    private Map<String, Object> findBomByCode(String code, boolean forUpdate) {
         var rows = jdbcTemplate.queryForList("""
             SELECT id::text AS id,
                    product_id::text AS "productId",
@@ -449,7 +457,7 @@ public class ProductionTaskAppService {
                      updated_at DESC,
                      created_at DESC
             LIMIT 1
-            """, code);
+            """ + (forUpdate ? " FOR UPDATE" : ""), code);
         if (rows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "BOM 不存在");
         }
@@ -720,26 +728,76 @@ public class ProductionTaskAppService {
 
     @Transactional
     public Map<String, Object> createTask(TaskRequest request) {
-        var source = resolveTaskSource(request);
+        var taskId = optionalUuid(request.draftId(), "生产任务草稿标识");
+        var effectiveRequest = request;
+        if (taskId != null) {
+            jdbcTemplate.queryForList(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                "production-task-draft:" + tenantDataScopeService.currentScopeId("production") + ":" + taskId
+            );
+            var existing = jdbcTemplate.queryForList("""
+                SELECT id::text AS id, bill_no AS "billNo", status, source_kind AS "sourceKind"
+                FROM production_task
+                WHERE id = ?::uuid
+                """, taskId);
+            if (!existing.isEmpty()) {
+                var row = existing.get(0);
+                if (!BillStatus.DRAFT.name().equals(String.valueOf(row.get("status")))
+                    || "BOM_CHILD".equals(String.valueOf(row.get("sourceKind")))) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "该生产任务草稿标识已属于不可编辑任务");
+                }
+                var existingBillNo = String.valueOf(row.get("billNo"));
+                var requestedBillNo = validationService.optionalText(request.billNo());
+                if (requestedBillNo != null && !existingBillNo.equals(requestedBillNo)) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务草稿标识与单号不一致");
+                }
+                effectiveRequest = new TaskRequest(
+                    existingBillNo,
+                    request.planNo(),
+                    request.bomCode(),
+                    request.warehouseCode(),
+                    request.qty(),
+                    request.planLineNo(),
+                    taskId
+                );
+            } else {
+                var requestedBillNo = validationService.optionalText(request.billNo());
+                if (requestedBillNo != null) {
+                    var billRows = jdbcTemplate.queryForList("""
+                        SELECT id::text AS id
+                        FROM production_task
+                        WHERE bill_no = ?
+                        """, requestedBillNo);
+                    if (!billRows.isEmpty()) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务草稿标识与单号不一致");
+                    }
+                }
+            }
+        }
+        var source = resolveTaskSource(effectiveRequest);
         source.put("sourceKind", source.get("planId") == null ? "MANUAL" : "PLAN_ROOT");
         source.put("sourceLevel", 0);
         source.put("bomPath", source.get("planId") == null ? null : "ROOT");
-        return createTaskFromSource(request.billNo(), source);
+        return createTaskFromSource(effectiveRequest.billNo(), source, taskId);
     }
 
     private Map<String, Object> createTaskFromSource(String requestedBillNo, Map<String, Object> source) {
+        return createTaskFromSource(requestedBillNo, source, null);
+    }
+
+    private Map<String, Object> createTaskFromSource(String requestedBillNo, Map<String, Object> source, String requestedTaskId) {
         var billNo = numberingService.assignBillNo("productionTask", requestedBillNo);
         var sourceKind = String.valueOf(source.getOrDefault("sourceKind", source.get("planId") == null ? "MANUAL" : "PLAN_ROOT"));
         var sourceLevel = source.get("sourceLevel") instanceof Number value ? value.intValue() : 0;
         var rows = jdbcTemplate.queryForList("""
             INSERT INTO production_task (
-                bill_no, plan_id, plan_line_id, bom_id, product_id,
+                id, bill_no, plan_id, plan_line_id, bom_id, product_id,
                 product_code_snapshot, product_name_snapshot, product_spec_snapshot,
                 warehouse_id, department_code, bom_code_snapshot, bom_version_no,
                 qty, status, source_kind, parent_task_id, root_task_id,
                 source_bom_line_id, source_level, bom_path
             )
-            VALUES (?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?)
+            VALUES (COALESCE(?::uuid, gen_random_uuid()), ?, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, ?)
             ON CONFLICT (bill_no) DO UPDATE
             SET plan_id = EXCLUDED.plan_id,
                 plan_line_id = EXCLUDED.plan_line_id,
@@ -765,6 +823,7 @@ public class ProductionTaskAppService {
               AND production_task.source_kind <> 'BOM_CHILD'
             RETURNING id::text AS id, bill_no AS "billNo", department_code AS "departmentCode", bom_code_snapshot AS "bomCode", bom_version_no AS "bomVersionNo", qty, status, source_kind AS "sourceKind", source_level AS "sourceLevel", bom_path AS "bomPath"
             """,
+            requestedTaskId,
             billNo,
             source.get("planId"),
             source.get("planLineId"),
@@ -790,6 +849,9 @@ public class ProductionTaskAppService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "只有普通草稿生产任务单可以修改，多层 BOM 子任务不可直接改写来源");
         }
         var taskId = String.valueOf(rows.get(0).get("id"));
+        if (requestedTaskId != null && !requestedTaskId.equals(taskId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产任务草稿标识与单号不一致");
+        }
         var rootTaskId = source.get("rootTaskId") == null ? taskId : String.valueOf(source.get("rootTaskId"));
         if (source.get("rootTaskId") == null) {
             jdbcTemplate.update("UPDATE production_task SET root_task_id = ?::uuid WHERE id = ?::uuid", taskId, taskId);
@@ -893,7 +955,8 @@ public class ProductionTaskAppService {
             request.bomCode(),
             request.warehouseCode(),
             request.qty(),
-            request.planLineNo()
+            request.planLineNo(),
+            request.draftId()
         ));
     }
 
@@ -1159,6 +1222,7 @@ public class ProductionTaskAppService {
                    p.code AS "productCode",
                    p.name AS "productName",
                    COALESCE(p.spec, '') AS spec,
+                   p.default_warehouse_id::text AS "defaultWarehouseId",
                    department.code AS "departmentCode"
             FROM prod_bom b
             JOIN md_product p ON p.id = b.product_id
@@ -1166,6 +1230,10 @@ public class ProductionTaskAppService {
             WHERE b.code = ? AND b.enabled = TRUE
               AND b.audit_status = 'AUDITED'
               AND b.is_current = TRUE
+              AND p.enabled = TRUE
+              AND p.audit_status = 'AUDITED'
+              AND p.is_produce = TRUE
+            FOR SHARE OF b, p
             """, validationService.required(request.bomCode(), "BOM 编码"));
         if (bomRows.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "BOM 不存在或未启用");
@@ -1180,12 +1248,34 @@ public class ProductionTaskAppService {
         source.put("productCode", bom.get("productCode"));
         source.put("productName", bom.get("productName"));
         source.put("spec", bom.get("spec"));
-        source.put("warehouseId", lookupService.lookupEnabledId("md_warehouse", request.warehouseCode(), "完工仓库"));
+        source.put("warehouseId", resolveTaskWarehouseId(request.warehouseCode(), (String) bom.get("defaultWarehouseId")));
         source.put("departmentCode", bom.get("departmentCode"));
         source.put("bomCode", bom.get("bomCode"));
         source.put("bomVersionNo", bom.get("bomVersionNo"));
         source.put("taskQty", positive(request.qty(), "任务数量"));
         return source;
+    }
+
+    private String resolveTaskWarehouseId(String requestedWarehouseCode, String defaultWarehouseId) {
+        var warehouseCode = validationService.optionalText(requestedWarehouseCode);
+        if (warehouseCode != null) {
+            return lookupService.lookupEnabledIdForReference("md_warehouse", warehouseCode, "完工仓库");
+        }
+        if (defaultWarehouseId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先维护母件默认仓库，或填写完工仓库");
+        }
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM md_warehouse
+            WHERE id = ?::uuid
+              AND enabled = TRUE
+              AND audit_status = 'AUDITED'
+            FOR KEY SHARE
+            """, defaultWarehouseId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "母件默认仓库不存在、未审核或已禁用");
+        }
+        return String.valueOf(rows.get(0).get("id"));
     }
 
     private Map<String, Object> savePlanDocument(PlanRequest request) {
@@ -2054,9 +2144,25 @@ public class ProductionTaskAppService {
         }
     }
 
-    public record TaskRequest(String billNo, String planNo, String bomCode, String warehouseCode, BigDecimal qty, Integer planLineNo) {
+    public record TaskRequest(String billNo, String planNo, String bomCode, String warehouseCode, BigDecimal qty, Integer planLineNo, String draftId) {
+        public TaskRequest(String billNo, String planNo, String bomCode, String warehouseCode, BigDecimal qty, Integer planLineNo) {
+            this(billNo, planNo, bomCode, warehouseCode, qty, planLineNo, null);
+        }
+
         public TaskRequest(String billNo, String planNo, String bomCode, String warehouseCode, BigDecimal qty) {
-            this(billNo, planNo, bomCode, warehouseCode, qty, null);
+            this(billNo, planNo, bomCode, warehouseCode, qty, null, null);
+        }
+    }
+
+    private String optionalUuid(String value, String label) {
+        var normalized = validationService.optionalText(value);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(normalized).toString();
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "格式不正确");
         }
     }
 

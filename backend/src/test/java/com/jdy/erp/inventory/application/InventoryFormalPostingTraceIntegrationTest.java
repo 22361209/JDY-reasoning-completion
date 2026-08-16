@@ -21,6 +21,7 @@ import javax.sql.DataSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdy.erp.inventory.application.InventoryPostingCommand.PostingAction;
+import com.jdy.erp.reports.api.DocumentOutputController;
 import com.jdy.erp.sales.application.DeliveryNoticeAppService;
 import com.jdy.erp.system.security.CurrentSessionService;
 import com.jdy.erp.system.tenant.TenantContext;
@@ -74,6 +75,9 @@ class InventoryFormalPostingTraceIntegrationTest {
 
     @Autowired
     private DeliveryNoticeAppService deliveryNoticeAppService;
+
+    @Autowired
+    private DocumentOutputController documentOutputController;
 
     @Autowired
     private DataSource dataSource;
@@ -170,6 +174,30 @@ class InventoryFormalPostingTraceIntegrationTest {
 
         assertBalanceAndLedger(sourceWarehouseId, "100");
         assertBalanceAndLedger(targetWarehouseId, "0");
+    }
+
+    @Test
+    void stockCountLossDraftAndAuditedDocumentsCanExportAndPrint() {
+        var countLoss = insertWarehouseDocument(
+            "stock_count_loss",
+            "stock_count_loss_line",
+            "QTRK-LOSS",
+            new BigDecimal("2")
+        );
+
+        assertStockCountLossOutputs(countLoss.billNo(), "DRAFT");
+        stockCountLossAppService.audit(countLoss.billNo());
+        assertStockCountLossOutputs(countLoss.billNo(), "AUDITED");
+
+        jdbcTemplate.update("UPDATE stock_count_loss SET status = 'VOID' WHERE bill_no = ?", countLoss.billNo());
+        assertThatThrownBy(() -> documentOutputController.exportCsv("stock-count-loss", countLoss.billNo()))
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(exception.getReason()).contains("状态不允许输出");
+            });
+        assertThatThrownBy(() -> documentOutputController.exportCsv("stock-count-loss", runPrefix + "-MISSING"))
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception ->
+                assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     @Test
@@ -1263,6 +1291,53 @@ class InventoryFormalPostingTraceIntegrationTest {
         assertThat((BigDecimal) row.get("balance")).isEqualByComparingTo(expectedQuantity);
         assertThat((BigDecimal) row.get("ledger")).isEqualByComparingTo(expectedQuantity);
         assertThat((BigDecimal) row.get("latestAfter")).isEqualByComparingTo(expectedQuantity);
+    }
+
+    private void assertStockCountLossOutputs(String billNo, String status) {
+        var before = stockCountLossOutputSnapshot(billNo);
+        assertThat(documentOutputController.exportCsv("stock-count-loss", billNo).getBody())
+            .contains("单据类型,\"盘亏单\"")
+            .contains("单据编号,\"" + billNo + "\"")
+            .contains("状态,\"" + status + "\"");
+        assertThat(documentOutputController.printHtml("stock-count-loss", billNo).getBody())
+            .contains("<title>盘亏单</title>")
+            .contains(billNo)
+            .contains(status);
+        assertThat(documentOutputController.printPdf("stock-count-loss", billNo).getBody())
+            .isNotNull()
+            .startsWith((byte) '%', (byte) 'P', (byte) 'D', (byte) 'F');
+        assertThat(stockCountLossOutputSnapshot(billNo)).isEqualTo(before);
+    }
+
+    private Map<String, Object> stockCountLossOutputSnapshot(String billNo) {
+        return jdbcTemplate.queryForMap("""
+            SELECT loss.id::text AS "billId",
+                   loss.status,
+                   line.id::text AS "lineId",
+                   line.qty,
+                   line.amount,
+                   balance.qty_on_hand AS "qtyOnHand",
+                   balance.qty_reserved AS "qtyReserved",
+                   balance.qty_available AS "qtyAvailable",
+                   balance.version AS "balanceVersion",
+                   (
+                       SELECT count(*)::int
+                       FROM inv_stock_txn txn
+                       WHERE txn.source_bill_id = loss.id
+                   ) AS "transactionCount",
+                   (
+                       SELECT COALESCE(sum(txn.qty_delta), 0)
+                       FROM inv_stock_txn txn
+                       WHERE txn.source_bill_id = loss.id
+                   ) AS "transactionQuantity"
+            FROM stock_count_loss loss
+            JOIN stock_count_loss_line line ON line.bill_id = loss.id
+            JOIN inv_stock_balance balance
+              ON balance.account_set_id = ?::uuid
+             AND balance.product_id = line.product_id
+             AND balance.warehouse_id = line.warehouse_id
+            WHERE loss.bill_no = ?
+            """, accountSetId, billNo);
     }
 
     private void cleanFixture() {

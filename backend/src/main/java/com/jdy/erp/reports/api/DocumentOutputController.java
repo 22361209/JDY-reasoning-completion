@@ -43,6 +43,7 @@ public class DocumentOutputController {
     }
 
     @GetMapping("/{documentType}/{billNo}/export.csv")
+    @Transactional(readOnly = true)
     public ResponseEntity<String> exportCsv(@PathVariable String documentType, @PathVariable String billNo) {
         var payload = payload(documentType, billNo);
         var csv = new StringBuilder();
@@ -73,6 +74,7 @@ public class DocumentOutputController {
     }
 
     @GetMapping("/{documentType}/{billNo}/print.html")
+    @Transactional(readOnly = true)
     public ResponseEntity<String> printHtml(@PathVariable String documentType, @PathVariable String billNo) {
         var payload = payload(documentType, billNo);
         var template = printTemplate(documentType);
@@ -267,6 +269,7 @@ public class DocumentOutputController {
     }
 
     @GetMapping("/{documentType}/{billNo}/print.pdf")
+    @Transactional(readOnly = true)
     public ResponseEntity<byte[]> printPdf(@PathVariable String documentType, @PathVariable String billNo) {
         var payload = payload(documentType, billNo);
         var template = printTemplate(documentType);
@@ -292,6 +295,7 @@ public class DocumentOutputController {
             case "other-stock-in" -> inventoryBillPayload("other_stock_in", "other_stock_in_line", "其他入库单", billNo);
             case "other-stock-out" -> inventoryBillPayload("other_stock_out", "other_stock_out_line", "其他出库单", billNo);
             case "stock-transfer" -> stockTransferPayload(billNo);
+            case "stock-count-loss" -> stockCountLossPayload(billNo);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据输出");
         };
     }
@@ -310,8 +314,18 @@ public class DocumentOutputController {
             case "other-stock-in" -> "otherStockIn";
             case "other-stock-out" -> "otherStockOut";
             case "stock-transfer" -> "stockTransfer";
+            case "stock-count-loss" -> "stockCountLoss";
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂不支持该单据输出");
         };
+    }
+
+    private DocumentPayload stockCountLossPayload(String billNo) {
+        var payload = inventoryBillPayload("stock_count_loss", "stock_count_loss_line", "盘亏单", billNo);
+        var status = String.valueOf(payload.header().get("status"));
+        if (!"DRAFT".equals(status) && !"AUDITED".equals(status)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "当前盘亏单状态不允许输出");
+        }
+        return payload;
     }
 
     private DocumentPayload salesOrderPayload(String billNo) {
@@ -572,12 +586,13 @@ public class DocumentOutputController {
             case "other-stock-in" -> "其他入库单";
             case "other-stock-out" -> "其他出库单";
             case "stock-transfer" -> "调拨单";
+            case "stock-count-loss" -> "盘亏单";
             default -> "业务单据";
         };
     }
 
     private List<String> supportedDocumentTypes() {
-        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "sales-return", "purchase-in", "purchase-return", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer");
+        return List.of("sales-quote", "sales-order", "purchase-order", "sales-out", "sales-return", "purchase-in", "purchase-return", "material-issue", "product-in", "other-stock-in", "other-stock-out", "stock-transfer", "stock-count-loss");
     }
 
     private Map<String, Object> templateResponse(String documentType, PrintTemplate template) {

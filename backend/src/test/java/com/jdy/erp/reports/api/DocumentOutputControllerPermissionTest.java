@@ -27,7 +27,8 @@ class DocumentOutputControllerPermissionTest {
         Map.entry("product-in", "productIn"),
         Map.entry("other-stock-in", "otherStockIn"),
         Map.entry("other-stock-out", "otherStockOut"),
-        Map.entry("stock-transfer", "stockTransfer")
+        Map.entry("stock-transfer", "stockTransfer"),
+        Map.entry("stock-count-loss", "stockCountLoss")
     );
 
     @Test
@@ -64,6 +65,20 @@ class DocumentOutputControllerPermissionTest {
         assertForbidden(() -> controller.printPdf("sales-return", "XSTH000001"));
 
         verify(policy, org.mockito.Mockito.times(3)).requirePermission("salesReturn");
+    }
+
+    @Test
+    void stockCountLossCsvHtmlAndPdfAllShareTheServerSidePermissionGuard() {
+        var policy = mock(DocumentPermissionPolicy.class);
+        var controller = new DocumentOutputController(mock(JdbcTemplate.class), policy);
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "denied"))
+            .when(policy).requirePermission("stockCountLoss");
+
+        assertForbidden(() -> controller.exportCsv("stock-count-loss", "PKD000001"));
+        assertForbidden(() -> controller.printHtml("stock-count-loss", "PKD000001"));
+        assertForbidden(() -> controller.printPdf("stock-count-loss", "PKD000001"));
+
+        verify(policy, org.mockito.Mockito.times(3)).requirePermission("stockCountLoss");
     }
 
     private void assertForbidden(Runnable action) {

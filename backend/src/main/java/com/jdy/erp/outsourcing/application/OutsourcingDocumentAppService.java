@@ -377,6 +377,7 @@ public class OutsourcingDocumentAppService {
             SELECT id::text AS id
             FROM outsourcing_receipt
             WHERE bill_no = ? AND status = 'AUDITED'
+            FOR UPDATE
             """, billNo, "委外产品入库单不存在或不能反审核");
         if (activeCount("""
             SELECT COUNT(*)
@@ -549,7 +550,7 @@ public class OutsourcingDocumentAppService {
         var remaining = ((BigDecimal) line.get("qty"))
             .subtract((BigDecimal) line.get("returnedQty"))
             .subtract((BigDecimal) line.get("scrappedQty"));
-        var qty = request == null || request.qty() == null ? remaining : positive(request.qty(), "处理数量");
+        var qty = positive(request == null || request.qty() == null ? remaining : request.qty(), "处理数量");
         if (qty.compareTo(remaining) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "处理数量不能超过委外入库单剩余数量");
         }
@@ -585,29 +586,24 @@ public class OutsourcingDocumentAppService {
     private Map<String, Object> auditReceiptAdjustment(String kind, String billNo) {
         var table = "return".equals(kind) ? "outsourcing_return" : "outsourcing_scrap";
         var lineTable = "return".equals(kind) ? "outsourcing_return_line" : "outsourcing_scrap_line";
+        var fkColumn = "return".equals(kind) ? "return_id" : "scrap_id";
+        var sourceColumn = "return".equals(kind) ? "returned" : "scrapped";
         var action = "return".equals(kind) ? "AUDIT_RETURN" : "AUDIT_SCRAP";
+        var context = adjustmentContextForSourceLock(table, billNo, BillStatus.DRAFT.name());
+        lockAuditedReceiptById(String.valueOf(context.get("sourceReceiptId")));
+        var lines = adjustmentLinesForUpdate(lineTable, fkColumn, String.valueOf(context.get("id")), String.valueOf(context.get("sourceReceiptId")));
         var adjustment = transition(table, billNo, BillStatus.DRAFT.name(), BillStatus.AUDITED.name(), action);
-        var lines = jdbcTemplate.queryForList("""
-            SELECT id::text AS id,
-                   source_receipt_line_id::text AS "sourceReceiptLineId",
-                   product_code_snapshot AS "productCode",
-                   warehouse_code_snapshot AS "warehouseCode",
-                   qty
-            FROM %s
-            WHERE %s_id = ?::uuid
-            ORDER BY line_no
-            """.formatted(lineTable, kind), adjustment.get("id"));
+        for (var line : lines) {
+            claimReceiptAdjustmentCapacity(
+                sourceColumn,
+                String.valueOf(line.get("sourceReceiptLineId")),
+                String.valueOf(context.get("sourceReceiptId")),
+                positive((BigDecimal) line.get("qty"), "处理数量")
+            );
+        }
         for (var line : lines) {
             var sourceType = "OUTSOURCING_" + kind.toUpperCase();
             postInventory(adjustment, line, ((BigDecimal) line.get("qty")).negate(), sourceType, sourceType, PostingAction.AUDIT);
-            jdbcTemplate.update("""
-                UPDATE outsourcing_receipt_line
-                SET %s_qty = %s_qty + ?
-                WHERE id = ?::uuid
-                """.formatted("return".equals(kind) ? "returned" : "scrapped", "return".equals(kind) ? "returned" : "scrapped"),
-                line.get("qty"),
-                line.get("sourceReceiptLineId")
-            );
         }
         return adjustment;
     }
@@ -618,30 +614,111 @@ public class OutsourcingDocumentAppService {
         var fkColumn = "return".equals(kind) ? "return_id" : "scrap_id";
         var sourceColumn = "return".equals(kind) ? "returned" : "scrapped";
         var action = "return".equals(kind) ? "REVERSE_RETURN" : "REVERSE_SCRAP";
+        var context = adjustmentContextForSourceLock(table, billNo, BillStatus.AUDITED.name());
+        lockAuditedReceiptById(String.valueOf(context.get("sourceReceiptId")));
+        var lines = adjustmentLinesForUpdate(lineTable, fkColumn, String.valueOf(context.get("id")), String.valueOf(context.get("sourceReceiptId")));
         var adjustment = transition(table, billNo, BillStatus.AUDITED.name(), BillStatus.DRAFT.name(), action);
-        var lines = jdbcTemplate.queryForList("""
-            SELECT id::text AS id,
-                   source_receipt_line_id::text AS "sourceReceiptLineId",
-                   product_code_snapshot AS "productCode",
-                   warehouse_code_snapshot AS "warehouseCode",
-                   qty
-            FROM %s
-            WHERE %s = ?::uuid
-            ORDER BY line_no
-            """.formatted(lineTable, fkColumn), adjustment.get("id"));
+        for (var line : lines) {
+            releaseReceiptAdjustmentCapacity(
+                sourceColumn,
+                String.valueOf(line.get("sourceReceiptLineId")),
+                String.valueOf(context.get("sourceReceiptId")),
+                positive((BigDecimal) line.get("qty"), "处理数量")
+            );
+        }
         for (var line : lines) {
             var sourceType = "OUTSOURCING_" + kind.toUpperCase();
             postInventory(adjustment, line, (BigDecimal) line.get("qty"), sourceType + "_REVERSE", sourceType, PostingAction.REVERSE);
-            jdbcTemplate.update("""
-                UPDATE outsourcing_receipt_line
-                SET %s_qty = GREATEST(0, %s_qty - ?)
-                WHERE id = ?::uuid
-                """.formatted(sourceColumn, sourceColumn),
-                line.get("qty"),
-                line.get("sourceReceiptLineId")
-            );
         }
         return adjustment;
+    }
+
+    private Map<String, Object> adjustmentContextForSourceLock(String table, String billNo, String status) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT adjustment.id::text AS id,
+                   adjustment.source_receipt_id::text AS "sourceReceiptId"
+            FROM %s adjustment
+            WHERE adjustment.bill_no = ?
+              AND adjustment.status = ?
+            """.formatted(table), validationService.required(billNo, "处置单号"), status);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "单据不存在或状态不允许当前操作");
+        }
+        return rows.get(0);
+    }
+
+    private void lockAuditedReceiptById(String receiptId) {
+        var rows = jdbcTemplate.queryForList("""
+            SELECT id::text AS id
+            FROM outsourcing_receipt
+            WHERE id = ?::uuid
+              AND status = 'AUDITED'
+            FOR UPDATE
+            """, receiptId);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "来源委外产品入库单不存在或未审核");
+        }
+    }
+
+    private List<Map<String, Object>> adjustmentLinesForUpdate(
+        String lineTable,
+        String fkColumn,
+        String adjustmentId,
+        String receiptId
+    ) {
+        var lines = jdbcTemplate.queryForList("""
+            SELECT adjustment_line.id::text AS id,
+                   adjustment_line.source_receipt_line_id::text AS "sourceReceiptLineId",
+                   adjustment_line.product_code_snapshot AS "productCode",
+                   adjustment_line.warehouse_code_snapshot AS "warehouseCode",
+                   adjustment_line.qty
+            FROM %s adjustment_line
+            JOIN outsourcing_receipt_line source_line
+              ON source_line.id = adjustment_line.source_receipt_line_id
+             AND source_line.receipt_id = ?::uuid
+            WHERE adjustment_line.%s = ?::uuid
+            ORDER BY source_line.id
+            FOR UPDATE OF source_line
+            """.formatted(lineTable, fkColumn), receiptId, adjustmentId);
+        var expectedLineCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM " + lineTable + " WHERE " + fkColumn + " = ?::uuid",
+            Integer.class,
+            adjustmentId
+        );
+        if (lines.isEmpty() || expectedLineCount == null || expectedLineCount != lines.size()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "处置单没有可核验的来源分录");
+        }
+        return lines;
+    }
+
+    private void claimReceiptAdjustmentCapacity(String sourceColumn, String lineId, String receiptId, BigDecimal qty) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE outsourcing_receipt_line
+            SET %1$s_qty = %1$s_qty + ?
+            WHERE id = ?::uuid
+              AND receipt_id = ?::uuid
+              AND returned_qty >= 0
+              AND scrapped_qty >= 0
+              AND returned_qty + scrapped_qty + ? <= qty
+            RETURNING id::text AS id
+            """.formatted(sourceColumn), qty, lineId, receiptId, qty);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "退货与报废累计数量不能超过已审核收货数量");
+        }
+    }
+
+    private void releaseReceiptAdjustmentCapacity(String sourceColumn, String lineId, String receiptId, BigDecimal qty) {
+        var rows = jdbcTemplate.queryForList("""
+            UPDATE outsourcing_receipt_line
+            SET %1$s_qty = %1$s_qty - ?
+            WHERE id = ?::uuid
+              AND receipt_id = ?::uuid
+              AND %1$s_qty >= ?
+            RETURNING id::text AS id
+            """.formatted(sourceColumn), qty, lineId, receiptId, qty);
+        if (rows.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "处置累计数量与单据不一致，不能反审核");
+        }
     }
 
     private Map<String, Object> transition(String table, String billNo, String from, String to, String action) {
@@ -877,6 +954,7 @@ public class OutsourcingDocumentAppService {
                    supplier_name_snapshot AS "supplierName"
             FROM outsourcing_receipt
             WHERE bill_no = ? AND status = 'AUDITED'
+            FOR UPDATE
             """, billNo, "委外产品入库单不存在或未审核");
     }
 
@@ -920,6 +998,7 @@ public class OutsourcingDocumentAppService {
             WHERE receipt_id = ?::uuid
             ORDER BY line_no
             LIMIT 1
+            FOR UPDATE
             """, receiptId, "委外产品入库单分录不存在");
     }
 

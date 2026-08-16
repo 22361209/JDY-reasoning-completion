@@ -73,7 +73,8 @@
       "scripts/a179-warehouse-selector-regression.mjs",
       "scripts/a180-warehouse-selector-initial-filter-regression.mjs",
       "scripts/a184-a166-usability-regression.mjs",
-      "scripts/a186-selector-bom-regression.mjs"
+      "scripts/a186-selector-bom-regression.mjs",
+      "scripts/a186-production-output-regression.mjs"
     ],
     "finance": [
       "scripts/a85-finance-posting-regression.mjs",
@@ -184,7 +185,8 @@
       "scripts/a52-print-template-role-default-regression.mjs",
       "scripts/a53-production-red-source-print-regression.mjs",
       "scripts/a63-print-page-settings-regression.mjs",
-      "scripts/a142-sales-return-regression.mjs"
+      "scripts/a142-sales-return-regression.mjs",
+      "scripts/a186-production-output-regression.mjs"
     ],
     "production": [
       "scripts/a40-production-document-pdf-regression.mjs",
@@ -205,7 +207,8 @@
       "scripts/a168-production-plan-entry-ux-regression.mjs",
       "scripts/a170-multilevel-production-procurement-regression.mjs",
       "scripts/a184-a166-usability-regression.mjs",
-      "scripts/a186-selector-bom-regression.mjs"
+      "scripts/a186-selector-bom-regression.mjs",
+      "scripts/a186-production-output-regression.mjs"
     ],
     "master-data": [
       "scripts/a23-entry-paste-conflict-candidates-regression.mjs",
@@ -387,7 +390,8 @@
     "scripts/a180-warehouse-selector-initial-filter-regression.mjs",
     "scripts/a184-a166-usability-regression.mjs",
     "scripts/a186-selector-bom-regression.mjs",
-    "scripts/a186-permission-masterdata-regression.mjs"
+    "scripts/a186-permission-masterdata-regression.mjs",
+    "scripts/a186-production-output-regression.mjs"
   ],
   "exemptions": [
     {

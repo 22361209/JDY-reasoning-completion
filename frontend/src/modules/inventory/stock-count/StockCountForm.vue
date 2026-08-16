@@ -29,6 +29,7 @@
     :show-freeze="document.showCloseFreezeActions.value"
     :show-unfreeze="document.showCloseFreezeActions.value"
     :can-delete="document.canDelete.value"
+    :can-output="document.canOutput.value"
     :can-trace-source-order="document.canTraceSourceOrder.value"
     :show-source-line-column="document.showSourceLineColumn.value"
     :show-execution-columns="variant === 'count' || document.showExecutionColumns.value"

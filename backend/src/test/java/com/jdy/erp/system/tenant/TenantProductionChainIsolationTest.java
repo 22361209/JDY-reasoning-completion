@@ -10,6 +10,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import com.jdy.erp.inventory.application.OpeningStockService;
 import com.jdy.erp.masterdata.api.MasterDataController;
@@ -25,6 +28,7 @@ import com.jdy.erp.testsupport.InventoryTraceAssertions.SourceDocument;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +44,7 @@ class TenantProductionChainIsolationTest {
     private static final String SUPPLIER_CODE = "A119-PROD-SUP";
     private static final String DEPARTMENT_CODE = "A119-PROD-DEPT";
     private static final String WAREHOUSE_CODE = "CK-001";
+    private static final String FINISHED_WAREHOUSE_CODE = "A186-PROD-FINISH";
     private static final String BOM_CODE = "BOM-A119-PROD";
 
     @Autowired
@@ -194,6 +199,15 @@ class TenantProductionChainIsolationTest {
         var planNo = createPlan(new BigDecimal("5"));
         var taskBillNo = pushDownPlanAndAssertPurchaseRequisition(planNo, "A119 数量供应商", "10.0000");
 
+        @SuppressWarnings("unchecked")
+        var previewDocument = (Map<String, Object>) materialIssueAppService.previewFromTask(taskBillNo).get("document");
+        assertThat(previewDocument)
+            .containsEntry("billNo", taskBillNo)
+            .containsEntry("sourceOrderNo", taskBillNo)
+            .containsEntry("planNo", planNo)
+            .containsEntry("sourceKind", "PLAN_ROOT");
+        assertThat(previewDocument.get("planLineNo")).isEqualTo(1);
+
         var savedIssue = materialIssueAppService.saveDraft(new MaterialIssueAppService.IssueDraftRequest(
             null,
             taskBillNo,
@@ -279,6 +293,174 @@ class TenantProductionChainIsolationTest {
         assertBalance(COMPONENT_CODE, "30.0000", "0.0000", "30.0000");
     }
 
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void standaloneTaskDraftIdIsIdempotentAndBlankWarehouseUsesProductDefault() throws Exception {
+        var tenant = createManagedAccountSet("A186TID");
+        useTenant(tenant);
+        createAuditedWarehouse(FINISHED_WAREHOUSE_CODE, "A186 成品仓");
+        createProductionSetup(
+            "A186 幂等母件",
+            "A186 幂等子件",
+            "A186 幂等供应商",
+            FINISHED_WAREHOUSE_CODE
+        );
+        saveComponentOpeningStock(new BigDecimal("10"));
+        createAuditedBom();
+
+        var draftId = UUID.randomUUID().toString();
+        var request = new ProductionTaskAppService.TaskRequest(
+            null,
+            null,
+            BOM_CODE,
+            "",
+            BigDecimal.ONE,
+            null,
+            draftId
+        );
+        var first = productionTaskAppService.createTask(request);
+        var sequenceAfterFirstSave = productionTaskSequenceNumber();
+        var retried = productionTaskAppService.createTask(request);
+
+        assertThat(retried.get("id")).isEqualTo(first.get("id")).isEqualTo(draftId);
+        assertThat(retried.get("billNo")).isEqualTo(first.get("billNo"));
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM production_task WHERE id = ?::uuid",
+            Integer.class,
+            draftId
+        )).isOne();
+        assertTaskWarehouse(String.valueOf(first.get("billNo")), FINISHED_WAREHOUSE_CODE);
+
+        var changed = productionTaskAppService.createTask(new ProductionTaskAppService.TaskRequest(
+            String.valueOf(first.get("billNo")),
+            null,
+            BOM_CODE,
+            WAREHOUSE_CODE,
+            new BigDecimal("2"),
+            null,
+            draftId
+        ));
+        assertThat(changed.get("billNo")).isEqualTo(first.get("billNo"));
+        assertDecimal(changed.get("qty"), "2.0000");
+        assertTaskWarehouse(String.valueOf(first.get("billNo")), WAREHOUSE_CODE);
+        var restored = productionTaskAppService.createTask(request);
+        assertThat(restored.get("billNo")).isEqualTo(first.get("billNo"));
+        assertDecimal(restored.get("qty"), "1.0000");
+        assertTaskWarehouse(String.valueOf(first.get("billNo")), FINISHED_WAREHOUSE_CODE);
+        assertThat(productionTaskSequenceNumber()).isEqualTo(sequenceAfterFirstSave);
+
+        productionTaskAppService.auditTask(String.valueOf(first.get("billNo")));
+        var issueNo = saveAndAuditIssue(String.valueOf(first.get("billNo")));
+        var productInNo = completeFromIssue(issueNo, BigDecimal.ONE);
+        assertCompletionWarehouse(productInNo, FINISHED_WAREHOUSE_CODE);
+        assertBalanceAtWarehouse(PARENT_CODE, FINISHED_WAREHOUSE_CODE, "1.0000");
+        assertBalanceAtWarehouse(PARENT_CODE, WAREHOUSE_CODE, "0.0000");
+        assertCompletionInventoryTrace(productInNo, FINISHED_WAREHOUSE_CODE, "1.0000");
+
+        var explicit = productionTaskAppService.createTask(new ProductionTaskAppService.TaskRequest(
+            null,
+            null,
+            BOM_CODE,
+            WAREHOUSE_CODE,
+            BigDecimal.ONE,
+            null,
+            UUID.randomUUID().toString()
+        ));
+        assertTaskWarehouse(String.valueOf(explicit.get("billNo")), WAREHOUSE_CODE);
+
+        var concurrentDraftId = UUID.randomUUID().toString();
+        var concurrentRequest = new ProductionTaskAppService.TaskRequest(
+            null,
+            null,
+            BOM_CODE,
+            "",
+            BigDecimal.ONE,
+            null,
+            concurrentDraftId
+        );
+        var accountSet = currentSessionService.currentAccountSet();
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var firstFuture = executor.submit(() -> createTaskAfter(ready, start, accountSet, concurrentRequest));
+            var secondFuture = executor.submit(() -> createTaskAfter(ready, start, accountSet, concurrentRequest));
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            var firstConcurrent = firstFuture.get(15, TimeUnit.SECONDS);
+            var secondConcurrent = secondFuture.get(15, TimeUnit.SECONDS);
+            assertThat(firstConcurrent).isInstanceOf(Map.class);
+            assertThat(secondConcurrent).isInstanceOf(Map.class);
+            @SuppressWarnings("unchecked")
+            var firstConcurrentResult = (Map<String, Object>) firstConcurrent;
+            @SuppressWarnings("unchecked")
+            var secondConcurrentResult = (Map<String, Object>) secondConcurrent;
+            assertThat(firstConcurrentResult.get("id")).isEqualTo(concurrentDraftId);
+            assertThat(secondConcurrentResult.get("id")).isEqualTo(concurrentDraftId);
+            assertThat(secondConcurrentResult.get("billNo")).isEqualTo(firstConcurrentResult.get("billNo"));
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*)::int FROM production_task WHERE id = ?::uuid",
+                Integer.class,
+                concurrentDraftId
+            )).isOne();
+        } finally {
+            start.countDown();
+        }
+
+        var planNo = createPlan(BigDecimal.ONE);
+        var planDraftId = UUID.randomUUID().toString();
+        var initialPlanTask = productionTaskAppService.createTask(new ProductionTaskAppService.TaskRequest(
+            null,
+            planNo,
+            null,
+            "",
+            BigDecimal.ONE,
+            null,
+            planDraftId
+        ));
+        var planTaskBillNo = String.valueOf(initialPlanTask.get("billNo"));
+        var newClientRequest = new ProductionTaskAppService.TaskRequest(
+            planTaskBillNo,
+            planNo,
+            null,
+            "",
+            BigDecimal.ONE,
+            null,
+            planDraftId
+        );
+        var legacyClientRequest = new ProductionTaskAppService.TaskRequest(
+            planTaskBillNo,
+            planNo,
+            null,
+            "",
+            BigDecimal.ONE
+        );
+        var mixedReady = new CountDownLatch(2);
+        var mixedStart = new CountDownLatch(1);
+        try (var mixedExecutor = Executors.newFixedThreadPool(2)) {
+            var newClient = mixedExecutor.submit(() -> createTaskAfter(mixedReady, mixedStart, accountSet, newClientRequest));
+            var legacyClient = mixedExecutor.submit(() -> createTaskAfter(mixedReady, mixedStart, accountSet, legacyClientRequest));
+            assertThat(mixedReady.await(10, TimeUnit.SECONDS)).isTrue();
+            mixedStart.countDown();
+            assertThat(newClient.get(15, TimeUnit.SECONDS)).isInstanceOf(Map.class);
+            assertThat(legacyClient.get(15, TimeUnit.SECONDS)).isInstanceOf(Map.class);
+        } finally {
+            mixedStart.countDown();
+        }
+        assertThat(jdbcTemplate.queryForMap("""
+            SELECT task.id::text AS id,
+                   task.bill_no AS "billNo",
+                   task.source_kind AS "sourceKind",
+                   plan.bill_no AS "planNo"
+            FROM production_task task
+            JOIN production_plan plan ON plan.id = task.plan_id
+            WHERE task.id = ?::uuid
+            """, planDraftId))
+            .containsEntry("id", planDraftId)
+            .containsEntry("billNo", planTaskBillNo)
+            .containsEntry("sourceKind", "PLAN_ROOT")
+            .containsEntry("planNo", planNo);
+    }
+
 
     private String createManagedAccountSet(String prefix) {
         var code = prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
@@ -308,6 +490,10 @@ class TenantProductionChainIsolationTest {
     }
 
     private void createProductionSetup(String parentName, String componentName, String supplierName) {
+        createProductionSetup(parentName, componentName, supplierName, WAREHOUSE_CODE);
+    }
+
+    private void createProductionSetup(String parentName, String componentName, String supplierName, String defaultWarehouseCode) {
         masterDataController.create("productionDepartment", Map.of(
             "code", DEPARTMENT_CODE,
             "name", "A119 生产车间"
@@ -325,7 +511,7 @@ class TenantProductionChainIsolationTest {
             Map.entry("name", parentName),
             Map.entry("category", "RAW"),
             Map.entry("unit", "PCS"),
-            Map.entry("defaultWarehouseCode", WAREHOUSE_CODE),
+            Map.entry("defaultWarehouseCode", defaultWarehouseCode),
             Map.entry("defaultWorkshop", DEPARTMENT_CODE),
             Map.entry("isInventory", "true"),
             Map.entry("isProduce", "true")
@@ -342,6 +528,14 @@ class TenantProductionChainIsolationTest {
             Map.entry("isPurchase", "true")
         ));
         masterDataController.audit("product", COMPONENT_CODE);
+    }
+
+    private void createAuditedWarehouse(String code, String name) {
+        masterDataController.create("warehouse", Map.of(
+            "code", code,
+            "name", name
+        ));
+        masterDataController.audit("warehouse", code);
     }
 
     private void createAuditedProductName(String code, String name) {
@@ -542,6 +736,82 @@ class TenantProductionChainIsolationTest {
             WHERE task.bill_no = ?
             """, taskBillNo);
         assertDecimal(row.get("issuedQty"), issuedQty);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertTaskWarehouse(String taskBillNo, String warehouseCode) {
+        var detail = productionTaskAppService.taskDetail(taskBillNo);
+        var productInfo = (Map<String, Object>) detail.get("productInfo");
+        assertThat(productInfo.get("warehouseCode")).isEqualTo(warehouseCode);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertCompletionWarehouse(String billNo, String warehouseCode) {
+        var detail = productInAppService.detail(billNo);
+        var lines = (List<Map<String, Object>>) detail.get("lines");
+        assertThat(lines)
+            .singleElement()
+            .satisfies(line -> assertThat(line.get("warehouseCode")).isEqualTo(warehouseCode));
+    }
+
+    private void assertBalanceAtWarehouse(String productCode, String warehouseCode, String expectedQty) {
+        var qty = jdbcTemplate.queryForObject("""
+            SELECT COALESCE(sum(balance.qty_on_hand), 0)
+            FROM inv_stock_balance balance
+            JOIN md_product product ON product.id = balance.product_id
+            JOIN md_warehouse warehouse ON warehouse.id = balance.warehouse_id
+            WHERE product.code = ?
+              AND warehouse.code = ?
+            """, BigDecimal.class, productCode, warehouseCode);
+        assertDecimal(qty, expectedQty);
+    }
+
+    private long productionTaskSequenceNumber() {
+        return jdbcTemplate.queryForObject("""
+            SELECT last_number
+            FROM document_number_sequence
+            WHERE document_type = 'productionTask'
+            """, Long.class);
+    }
+
+    private void assertCompletionInventoryTrace(String billNo, String warehouseCode, String expectedQty) {
+        var row = jdbcTemplate.queryForMap("""
+            SELECT warehouse.code AS "warehouseCode",
+                   txn.qty_delta AS "qtyDelta",
+                   txn.qty_on_hand_after AS "qtyOnHandAfter"
+            FROM inv_stock_txn txn
+            JOIN md_warehouse warehouse ON warehouse.id = txn.warehouse_id
+            WHERE txn.source_bill_no = ?
+              AND txn.source_bill_type = 'PRODUCTION_COMPLETION'
+              AND txn.posting_action = 'AUDIT'
+            """, billNo);
+        assertThat(row.get("warehouseCode")).isEqualTo(warehouseCode);
+        assertDecimal(row.get("qtyDelta"), expectedQty);
+        assertDecimal(row.get("qtyOnHandAfter"), expectedQty);
+    }
+
+    private Object createTaskAfter(
+        CountDownLatch ready,
+        CountDownLatch start,
+        Map<String, Object> accountSet,
+        ProductionTaskAppService.TaskRequest request
+    ) {
+        try {
+            var servletRequest = new MockHttpServletRequest();
+            servletRequest.getSession(true).setAttribute(CurrentSessionService.SESSION_USERNAME, fixture.username());
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+            TenantContext.setTenant(accountSet);
+            ready.countDown();
+            if (!start.await(10, TimeUnit.SECONDS)) {
+                return new IllegalStateException("并发生产任务闸门超时");
+            }
+            return productionTaskAppService.createTask(request);
+        } catch (Exception exception) {
+            return exception;
+        } finally {
+            TenantContext.clear();
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     private void assertListContainsSingle(String listKey, String keyword, String billNo) {

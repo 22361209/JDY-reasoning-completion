@@ -120,6 +120,7 @@ type PreparedEntryLines = {
 
 type DocumentModuleSnapshot = {
   form: OrderForm;
+  hasPersistedDraft: boolean;
   message: string;
   batchWarehouseCode: string;
   batchPlanDeliveryDate: string;
@@ -201,6 +202,11 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     form.status === "DRAFT" &&
     hasPersistedDraft.value &&
     form.billNo
+  ));
+  const canOutput = computed(() => Boolean(
+    hasPersistedDraft.value &&
+    form.billNo.trim() &&
+    (form.status === "DRAFT" || form.status === "AUDITED")
   ));
   const canTraceSourceOrder = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
   const showSourceLineColumn = computed(() => Boolean(config.sourceTraceType && form.lines.some((line) => line.sourceOrderNo?.trim())));
@@ -677,11 +683,19 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   }
 
   async function exportCurrent() {
+    if (!canOutput.value) {
+      message.value = "请先保存单据后再引出。";
+      return;
+    }
     const result = await exportDocument(config.outputType, form.billNo);
     message.value = result.ok ? "引出文件已生成" : result.message;
   }
 
   async function printCurrent() {
+    if (!canOutput.value) {
+      message.value = "请先保存单据后再打印。";
+      return;
+    }
     const result = await printDocument(config.outputType, form.billNo);
     if (result.ok && result.data) {
       window.open(result.data, "_blank", "noopener");
@@ -1442,6 +1456,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
     showCloseFreezeActions,
     showDelete,
     canDelete,
+    canOutput,
     canTraceSourceOrder,
     showSourceLineColumn,
     showExecutionColumns,
@@ -1584,6 +1599,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
   function snapshotState(): DocumentModuleSnapshot {
     return {
       form: plainClone(form),
+      hasPersistedDraft: hasPersistedDraft.value,
       message: message.value,
       batchWarehouseCode: batchWarehouseCode.value,
       batchPlanDeliveryDate: batchPlanDeliveryDate.value,
@@ -1597,6 +1613,7 @@ export function useDocumentModule(config: DocumentModuleOptions, runtime: Runtim
       ...snapshot.form,
       lines: snapshot.form.lines.map((line) => ({ ...line }))
     });
+    hasPersistedDraft.value = snapshot.hasPersistedDraft ?? Boolean(snapshot.form.billNo?.trim());
     message.value = snapshot.message;
     batchWarehouseCode.value = snapshot.batchWarehouseCode;
     batchPlanDeliveryDate.value = snapshot.batchPlanDeliveryDate;

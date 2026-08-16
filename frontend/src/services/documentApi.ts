@@ -514,7 +514,7 @@ async function callTextDocument(url: string): Promise<{ ok: boolean; message: st
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      return { ok: false, message: "单据输出失败，请确认单据已保存。" };
+      return { ok: false, message: await readDocumentErrorMessage(response) };
     }
     return { ok: true, message: "", data: await response.text() };
   } catch {
@@ -526,7 +526,7 @@ async function callBlobDocument(url: string): Promise<{ ok: boolean; message: st
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      return { ok: false, message: "单据输出失败，请确认单据已保存。" };
+      return { ok: false, message: await readDocumentErrorMessage(response) };
     }
     const blob = await response.blob();
     return { ok: true, message: "", data: URL.createObjectURL(blob) };

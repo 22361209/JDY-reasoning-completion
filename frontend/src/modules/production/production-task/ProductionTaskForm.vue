@@ -105,7 +105,7 @@
           </label>
           <label>
             <span>完工仓库</span>
-            <input v-model.trim="form.warehouseCode" data-testid="production-task-warehouse-code" :disabled="!isEditableTask" @input="markDirty" />
+            <input v-model.trim="form.warehouseCode" data-testid="production-task-warehouse-code" placeholder="留空取母件默认仓库" :disabled="!isEditableTask" @input="markDirty" />
           </label>
           <label class="required">
             <span>任务数量</span>
@@ -252,6 +252,7 @@ interface TaskProductInfo {
 }
 
 interface TaskHeadInfo {
+  id?: string;
   billNo?: string;
   sourceOrderNo?: string;
   planNo?: string;
@@ -274,6 +275,8 @@ const productInfo = reactive<TaskProductInfo>({});
 const taskHead = reactive<TaskHeadInfo>({});
 const materialLines = ref<MaterialIssuePreviewLine[]>([]);
 const pendingLifecycleAction = ref<LifecycleDocumentAction | null>(null);
+const draftId = ref<string>(crypto.randomUUID());
+const saving = ref(false);
 const lifecycleReason = ref("");
 const voidUsername = ref("");
 const voidPassword = ref("");
@@ -282,7 +285,7 @@ const form = reactive({
   planNo: "",
   planLineNo: undefined as number | undefined,
   bomCode: "",
-  warehouseCode: "CK-001",
+  warehouseCode: "",
   qty: 1,
   status: "DRAFT",
   closeStatus: "OPEN",
@@ -305,17 +308,18 @@ const materialColumns: TableCoreColumn[] = [
 
 const statusLabel = computed(() => backendStatusLabel(form.status, form.closeStatus, form.frozenStatus));
 const statusClass = computed(() => form.status === "AUDITED" ? "audited" : "form");
-const isEditableTask = computed(() => form.status === "DRAFT" && taskHead.sourceKind !== "BOM_CHILD");
+const isEditableTask = computed(() => !saving.value && form.status === "DRAFT" && taskHead.sourceKind !== "BOM_CHILD");
 const sourceKindLabel = computed(() => taskHead.sourceKind === "BOM_CHILD" ? "多层 BOM 子任务" : taskHead.sourceKind === "PLAN_ROOT" ? "计划根任务" : "手工任务");
-const canSave = computed(() => isEditableTask.value);
-const canAudit = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "DRAFT" && props.hasPermission("production.task.audit"));
-const canReverse = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && props.hasPermission("production.task.audit"));
-const canVoid = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "DRAFT" && props.hasPermission("production.task.audit"));
-const canClose = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN" && props.hasPermission("production.task.audit"));
-const canUnclose = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.closeStatus === "CLOSED" && props.hasPermission("production.task.audit"));
-const canFreeze = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN" && props.hasPermission("production.task.audit"));
-const canUnfreeze = computed(() => Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.frozenStatus === "FROZEN" && props.hasPermission("production.task.audit"));
+const canSave = computed(() => isEditableTask.value && !saving.value);
+const canAudit = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "DRAFT" && props.hasPermission("production.task.audit"));
+const canReverse = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && props.hasPermission("production.task.audit"));
+const canVoid = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "DRAFT" && props.hasPermission("production.task.audit"));
+const canClose = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN" && props.hasPermission("production.task.audit"));
+const canUnclose = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.closeStatus === "CLOSED" && props.hasPermission("production.task.audit"));
+const canFreeze = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.closeStatus !== "CLOSED" && form.frozenStatus !== "FROZEN" && props.hasPermission("production.task.audit"));
+const canUnfreeze = computed(() => !saving.value && Boolean(form.billNo.trim()) && !props.dirty && form.status === "AUDITED" && form.frozenStatus === "FROZEN" && props.hasPermission("production.task.audit"));
 const canPushDown = computed(() => (
+  !saving.value &&
   Boolean(form.billNo.trim()) &&
   !props.dirty &&
   form.status === "AUDITED" &&
@@ -332,11 +336,15 @@ function markDirty() {
 }
 
 function startNew() {
+  if (saving.value) {
+    return;
+  }
+  draftId.value = crypto.randomUUID();
   form.billNo = "";
   form.planNo = "";
   form.planLineNo = undefined;
   form.bomCode = "";
-  form.warehouseCode = "CK-001";
+  form.warehouseCode = "";
   form.qty = 1;
   form.status = "DRAFT";
   form.closeStatus = "OPEN";
@@ -348,26 +356,36 @@ function startNew() {
 }
 
 async function save() {
-  const result = await createProductionTask({
-    billNo: form.billNo.trim(),
-    planNo: form.planNo.trim(),
-    planLineNo: form.planLineNo,
-    bomCode: form.bomCode.trim(),
-    warehouseCode: form.warehouseCode.trim(),
-    qty: Number(form.qty) || 0
-  });
-  if (!result.ok) {
-    applyError(result.message);
+  if (saving.value) {
     return;
   }
-  form.billNo = String(result.data?.billNo ?? form.billNo);
-  form.bomCode = String(result.data?.bomCode ?? form.bomCode);
-  form.qty = Number(result.data?.qty ?? form.qty) || form.qty;
-  applyLifecycleResult(result.data);
-  await loadPreview(form.billNo);
-  hasError.value = false;
-  message.value = `生产任务草稿已保存：${form.billNo}`;
-  emit("clearDirty");
+  saving.value = true;
+  try {
+    const result = await createProductionTask({
+      draftId: draftId.value,
+      billNo: form.billNo.trim(),
+      planNo: form.planNo.trim(),
+      planLineNo: form.planLineNo,
+      bomCode: form.bomCode.trim(),
+      warehouseCode: form.warehouseCode.trim(),
+      qty: Number(form.qty) || 0
+    });
+    if (!result.ok) {
+      applyError(result.message);
+      return;
+    }
+    draftId.value = String(result.data?.id ?? draftId.value);
+    form.billNo = String(result.data?.billNo ?? form.billNo);
+    form.bomCode = String(result.data?.bomCode ?? form.bomCode);
+    form.qty = Number(result.data?.qty ?? form.qty) || form.qty;
+    applyLifecycleResult(result.data);
+    await loadPreview(form.billNo);
+    hasError.value = false;
+    message.value = `生产任务草稿已保存：${form.billNo}`;
+    emit("clearDirty");
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function audit() {
@@ -404,7 +422,8 @@ function applyPreview(preview: MaterialIssuePreview | undefined) {
   clearPreview();
   Object.assign(taskHead, preview?.document ?? {});
   Object.assign(productInfo, preview?.productInfo ?? {});
-  form.billNo = String(taskHead.billNo ?? taskHead.sourceOrderNo ?? form.billNo);
+  draftId.value = String(taskHead.id || draftId.value);
+  form.billNo = String(taskHead.billNo || taskHead.sourceOrderNo || form.billNo);
   form.planNo = String(taskHead.planNo ?? form.planNo);
   form.planLineNo = normalizedOptionalInt(taskHead.planLineNo) ?? form.planLineNo;
   applyLifecycleResult(preview?.document as Record<string, unknown> | undefined);
@@ -506,6 +525,7 @@ function clearPreview() {
     bomVersionNo: ""
   });
   Object.assign(taskHead, {
+    id: "",
     billNo: "",
     sourceOrderNo: "",
     planNo: "",

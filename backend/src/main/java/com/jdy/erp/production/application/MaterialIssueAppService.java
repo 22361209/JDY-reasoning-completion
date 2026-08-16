@@ -211,13 +211,21 @@ public class MaterialIssueAppService {
     public Map<String, Object> previewFromTask(String taskBillNo) {
         var taskRows = jdbcTemplate.queryForList("""
             SELECT t.id::text AS id,
+                   t.bill_no AS "billNo",
                    t.bill_no AS "sourceOrderNo",
+                   COALESCE(plan.bill_no, '') AS "planNo",
+                   plan_line.line_no AS "planLineNo",
+                   t.source_kind AS "sourceKind",
+                   t.source_level AS "sourceLevel",
+                   t.bom_path AS "bomPath",
                    to_char(CURRENT_DATE, 'YYYY-MM-DD') AS "billDate",
                    COALESCE(t.department_code, '生产部') AS department,
                    t.status,
                    t.close_status AS "closeStatus",
                    t.frozen_status AS "frozenStatus"
             FROM production_task t
+            LEFT JOIN production_plan plan ON plan.id = t.plan_id
+            LEFT JOIN production_plan_line plan_line ON plan_line.id = t.plan_line_id
             WHERE t.bill_no = ?
               AND t.status <> 'VOID'
             """, validationService.required(taskBillNo, "生产任务单号"));

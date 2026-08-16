@@ -59,6 +59,7 @@ export interface ProductionPlanLinePayload {
 }
 
 export interface ProductionTaskPayload {
+  draftId?: string;
   billNo?: string;
   planNo?: string;
   planLineNo?: number;
@@ -111,7 +112,11 @@ export interface MaterialIssuePreviewLine {
 
 export interface MaterialIssuePreview {
   document?: {
+    id?: string;
+    billNo?: string;
     sourceOrderNo?: string;
+    planNo?: string;
+    planLineNo?: number | string;
     sourceKind?: string;
     sourceLevel?: number | string;
     parentTaskNo?: string;
